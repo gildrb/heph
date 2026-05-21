@@ -10,7 +10,7 @@ def _write_trace(
     path: Path,
     *,
     answer: str = "Dijkstra uses a priority queue [E1].",
-    study_task: str = "",
+    material_task: str = "",
     evidence_coverage: dict[str, int] | None = None,
 ) -> None:
     coverage = evidence_coverage or {
@@ -40,7 +40,7 @@ def _write_trace(
             "ts": "2026-05-11T00:00:02Z",
             "event": "reply",
             "reply_excerpt": answer,
-            "study_task": study_task,
+            "material_task": material_task,
             "evidence_refs": ["materials/graphs.md#chunk=0"],
             "evidence_items": [
                 {
@@ -95,9 +95,9 @@ def test_fixtures_from_trace_preserves_answer_and_evidence(tmp_path: Path) -> No
     ]
 
 
-def test_fixtures_from_trace_preserves_study_task_label(tmp_path: Path) -> None:
+def test_fixtures_from_trace_preserves_material_task_label(tmp_path: Path) -> None:
     trace = tmp_path / "sess.jsonl"
-    _write_trace(trace, study_task="material-overview")
+    _write_trace(trace, material_task="material-overview")
 
     fixtures = trace_to_answer_benchmark.fixtures_from_trace(trace)
 
@@ -112,7 +112,7 @@ def test_material_overview_trace_gets_generic_answer_shape_contract(tmp_path: Pa
             "The retrieved overview sample mentions Dijkstra [E1]. "
             "It is not an exhaustive summary."
         ),
-        study_task="material-overview",
+        material_task="material-overview",
         evidence_coverage={
             "evidence_blocks": 2,
             "sampled_sources": 2,
@@ -150,7 +150,7 @@ def test_material_overview_trace_contract_catches_vague_bad_answer(tmp_path: Pat
     _write_trace(
         trace,
         answer="The files cover computer science topics [E1]. Say ready when you want recall.",
-        study_task="material-overview",
+        material_task="material-overview",
     )
 
     status = trace_to_answer_benchmark.main([str(trace), str(output), "--score"])

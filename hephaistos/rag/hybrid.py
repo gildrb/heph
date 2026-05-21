@@ -178,43 +178,44 @@ class HybridRetriever:
         """Run sparse + optional embedding retrieval for a single query."""
         sparse_results = self._sparse.retrieve(query, top_k=pool)
         feedback_results = self._pseudo_feedback_results(query, sparse_results, pool)
+        embed_results = self._retrieve_embedding_results(query, pool)
+        return self._fuse_single_query_results(
+            sparse_results=sparse_results,
+            embed_results=embed_results,
+            feedback_results=feedback_results,
+        )
 
+    def _retrieve_embedding_results(self, query: str, pool: int) -> list[ScoredChunk]:
         if self._embedding is None:
-            if not feedback_results:
-                return sparse_results
-            return reciprocal_rank_fusion(
-                [sparse_results, feedback_results],
-                weights=[self._sparse_weight, self._feedback_weight],
-            )
-
+            return []
         try:
-            embed_results = self._embedding.retrieve(query, top_k=pool)
+            return self._embedding.retrieve(query, top_k=pool)
         except Exception:
             self._embedding = None
-            if not feedback_results:
-                return sparse_results
-            return reciprocal_rank_fusion(
-                [sparse_results, feedback_results],
-                weights=[self._sparse_weight, self._feedback_weight],
-            )
-
-        if not sparse_results and not embed_results and not feedback_results:
             return []
-        if not sparse_results and not feedback_results:
-            return embed_results
-        if not embed_results:
-            if not feedback_results:
-                return sparse_results
-            return reciprocal_rank_fusion(
-                [sparse_results, feedback_results],
-                weights=[self._sparse_weight, self._feedback_weight],
-            )
 
-        ranked_lists = [sparse_results, embed_results]
-        weights = [self._sparse_weight, self._dense_weight]
+    def _fuse_single_query_results(
+        self,
+        *,
+        sparse_results: list[ScoredChunk],
+        embed_results: list[ScoredChunk],
+        feedback_results: list[ScoredChunk],
+    ) -> list[ScoredChunk]:
+        ranked_lists: list[list[ScoredChunk]] = []
+        weights: list[float] = []
+        if sparse_results:
+            ranked_lists.append(sparse_results)
+            weights.append(self._sparse_weight)
+        if embed_results:
+            ranked_lists.append(embed_results)
+            weights.append(self._dense_weight)
         if feedback_results:
             ranked_lists.append(feedback_results)
             weights.append(self._feedback_weight)
+        if not ranked_lists:
+            return []
+        if len(ranked_lists) == 1:
+            return ranked_lists[0]
         return reciprocal_rank_fusion(ranked_lists, weights=weights)
 
     def _pseudo_feedback_results(

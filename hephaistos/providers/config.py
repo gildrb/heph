@@ -48,24 +48,40 @@ def _provider_cache(path: Path) -> ProviderConfig | None:
 
 def _merge_default_providers(config: ProviderConfig) -> ProviderConfig:
     defaults = default_config()
-    changed = False
-    for slug, provider in defaults.providers.items():
-        if slug not in config.providers:
-            provider.active = False
-            config.providers[slug] = provider
-            changed = True
-            continue
-        if slug == "custom":
-            continue
-        changed = _refresh_builtin_provider(config.providers[slug], provider) or changed
-
-    if config.get_active() is None:
-        config.providers["pollinations"].active = True
-        changed = True
+    changed = _merge_provider_defaults(config, defaults)
+    changed = _activate_fallback_provider(config) or changed
 
     if changed:
         return ProviderConfig(providers=config.providers)
     return config
+
+
+def _merge_provider_defaults(config: ProviderConfig, defaults: ProviderConfig) -> bool:
+    changed = False
+    for slug, default_provider in defaults.providers.items():
+        changed = _merge_provider_default(config, slug, default_provider) or changed
+    return changed
+
+
+def _merge_provider_default(
+    config: ProviderConfig,
+    slug: str,
+    default_provider: Provider,
+) -> bool:
+    if slug not in config.providers:
+        default_provider.active = False
+        config.providers[slug] = default_provider
+        return True
+    if slug == "custom":
+        return False
+    return _refresh_builtin_provider(config.providers[slug], default_provider)
+
+
+def _activate_fallback_provider(config: ProviderConfig) -> bool:
+    if config.get_active() is not None:
+        return False
+    config.providers["pollinations"].active = True
+    return True
 
 
 def invalidate_provider_cache(
@@ -140,21 +156,11 @@ class ProviderConfig:
     def save(self, path: Path | None = None) -> None:
         path = path or _PROVIDERS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        lines: list[str] = []
-        for slug, p in self.providers.items():
-            lines.append(f"[{slug}]")
-            lines.append(f"display_name = {json.dumps(p.display_name)}")
-            lines.append(f"endpoint = {json.dumps(p.endpoint)}")
-            lines.append(f"api_key_env = {json.dumps(p.api_key_env)}")
-            if p.active:
-                lines.append("active = true")
-            if p.current_model:
-                lines.append(f"current_model = {json.dumps(p.current_model)}")
-            if p.models:
-                models_str = ", ".join(json.dumps(m) for m in p.models)
-                lines.append(f"models = [{models_str}]")
-            lines.append("")
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        sections = [
+            _provider_section_lines(slug, provider) for slug, provider in self.providers.items()
+        ]
+        content = "\n".join(line for section in sections for line in (*section, ""))
+        path.write_text(content + "\n", encoding="utf-8")
         invalidate_provider_cache(self, path=path)
 
     @classmethod
@@ -164,37 +170,9 @@ class ProviderConfig:
         if cached is not None:
             return cached
         if not path.is_file():
-            cfg = default_config()
-            invalidate_provider_cache(cfg, path=path)
-            return cfg
+            return _cached_default_config(path)
 
-        with path.open("rb") as f:
-            data = tomllib.load(f)
-
-        providers: dict[str, Provider] = {}
-        for slug, section in data.items():
-            if not is_string_mapping(section):
-                continue
-            raw_models = section.get("models", [])
-            models = (
-                filter_supported_models([str(model) for model in raw_models], slug)
-                if is_object_list(raw_models)
-                else []
-            )
-            raw_current_model = section.get("current_model", "")
-            current_model = str(raw_current_model) if raw_current_model else ""
-            if "models" in section and current_model and current_model not in models:
-                current_model = ""
-            providers[slug] = Provider(
-                slug=slug,
-                display_name=str(section.get("display_name", slug)),
-                endpoint=str(section.get("endpoint", "")),
-                api_key_env=str(section.get("api_key_env", "")),
-                models=models,
-                active=bool(section.get("active", False)),
-                current_model=current_model,
-            )
-        cfg = _merge_default_providers(cls(providers=providers))
+        cfg = _merge_default_providers(cls(providers=_load_provider_sections(path)))
         invalidate_provider_cache(cfg, path=path)
         return cfg
 
@@ -203,24 +181,104 @@ def providers_dir() -> Path:
     return _CONFIG_DIR
 
 
+def _cached_default_config(path: Path) -> ProviderConfig:
+    config = default_config()
+    invalidate_provider_cache(config, path=path)
+    return config
+
+
+def _load_provider_sections(path: Path) -> dict[str, Provider]:
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
+    return {
+        slug: provider
+        for slug, section in data.items()
+        if is_string_mapping(section)
+        if (provider := _provider_from_section(slug, section)) is not None
+    }
+
+
+def _provider_from_section(slug: str, section: dict[str, object]) -> Provider:
+    models = _section_models(slug, section)
+    return Provider(
+        slug=slug,
+        display_name=str(section.get("display_name", slug)),
+        endpoint=str(section.get("endpoint", "")),
+        api_key_env=str(section.get("api_key_env", "")),
+        models=models,
+        active=bool(section.get("active", False)),
+        current_model=_section_current_model(section, models),
+    )
+
+
+def _provider_section_lines(slug: str, provider: Provider) -> tuple[str, ...]:
+    lines = [
+        f"[{slug}]",
+        f"display_name = {json.dumps(provider.display_name)}",
+        f"endpoint = {json.dumps(provider.endpoint)}",
+        f"api_key_env = {json.dumps(provider.api_key_env)}",
+    ]
+    if provider.active:
+        lines.append("active = true")
+    if provider.current_model:
+        lines.append(f"current_model = {json.dumps(provider.current_model)}")
+    if provider.models:
+        models = ", ".join(json.dumps(model) for model in provider.models)
+        lines.append(f"models = [{models}]")
+    return tuple(lines)
+
+
+def _section_models(slug: str, section: dict[str, object]) -> list[str]:
+    raw_models = section.get("models", [])
+    if not is_object_list(raw_models):
+        return []
+    return filter_supported_models([str(model) for model in raw_models], slug)
+
+
+def _section_current_model(section: dict[str, object], models: list[str]) -> str:
+    raw_current_model = section.get("current_model", "")
+    current_model = str(raw_current_model) if raw_current_model else ""
+    if "models" in section and current_model and current_model not in models:
+        return ""
+    return current_model
+
+
 def _refresh_builtin_provider(provider: Provider, default: Provider) -> bool:
+    return any(
+        (
+            _refresh_builtin_provider_fields(provider, default),
+            _prepend_missing_builtin_models(provider, default),
+            _clear_invalid_current_model(provider),
+        )
+    )
+
+
+def _refresh_builtin_provider_fields(provider: Provider, default: Provider) -> bool:
     changed = False
     for attr in ("display_name", "endpoint", "api_key_env"):
-        if getattr(provider, attr) != getattr(default, attr):
-            setattr(provider, attr, getattr(default, attr))
-            changed = True
-
-    if provider.slug in {"openai", "openai-codex"}:
-        missing_models = [model for model in default.models if model not in provider.models]
-        if missing_models:
-            provider.models = [*missing_models, *provider.models]
-            changed = True
-
-    if provider.current_model and provider.current_model not in provider.models:
-        provider.current_model = ""
+        if getattr(provider, attr) == getattr(default, attr):
+            continue
+        setattr(provider, attr, getattr(default, attr))
         changed = True
-
     return changed
+
+
+def _prepend_missing_builtin_models(provider: Provider, default: Provider) -> bool:
+    if provider.slug not in {"openai", "openai-codex"}:
+        return False
+    missing_models = [model for model in default.models if model not in provider.models]
+    if not missing_models:
+        return False
+    provider.models = [*missing_models, *provider.models]
+    return True
+
+
+def _clear_invalid_current_model(provider: Provider) -> bool:
+    if not provider.current_model or provider.current_model in provider.models:
+        return False
+    provider.current_model = ""
+    return True
 
 
 def _default_provider_models(provider: str) -> list[str]:

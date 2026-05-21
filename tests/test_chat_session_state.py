@@ -1,4 +1,4 @@
-"""Tests for persisted study-session state."""
+"""Tests for persisted learning-session state."""
 
 from __future__ import annotations
 
@@ -12,10 +12,9 @@ from hephaistos.chat.session import SessionError, create_session, resume_session
 from hephaistos.rag.health import ExtractionHealthIssue
 from hephaistos.runtime import ChatConfig
 from hephaistos.study import (
-    StudyAutonomyMode,
-    StudyFeedbackType,
-    StudyPhase,
-    StudyRecallRating,
+    LearningFeedbackType,
+    LearningPhase,
+    RecallRating,
 )
 
 
@@ -27,42 +26,40 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory
 
 
-def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
+def test_save_and_resume_preserves_learning_state(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
     session = create_session(
         ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
         armory,
     )
-    session.study_state.phase = StudyPhase.RECALL
-    session.study_state.current_item = "Q1"
-    session.study_state.retrieval_query = "Q1"
-    session.study_state.expected_source_refs = ["materials/exam.md#chunk=0"]
-    session.study_state.attempt_count = 3
-    session.study_state.last_feedback_type = StudyFeedbackType.PARTIAL
-    session.study_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    session.study_state.last_recall_seconds = 75
-    session.study_state.last_recall_rating = StudyRecallRating.HARD
-    session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
-    session.study_state.session_goal = "exam preparation"
-    session.study_state.time_budget_minutes = 45
-    session.study_state.autopilot_session_type = "exam"
+    session.learning_state.phase = LearningPhase.RECALL
+    session.learning_state.current_item = "Q1"
+    session.learning_state.retrieval_query = "Q1"
+    session.learning_state.expected_source_refs = ["materials/exam.md#chunk=0"]
+    session.learning_state.attempt_count = 3
+    session.learning_state.last_feedback_type = LearningFeedbackType.PARTIAL
+    session.learning_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    session.learning_state.last_recall_seconds = 75
+    session.learning_state.last_recall_rating = RecallRating.HARD
+    session.learning_state.session_goal = "exam preparation"
+    session.learning_state.time_budget_minutes = 45
+    session.learning_state.practice_session_type = "exam"
 
     save_session(session)
 
     resumed = resume_session(session.config, armory, session.session_id)
-    assert resumed.study_state.phase is StudyPhase.RECALL
-    assert resumed.study_state.current_item == "Q1"
-    assert resumed.study_state.retrieval_query == "Q1"
-    assert resumed.study_state.expected_source_refs == ["materials/exam.md#chunk=0"]
-    assert resumed.study_state.attempt_count == 3
-    assert resumed.study_state.last_feedback_type is StudyFeedbackType.PARTIAL
-    assert resumed.study_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    assert resumed.study_state.last_recall_seconds == 75
-    assert resumed.study_state.last_recall_rating is StudyRecallRating.HARD
-    assert resumed.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-    assert resumed.study_state.session_goal == "exam preparation"
-    assert resumed.study_state.time_budget_minutes == 45
-    assert resumed.study_state.autopilot_session_type == "exam"
+    assert resumed.learning_state.phase is LearningPhase.RECALL
+    assert resumed.learning_state.current_item == "Q1"
+    assert resumed.learning_state.retrieval_query == "Q1"
+    assert resumed.learning_state.expected_source_refs == ["materials/exam.md#chunk=0"]
+    assert resumed.learning_state.attempt_count == 3
+    assert resumed.learning_state.last_feedback_type is LearningFeedbackType.PARTIAL
+    assert resumed.learning_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    assert resumed.learning_state.last_recall_seconds == 75
+    assert resumed.learning_state.last_recall_rating is RecallRating.HARD
+    assert resumed.learning_state.session_goal == "exam preparation"
+    assert resumed.learning_state.time_budget_minutes == 45
+    assert resumed.learning_state.practice_session_type == "exam"
 
 
 def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:

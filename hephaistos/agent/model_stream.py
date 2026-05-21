@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 
 from hephaistos.agent.runtime_notes import acceptance_criteria_notice
@@ -155,6 +155,40 @@ def _model_request_event(
     )
 
 
+def _active_tool_schemas(
+    config: ChatConfig,
+    registry: ToolRegistry,
+    tool_schemas: list[dict[str, object]] | None,
+) -> Sequence[object]:
+    if config.provider_slug == "openai-codex":
+        return []
+    return registry.schemas if tool_schemas is None else tool_schemas
+
+
+def _requires_verification_tool(
+    *,
+    turn_idx: int,
+    tool_schemas: Sequence[object],
+    turn_evidence: TurnEvidence | None,
+) -> bool:
+    return turn_idx == 0 and bool(tool_schemas) and turn_evidence is None
+
+
+def _new_stream_state(model_name: str) -> ModelStreamState:
+    started_at = time.perf_counter()
+    return ModelStreamState(
+        model_name=model_name,
+        started_at=started_at,
+        last_progress_at=started_at,
+    )
+
+
+def _tool_choice(require_verification_tool: bool) -> str | None:
+    if require_verification_tool:
+        return "required"
+    return None
+
+
 def run_model_turn(
     *,
     config: ChatConfig,
@@ -171,10 +205,12 @@ def run_model_turn(
     turn_timer = Timer()
 
     with turn_timer:
-        schemas = registry.schemas if tool_schemas is None else tool_schemas
-        if config.provider_slug == "openai-codex":
-            schemas = []
-        require_verification_tool = turn_idx == 0 and bool(schemas) and not bool(turn_evidence)
+        active_schemas = _active_tool_schemas(config, registry, tool_schemas)
+        require_verification_tool = _requires_verification_tool(
+            turn_idx=turn_idx,
+            tool_schemas=active_schemas,
+            turn_evidence=turn_evidence,
+        )
         if require_verification_tool:
             yield acceptance_criteria_notice()
         model_name = config.model or "configured model"
@@ -182,21 +218,17 @@ def run_model_turn(
             model_name=model_name,
             turn_idx=turn_idx,
             message_count=len(llm_messages),
-            schema_count=len(schemas or []),
+            schema_count=len(active_schemas),
         )
-        stream_state = ModelStreamState(
-            model_name=model_name,
-            started_at=time.perf_counter(),
-            last_progress_at=time.perf_counter(),
-        )
+        stream_state = _new_stream_state(model_name)
         for delta in stream_completion(
             config,
             llm_messages,
-            tools=schemas or None,
+            tools=active_schemas or None,
             abort=abort,
             retry=retry,
             client_factory=build_client,
-            tool_choice="required" if require_verification_tool else None,
+            tool_choice=_tool_choice(require_verification_tool),
         ):
             yield from _apply_model_delta(
                 delta,

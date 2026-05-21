@@ -226,6 +226,7 @@ class TestToolSchemas:
             "create_armory",
             "edit_file",
             "list_files",
+            "memory",
             "open_material",
             "read_file",
             "search_files",

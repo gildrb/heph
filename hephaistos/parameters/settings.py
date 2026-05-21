@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -84,6 +85,7 @@ ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
 )
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
+type SettingNormalizer = Callable[[object], object]
 
 
 def user_config_dir() -> Path:
@@ -142,47 +144,63 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     return default
 
 
+def _normalize_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    return int(str(value).strip())
+
+
+def _normalize_choice(key: str, value: object, choices: tuple[str, ...]) -> str:
+    normalized = str(value).strip().lower()
+    if normalized not in choices:
+        raise ValueError(f"{key} must be one of: {', '.join(choices)}")
+    return normalized
+
+
+def _normalize_path(value: object) -> str:
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    return str(Path(raw).expanduser().resolve())
+
+
+def _normalize_feature_flags(value: object) -> str:
+    flags = parse_feature_flags(str(value))
+    return ",".join(sorted(flags))
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return []
+
+
+def _setting_normalizers() -> dict[str, SettingNormalizer]:
+    normalizers: dict[str, SettingNormalizer] = {
+        "theme": lambda value: _normalize_choice("theme", value, THEME_PRESETS),
+        "activity_trace_mode": lambda value: _normalize_choice(
+            "activity_trace_mode", value, ACTIVITY_TRACE_MODES
+        ),
+        "vocab_strictness": lambda value: _normalize_choice(
+            "vocab_strictness", value, VOCAB_STRICTNESS_MODES
+        ),
+        "default_armory_path": _normalize_path,
+        "last_armory_path": _normalize_path,
+        "feature_flags": _normalize_feature_flags,
+        "known_armories": _normalize_string_list,
+        "recent_armories": _normalize_string_list,
+    }
+    normalizers.update(dict.fromkeys(BOOL_KEYS, _coerce_bool))
+    normalizers.update(dict.fromkeys(INT_KEYS, _normalize_int))
+    normalizers.update(dict.fromkeys(STRING_KEYS - normalizers.keys(), str))
+    return normalizers
+
+
 def normalize_setting_value(key: str, value: object) -> object:
-    if key in BOOL_KEYS:
-        return _coerce_bool(value)
-    if key in INT_KEYS:
-        if isinstance(value, int):
-            return value
-        return int(str(value).strip())
-    if key == "theme":
-        theme = str(value).strip().lower()
-        if theme not in THEME_PRESETS:
-            raise ValueError(f"theme must be one of: {', '.join(THEME_PRESETS)}")
-        return theme
-    if key == "activity_trace_mode":
-        mode = str(value).strip().lower()
-        if mode not in ACTIVITY_TRACE_MODES:
-            raise ValueError(
-                f"activity_trace_mode must be one of: {', '.join(ACTIVITY_TRACE_MODES)}"
-            )
-        return mode
-    if key == "vocab_strictness":
-        mode = str(value).strip().lower()
-        if mode not in VOCAB_STRICTNESS_MODES:
-            raise ValueError(
-                f"vocab_strictness must be one of: {', '.join(VOCAB_STRICTNESS_MODES)}"
-            )
-        return mode
-    if key in {"default_armory_path", "last_armory_path"}:
-        raw = str(value).strip()
-        if not raw:
-            return ""
-        return str(Path(raw).expanduser().resolve())
-    if key == "feature_flags":
-        flags = parse_feature_flags(str(value))
-        return ",".join(sorted(flags))
-    if key in STRING_KEYS:
-        return str(value)
-    if key in ("known_armories", "recent_armories"):
-        if isinstance(value, list):
-            return [str(v) for v in value]
-        return []
-    raise KeyError(key)
+    normalizer = _setting_normalizers().get(key)
+    if normalizer is None:
+        raise KeyError(key)
+    return normalizer(value)
 
 
 def load_raw_settings() -> dict[str, object]:

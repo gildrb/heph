@@ -10,7 +10,7 @@ Armories can contribute extra tools by dropping ``*.py`` files into
 Each plugin module must expose a top-level ``register(registry: ToolRegistry)
 -> None`` function that calls ``registry.register(...)`` for every tool it
 wants to add.
-Tool philosophy for a study RAG agent:
+Tool philosophy for a document-grounded agent:
 - Read/write tools are primary — the agent works with documents.
 - Web fetch fills knowledge gaps, but with strict source attribution.
 - The agent should NEVER guess. If information is not in the documents
@@ -51,6 +51,7 @@ from hephaistos.armory.storage import (
     read_marker,
     validate,
 )
+from hephaistos.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -142,32 +143,37 @@ class ToolRegistry:
     def load_plugins(self, tools_dir: Path) -> int:
         if not tools_dir.is_dir():
             return 0
-        # Resolve tools directory so symlink checks below are reliable.
         tools_dir = tools_dir.resolve()
         loaded = 0
         for py_file in sorted(tools_dir.glob("*.py")):
-            if py_file.name.startswith("_"):
-                continue
-            # Ensure the file is actually inside tools_dir (no symlinks out).
-            if not py_file.resolve().is_relative_to(tools_dir):
-                continue
-            module_name = f"hephaistos_armory_plugin_{py_file.stem}"
-            try:
-                spec = importlib.util.spec_from_file_location(module_name, py_file)
-                if spec is None or spec.loader is None:
-                    continue
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                register_fn = getattr(module, "register", None)
-                if callable(register_fn):
-                    register_fn(self)
-                    loaded += 1
-            except Exception as exc:
-                print(
-                    f"warning: failed to load tool plugin {py_file.name}: {exc}",
-                    file=sys.stderr,
-                )
+            loaded += int(_load_plugin_file(self, py_file, tools_dir))
         return loaded
+
+
+def _load_plugin_file(registry: ToolRegistry, py_file: Path, tools_dir: Path) -> bool:
+    if py_file.name.startswith("_"):
+        return False
+    if not py_file.resolve().is_relative_to(tools_dir):
+        return False
+    module_name = f"hephaistos_armory_plugin_{py_file.stem}"
+    try:
+        return _register_plugin_module(registry, module_name, py_file)
+    except Exception as exc:
+        print(f"warning: failed to load tool plugin {py_file.name}: {exc}", file=sys.stderr)
+        return False
+
+
+def _register_plugin_module(registry: ToolRegistry, module_name: str, py_file: Path) -> bool:
+    spec = importlib.util.spec_from_file_location(module_name, py_file)
+    if spec is None or spec.loader is None:
+        return False
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    register_fn = getattr(module, "register", None)
+    if not callable(register_fn):
+        return False
+    register_fn(registry)
+    return True
 
 
 def _string(description: str) -> ToolParameter:
@@ -290,6 +296,23 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         required=("source",),
     ),
     _tool(
+        "memory",
+        (
+            "Read or update durable armory memory. Use it for stable user preferences, "
+            "corrections, armory conventions, and facts that should survive future sessions. "
+            "Do not save temporary task progress."
+        ),
+        {
+            "action": _string("One of: read, add, replace, remove."),
+            "query": _string("Optional substring filter for read."),
+            "topic": _string("Short topic for add or replace."),
+            "content": _string("Compact memory entry content for add or replace."),
+            "old_text": _string("Short unique substring for replace or remove."),
+            "source": _string("Optional source label. Defaults to conversation."),
+        },
+        required=("action",),
+    ),
+    _tool(
         "web_fetch",
         "Fetch a web page when armory material is insufficient.",
         {
@@ -306,6 +329,23 @@ _MAX_SEARCH_RESULTS = 50
 _SEARCH_SKIP_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"})
 _RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
 _RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
+_BINARY_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"})
+_BLOCKED_BASH_PATTERNS = (
+    r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*\s+|-r[a-zA-Z]*\s+-f[a-zA-Z]*\s+)",
+    r"\brm\s+-rf\s+",
+    r"\bmkfs\b",
+    r"\bdd\s+",
+    r"\bshutdown\b",
+    r"\breboot\b",
+    r">/dev/sd",
+    r"\bchmod\s+(777|666)\b",
+    r"\bcurl\b.*\|\s*(ba)?sh\b",
+    r"\bwget\b.*\|\s*(ba)?sh\b",
+    r"\bbase64\b.*\|\s*(ba)?sh\b",
+    r"\bpython[23]?\s+-c\b",
+    r"\bchmod\s+[0-7]*[0-7]{3}\s+/",
+    r"\bchown\b.*\s+/",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,16 +369,17 @@ class BashResult:
         return "\n".join(parts) if parts else "(no output)"
 
 
+@dataclass(frozen=True, slots=True)
+class FileReadResult:
+    text: str
+    error: bool = False
+
+
 def _rtk_command_prefix(command: str) -> list[str] | None:
     stripped = command.strip()
     if not stripped or stripped.startswith("rtk "):
         return None
-    raw_min_chars = os.environ.get("HEPHAISTOS_RTK_MIN_COMMAND_CHARS", "0").strip()
-    try:
-        min_chars = max(0, int(raw_min_chars))
-    except ValueError:
-        min_chars = 0
-    if len(stripped) < min_chars:
+    if len(stripped) < _rtk_min_command_chars():
         return None
     if any(char in stripped for char in _RTK_SHELL_META_CHARS):
         return None
@@ -354,10 +395,33 @@ def _rtk_command_prefix(command: str) -> list[str] | None:
     if rtk_path is None:
         return None
 
-    prefix = [rtk_path]
+    return [rtk_path, *_rtk_option_args(), *argv]
+
+
+def _rtk_min_command_chars() -> int:
+    raw_min_chars = os.environ.get("HEPHAISTOS_RTK_MIN_COMMAND_CHARS", "0").strip()
+    try:
+        return max(0, int(raw_min_chars))
+    except ValueError:
+        return 0
+
+
+def _rtk_option_args() -> list[str]:
     if os.environ.get("HEPHAISTOS_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY:
-        prefix.append("--ultra-compact")
-    return [*prefix, *argv]
+        return ["--ultra-compact"]
+    return []
+
+
+def _rtk_enabled() -> bool:
+    rtk_setting = os.environ.get("HEPHAISTOS_RTK")
+    return rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
+
+
+def _blocked_bash_command(command: str) -> bool:
+    return any(
+        re.search(blocked_pattern, command, re.IGNORECASE)
+        for blocked_pattern in _BLOCKED_BASH_PATTERNS
+    )
 
 
 def _run_shell_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -371,77 +435,111 @@ def _run_shell_command(command: str, timeout: int) -> subprocess.CompletedProces
     )  # nosec B602
 
 
+def _run_rtk_command(rtk_argv: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        rtk_argv,
+        shell=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout + _RTK_TIMEOUT_BUFFER_SECONDS,
+        check=False,
+    )
+
+
+def _run_bash_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    rtk_argv = _rtk_command_prefix(command) if _rtk_enabled() else None
+    if rtk_argv is None:
+        return _run_shell_command(command, timeout)
+
+    try:
+        return _run_rtk_command(rtk_argv, timeout)
+    except OSError as exc:
+        fallback_result = _run_shell_command(command, timeout)
+        fallback_result.stdout = (
+            f"[rtk unavailable: {exc}; used original command output]\n"
+            f"{fallback_result.stdout or ''}"
+        )
+        return fallback_result
+
+
+def _bash_display(
+    completed: subprocess.CompletedProcess[str],
+    *,
+    started_at: float,
+    timed_out: bool = False,
+) -> str:
+    bash_result = BashResult(
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
+        exit_code=completed.returncode,
+        timed_out=timed_out,
+        duration_seconds=round(time.monotonic() - started_at, 2),
+    )
+    return bash_result.to_display()
+
+
+def _bash_timeout_display(started_at: float) -> str:
+    bash_result = BashResult(
+        stdout="",
+        stderr="",
+        exit_code=-1,
+        timed_out=True,
+        duration_seconds=round(time.monotonic() - started_at, 2),
+    )
+    return bash_result.to_display()
+
+
+def _truncate_tool_text(text: str) -> str:
+    if len(text) <= _MAX_READ_CHARS:
+        return text
+    return text[:_MAX_READ_CHARS] + "\n... [truncated]"
+
+
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
     # Block destructive and dangerous commands (LLM-generated).
     # Note: this is a safety net, not a sandbox. Trivial bypasses exist
     # via encoding, variable expansion, etc. Treat as best-effort.
-    _blocked_patterns = (
-        r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*\s+|-r[a-zA-Z]*\s+-f[a-zA-Z]*\s+)",
-        r"\brm\s+-rf\s+",
-        r"\bmkfs\b",
-        r"\bdd\s+",
-        r"\bshutdown\b",
-        r"\breboot\b",
-        r">/dev/sd",
-        r"\bchmod\s+(777|666)\b",
-        r"\bcurl\b.*\|\s*(ba)?sh\b",
-        r"\bwget\b.*\|\s*(ba)?sh\b",
-        r"\bbase64\b.*\|\s*(ba)?sh\b",
-        r"\bpython[23]?\s+-c\b",
-        r"\bchmod\s+[0-7]*[0-7]{3}\s+/",
-        r"\bchown\b.*\s+/",
-    )
-    for pat in _blocked_patterns:
-        if re.search(pat, command, re.IGNORECASE):
-            return f"Error: command blocked for safety: {command}"
+    if _blocked_bash_command(command):
+        return f"Error: command blocked for safety: {command}"
 
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
-    start = time.monotonic()
-    rtk_setting = os.environ.get("HEPHAISTOS_RTK")
-    rtk_enabled = rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
-    rtk_argv = _rtk_command_prefix(command) if rtk_enabled else None
+    started_at = time.monotonic()
     try:
-        if rtk_argv is None:
-            result = _run_shell_command(command, actual_timeout)
-        else:
-            try:
-                result = subprocess.run(  # nosec B603
-                    rtk_argv,
-                    shell=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=actual_timeout + _RTK_TIMEOUT_BUFFER_SECONDS,
-                    check=False,
-                )
-            except OSError as exc:
-                fallback = _run_shell_command(command, actual_timeout)
-                fallback.stdout = (
-                    f"[rtk unavailable: {exc}; used original command output]\n"
-                    f"{fallback.stdout or ''}"
-                )
-                result = fallback
-        elapsed = time.monotonic() - start
-        br = BashResult(
-            stdout=result.stdout or "",
-            stderr=result.stderr or "",
-            exit_code=result.returncode,
-            timed_out=False,
-            duration_seconds=round(elapsed, 2),
-        )
-        output = br.to_display()
+        result = _run_bash_command(command, actual_timeout)
+        output = _bash_display(result, started_at=started_at)
     except subprocess.TimeoutExpired:
-        elapsed = time.monotonic() - start
-        br = BashResult(
-            stdout="",
-            stderr="",
-            exit_code=-1,
-            timed_out=True,
-            duration_seconds=round(elapsed, 2),
-        )
-        output = br.to_display()
+        output = _bash_timeout_display(started_at)
     except Exception as exc:
         output = f"Error running command: {exc}"
     return output[:_MAX_READ_CHARS]
+
+
+def _binary_read_error(path: str, suffix: str) -> str:
+    if suffix in _BINARY_DOCUMENT_SUFFIXES:
+        return (
+            f"Cannot read binary document: {path}. "
+            "Binary documents must be converted through the materials index before "
+            "they are searchable. Rebuild the index with `heph index <armory>`."
+        )
+    return f"Cannot read (binary file): {path}"
+
+
+def _read_file_text(target: Path, display_path: str) -> FileReadResult:
+    try:
+        return FileReadResult(target.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return FileReadResult(_binary_read_error(display_path, target.suffix.lower()), error=True)
+    except OSError as exc:
+        return FileReadResult(f"Error reading file: {exc}", error=True)
+
+
+def _slice_lines(text: str, *, offset: int | None, limit: int | None) -> list[str]:
+    lines = text.splitlines()
+    if offset is not None and offset >= 0:
+        lines = lines[offset:]
+    if limit is not None and limit > 0:
+        lines = lines[:limit]
+    return lines
 
 
 def run_read_file(
@@ -458,30 +556,11 @@ def run_read_file(
         return str(exc)
     if not target.is_file():
         return f"File not found: {path}"
-    try:
-        text = target.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        suffix = target.suffix.lower()
-        if suffix in (".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"):
-            return (
-                f"Cannot read binary document: {path}. "
-                "Binary documents must be converted through the materials index before "
-                "they are searchable. Rebuild the index with `heph index <armory>`."
-            )
-        return f"Cannot read (binary file): {path}"
-    except OSError as exc:
-        return f"Error reading file: {exc}"
-
-    lines = text.splitlines()
-    if offset is not None and offset >= 0:
-        lines = lines[offset:]
-    if limit is not None and limit > 0:
-        lines = lines[:limit]
-
-    result = "\n".join(lines)
-    if len(result) > _MAX_READ_CHARS:
-        result = result[:_MAX_READ_CHARS] + "\n... [truncated]"
-    return result
+    read_result = _read_file_text(target, path)
+    if read_result.error:
+        return read_result.text
+    selected_lines = _slice_lines(read_result.text, offset=offset, limit=limit)
+    return _truncate_tool_text("\n".join(selected_lines))
 
 
 def run_write_file(
@@ -550,17 +629,19 @@ def run_list_files(
     if not target.is_dir():
         return f"Not a directory: {path or '.'}"
 
-    files = sorted(target.rglob(pattern))
-    lines: list[str] = []
-    for f in files:
-        rel = f.relative_to(workspace)
-        if any(part.startswith(".") for part in rel.parts):
-            continue
-        kind = "/" if f.is_dir() else ""
-        lines.append(f"  {rel}{kind}")
+    lines = [_list_file_line(file_path, workspace) for file_path in sorted(target.rglob(pattern))]
+    lines = [line for line in lines if line]
     if not lines:
         return "(no files found)"
     return "\n".join(lines)
+
+
+def _list_file_line(file_path: Path, workspace: Path) -> str:
+    rel = file_path.relative_to(workspace)
+    if any(part.startswith(".") for part in rel.parts):
+        return ""
+    kind = "/" if file_path.is_dir() else ""
+    return f"  {rel}{kind}"
 
 
 def run_create_armory(
@@ -678,31 +759,33 @@ def _format_search_results(pattern: str, file_count: int, matches: Sequence[str]
     return header + "\n" + "\n".join(matches)
 
 
-def run_search_files(
-    pattern: str,
-    *,
-    workspace: Path,
-    path: str = "",
-    case_sensitive: bool = False,
-    abort: threading.Event | None = None,
-    **_kwargs: object,
-) -> ToolHandlerResult:
+def _compile_search_pattern(pattern: str, *, case_sensitive: bool) -> re.Pattern[str] | str:
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        return re.compile(pattern, flags)
+    except re.error as exc:
+        return f"Invalid regex pattern: {exc}"
+
+
+def _target_search_dir(workspace: Path, path: str) -> Path | str:
     try:
         target = safe_path(workspace, path or ".")
     except ValueError as exc:
         return str(exc)
     if not target.is_dir():
         return f"Not a directory: {path or '.'}"
+    return target
 
-    flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        regex = re.compile(pattern, flags)
-    except re.error as exc:
-        return f"Invalid regex pattern: {exc}"
 
+def _search_target_files(
+    target: Path,
+    *,
+    workspace: Path,
+    regex: re.Pattern[str],
+    abort: threading.Event | None,
+) -> ToolResult | tuple[int, list[str]]:
     matches: list[str] = []
     file_count = 0
-
     for file_path in sorted(target.rglob("*")):
         if abort is not None and abort.is_set():
             return _cancelled_search_result(file_count, matches)
@@ -712,10 +795,137 @@ def run_search_files(
         matches.extend(_search_file(file_path, workspace, regex))
         file_count += 1
         if len(matches) >= _MAX_SEARCH_RESULTS:
-            matches = matches[:_MAX_SEARCH_RESULTS]
-            break
+            return file_count, matches[:_MAX_SEARCH_RESULTS]
+    return file_count, matches
 
+
+def run_search_files(
+    pattern: str,
+    *,
+    workspace: Path,
+    path: str = "",
+    case_sensitive: bool = False,
+    abort: threading.Event | None = None,
+    **_kwargs: object,
+) -> ToolHandlerResult:
+    target = _target_search_dir(workspace, path)
+    if isinstance(target, str):
+        return target
+    regex = _compile_search_pattern(pattern, case_sensitive=case_sensitive)
+    if isinstance(regex, str):
+        return regex
+
+    search_result = _search_target_files(target, workspace=workspace, regex=regex, abort=abort)
+    if isinstance(search_result, ToolResult):
+        return search_result
+    file_count, matches = search_result
     return _format_search_results(pattern, file_count, matches)
+
+
+def _format_memory_entry(entry: MemoryEntry) -> str:
+    source = f" ({entry.source})" if entry.source else ""
+    return f"- [{entry.confidence}] {entry.topic}: {entry.content}{source}"
+
+
+def _format_memory_entries(entries: Sequence[MemoryEntry]) -> str:
+    if not entries:
+        return "(no memory entries)"
+    return "\n".join(_format_memory_entry(entry) for entry in entries)
+
+
+def run_memory(
+    action: str,
+    *,
+    workspace: Path,
+    query: str = "",
+    topic: str = "",
+    content: str = "",
+    old_text: str = "",
+    source: str = "conversation",
+    **_kwargs: object,
+) -> ToolResult:
+    memory = load_memory(workspace)
+    cleaned_action = action.strip().lower()
+    if cleaned_action == "read":
+        return _memory_read(memory, query)
+    if cleaned_action == "add":
+        return _memory_add(memory, topic=topic, content=content, source=source)
+    if cleaned_action == "replace":
+        return _memory_replace(
+            memory,
+            old_text,
+            topic=topic,
+            content=content,
+            source=source,
+        )
+    if cleaned_action == "remove":
+        return _memory_remove(memory, old_text)
+    return ToolResult(
+        success=False,
+        content=f"Unknown memory action: {action}. Use read, add, replace, or remove.",
+        error="unknown_memory_action",
+    )
+
+
+def _memory_read(memory: MemoryStore, query: str) -> ToolResult:
+    entries = memory.read(query)
+    save_memory(memory)
+    return ToolResult(
+        success=True,
+        content=_format_memory_entries(entries),
+        metadata={"entries": len(entries), "query": query},
+    )
+
+
+def _memory_add(
+    memory: MemoryStore,
+    *,
+    topic: str,
+    content: str,
+    source: str,
+) -> ToolResult:
+    entry = memory.add(topic, content, source=source or "conversation", confidence="verified")
+    if entry is None:
+        return ToolResult(
+            success=False,
+            content="Memory entry was not saved. Use a unique topic and compact safe content.",
+            error="memory_add_failed",
+        )
+    save_memory(memory)
+    return ToolResult(success=True, content=f"Saved memory: {_format_memory_entry(entry)}")
+
+
+def _memory_replace(
+    memory: MemoryStore,
+    old_text: str,
+    *,
+    topic: str,
+    content: str,
+    source: str,
+) -> ToolResult:
+    result = memory.replace(
+        old_text,
+        topic=topic,
+        content=content,
+        source=source or "conversation",
+        confidence="verified",
+    )
+    if isinstance(result, str):
+        return ToolResult(success=False, content=result, error="memory_replace_failed")
+    save_memory(memory)
+    return ToolResult(success=True, content=f"Replaced memory: {_format_memory_entry(result)}")
+
+
+def _memory_remove(memory: MemoryStore, old_text: str) -> ToolResult:
+    result = memory.remove(old_text)
+    if isinstance(result, str):
+        return ToolResult(success=False, content=result, error="memory_remove_failed")
+    save_memory(memory)
+    return ToolResult(
+        success=True,
+        content="Removed memory entry.",
+        metadata={"removed": result},
+    )
 
 
 def _mutation_wrap(fn: Callable[..., str], **kwargs: object) -> str:
@@ -747,6 +957,7 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "search_files": run_search_files,
     "search_materials": run_search_materials,
     "open_material": run_open_material,
+    "memory": run_memory,
     "web_fetch": run_web_fetch,
 }
 

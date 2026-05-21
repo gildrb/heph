@@ -14,6 +14,7 @@ import os
 import secrets
 import signal
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -54,6 +55,13 @@ _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT = 10_000
 
 class _IndexFileTimeoutError(TimeoutError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceFileState:
+    rel: str
+    path: Path
+    content_hash: str
 
 
 def _file_hash(path: Path) -> str | None:
@@ -231,6 +239,30 @@ def _normalized_text_contains(source_text: str, chunk_text: str) -> bool:
     compact_source = " ".join(source_text.split())
     compact_chunk = " ".join(chunk_text.split())
     return bool(compact_chunk) and compact_chunk in compact_source
+
+
+def _coerce_embedding_row(raw_row: object) -> list[float] | None:
+    if not isinstance(raw_row, list):
+        return None
+    typed_row: list[float] = []
+    for raw_value in cast("list[object]", raw_row):
+        if isinstance(raw_value, int | float):
+            typed_row.append(float(raw_value))
+        else:
+            typed_row.append(float(str(raw_value)))
+    return typed_row
+
+
+def _coerce_embedding_rows(raw_embeddings: object) -> list[list[float]] | None:
+    if not isinstance(raw_embeddings, list):
+        return None
+    typed: list[list[float]] = []
+    for raw_row in cast("list[object]", raw_embeddings):
+        typed_row = _coerce_embedding_row(raw_row)
+        if typed_row is None:
+            return None
+        typed.append(typed_row)
+    return typed
 
 
 def _string_field(data: Mapping[str, object], key: str) -> str:
@@ -426,19 +458,9 @@ class ArmoryIndex:
         if data.get("chunk_count") != len(self.all_chunks):
             return None
         raw_embeddings = data.get("embeddings")
-        if not isinstance(raw_embeddings, list):
+        typed = _coerce_embedding_rows(raw_embeddings)
+        if typed is None:
             return None
-        typed: list[list[float]] = []
-        for raw_row in cast("list[object]", raw_embeddings):
-            if not isinstance(raw_row, list):
-                return None
-            typed_row: list[float] = []
-            for raw_val in cast("list[object]", raw_row):
-                if isinstance(raw_val, int | float):
-                    typed_row.append(float(raw_val))
-                else:
-                    typed_row.append(float(str(raw_val)))
-            typed.append(typed_row)
         _log.debug(
             "embeddings loaded from cache",
             extra={"fields": {"path": str(embed_path), "chunks": len(typed)}},
@@ -676,6 +698,7 @@ class ArmoryIndex:
         ):
             return False
         if not self._cached_documents_are_usable(
+            allow_stale=allow_stale,
             version=version,
             trust_large_signed_cache=trust_large_signed_cache,
         ):
@@ -726,6 +749,7 @@ class ArmoryIndex:
     def _cached_documents_are_usable(
         self,
         *,
+        allow_stale: bool,
         version: int,
         trust_large_signed_cache: bool,
     ) -> bool:
@@ -738,6 +762,8 @@ class ArmoryIndex:
             "rag index cache chunks do not match material files",
             extra={"fields": {"armory": str(self.armory_path)}},
         )
+        if allow_stale:
+            return True
         self._clear_loaded_cache()
         return False
 
@@ -752,27 +778,47 @@ class ArmoryIndex:
             return False
 
         indexed_sources = {doc.source for doc in self.documents}
+        source_count = 0
         for file_path in self._iter_source_files():
-            rel = str(file_path.relative_to(self.armory_path))
-            if rel not in self._file_hashes:
-                return True
-            h = _file_hash(file_path)
-            if h is None or h != self._file_hashes.get(rel):
-                return True
-            if (
-                _can_convert_binary_file(file_path)
-                and _is_docling_file(file_path)
-                and rel not in indexed_sources
-            ):
+            source_count += 1
+            if self._source_file_makes_index_stale(file_path, indexed_sources):
                 return True
 
-        return len(self._file_hashes) != sum(1 for _ in self._iter_source_files())
+        return len(self._file_hashes) != source_count
 
     def _iter_source_files(self) -> Iterator[Path]:
         for file_path in iter_source_files(self.armory_path):
             if _resolved_path_within_materials(file_path, self.armory_path) is None:
                 continue
             yield file_path
+
+    def _source_file_state(self, file_path: Path) -> _SourceFileState | None:
+        content_hash = _file_hash(file_path)
+        if content_hash is None:
+            return None
+        return _SourceFileState(
+            rel=str(file_path.relative_to(self.armory_path)),
+            path=file_path,
+            content_hash=content_hash,
+        )
+
+    def _source_file_makes_index_stale(
+        self,
+        file_path: Path,
+        indexed_sources: set[str],
+    ) -> bool:
+        source_state = self._source_file_state(file_path)
+        if source_state is None:
+            return True
+        if source_state.rel not in self._file_hashes:
+            return True
+        if source_state.content_hash != self._file_hashes.get(source_state.rel):
+            return True
+        return (
+            _can_convert_binary_file(source_state.path)
+            and _is_docling_file(source_state.path)
+            and source_state.rel not in indexed_sources
+        )
 
     def _documents_match_material_sources(
         self,
@@ -781,38 +827,73 @@ class ArmoryIndex:
         trust_text_cache: bool,
     ) -> bool:
         for document in self.documents:
-            if not document.source:
+            if not self._document_matches_material_source(
+                document,
+                allow_binary_cache=allow_binary_cache,
+                trust_text_cache=trust_text_cache,
+            ):
                 return False
-            source_path = self.armory_path / document.source
-            resolved_path = _resolved_path_within_materials(source_path, self.armory_path)
-            if resolved_path is None or not resolved_path.is_file():
-                return False
-            material_hash = _file_hash(resolved_path)
-            if material_hash is None or self._file_hashes.get(document.source) != material_hash:
-                return False
-            if _is_text_file(resolved_path):
-                if trust_text_cache:
-                    continue
-                try:
-                    source_text = _normalize_extracted_text(
-                        resolved_path.read_text(encoding="utf-8")
-                    )
-                except (UnicodeDecodeError, OSError):
-                    return False
-                text_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-                if document.content_hash and document.content_hash != text_hash:
-                    return False
-                for chunk in document.chunks:
-                    if chunk.source != document.source:
-                        return False
-                    if not _normalized_text_contains(source_text, chunk.text):
-                        return False
-            else:
-                if document.content_hash and document.content_hash != material_hash:
-                    return False
-                if document.chunks and not allow_binary_cache:
-                    return False
         return True
+
+    def _document_matches_material_source(
+        self,
+        document: ChunkedDocument,
+        *,
+        allow_binary_cache: bool,
+        trust_text_cache: bool,
+    ) -> bool:
+        if not document.source:
+            return False
+        source_path = self.armory_path / document.source
+        resolved_path = _resolved_path_within_materials(source_path, self.armory_path)
+        if resolved_path is None or not resolved_path.is_file():
+            return False
+        material_hash = _file_hash(resolved_path)
+        if material_hash is None or self._file_hashes.get(document.source) != material_hash:
+            return False
+        if _is_text_file(resolved_path):
+            return self._text_document_matches_source(
+                document,
+                resolved_path,
+                trust_text_cache=trust_text_cache,
+            )
+        return self._binary_document_matches_source(
+            document,
+            material_hash,
+            allow_binary_cache=allow_binary_cache,
+        )
+
+    def _text_document_matches_source(
+        self,
+        document: ChunkedDocument,
+        resolved_path: Path,
+        *,
+        trust_text_cache: bool,
+    ) -> bool:
+        if trust_text_cache:
+            return True
+        try:
+            source_text = _normalize_extracted_text(resolved_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, OSError):
+            return False
+        text_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
+        if document.content_hash and document.content_hash != text_hash:
+            return False
+        return all(
+            chunk.source == document.source and _normalized_text_contains(source_text, chunk.text)
+            for chunk in document.chunks
+        )
+
+    @staticmethod
+    def _binary_document_matches_source(
+        document: ChunkedDocument,
+        material_hash: str,
+        *,
+        allow_binary_cache: bool,
+    ) -> bool:
+        if document.content_hash and document.content_hash != material_hash:
+            return False
+        return allow_binary_cache or not document.chunks
 
     def _file_hashes_match_material_files(self) -> bool:
         file_hashes: dict[str, str] = {}

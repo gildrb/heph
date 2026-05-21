@@ -1,8 +1,9 @@
-"""Study and vocabulary commands: vocabulary, remind."""
+"""Learning and vocabulary commands: vocabulary, remind."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,13 +13,9 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.materials import material_display_name
 from hephaistos.rag.index import load_or_build
 from hephaistos.study import (
-    AutopilotSessionType,
-    StudyAutonomyMode,
-    StudyFeedbackType,
-    StudyPhase,
-    StudyRecallRating,
-    parse_time_budget_minutes,
-    session_type_from_text,
+    LearningFeedbackType,
+    LearningPhase,
+    RecallRating,
 )
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
 from hephaistos.study.priority import (
@@ -28,7 +25,7 @@ from hephaistos.study.priority import (
     generate_priority_report,
     priority_tier,
 )
-from hephaistos.study.schedule import StudyItemState, load_study_schedule
+from hephaistos.study.schedule import RecallItemState, load_recall_schedule
 from hephaistos.terminal import (
     STYLE_ACCENT,
     STYLE_DIM,
@@ -53,21 +50,6 @@ _HARD_OPTION = MenuOption("Hard", "had to think about it")
 _GOOD_OPTION = MenuOption("Good", "knew it")
 _EASY_OPTION = MenuOption("Easy", "instant recall")
 _RATING_OPTIONS = [_HARD_OPTION, _GOOD_OPTION, _EASY_OPTION]
-_MODE_ALIASES = {
-    "manual": StudyAutonomyMode.MANUAL,
-    "off": StudyAutonomyMode.MANUAL,
-    "guided": StudyAutonomyMode.GUIDED,
-    "on": StudyAutonomyMode.AUTOPILOT,
-    "autopilot": StudyAutonomyMode.AUTOPILOT,
-}
-_AUTOPILOT_GOALS = {
-    AutopilotSessionType.EXAM: "exam preparation",
-    AutopilotSessionType.WEAK_TOPICS: "weak-topic repair",
-    AutopilotSessionType.REVIEW: "due review",
-    AutopilotSessionType.SOCRATIC: "Socratic review",
-    AutopilotSessionType.CRAM: "cram session",
-    AutopilotSessionType.DEEP: "deep understanding",
-}
 _PRIORITY_PROGRESS_MESSAGES = {
     "loaded": "Read index cache {detail}.",
     "reading": "Read material source @{detail}.",
@@ -77,7 +59,16 @@ _PRIORITY_PROGRESS_MESSAGES = {
 }
 
 
-def _format_study_item_metadata(item: StudyItemState) -> str:
+@dataclass(frozen=True, slots=True)
+class ReminderState:
+    all_cards: Sequence[VocabCardState]
+    due_cards: Sequence[VocabCardState]
+    recall_items: Sequence[RecallItemState]
+    due_recall_items: Sequence[RecallItemState]
+    now: datetime
+
+
+def _format_recall_item_metadata(item: RecallItemState) -> str:
     details: list[str] = []
     if item.concept:
         details.append(f"concept: {item.concept[:40]}")
@@ -121,8 +112,8 @@ def _next_scheduled_line(
 def _remind_status_lines(
     all_cards: Sequence[VocabCardState],
     due_cards: Sequence[VocabCardState],
-    study_items: Sequence[StudyItemState],
-    due_study_items: Sequence[StudyItemState],
+    recall_items: Sequence[RecallItemState],
+    due_recall_items: Sequence[RecallItemState],
 ) -> list[str]:
     lines: list[str] = []
 
@@ -134,28 +125,28 @@ def _remind_status_lines(
     elif all_cards:
         lines.append(styled("Vocabulary is caught up.", STYLE_SUCCESS))
 
-    if due_study_items:
-        item_plural = "s" if len(due_study_items) != 1 else ""
-        lines.append(f"You have {len(due_study_items)} recall item{item_plural} due.")
-        lines.append(f"  Run {styled('/exam', STYLE_ACCENT)} or ask to review a due item.")
-    elif study_items:
+    if due_recall_items:
+        item_plural = "s" if len(due_recall_items) != 1 else ""
+        lines.append(f"You have {len(due_recall_items)} recall item{item_plural} due.")
+        lines.append(f"  Run {styled('/exam', STYLE_ACCENT)} or ask to review a due recall item.")
+    elif recall_items:
         lines.append(styled("Material-backed recall items are caught up.", STYLE_SUCCESS))
 
     return lines or ["No vocabulary cards yet, but you can start with /exam or /priority."]
 
 
-def _due_study_item_lines(due_study_items: Sequence[StudyItemState]) -> list[str]:
-    if not due_study_items:
+def _due_recall_item_lines(due_recall_items: Sequence[RecallItemState]) -> list[str]:
+    if not due_recall_items:
         return []
     lines = ["", "Due recall items:"]
-    for item in due_study_items[:10]:
+    for item in due_recall_items[:10]:
         label = item.item or item.retrieval_query
         lines.append(f"  {styled(label[:60], STYLE_DIM)}")
-        metadata = _format_study_item_metadata(item)
+        metadata = _format_recall_item_metadata(item)
         if metadata:
             lines.append(f"    {styled(metadata, STYLE_DIM)}")
-    if len(due_study_items) > 10:
-        lines.append(f"  ... and {len(due_study_items) - 10} more")
+    if len(due_recall_items) > 10:
+        lines.append(f"  ... and {len(due_recall_items) - 10} more")
     return lines
 
 
@@ -271,116 +262,77 @@ class RemindCommand(Command):
             print_error("No armory attached. Use /armory to open one.")
             return CommandResult()
 
-        deck = scan_armory(s.armory_path)
-        store = load_schedule(s.armory_path)
-        store.sync_with_deck(deck)
-        save_schedule(store)
-
-        all_cards = store.card_list
-        due = select_due_cards(all_cards)
-        now = datetime.now(UTC)
-        study_store = load_study_schedule(s.armory_path)
-        due_study_items = study_store.due_items(now=now)
-
-        if not all_cards and not study_store.item_list:
+        reminders = _load_reminder_state(s.armory_path)
+        if not reminders.all_cards and not reminders.recall_items:
             print_info(
                 "No scheduled reviews yet. Use /exam or ask for a material-backed question "
                 "to start active recall."
             )
             return CommandResult()
 
-        lines = _remind_status_lines(
-            all_cards,
-            due,
-            study_store.item_list,
-            due_study_items,
-        )
-        next_study_line = _next_scheduled_line(
-            [item.next_review for item in study_store.item_list],
-            now,
-            "  Next recall item in {when} ({count} item(s) scheduled).",
-        )
-        if next_study_line is not None:
-            lines.append(next_study_line)
-
-        lines.extend(_due_study_item_lines(due_study_items))
-
-        if not all_cards:
-            print("\n".join(lines))
-            return CommandResult()
-
-        if not due and not due_study_items and not any("caught up" in line for line in lines):
-            lines.append(styled("All caught up!", STYLE_SUCCESS))
-
-        next_vocab_line = _next_scheduled_line(
-            [card.next_review for card in all_cards],
-            now,
-            "  Next review in {when} ({count} card{plural} scheduled).",
-        )
-        if next_vocab_line is not None:
-            lines.append(next_vocab_line)
-
-        lines.extend(_due_vocab_card_lines(due))
-
-        print("\n".join(lines))
+        print("\n".join(_reminder_lines(reminders)))
         return CommandResult()
 
 
-class ModeCommand(Command):
-    name = "mode"
-    description = "Set manual, guided, or autopilot review mode"
+def _load_reminder_state(armory_path: Path) -> ReminderState:
+    deck = scan_armory(armory_path)
+    store = load_schedule(armory_path)
+    store.sync_with_deck(deck)
+    save_schedule(store)
 
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        requested = args.strip().lower()
-        if not requested:
-            _print_mode_status(s)
-            return CommandResult()
-        mode = _MODE_ALIASES.get(requested)
-        if mode is None:
-            print_error("Usage: /mode manual, /mode guided, or /mode autopilot")
-            return CommandResult()
-        if mode is StudyAutonomyMode.AUTOPILOT:
-            session_type = AutopilotSessionType.GENERAL
-            _start_autopilot_session(s, session_type, None, requested)
-            print_success(f"Review mode set to {mode.value}.")
-            prompt = _autopilot_start_prompt(session_type, None)
-            return CommandResult(output=f"__RESEND__:{prompt}")
-        _set_study_mode(s, mode)
-        print_success(f"Review mode set to {mode.value}.")
-        return CommandResult()
+    now = datetime.now(UTC)
+    recall_store = load_recall_schedule(armory_path)
+    return ReminderState(
+        all_cards=store.card_list,
+        due_cards=select_due_cards(store.card_list),
+        recall_items=recall_store.item_list,
+        due_recall_items=recall_store.due_items(now=now),
+        now=now,
+    )
 
 
-class AutopilotCommand(Command):
-    name = "autopilot"
-    description = "Let Heph drive a bounded material review session"
+def _reminder_lines(reminders: ReminderState) -> list[str]:
+    lines = _remind_status_lines(
+        reminders.all_cards,
+        reminders.due_cards,
+        reminders.recall_items,
+        reminders.due_recall_items,
+    )
+    lines.extend(_next_recall_lines(reminders))
+    lines.extend(_due_recall_item_lines(reminders.due_recall_items))
+    if not reminders.all_cards:
+        return lines
+    if (
+        not reminders.due_cards
+        and not reminders.due_recall_items
+        and not _has_caught_up_line(lines)
+    ):
+        lines.append(styled("All caught up!", STYLE_SUCCESS))
+    lines.extend(_next_vocab_lines(reminders))
+    lines.extend(_due_vocab_card_lines(reminders.due_cards))
+    return lines
 
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        requested = args.strip()
-        normalized = requested.lower()
-        if normalized == "status":
-            _print_mode_status(s)
-            return CommandResult()
-        if not requested:
-            requested = "on"
-            normalized = "on"
-        if normalized in {"off", "manual"}:
-            _set_study_mode(s, StudyAutonomyMode.MANUAL)
-            print_success("Autopilot off. Manual review mode is active.")
-            return CommandResult()
-        if normalized == "guided":
-            _set_study_mode(s, StudyAutonomyMode.GUIDED)
-            print_success("Guided review mode is active.")
-            return CommandResult()
 
-        session_type = session_type_from_text(requested)
-        time_budget = parse_time_budget_minutes(requested)
-        _start_autopilot_session(s, session_type, time_budget, requested)
-        suffix = f" for {time_budget} minute(s)" if time_budget is not None else ""
-        print_success(f"Autopilot {session_type.value} session started{suffix}.")
-        prompt = _autopilot_start_prompt(session_type, time_budget)
-        return CommandResult(output=f"__RESEND__:{prompt}")
+def _next_recall_lines(reminders: ReminderState) -> list[str]:
+    line = _next_scheduled_line(
+        [item.next_review for item in reminders.recall_items],
+        reminders.now,
+        "  Next recall item in {when} ({count} item(s) scheduled).",
+    )
+    return [] if line is None else [line]
+
+
+def _next_vocab_lines(reminders: ReminderState) -> list[str]:
+    line = _next_scheduled_line(
+        [card.next_review for card in reminders.all_cards],
+        reminders.now,
+        "  Next review in {when} ({count} card{plural} scheduled).",
+    )
+    return [] if line is None else [line]
+
+
+def _has_caught_up_line(lines: Sequence[str]) -> bool:
+    return any("caught up" in line for line in lines)
 
 
 class ExamCommand(Command):
@@ -405,15 +357,15 @@ class ExamCommand(Command):
                 question.source_ref,
                 *supporting_source_refs(chunks, question.question),
             ]
-            s.study_state.phase = StudyPhase.RECALL
-            s.study_state.current_item = question.question
-            s.study_state.expected_source_refs = source_refs
-            s.study_state.attempt_count = 0
-            s.study_state.last_feedback_type = StudyFeedbackType.CALIBRATING
-            s.study_state.retrieval_query = question.question
-            s.study_state.recall_started_at = datetime.now(UTC)
-            s.study_state.last_recall_seconds = None
-            s.study_state.last_recall_rating = StudyRecallRating.NONE
+            s.learning_state.phase = LearningPhase.RECALL
+            s.learning_state.current_item = question.question
+            s.learning_state.expected_source_refs = source_refs
+            s.learning_state.attempt_count = 0
+            s.learning_state.last_feedback_type = LearningFeedbackType.CALIBRATING
+            s.learning_state.retrieval_query = question.question
+            s.learning_state.recall_started_at = datetime.now(UTC)
+            s.learning_state.last_recall_seconds = None
+            s.learning_state.last_recall_rating = RecallRating.NONE
             print(
                 "\n".join(
                     [
@@ -493,68 +445,6 @@ class PriorityCommand(Command):
 
 def _priority_output_dir() -> Path:
     return Path.home() / "Downloads"
-
-
-def _set_study_mode(session: ChatSession, mode: StudyAutonomyMode) -> None:
-    session.study_state.autonomy_mode = mode
-    if mode is not StudyAutonomyMode.AUTOPILOT:
-        session.study_state.clear_autopilot_session()
-    session.dirty = True
-
-
-def _start_autopilot_session(
-    session: ChatSession,
-    session_type: AutopilotSessionType,
-    time_budget_minutes: int | None,
-    raw_request: str,
-) -> None:
-    session.study_state.start_autopilot_session(
-        session_type=session_type.value,
-        session_goal=_autopilot_goal(session_type, raw_request),
-        time_budget_minutes=time_budget_minutes,
-    )
-    session.dirty = True
-
-
-def _autopilot_goal(session_type: AutopilotSessionType, raw_request: str) -> str:
-    if session_type in _AUTOPILOT_GOALS:
-        return _AUTOPILOT_GOALS[session_type]
-    normalized = raw_request.strip().casefold()
-    if normalized in {"", "on", "autopilot"}:
-        return "guided material review"
-    return raw_request or "guided material review"
-
-
-def _autopilot_start_prompt(
-    session_type: AutopilotSessionType,
-    time_budget_minutes: int | None,
-) -> str:
-    budget = f"I have {time_budget_minutes} minutes. " if time_budget_minutes is not None else ""
-    goal = _autopilot_goal(session_type, "")
-    return (
-        f"Start an autopilot session from my materials using the "
-        f"{session_type.value} profile. {budget}"
-        f"Use {goal} as the session goal. "
-        "Drive the session yourself, start with active recall when appropriate, ask one "
-        "diagnostic or review question, require my confidence from 0-100%, and do not "
-        "reveal answers before I attempt them."
-    )
-
-
-def _print_mode_status(session: ChatSession) -> None:
-    study = session.study_state
-    lines: list[str] = [f"Learning mode: {study.autonomy_mode.value}"]
-    if study.autopilot_session_type:
-        lines.append(f"Autopilot type: {study.autopilot_session_type}")
-    if study.session_goal:
-        lines.append(f"Goal: {study.session_goal}")
-    if study.time_budget_minutes is not None:
-        lines.append(f"Budget: {study.time_budget_minutes} minute(s)")
-    if study.autopilot_turns:
-        lines.append(f"Autopilot turns: {study.autopilot_turns}")
-    if study.autopilot_stop_reason:
-        lines.append(f"Stop reason: {study.autopilot_stop_reason}")
-    print_info("\n".join(lines))
 
 
 def _priority_terminal_summary(analysis: PriorityAnalysis, *, limit: int = 5) -> str:

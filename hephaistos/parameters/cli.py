@@ -7,6 +7,7 @@ import contextlib
 import importlib
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,22 +29,33 @@ def _load_user_overrides() -> dict[str, str]:
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
     """Load ChatConfig from defaults + provider config + user overrides + env vars."""
-    providers_config = importlib.import_module("hephaistos.providers.config")
     runtime = importlib.import_module("hephaistos.runtime")
 
     _ = armory_path
     config = runtime.ChatConfig()
-    toml_path = settings_store._DEFAULTS_FILE
-    if toml_path.is_file():
-        toml = settings_store.parse_toml_simple(toml_path)
-        if toml.get("base_url"):
-            config.base_url = toml["base_url"]
-        if toml.get("model_id"):
-            config.model = toml["model_id"]
-        if toml.get("max_tokens"):
-            with contextlib.suppress(ValueError):
-                config.max_tokens = int(toml["max_tokens"])
+    _apply_toml_defaults(config)
+    _apply_provider_config(config)
+    _apply_mapping_overrides(config, _load_user_overrides())
+    _apply_mapping_overrides(config, _env_overrides())
+    return config
 
+
+def _apply_toml_defaults(config: ChatConfig) -> None:
+    toml_path = settings_store._DEFAULTS_FILE
+    if not toml_path.is_file():
+        return
+
+    toml = settings_store.parse_toml_simple(toml_path)
+    if base_url := toml.get("base_url"):
+        config.base_url = base_url
+    if model_id := toml.get("model_id"):
+        config.model = model_id
+    _apply_int_override(config, "max_tokens", toml.get("max_tokens"))
+
+
+def _apply_provider_config(config: ChatConfig) -> None:
+    providers_config = importlib.import_module("hephaistos.providers.config")
+    runtime = importlib.import_module("hephaistos.runtime")
     try:
         pc = providers_config.ProviderConfig.load()
         pc.apply_to_config(config)
@@ -61,43 +73,37 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     except Exception as exc:
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
-    user_overrides = _load_user_overrides()
-    if user_overrides.get("base_url"):
-        config.base_url = user_overrides["base_url"]
-    if user_overrides.get("model"):
-        config.model = user_overrides["model"]
-    if user_overrides.get("max_tokens"):
-        with contextlib.suppress(ValueError):
-            config.max_tokens = int(user_overrides["max_tokens"])
-    if user_overrides.get("rag_context_budget"):
-        with contextlib.suppress(ValueError):
-            config.rag_context_budget = int(user_overrides["rag_context_budget"])
-    if user_overrides.get("feature_flags"):
-        config.feature_flags = settings_store.parse_feature_flags(user_overrides["feature_flags"])
 
-    base_url = os.environ.get("HEPHAISTOS_BASE_URL")
-    if base_url:
+def _apply_mapping_overrides(config: ChatConfig, values: Mapping[str, str]) -> None:
+    if base_url := values.get("base_url"):
         config.base_url = base_url
-
-    model = os.environ.get("HEPHAISTOS_MODEL")
-    if model:
+    if model := values.get("model"):
         config.model = model
-
-    max_tokens = os.environ.get("HEPHAISTOS_MAX_TOKENS")
-    if max_tokens:
-        with contextlib.suppress(ValueError):
-            config.max_tokens = int(max_tokens)
-
-    rag_context_budget = os.environ.get("HEPHAISTOS_RAG_CONTEXT_BUDGET")
-    if rag_context_budget:
-        with contextlib.suppress(ValueError):
-            config.rag_context_budget = int(rag_context_budget)
-
-    feature_flags = os.environ.get("HEPHAISTOS_FEATURE_FLAGS")
-    if feature_flags:
+    _apply_int_override(config, "max_tokens", values.get("max_tokens"))
+    _apply_int_override(config, "rag_context_budget", values.get("rag_context_budget"))
+    if feature_flags := values.get("feature_flags"):
         config.feature_flags = settings_store.parse_feature_flags(feature_flags)
 
-    return config
+
+def _apply_int_override(config: ChatConfig, field_name: str, value: str | None) -> None:
+    if value:
+        with contextlib.suppress(ValueError):
+            parsed = int(value)
+            if field_name == "max_tokens":
+                config.max_tokens = parsed
+            elif field_name == "rag_context_budget":
+                config.rag_context_budget = parsed
+
+
+def _env_overrides() -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, env_name in _CONFIG_KEY_TO_ENV.items():
+        if not env_name:
+            continue
+        value = os.environ.get(env_name)
+        if value:
+            result[key] = value
+    return result
 
 
 _CONFIG_KEY_TO_ENV = {
@@ -132,21 +138,37 @@ def _effective_setting_value(key: str) -> str:
     privacy = importlib.import_module("hephaistos.privacy.consent")
 
     app_settings = settings_store.load_app_settings()
-    if key == "theme":
-        return app_settings.theme
-    if key == "default_armory_path":
-        return app_settings.default_armory_path or "(not set)"
-    if key == "activity_trace_mode":
-        return app_settings.activity_trace_mode
+    app_value = {
+        "theme": app_settings.theme,
+        "default_armory_path": app_settings.default_armory_path or "(not set)",
+        "activity_trace_mode": app_settings.activity_trace_mode,
+    }.get(key)
+    if app_value is not None:
+        return app_value
     if key == "analytics_enabled":
-        suffix = " (env override)" if privacy.analytics_env_override() else ""
-        availability = "available" if privacy.analytics_backend_available() else "unavailable"
-        return f"{str(privacy.analytics_enabled()).lower()}{suffix} [{availability}]"
+        return _privacy_setting_value(
+            enabled=privacy.analytics_enabled(),
+            env_override=privacy.analytics_env_override(),
+            backend_available=privacy.analytics_backend_available(),
+        )
     if key == "crash_reports_enabled":
-        suffix = " (env override)" if privacy.crash_reports_env_override() else ""
-        avail = "available" if privacy.crash_reports_backend_available() else "unavailable"
-        return f"{str(privacy.crash_reports_enabled()).lower()}{suffix} [{avail}]"
+        return _privacy_setting_value(
+            enabled=privacy.crash_reports_enabled(),
+            env_override=privacy.crash_reports_env_override(),
+            backend_available=privacy.crash_reports_backend_available(),
+        )
     return "(not set)"
+
+
+def _privacy_setting_value(
+    *,
+    enabled: bool,
+    env_override: bool,
+    backend_available: bool,
+) -> str:
+    suffix = " (env override)" if env_override else ""
+    availability = "available" if backend_available else "unavailable"
+    return f"{str(enabled).lower()}{suffix} [{availability}]"
 
 
 def _cmd_config_show(_args: argparse.Namespace) -> None:

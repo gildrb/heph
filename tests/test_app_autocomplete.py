@@ -88,19 +88,7 @@ def test_sessions_completion_shows_subcommands() -> None:
     assert {"list ", "browse ", "resume "} <= texts
 
 
-def test_mode_completion_shows_mode_subcommands() -> None:
+def test_mode_completion_has_no_mode_subcommands() -> None:
     engine = SlashCompletionEngine(provider_config_loader=default_config)
 
-    candidates = engine.candidates("/mode ", [])
-    texts = {candidate.text for candidate in candidates}
-
-    assert {"manual ", "guided ", "autopilot "} <= texts
-
-
-def test_mode_completion_filters_by_prefix() -> None:
-    engine = SlashCompletionEngine(provider_config_loader=default_config)
-
-    candidates = engine.candidates("/mode gu", [])
-
-    assert len(candidates) == 1
-    assert candidates[0].text == "guided "
+    assert engine.candidates("/mode ", []) == []

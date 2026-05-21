@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from hephaistos.providers.access import provider_is_accessible
 from hephaistos.providers.catalog import hydrate_provider_models
-from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
 
@@ -60,16 +62,7 @@ def configured_model_choices(
     refresh_live: bool = False,
 ) -> list[tuple[str, str, str, bool]]:
     pc = pc or ProviderConfig.load()
-    eligible_slugs: set[str] = set()
-    for slug, provider in pc.providers.items():
-        if slug == "custom" and not provider.models:
-            continue
-        if not provider_is_accessible(
-            provider,
-            refresh_oauth=refresh_live,
-        ):
-            continue
-        eligible_slugs.add(slug)
+    eligible_slugs = _eligible_provider_slugs(pc.providers.values(), refresh_live=refresh_live)
 
     hydrate_provider_models(
         pc,
@@ -77,23 +70,48 @@ def configured_model_choices(
         provider_slugs=eligible_slugs,
     )
 
+    choices = _model_choice_rows(pc, eligible_slugs)
+    return sorted(choices, key=_model_choice_sort_key)
+
+
+def _eligible_provider_slugs(
+    providers: Iterable[Provider],
+    *,
+    refresh_live: bool,
+) -> set[str]:
+    return {
+        provider.slug
+        for provider in providers
+        if not _empty_custom_provider(provider)
+        and provider_is_accessible(provider, refresh_oauth=refresh_live)
+    }
+
+
+def _empty_custom_provider(provider: Provider) -> bool:
+    return provider.slug == "custom" and not provider.models
+
+
+def _model_choice_rows(
+    pc: ProviderConfig,
+    eligible_slugs: set[str],
+) -> list[tuple[str, str, str, bool]]:
     registry = get_provider_registry()
-    choices: list[tuple[str, str, str, bool]] = []
-    for slug, provider in pc.providers.items():
-        if slug not in eligible_slugs:
-            continue
-        for model in provider.models:
-            info = registry.get(model, provider=slug)
-            is_free = info.is_free if info is not None else False
-            choices.append((slug, model, provider.display_name, is_free))
-    return sorted(
-        choices,
-        key=lambda item: (
-            _MODEL_PROVIDER_ORDER.get(item[0], 50),
-            0 if item[3] else 1,
-            item[1].lower(),
-        ),
-    )
+    return [
+        (
+            slug,
+            model,
+            provider.display_name,
+            (info.is_free if (info := registry.get(model, provider=slug)) is not None else False),
+        )
+        for slug, provider in pc.providers.items()
+        if slug in eligible_slugs
+        for model in provider.models
+    ]
+
+
+def _model_choice_sort_key(item: tuple[str, str, str, bool]) -> tuple[int, int, str]:
+    slug, model, _display_name, is_free = item
+    return (_MODEL_PROVIDER_ORDER.get(slug, 50), 0 if is_free else 1, model.lower())
 
 
 def model_picker_columns(

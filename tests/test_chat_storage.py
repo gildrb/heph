@@ -85,11 +85,11 @@ def test_save_and_load_metadata_roundtrip(tmp_path: Path) -> None:
         session_id,
         conv,
         title="meta",
-        metadata={"study_state": {"phase": "recall", "attempt_count": 2}},
+        metadata={"learning_state": {"phase": "recall", "attempt_count": 2}},
     )
 
     metadata = load_metadata(armory, session_id)
-    assert metadata == {"study_state": {"phase": "recall", "attempt_count": 2}}
+    assert metadata == {"learning_state": {"phase": "recall", "attempt_count": 2}}
 
 
 def test_load_nonexistent_raises(tmp_path: Path) -> None:

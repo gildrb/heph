@@ -38,18 +38,24 @@ def ranked_matches[T](
         return []
     normalized_query = query.casefold().strip()
     query_terms = set(normalized_query.split())
-    matches: list[FuzzyMatch[T]] = []
-    for choice in choices:
-        candidate = key(choice)
-        score = (
-            float(fuzz.WRatio(query, candidate))
-            if fuzz is not None
-            else _fallback_score(normalized_query, query_terms, candidate)
-        )
-        if score >= min_score:
-            matches.append(FuzzyMatch(value=choice, score=score))
+    matches = [
+        FuzzyMatch(value=choice, score=score)
+        for choice in choices
+        if (score := _match_score(query, normalized_query, query_terms, key(choice))) >= min_score
+    ]
     matches.sort(key=lambda match: match.score, reverse=True)
     return matches[:limit]
+
+
+def _match_score(
+    query: str,
+    normalized_query: str,
+    query_terms: set[str],
+    candidate: str,
+) -> float:
+    if fuzz is not None:
+        return float(fuzz.WRatio(query, candidate))
+    return _fallback_score(normalized_query, query_terms, candidate)
 
 
 def _fallback_score(normalized_query: str, query_terms: set[str], candidate: str) -> float:
@@ -60,7 +66,11 @@ def _fallback_score(normalized_query: str, query_terms: set[str], candidate: str
         return 100.0
     if normalized_query in normalized_candidate:
         return 85.0
-    if query_terms:
-        candidate_terms = set(normalized_candidate.split())
-        return 100.0 * (len(query_terms & candidate_terms) / len(query_terms))
-    return 0.0
+    return _term_overlap_score(query_terms, normalized_candidate)
+
+
+def _term_overlap_score(query_terms: set[str], normalized_candidate: str) -> float:
+    if not query_terms:
+        return 0.0
+    candidate_terms = set(normalized_candidate.split())
+    return 100.0 * (len(query_terms & candidate_terms) / len(query_terms))

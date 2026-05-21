@@ -524,25 +524,25 @@ class TestMemoryWorkflow:
             evidence="",
         )
 
-    def test_skips_short_reply(self) -> None:
+    def test_skips_empty_exchange(self) -> None:
         memory = MagicMock()
         schedule_memory_extraction(
             config=MagicMock(),
             memory=memory,
-            user_input="question",
-            reply="short",
+            user_input="",
+            reply="",
             evidence="",
         )
-        # No thread should be started for short replies
+        # No thread should be started for empty exchanges
 
-    def test_launches_extraction_for_long_reply(self) -> None:
+    def test_launches_extraction_for_non_empty_exchange(self) -> None:
         memory = MagicMock()
         with patch("hephaistos.memory.workflow.extract_and_store", return_value=3) as mock_extract:
             schedule_memory_extraction(
                 config=MagicMock(),
                 memory=memory,
                 user_input="question",
-                reply="a" * 200,
+                reply="short",
                 evidence="some evidence",
             )
             # Give the daemon thread time to run

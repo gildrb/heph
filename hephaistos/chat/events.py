@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+
+_DECORATIVE_SYMBOL_RE = re.compile(
+    "[\U0001f000-\U0001faff\U00002600-\U000027bf\U0000fe0f\U0000200d]"
+)
+
+
+def strip_decorative_symbols(text: str) -> str:
+    """Remove emoji-style decorations from assistant-visible text."""
+    return _DECORATIVE_SYMBOL_RE.sub("", text)
 
 
 @dataclass(frozen=True, slots=True)
 class AssistantDeltaEvent:
     delta: str
     kind: str = field(default="assistant_delta", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "delta", strip_decorative_symbols(self.delta))
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +70,9 @@ class TurnCompleteEvent:
     tokens_remaining: int
     kind: str = field(default="turn_complete", init=False)
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "full_text", strip_decorative_symbols(self.full_text))
+
 
 @dataclass(frozen=True, slots=True)
 class NoticeEvent:
@@ -80,16 +96,32 @@ TurnEvent = (
 def render_turn_event(event: TurnEvent) -> str:
     if isinstance(event, AssistantDeltaEvent):
         return event.delta
-    if isinstance(event, ToolCallEvent):
-        return f"\n{event.display}\n"
-    if isinstance(event, ToolResultEvent):
-        return f"{event.summary}\n"
-    if isinstance(event, MaterialOperationEvent):
-        return f"{event.message}\n"
+    if isinstance(event, NoticeEvent):
+        return _render_notice(event)
+    if isinstance(event, ToolCallEvent | ToolResultEvent | MaterialOperationEvent):
+        return _render_display_event(event)
     if isinstance(event, CompactRequestEvent | TurnCompleteEvent):
         return ""
-    if event.code in {"model_request", "model_delta", "model_complete"}:
+    return ""
+
+
+def _render_notice(event: NoticeEvent) -> str:
+    if event.code in {
+        "model_request",
+        "model_delta",
+        "model_complete",
+    }:
         return ""
     if event.code == "verification":
         return f"\n{event.message}\n"
     return f"\n[{event.message}]\n"
+
+
+def _render_display_event(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent,
+) -> str:
+    if isinstance(event, ToolCallEvent):
+        return f"\n{event.display}\n"
+    if isinstance(event, ToolResultEvent):
+        return f"{event.summary}\n"
+    return f"{event.message}\n"

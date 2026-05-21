@@ -14,11 +14,11 @@ from hephaistos.rag import load_or_build
 from hephaistos.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
-    GroundedStudyQuestion,
+    GroundedQuestion,
     build_course_knowledge_graph,
     extract_academic_items,
-    generate_grounded_study_questions,
-    grounded_study_question_quality_issues,
+    generate_grounded_questions,
+    grounded_question_quality_issues,
 )
 
 
@@ -148,7 +148,7 @@ def run_benchmark(
     if not cases:
         raise ValueError("academic item benchmark dataset does not contain any cases")
     items = extract_academic_items(load_or_build(armory_path).all_chunks)
-    questions = generate_grounded_study_questions(
+    questions = generate_grounded_questions(
         build_course_knowledge_graph(items),
         limit_per_concept=8,
     )
@@ -213,18 +213,18 @@ def _evaluate_case(
     )
 
 
-def _question_quality_failures(questions: Sequence[GroundedStudyQuestion]) -> tuple[str, ...]:
+def _question_quality_failures(questions: Sequence[GroundedQuestion]) -> tuple[str, ...]:
     failures: list[str] = []
     for index, question in enumerate(questions, start=1):
         failures.extend(
             f"q{index}:{question.question_type}:{question.concept}: {issue}"
-            for issue in grounded_study_question_quality_issues(question)
+            for issue in grounded_question_quality_issues(question)
         )
     return tuple(failures)
 
 
-def _has_canonical_source_label(question: GroundedStudyQuestion) -> bool:
-    issues = grounded_study_question_quality_issues(question)
+def _has_canonical_source_label(question: GroundedQuestion) -> bool:
+    issues = grounded_question_quality_issues(question)
     return (
         "missing canonical source label" not in issues
         and "source label contains metadata or internal source wording" not in issues

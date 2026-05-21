@@ -21,8 +21,8 @@ from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
+from hephaistos.providers.registry import ModelInfo, get_registry
 from hephaistos.runtime import ChatConfig, Conversation
-from hephaistos.study import StudyAutonomyMode
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
@@ -80,7 +80,7 @@ def _plain_session() -> ChatSession:
 
 
 def _mark_active_turn(
-    app: tui.HephaistosTui,
+    app: tui.HephTui,
     session: ChatSession | None = None,
 ) -> threading.Event:
     active_session = session or app.session
@@ -133,11 +133,11 @@ def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())
 
-    assert status == "Heph armory none model test-model mode guided"
+    assert status == "Heph armory none model test-model reasoning low"
     assert "Heph" in status
     assert "test-model" in status
     assert "armory" in status
-    assert "mode guided" in status
+    assert " mode " not in status
     assert "api" not in status
     assert "materials" not in status
     assert "enter" not in status
@@ -153,43 +153,89 @@ def test_session_status_omits_api_badge_for_keyless_provider() -> None:
     assert "missing" not in status
 
 
-def test_shift_tab_cycles_study_modes() -> None:
+def test_shift_tab_opens_reasoning_level_control(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
+    monkeypatch.setattr(
+        tui,
+        "prefetch_provider_model_catalogs",
+        lambda _config, **_kwargs: None,
+    )
     session = _plain_session()
-    app = tui.HephaistosTui(
+    session.config.model = "reasoning-model"
+    get_registry().register(
+        ModelInfo(
+            "reasoning-model",
+            "custom",
+            "Reasoning Model",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high", "xhigh"),
+        )
+    )
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_mode_cycle() -> None:
+    async def check_reasoning_cycle() -> None:
         async with typed_app.run_test(size=(100, 20)) as pilot:
-            assert session.study_state.autonomy_mode is StudyAutonomyMode.GUIDED
-
             await pilot.press("shift+tab")
             await pilot.pause()
-            assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-            assert session.study_state.autopilot_session_type == "general"
-            assert "mode autopilot" in tui._status_lines(session)
-            assert [entry.content for entry in app.state.transcript] == ["Mode set to autopilot."]
+            assert session.config.reasoning_level == "medium"
+            assert " mode " not in tui._status_lines(session)
+            assert "reasoning medium" in tui._status_lines(session)
+            assert [entry.content for entry in app.state.transcript] == ["Reasoning medium."]
 
+    asyncio.run(check_reasoning_cycle())
+
+
+def test_shift_tab_replaces_reasoning_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setattr(
+        tui,
+        "prefetch_provider_model_catalogs",
+        lambda _config, **_kwargs: None,
+    )
+    session = _plain_session()
+    session.config.model = "reasoning-model-2"
+    get_registry().register(
+        ModelInfo(
+            "reasoning-model-2",
+            "custom",
+            "Reasoning Model 2",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high"),
+        )
+    )
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_reasoning_notice_replacement() -> None:
+        async with typed_app.run_test(size=(100, 20)) as pilot:
+            await pilot.press("shift+tab")
             await pilot.press("shift+tab")
             await pilot.pause()
-            assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
-            assert session.study_state.autopilot_session_type == ""
-            assert "mode manual" in tui._status_lines(session)
-            assert [entry.content for entry in app.state.transcript] == ["Mode set to manual."]
+            assert session.config.reasoning_level == "high"
+            assert [entry.content for entry in app.state.transcript] == ["Reasoning high."]
 
-            await pilot.press("shift+tab")
-            await pilot.pause()
-            assert session.study_state.autonomy_mode is StudyAutonomyMode.GUIDED
-            assert "mode guided" in tui._status_lines(session)
-            assert [entry.content for entry in app.state.transcript] == ["Mode set to guided."]
-
-    asyncio.run(check_mode_cycle())
+    asyncio.run(check_reasoning_notice_replacement())
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,7 +269,7 @@ def test_footer_hints_show_escape_cancel_and_ctrl_c_exit_when_busy() -> None:
 
 
 def test_ctrl_c_binding_exits_tui() -> None:
-    binding_actions = {binding.key: binding.action for binding in tui.HephaistosTui.BINDINGS}
+    binding_actions = {binding.key: binding.action for binding in tui.HephTui.BINDINGS}
 
     assert binding_actions["ctrl+c"] == "quit"
 
@@ -299,7 +345,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
     palette = tui.current_palette()
 
     labelled_texts = (
-        (tui._status_text(session), ("armory", "model", "mode")),
+        (tui._status_text(session), ("armory", "model")),
         (tui._info_panel_default_text(session), ("materials", "time", "next")),
         (
             tui._footer_hints_text(session),
@@ -389,11 +435,11 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             for span in status.spans
             if span.start <= brand_start and span.end >= brand_start + len("Heph")
         ]
-        mode_start = status.plain.index("guided")
-        mode_styles = [
+        reasoning_start = status.plain.index("reasoning")
+        reasoning_styles = [
             str(span.style)
             for span in status.spans
-            if span.start <= mode_start and span.end >= mode_start + len("guided")
+            if span.start <= reasoning_start and span.end >= reasoning_start + len("reasoning")
         ]
         shortcut_start = hints.plain.index("ctrl+p")
         shortcut_styles = [
@@ -408,7 +454,9 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             if span.start <= title_start and span.end >= title_start + len("Session")
         ]
 
-        for styles in (mode_styles, title_styles):
+        assert reasoning_styles == [palette.text_secondary]
+        assert not any(palette.action_primary_bg in style for style in reasoning_styles)
+        for styles in (title_styles,):
             assert any(palette.text_primary in style for style in styles)
             assert not any(palette.action_primary_bg in style for style in styles)
         assert brand_styles == [f"bold {palette.brand_primary}"]
@@ -556,7 +604,7 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -653,7 +701,7 @@ def test_composer_mouse_drag_uses_screen_text_selection() -> None:
     if tui.Input is None or tui.Static is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
@@ -689,7 +737,7 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
 
     session = _plain_session()
     session.source_files = ("materials/enabled.pdf",)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
@@ -725,7 +773,7 @@ def test_mouse_selection_skips_info_panel_leading_indentation() -> None:
 
     session = _plain_session()
     session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(9))
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
@@ -799,7 +847,7 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -854,7 +902,7 @@ def test_transcript_pads_assistant_replies_but_not_system_messages() -> None:
         pytest.skip("Textual is not installed")
 
     state = tui._TuiRuntimeState(armory_home_shown=True)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         state,
         tui.current_palette(),
@@ -888,7 +936,7 @@ def test_activity_trace_lines_are_muted_but_readable() -> None:
         pytest.skip("Textual is not installed")
 
     state = tui._TuiRuntimeState(armory_home_shown=True)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         state,
         tui.current_palette(),
@@ -1006,7 +1054,7 @@ def test_materials_current_label_matches_other_state_labels() -> None:
 
     session = _plain_session()
     session.source_files = ("materials/biology.pdf",)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1034,7 +1082,7 @@ def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
     session = _plain_session()
     session.source_files = ("materials/biology.pdf",)
     session.disabled_source_files.add("materials/biology.pdf")
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1056,7 +1104,7 @@ def test_materials_mouse_selection_preserves_state_colours() -> None:
     session = _plain_session()
     session.source_files = ("materials/enabled.pdf", "materials/disabled.pdf")
     session.disabled_source_files.add("materials/disabled.pdf")
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
@@ -1252,7 +1300,7 @@ def test_composer_text_is_inset_inside_full_width_chatbox() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(armory_home_shown=True),
         tui.current_palette(),
@@ -1316,7 +1364,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1362,7 +1410,7 @@ def test_compact_terminal_collapses_completion_stack_to_footer_row() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1390,7 +1438,7 @@ def test_transcript_overflow_scrolls_without_moving_composer() -> None:
     if tui.Input is None or tui.RichLog is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1510,7 +1558,7 @@ def test_info_separator_is_not_rendered() -> None:
     if tui.Input is None or tui.Static is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1544,7 +1592,7 @@ def test_shell_info_panel_seam_has_no_black_background() -> None:
     if tui.Input is None or tui.Static is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -1768,7 +1816,7 @@ def test_run_tui_appends_pending_command_output_to_transcript(
     def fake_load_history(_cls: type[tui.InputHistory], _path: Path) -> tui.InputHistory:
         return tui.InputHistory()
 
-    monkeypatch.setattr(tui, "HephaistosTui", FakeTui)
+    monkeypatch.setattr(tui, "HephTui", FakeTui)
     monkeypatch.setattr(tui, "save_on_exit", fake_save_on_exit)
     monkeypatch.setattr(tui.InputHistory, "load", classmethod(fake_load_history))
 
@@ -1801,7 +1849,7 @@ def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch)
     def fake_load_history(_cls: type[tui.InputHistory], _path: Path) -> tui.InputHistory:
         return tui.InputHistory()
 
-    monkeypatch.setattr(tui, "HephaistosTui", FakeTui)
+    monkeypatch.setattr(tui, "HephTui", FakeTui)
     monkeypatch.setattr(tui, "save_on_exit", fake_save_on_exit)
     monkeypatch.setattr(tui.InputHistory, "load", classmethod(fake_load_history))
     monkeypatch.setattr(
@@ -1884,7 +1932,8 @@ def test_status_lines_truncates_long_armory_path() -> None:
     status = tui._status_lines(session)
 
     assert "armory ...qa-status/nested/folder/very-long-armory-name" in status
-    assert "model test-model mode guided" in status
+    assert "model test-model" in status
+    assert " mode " not in status
 
 
 def test_status_lines_shows_none_when_no_armory() -> None:
@@ -1896,42 +1945,21 @@ def test_status_lines_shows_none_when_no_armory() -> None:
     assert "armory none" in status
 
 
-def test_status_lines_shows_active_study_mode() -> None:
+def test_status_lines_omits_removed_learning_mode() -> None:
     session = _plain_session()
-    session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
 
     status = tui._status_lines(session)
 
-    assert "mode autopilot" in status
+    assert " mode " not in status
 
 
-@pytest.mark.parametrize(
-    ("mode", "expected_role", "expected_weight"),
-    [
-        (StudyAutonomyMode.MANUAL, "text_muted", ""),
-        (StudyAutonomyMode.GUIDED, "text_primary", ""),
-        (StudyAutonomyMode.AUTOPILOT, "status_error_text", "bold"),
-    ],
-)
-def test_status_text_colours_active_study_mode(
-    mode: StudyAutonomyMode,
-    expected_role: str,
-    expected_weight: str,
-) -> None:
+def test_status_text_omits_removed_learning_mode() -> None:
     session = _plain_session()
-    session.study_state.autonomy_mode = mode
 
     status = tui._status_text(session)
-    start = status.plain.index(mode.value, status.plain.index("mode "))
-    end = start + len(mode.value)
-    mode_styles = [
-        str(span.style).lower() for span in status.spans if span.start <= start and span.end >= end
-    ]
-    expected_color = getattr(tui.current_palette(), expected_role)
 
-    assert any(expected_color.lower() in style for style in mode_styles)
-    if expected_weight:
-        assert any(expected_weight in style for style in mode_styles)
+    assert " mode " not in status.plain
+    assert "autopilot" not in status.plain
 
 
 def test_run_tui_for_path_none_delegates_to_run_tui(
@@ -2021,14 +2049,14 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     )
 
 
-def test_armory_command_mode_validates_supported_subcommands() -> None:
-    assert tui._armory_command_mode("/armory") == "manage"
-    assert tui._armory_command_mode("/armory menu") == "manage"
-    assert tui._armory_command_mode("/armory open") == "open"
-    assert tui._armory_command_mode("/armory create") == "create"
-    assert tui._armory_command_mode("/armory new") == "create"
+def test_armory_command_flow_validates_supported_subcommands() -> None:
+    assert tui._armory_command_flow("/armory") == "manage"
+    assert tui._armory_command_flow("/armory menu") == "manage"
+    assert tui._armory_command_flow("/armory open") == "open"
+    assert tui._armory_command_flow("/armory create") == "create"
+    assert tui._armory_command_flow("/armory new") == "create"
 
-    assert tui._armory_command_mode("/armory detach") is None
+    assert tui._armory_command_flow("/armory detach") is None
 
 
 def test_armory_browser_entries_include_recent_and_missing_armories(
@@ -2074,7 +2102,7 @@ def test_ctrl_p_opens_command_palette() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2103,7 +2131,7 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2126,13 +2154,13 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
     asyncio.run(check_settings_menu())
 
 
-def test_overview_topic_reply_opens_arrow_key_study_flow(
+def test_overview_topic_reply_opens_arrow_key_material_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2148,11 +2176,11 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
                 "- Protein Folding [E2]\n\n"
                 "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
                 "Recommended options:\n"
-                "- Start with a guided explanation of Enzyme Kinetics [E1].\n"
+                "- Start with an explanation of Enzyme Kinetics [E1].\n"
                 "- Practice one exam-style or exercise question on Protein Folding [E2].\n"
                 "- Turn the selected topic into a quick recall drill."
             )
-            app._open_study_topic_flow(
+            app._open_material_topic_flow(
                 [
                     ("Enzyme Kinetics", "enzyme reaction rates"),
                     ("Protein Folding", "how proteins take shape"),
@@ -2160,7 +2188,7 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             )
             await pilot.pause()
 
-            assert app._inline_flow.name == "study_topic"
+            assert app._inline_flow.name == "material_topic"
             assert app._inline_flow.step == "topic"
             assert app._inline_flow.options[-1] == (
                 "Ask something else",
@@ -2221,7 +2249,7 @@ def test_overview_recommended_option_submits_direct_prompt(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2232,7 +2260,7 @@ def test_overview_recommended_option_submits_direct_prompt(
     async def check_recommendation_flow() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_study_topic_flow(
+            app._open_material_topic_flow(
                 [
                     ("Signal Entropy", "uncertainty in signals"),
                     ("Compare Signal Entropy and Carrier Waves", "recommended"),
@@ -2259,13 +2287,13 @@ def test_overview_recommended_option_submits_direct_prompt(
     asyncio.run(check_recommendation_flow())
 
 
-def test_study_topic_menu_custom_prompt_submits_user_text(
+def test_material_topic_menu_custom_prompt_submits_user_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2276,7 +2304,7 @@ def test_study_topic_menu_custom_prompt_submits_user_text(
     async def check_custom_prompt_flow() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_study_topic_flow(
+            app._open_material_topic_flow(
                 [
                     ("Signal Entropy", "uncertainty in signals"),
                     ("Carrier Waves", "signals carrying information"),
@@ -2294,7 +2322,7 @@ def test_study_topic_menu_custom_prompt_submits_user_text(
             await pilot.press("enter")
             await pilot.pause()
 
-            assert app._inline_flow.name == "study_topic"
+            assert app._inline_flow.name == "material_topic"
             assert app._inline_flow.step == "custom_prompt"
 
             composer = app.query_one("#composer", tui.Input)
@@ -2308,13 +2336,13 @@ def test_study_topic_menu_custom_prompt_submits_user_text(
     asyncio.run(check_custom_prompt_flow())
 
 
-def test_inline_study_menu_ignores_stale_completion_candidates(
+def test_inline_material_menu_ignores_stale_completion_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2325,7 +2353,7 @@ def test_inline_study_menu_ignores_stale_completion_candidates(
     async def check_stale_completion_state() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_study_topic_flow(
+            app._open_material_topic_flow(
                 [
                     ("Enzyme Kinetics", "enzyme reaction rates"),
                     ("Protein Folding", "how proteins take shape"),
@@ -2363,7 +2391,7 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
         "- Eigenvalues [E2].\n\n"
         "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
-        "- Start with a guided explanation of Matrix multiplication [E1]."
+        "- Start with an explanation of Matrix multiplication [E1]."
     )
 
     assert overview_topic_options(reply) == [
@@ -2379,7 +2407,7 @@ def test_overview_topic_options_accepts_shell_menu_hint() -> None:
         "These are the topics I found in the material [E1][E2].\n"
         "- Signal entropy [E1].\n"
         "- Carrier waves [E2].\n"
-        "Use the menu to choose one cited topic for guided review next."
+        "Use the menu to choose one cited topic for review."
     )
 
     assert overview_topic_options(reply) == [
@@ -2406,7 +2434,7 @@ def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> Non
         "- Graph algorithms [E1].\n"
         "- Recurrence relations [E2].\n\n"
         "Recommended options:\n"
-        "- Start with a guided explanation of Graph algorithms [E1]."
+        "- Start with an explanation of Graph algorithms [E1]."
     )
 
     menu = overview_topic_menu(reply)
@@ -2450,7 +2478,7 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
         "- Carrier Waves [E13]\n\n"
         "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
-        "- Start with a guided explanation of Signal Entropy [E11].\n"
+        "- Start with an explanation of Signal Entropy [E11].\n"
         "- Practice one exam-style or exercise question on Carrier Waves [E13].\n"
         "- Compare Signal Entropy and Carrier Waves so you can separate the ideas [E13]."
     )
@@ -2484,7 +2512,7 @@ def test_overview_topic_options_uses_specific_fallback_descriptions() -> None:
     reply = (
         "These are the topics I found in the material:\n"
         "- Byzantine Consensus [E1].\n"
-        "Use the menu to choose one cited topic for guided review next."
+        "Use the menu to choose one cited topic for review."
     )
 
     assert overview_topic_options(reply) == [
@@ -2516,7 +2544,7 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2560,7 +2588,7 @@ def test_settings_inline_escape_returns_from_submenu() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2606,7 +2634,7 @@ def test_settings_inline_toggles_privacy_and_theme(
     monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2654,7 +2682,7 @@ def test_settings_inline_keeps_selected_row_after_changes(
     monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2712,7 +2740,7 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
     monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", fake_retrieve_key)
     monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", fake_get_volatile)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2770,7 +2798,7 @@ def test_logout_inline_names_environment_credentials_when_none_clearable(
     monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", lambda _slug: None)
     monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", lambda _slug: None)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2818,7 +2846,7 @@ def test_logout_inline_clears_selected_credential_kind_for_duplicate_slug(
     )
     monkeypatch.setattr("hephaistos.tui.inline_flows.clear_key", cleared_keys.append)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2866,7 +2894,7 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
         pytest.skip("Textual is not installed")
     monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2896,7 +2924,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     add_known_armory(armory)
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2920,7 +2948,7 @@ def test_plain_tui_no_armory_question_uses_local_guardrail() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2944,7 +2972,7 @@ def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -2967,7 +2995,7 @@ def test_armory_input_executes_without_user_transcript(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3003,7 +3031,7 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
 
     session = _plain_session()
     session.armory_path = armory
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3041,7 +3069,7 @@ def test_sessions_command_defaults_to_filtered_resume_menu(tmp_path: Path) -> No
 
     session = _plain_session()
     session.armory_path = armory
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3088,7 +3116,7 @@ def test_sessions_command_browses_and_resumes_saved_session_inline(tmp_path: Pat
 
     session = _plain_session()
     session.armory_path = armory
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3119,7 +3147,7 @@ def test_ctrl_a_opens_armory_without_input_home_conflict() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3144,7 +3172,7 @@ def test_ctrl_o_opens_armory_as_tmux_safe_fallback() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3165,7 +3193,7 @@ def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3194,7 +3222,7 @@ def test_command_input_executes_without_user_transcript(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3232,7 +3260,7 @@ def test_busy_submit_routes_commands_without_steering(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3316,7 +3344,7 @@ def test_busy_materials_and_settings_remain_interactive() -> None:
     session = _plain_session()
     session.source_files = ("materials/biology.pdf",)
     session.source_file_count = 1
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3354,7 +3382,7 @@ def test_inline_command_output_has_command_boundary() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3390,7 +3418,7 @@ def test_materials_inline_toggles_rag_sources() -> None:
     session = _plain_session()
     session.source_files = ("materials/biology.pdf", "materials/calculus.md")
     session.source_file_count = 2
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3429,7 +3457,7 @@ def test_materials_inline_splits_long_lists_into_two_columns() -> None:
     session = _plain_session()
     session.source_files = tuple(f"materials/week-{index:02}.md" for index in range(30))
     session.source_file_count = len(session.source_files)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3463,7 +3491,7 @@ def test_materials_mouse_click_toggles_single_source() -> None:
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(6))
     session.source_file_count = len(session.source_files)
     session.disabled_source_files.update(session.source_files[:5])
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3497,7 +3525,7 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
 
     session = _plain_session()
     session.armory_path = Path.home()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3540,7 +3568,7 @@ def test_transcript_scrolls_to_latest_entry_after_long_output() -> None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3566,7 +3594,7 @@ def test_transcript_does_not_follow_new_activity_while_reviewing_history() -> No
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3598,7 +3626,7 @@ def test_transcript_scrolls_to_final_line_of_multiline_command_output() -> None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3638,7 +3666,7 @@ def test_multiline_notice_does_not_emit_broken_markup() -> None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3668,7 +3696,7 @@ def test_help_executes_inline_without_restarting_tui(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3703,7 +3731,7 @@ def test_armory_inline_composer_filters_without_chat_transcript(
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
     _make_child = tmp_path / "biology"
     _make_child.mkdir()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3732,7 +3760,7 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(
         pytest.skip("Textual is not installed")
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3761,7 +3789,7 @@ def test_armory_inline_create_starts_in_default_armory_home(
 
     default_home = Path.home() / ".armories"
     monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3795,7 +3823,7 @@ def test_armory_inline_place_entries_stay_inside_armory_home(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3826,7 +3854,7 @@ def test_armory_inline_left_does_not_navigate(
     child = armory_home / "child"
     child.mkdir(parents=True)
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3859,7 +3887,7 @@ def test_armory_inline_rejects_open_outside_armory_home(
     armory_home.mkdir()
     initialize(outside)
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3885,7 +3913,7 @@ def test_armory_inline_create_rejects_existing_folder(
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
     (tmp_path / "existing").mkdir()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3916,7 +3944,7 @@ def test_armory_inline_create_rejects_path_escape(
         pytest.skip("Textual is not installed")
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3943,7 +3971,7 @@ def test_armory_inline_escape_clears_filter_then_exits(tmp_path: Path) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -3976,7 +4004,7 @@ def test_armory_inline_escape_cancels_create_then_exits(
         pytest.skip("Textual is not installed")
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4016,7 +4044,7 @@ def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4040,7 +4068,7 @@ def test_armory_inline_app_focus_recovers_composer_control(tmp_path: Path) -> No
     if tui.Input is None or tui.events is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4064,7 +4092,7 @@ def test_armory_inline_click_keeps_composer_as_control(tmp_path: Path) -> None:
         pytest.skip("Textual is not installed")
 
     (tmp_path / "math").mkdir()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4088,7 +4116,7 @@ def test_armory_inline_transparent_surface_does_not_paint_black(tmp_path: Path) 
     if tui.Input is None or tui.Strip is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4118,7 +4146,7 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4134,10 +4162,10 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
             await pilot.pause()
             header = app.query_one("#armory-header", tui.Static)
             focus_hint = app.query_one("#armory-pane-hint", tui.Static)
-            mode_hint = app.query_one("#armory-mode-hint", tui.Static)
+            flow_hint = app.query_one("#armory-flow-hint", tui.Static)
             preview = app.query_one("#armory-preview-inline", tui.Static)
             assert "no-such-folder" in str(header.render())
-            assert "enter open" in str(mode_hint.render())
+            assert "enter open" in str(flow_hint.render())
             # pane hint is now cleared (empty)
             assert focus_hint is not None
             assert "No matches" in str(preview.render())
@@ -4156,7 +4184,7 @@ def test_armory_inline_preserves_selection_across_refresh(
     beta = tmp_path / "beta"
     alpha.mkdir()
     beta.mkdir()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4183,7 +4211,7 @@ def test_armory_inline_open_mode_disables_new_shortcut() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4204,7 +4232,7 @@ def test_armory_inline_create_entry_uses_composer(tmp_path: Path) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4232,7 +4260,7 @@ def test_handle_armory_browser_cancel_keeps_current_session() -> None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4258,7 +4286,7 @@ def test_handle_armory_browser_rejects_invalid_directory(
         pytest.skip("Textual is not installed")
 
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4286,7 +4314,7 @@ def test_armory_inline_enter_opens_highlighted_armory(
     armory_path = tmp_path / "study"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4323,7 +4351,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
     new_session = _plain_session()
     new_session.armory_path = armory_path
     new_session.source_file_count = 1
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4365,7 +4393,7 @@ def test_busy_turn_allows_switching_armories_and_starting_another_prompt(
     session_b = _configured_status_session()
     session_b.session_id = "session-beta"
     session_b.armory_path = armory_b
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session_a,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4429,7 +4457,7 @@ def test_finished_background_turn_is_restored_when_reopening_armory(
     session_b = _configured_status_session()
     session_b.session_id = "session-beta"
     session_b.armory_path = armory_b
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session_b,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4469,7 +4497,7 @@ def test_armory_inline_marks_armories_with_running_turns(
     initialize(armory)
     session = _plain_session()
     session.armory_path = armory
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         session,
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4652,7 +4680,7 @@ def test_tab_applies_highlighted_completion_in_composer() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4681,7 +4709,7 @@ def test_enter_submits_highlighted_completion(monkeypatch: pytest.MonkeyPatch) -
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4713,7 +4741,7 @@ def test_clicking_command_completion_executes_command(monkeypatch: pytest.Monkey
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4746,7 +4774,7 @@ def test_hovering_command_completion_moves_active_row() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4788,7 +4816,7 @@ def test_hovering_command_completion_does_not_rebuild_menu(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4825,7 +4853,7 @@ def test_hovering_inline_menu_does_not_rebuild_menu(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4865,7 +4893,7 @@ def test_models_completion_menu_uses_readable_columns() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _keyless_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4902,7 +4930,7 @@ def test_models_command_shows_plain_suggestion() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _keyless_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4935,7 +4963,7 @@ def test_command_completion_selected_text_uses_brand_without_recoloring_descript
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -4978,7 +5006,7 @@ def test_busy_footer_keeps_exit_hint_with_completion_menu_visible() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5007,7 +5035,7 @@ def test_escape_cancels_busy_turn() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5135,7 +5163,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5190,7 +5218,7 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5228,7 +5256,7 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
 
 
 def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5257,7 +5285,7 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5288,7 +5316,7 @@ def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPa
 def test_external_command_indents_streamed_activity_lines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app = tui.HephaistosTui(
+    app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
         tui.current_palette(),
@@ -5320,53 +5348,3 @@ def test_external_command_indents_streamed_activity_lines(
             "142 character(s), 0 tool call(s) in 3.3s."
         ),
     ]
-
-
-def test_autopilot_command_resend_renders_reply_as_assistant(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    armory = tmp_path / "study"
-    initialize(armory)
-    session = _configured_status_session()
-    session.armory_path = armory
-    app = tui.HephaistosTui(
-        session,
-        tui._TuiRuntimeState(history=["/autopilot"]),
-        tui.current_palette(),
-    )
-    calls: list[tuple[str, tuple[object, ...]]] = []
-    seen: dict[str, str] = {}
-
-    def fake_call_from_thread(fn: object, *args: object) -> None:
-        name = getattr(fn, "__name__", fn.__class__.__name__)
-        calls.append((name, args))
-
-    def fake_run_tui_turn(
-        _session: ChatSession,
-        user_input: str,
-        _abort_event: object,
-        *,
-        on_reply: Callable[[str], None],
-        on_notice: Callable[[str], None],
-        on_error: Callable[[str], None],
-        on_finish: Callable[[], None],
-        on_progress: Callable[[str], None] | None = None,
-        on_activity: Callable[[str], None] | None = None,
-    ) -> None:
-        del on_notice, on_error, on_progress, on_activity
-        seen["user_input"] = user_input
-        on_reply("State the definition of a sequence.")
-        on_finish()
-
-    monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
-    monkeypatch.setattr(tui, "run_tui_turn", fake_run_tui_turn)
-
-    app._run_external_command("/autopilot")
-
-    notices = [args[0] for name, args in calls if name == "_append_notice"]
-    replies = [args[0] for name, args in calls if name == "_append_assistant_reply"]
-    assert any("Autopilot general session started" in str(notice) for notice in notices)
-    assert replies == ["State the definition of a sequence."]
-    assert seen["user_input"].startswith("Start an autopilot session")
-    assert all("Heph:" not in str(args) for _, args in calls)

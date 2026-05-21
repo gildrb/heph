@@ -58,17 +58,27 @@ class VocabDeck:
 
 
 def _detect_vocab_columns(headers: list[str]) -> tuple[int, int] | None:
-    front_idx: int | None = None
-    back_idx: int | None = None
-    for i, h in enumerate(headers):
-        norm = h.strip().lower().replace(" ", "_").replace("-", "_")
-        if front_idx is None and norm in _FRONT_ALIASES:
-            front_idx = i
-        elif back_idx is None and norm in _BACK_ALIASES:
-            back_idx = i
+    normalized = [_normalize_header(header) for header in headers]
+    front_idx = _first_matching_column(normalized, _FRONT_ALIASES)
+    back_idx = _first_matching_column(normalized, _BACK_ALIASES)
     if front_idx is not None and back_idx is not None:
         return front_idx, back_idx
     return None
+
+
+def _normalize_header(header: str) -> str:
+    return header.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _first_matching_column(headers: list[str], aliases: set[str]) -> int | None:
+    return next((index for index, header in enumerate(headers) if header in aliases), None)
+
+
+def _table_cells(line: str) -> list[str] | None:
+    row_match = _TABLE_ROW_RE.match(line.strip())
+    if row_match is None:
+        return None
+    return [cell.strip() for cell in row_match.group(1).split("|")]
 
 
 def parse_vocab_file(file_path: Path, armory_root: Path) -> list[VocabCard]:
@@ -84,43 +94,11 @@ def parse_vocab_file(file_path: Path, armory_root: Path) -> list[VocabCard]:
     rel = str(file_path.relative_to(armory_root))
     cards: list[VocabCard] = []
     lines = text.splitlines()
-    i = 0
+    line_index = 0
 
-    while i < len(lines):
-        # Look for a table header row.
-        row_match = _TABLE_ROW_RE.match(lines[i].strip())
-        if not row_match:
-            i += 1
-            continue
-
-        header_cells = [c.strip() for c in row_match.group(1).split("|")]
-        col_indices = _detect_vocab_columns(header_cells)
-        if col_indices is None:
-            i += 1
-            continue
-
-        front_idx, back_idx = col_indices
-
-        # Next line must be a separator.
-        i += 1
-        if i >= len(lines):
-            break
-        if not _TABLE_SEP_RE.match(lines[i].strip()):
-            continue
-        i += 1
-
-        # Read data rows.
-        while i < len(lines):
-            m = _TABLE_ROW_RE.match(lines[i].strip())
-            if not m:
-                break
-            cells = [c.strip() for c in m.group(1).split("|")]
-            if front_idx < len(cells) and back_idx < len(cells):
-                front = cells[front_idx]
-                back = cells[back_idx]
-                if front and back:
-                    cards.append(VocabCard(front=front, back=back, source_file=rel))
-            i += 1
+    while line_index < len(lines):
+        table_cards, line_index = _parse_vocab_table(lines, line_index, rel)
+        cards.extend(table_cards)
 
     if cards:
         _log.info(
@@ -128,6 +106,74 @@ def parse_vocab_file(file_path: Path, armory_root: Path) -> list[VocabCard]:
             extra={"fields": {"file": rel, "cards": len(cards)}},
         )
     return cards
+
+
+def _parse_vocab_table(
+    lines: list[str],
+    header_index: int,
+    source_file: str,
+) -> tuple[list[VocabCard], int]:
+    header_cells = _table_cells(lines[header_index])
+    if header_cells is None:
+        return [], header_index + 1
+
+    col_indices = _detect_vocab_columns(header_cells)
+    if col_indices is None:
+        return [], header_index + 1
+
+    row_index = header_index + 1
+    if row_index >= len(lines):
+        return [], row_index
+    if not _TABLE_SEP_RE.match(lines[row_index].strip()):
+        return [], row_index
+
+    return _parse_vocab_rows(
+        lines,
+        row_index + 1,
+        source_file=source_file,
+        front_idx=col_indices[0],
+        back_idx=col_indices[1],
+    )
+
+
+def _parse_vocab_rows(
+    lines: list[str],
+    row_index: int,
+    *,
+    source_file: str,
+    front_idx: int,
+    back_idx: int,
+) -> tuple[list[VocabCard], int]:
+    cards: list[VocabCard] = []
+    while row_index < len(lines):
+        cells = _table_cells(lines[row_index])
+        if cells is None:
+            break
+        if card := _card_from_cells(
+            cells,
+            front_idx=front_idx,
+            back_idx=back_idx,
+            source_file=source_file,
+        ):
+            cards.append(card)
+        row_index += 1
+    return cards, row_index
+
+
+def _card_from_cells(
+    cells: list[str],
+    *,
+    front_idx: int,
+    back_idx: int,
+    source_file: str,
+) -> VocabCard | None:
+    if front_idx >= len(cells) or back_idx >= len(cells):
+        return None
+    front = cells[front_idx]
+    back = cells[back_idx]
+    if not front or not back:
+        return None
+    return VocabCard(front=front, back=back, source_file=source_file)
 
 
 def scan_armory(armory_path: Path) -> VocabDeck:

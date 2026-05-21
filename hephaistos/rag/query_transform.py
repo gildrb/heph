@@ -296,6 +296,20 @@ class MultiQueryTransformer:
             _log.debug("multi-query: no prompt function, returning original query")
             return [query]
 
+        response = self._generate_response(query)
+        if not response:
+            return [query]
+
+        cleaned = self._clean_alternatives(response)
+        if not cleaned:
+            return [query]
+        queries = [query, *cleaned]
+        self._log_generated_alternatives(query, cleaned, queries)
+        return queries
+
+    def _generate_response(self, query: str) -> str | None:
+        if self._prompt_fn is None:
+            return None
         prompt = f"{_MULTI_QUERY_PROMPT}\n\nOriginal query: {query}"
         try:
             response = self._prompt_fn(prompt)
@@ -304,23 +318,27 @@ class MultiQueryTransformer:
                 "multi-query generation failed, falling back to original query",
                 extra={"fields": {"error": str(exc)}},
             )
-            return [query]
+            return None
+        return response.strip() if response and response.strip() else None
 
-        if not response or not response.strip():
-            return [query]
-        alternatives = [line.strip() for line in response.strip().splitlines() if line.strip()]
-        cleaned: list[str] = []
-        for alt in alternatives:
-            # Strip leading numbering like "1. " or "- " or "* "
-            alt = re.sub(r"^[\d\-\*]+\.\s*", "", alt).strip()
-            if alt and len(alt) > 5:  # skip very short fragments
-                cleaned.append(alt)
-        cleaned = cleaned[: self._max_alternatives]
+    def _clean_alternatives(self, response: str) -> list[str]:
+        alternatives = [line.strip() for line in response.splitlines() if line.strip()]
+        return [
+            cleaned
+            for alternative in alternatives
+            if len(cleaned := self._clean_alternative(alternative)) > 5
+        ][: self._max_alternatives]
 
-        if not cleaned:
-            return [query]
-        queries = [query, *cleaned]
+    @staticmethod
+    def _clean_alternative(alternative: str) -> str:
+        return re.sub(r"^[\d\-\*]+\.\s*", "", alternative).strip()
 
+    @staticmethod
+    def _log_generated_alternatives(
+        query: str,
+        cleaned: list[str],
+        queries: list[str],
+    ) -> None:
         _log.debug(
             "multi-query: generated alternatives",
             extra={
@@ -331,8 +349,6 @@ class MultiQueryTransformer:
                 }
             },
         )
-
-        return queries
 
 
 class CompositeTransformer:

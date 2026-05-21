@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hephaistos.chat.automation import event_to_json_object
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -37,3 +38,35 @@ def test_render_turn_event_handles_each_supported_event_type() -> None:
     assert render_turn_event(TurnCompleteEvent("done", 0, 1.0, "stop", 100)) == ""
     assert render_turn_event(NoticeEvent("Verified", code="verification")) == "\nVerified\n"
     assert render_turn_event(NoticeEvent("Working")) == "\n[Working]\n"
+
+
+def test_event_to_json_object_uses_public_type_key() -> None:
+    assert event_to_json_object(AssistantDeltaEvent("hello")) == {
+        "type": "assistant_delta",
+        "delta": "hello",
+    }
+    assert event_to_json_object(ToolCallEvent("1", "bash", {"command": "pwd"}, "$ bash")) == {
+        "type": "tool_call",
+        "call_id": "1",
+        "name": "bash",
+        "arguments": {"command": "pwd"},
+        "display": "$ bash",
+    }
+    assert event_to_json_object(NoticeEvent("Working")) == {
+        "type": "notice",
+        "message": "Working",
+        "code": "notice",
+    }
+
+
+def test_assistant_delta_strips_decorative_symbols() -> None:
+    event = AssistantDeltaEvent("Hey! 👋 Use A→B and x².")
+
+    assert event.delta == "Hey!  Use A→B and x²."
+    assert render_turn_event(event) == event.delta
+
+
+def test_turn_complete_strips_decorative_symbols() -> None:
+    event = TurnCompleteEvent("Done ✅", 0, 1.0, "stop", 100)
+
+    assert event.full_text == "Done "

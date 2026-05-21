@@ -14,6 +14,7 @@ from hephaistos.agent.tools import (
     get_handler,
     run_bash,
     run_create_armory,
+    run_memory,
     run_open_material,
     run_search_materials,
     run_validate_armory,
@@ -280,6 +281,48 @@ class TestArmoryTools:
         assert "Prepare the sample" in result.content
         assert "calibration curve" in result.content
 
+    def test_memory_tool_adds_and_reads_armory_memory(self, tmp_path: Path) -> None:
+        run_create_armory(".", workspace=tmp_path)
+
+        added = run_memory(
+            "add",
+            topic="citation style",
+            content="User prefers compact cited answers.",
+            workspace=tmp_path,
+        )
+        read = run_memory("read", query="citation", workspace=tmp_path)
+
+        assert added.success is True
+        assert read.success is True
+        assert "compact cited answers" in read.content
+        assert (tmp_path / ".hephaistos" / "memory.json").is_file()
+
+    def test_memory_tool_replaces_by_unique_substring(self, tmp_path: Path) -> None:
+        run_create_armory(".", workspace=tmp_path)
+        run_memory("add", topic="style", content="Use long answers.", workspace=tmp_path)
+
+        replaced = run_memory(
+            "replace",
+            old_text="long answers",
+            topic="style",
+            content="Use short answers.",
+            workspace=tmp_path,
+        )
+        read = run_memory("read", workspace=tmp_path)
+
+        assert replaced.success is True
+        assert "Use short answers" in read.content
+
+    def test_memory_tool_removes_by_unique_substring(self, tmp_path: Path) -> None:
+        run_create_armory(".", workspace=tmp_path)
+        run_memory("add", topic="tool quirk", content="Always inspect first.", workspace=tmp_path)
+
+        removed = run_memory("remove", old_text="inspect first", workspace=tmp_path)
+        read = run_memory("read", workspace=tmp_path)
+
+        assert removed.success is True
+        assert "inspect first" not in read.content
+
 
 # ---------------------------------------------------------------------------
 # web_fetch
@@ -418,6 +461,7 @@ class TestToolSchemas:
         assert "validate_armory" in names
         assert "search_materials" in names
         assert "open_material" in names
+        assert "memory" in names
 
     def test_web_fetch_handler_registered(self):
         handler = get_handler("web_fetch")
@@ -428,6 +472,7 @@ class TestToolSchemas:
         assert get_handler("validate_armory") is not None
         assert get_handler("search_materials") is not None
         assert get_handler("open_material") is not None
+        assert get_handler("memory") is not None
 
     def test_all_schemas_have_required_fields(self):
         for schema in TOOL_SCHEMAS:

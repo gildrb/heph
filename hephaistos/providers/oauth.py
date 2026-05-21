@@ -376,6 +376,41 @@ def save_credentials(creds: OAuthCredentials) -> None:
 _creds_cache: dict[str, OAuthCredentials] = {}
 
 
+def _credentials_from_entry(
+    provider: str,
+    entry: dict[str, object] | None,
+) -> OAuthCredentials | None:
+    if entry is None or entry.get("type") != "oauth":
+        return None
+
+    access_token = entry.get("access_token", "")
+    refresh_token = entry.get("refresh_token", "")
+    expires_at = entry.get("expires_at", 0.0)
+    account_id = entry.get("account_id")
+    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
+        return None
+    if not isinstance(expires_at, int | float):
+        return None
+    return OAuthCredentials(
+        provider=provider,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=float(expires_at),
+        account_id=account_id if isinstance(account_id, str) else None,
+    )
+
+
+def _refresh_loaded_credentials(creds: OAuthCredentials) -> OAuthCredentials | None:
+    try:
+        return refresh_credentials(creds)
+    except Exception as exc:
+        _log.warning(
+            "OAuth auto-refresh failed",
+            extra={"fields": {"provider": creds.provider, "error": str(exc)}},
+        )
+        return None
+
+
 def load_credentials(
     provider: str,
     *,
@@ -391,40 +426,24 @@ def load_credentials(
             return cached
         if not refresh_expired:
             return None
+        refreshed = _refresh_loaded_credentials(cached)
+        if refreshed is None:
+            return None
+        _creds_cache[provider] = refreshed
+        return refreshed
 
     data = _load_all()
-    entry = data.get(provider)
-    if entry is None or entry.get("type") != "oauth":
+    creds = _credentials_from_entry(provider, data.get(provider))
+    if creds is None:
         return None
-
-    access_token = entry.get("access_token", "")
-    refresh_token = entry.get("refresh_token", "")
-    expires_at = entry.get("expires_at", 0.0)
-    account_id = entry.get("account_id")
-    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
-        return None
-    if not isinstance(expires_at, int | float):
-        return None
-
-    creds = OAuthCredentials(
-        provider=provider,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_at=float(expires_at),
-        account_id=account_id if isinstance(account_id, str) else None,
-    )
 
     if creds.is_expired:
         if not refresh_expired:
             return None
-        try:
-            creds = refresh_credentials(creds)
-        except Exception as exc:
-            _log.warning(
-                "OAuth auto-refresh failed",
-                extra={"fields": {"provider": provider, "error": str(exc)}},
-            )
+        refreshed = _refresh_loaded_credentials(creds)
+        if refreshed is None:
             return None
+        creds = refreshed
 
     _creds_cache[provider] = creds
     return creds

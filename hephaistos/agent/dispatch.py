@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from hephaistos.agent.compact import (
@@ -54,18 +55,19 @@ _MAX_TURNS = 20
 SteeringQueue = Steering
 
 
+@dataclass(slots=True)
+class AgentLoopState:
+    api_messages: list[ApiMessage]
+    loop_timer: Timer
+    budget: ContextBudget
+    tool_call_counts: dict[str, int]
+
+
 def _sync_conversation(conversation: Conversation, api_messages: list[ApiMessage]) -> None:
     """Rebuild *conversation* messages from the compacted API messages.
 
-    ``Conversation`` only stores ``role`` + ``content``, so tool messages
-    (``role="tool"``) and structured ``tool_calls`` fields cannot be
-    represented.  The full ``api_messages`` list remains the authoritative
-    source for the API; this mirror is used for persistence and title
-    derivation.
-
-    Assistant messages whose content is ``None`` (tool-call-only turns)
-    are preserved with a ``"[tool calls]"`` placeholder so they are not
-    silently dropped.
+    The full ``api_messages`` list stays authoritative for tool messages.
+    Tool-call-only assistant turns are mirrored with ``"[tool calls]"``.
     """
     conversation.messages.clear()
     for msg in api_messages:
@@ -345,6 +347,125 @@ def _prepare_llm_messages(
     return _inject_turn_context(api_messages, turn_evidence, extra_system_prompt), notice
 
 
+def _new_loop_state(config: ChatConfig, conversation: Conversation) -> AgentLoopState:
+    api_messages = list(conversation.to_api_messages())
+    return AgentLoopState(
+        api_messages=api_messages,
+        loop_timer=Timer(),
+        budget=ContextBudget(model=config.model, max_tokens=config.max_tokens),
+        tool_call_counts={},
+    )
+
+
+def _log_agent_loop_start(config: ChatConfig, state: AgentLoopState, max_turns: int) -> None:
+    _log.info(
+        "agent_loop start",
+        extra={
+            "fields": {
+                "model": config.model,
+                "message_count": len(state.api_messages),
+                "max_turns": max_turns,
+                "context_window": state.budget.context_window,
+                "prompt_budget": state.budget.prompt_budget,
+                "tokens_remaining": state.budget.tokens_remaining(state.api_messages),
+            }
+        },
+    )
+
+
+def _abort_requested(
+    abort: threading.Event | None,
+    *,
+    turn_idx: int,
+    loop_timer: Timer,
+) -> bool:
+    if abort is None or not abort.is_set():
+        return False
+    _log.info(
+        "agent_loop aborted",
+        extra={
+            "fields": {
+                "turn": turn_idx,
+                "latency_ms": loop_timer.ms,
+            }
+        },
+    )
+    return True
+
+
+def _tool_turn_events(
+    *,
+    config: ChatConfig,
+    conversation: Conversation,
+    workspace: Path,
+    registry: ToolRegistry,
+    abort: threading.Event | None,
+    usage: SessionUsage | None,
+    steering: Steering | None,
+    state: AgentLoopState,
+    model_result_text: str,
+    model_result_tool_calls: list[ToolCall],
+    model_stream_state: ModelStreamState,
+    model_turn_timer: Timer,
+    turn_idx: int,
+) -> Iterator[TurnEvent]:
+    _append_tool_call_message(
+        conversation,
+        state.api_messages,
+        model_result_text,
+        model_result_tool_calls,
+    )
+
+    tool_names = [tool_call["function"]["name"] for tool_call in model_result_tool_calls]
+    yield from _tool_call_events(
+        model_result_tool_calls,
+        state.api_messages,
+        registry,
+        state.tool_call_counts,
+    )
+
+    _log.info(
+        "agent_loop tool calls",
+        extra={
+            "fields": {
+                "turn": turn_idx,
+                "tools": tool_names,
+                "latency_ms": model_turn_timer.ms,
+            }
+        },
+    )
+
+    tool_results = execute_tool_calls(
+        model_result_tool_calls,
+        workspace,
+        registry=registry,
+        abort=abort,
+    )
+    state.api_messages.extend(tool_results)
+
+    _record_usage(
+        usage,
+        model_stream_state.stream_usage,
+        state.api_messages,
+        model_result_text,
+        config.model,
+    )
+
+    yield from _context_warning_events(state.budget, state.api_messages, turn_idx=turn_idx)
+    yield from _tool_result_events(model_result_tool_calls, tool_results, state.api_messages)
+    yield from _drain_steering_events(
+        steering,
+        state.api_messages,
+        conversation,
+        turn_idx=turn_idx,
+    )
+
+    if any(registry.is_control_tool(name) for name in tool_names):
+        yield NoticeEvent("Compacting conversation...", code="context_compact")
+        state.api_messages[:] = auto_compact(state.api_messages, config, workspace)
+        _sync_conversation(conversation, state.api_messages)
+
+
 def iter_agent_events(
     config: ChatConfig,
     conversation: Conversation,
@@ -365,50 +486,31 @@ def iter_agent_events(
     retry = retry or RetryConfig()
     if registry is None:
         registry = default_registry
-    api_messages = list(conversation.to_api_messages())
-    loop_timer = Timer()
-    budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
-    tool_call_counts: dict[str, int] = {}
-
-    _log.info(
-        "agent_loop start",
-        extra={
-            "fields": {
-                "model": config.model,
-                "message_count": len(api_messages),
-                "max_turns": max_turns,
-                "context_window": budget.context_window,
-                "prompt_budget": budget.prompt_budget,
-                "tokens_remaining": budget.tokens_remaining(api_messages),
-            }
-        },
-    )
+    state = _new_loop_state(config, conversation)
+    _log_agent_loop_start(config, state, max_turns)
 
     if dry_run:
-        yield from _dry_run_events(config, api_messages, registry, budget, loop_timer)
+        yield from _dry_run_events(
+            config,
+            state.api_messages,
+            registry,
+            state.budget,
+            state.loop_timer,
+        )
         return
 
     for turn_idx in range(max_turns):
-        if abort is not None and abort.is_set():
-            _log.info(
-                "agent_loop aborted",
-                extra={
-                    "fields": {
-                        "turn": turn_idx,
-                        "latency_ms": loop_timer.ms,
-                    }
-                },
-            )
+        if _abort_requested(abort, turn_idx=turn_idx, loop_timer=state.loop_timer):
             return
 
-        micro_compact(api_messages)
+        micro_compact(state.api_messages)
 
         llm_messages, compaction_notice = _prepare_llm_messages(
             config=config,
             conversation=conversation,
             workspace=workspace,
-            api_messages=api_messages,
-            budget=budget,
+            api_messages=state.api_messages,
+            budget=state.budget,
             turn_evidence=turn_evidence,
             extra_system_prompt=extra_system_prompt,
         )
@@ -430,75 +532,32 @@ def iter_agent_events(
             yield from _final_response_events(
                 config=config,
                 conversation=conversation,
-                api_messages=api_messages,
+                api_messages=state.api_messages,
                 collected_text=model_result.text,
                 stream_state=model_result.stream_state,
-                budget=budget,
-                loop_timer=loop_timer,
+                budget=state.budget,
+                loop_timer=state.loop_timer,
                 turn_idx=turn_idx,
                 usage=usage,
                 steering=steering,
             )
             return
 
-        _append_tool_call_message(
-            conversation,
-            api_messages,
-            model_result.text,
-            model_result.tool_calls,
-        )
-
-        tool_names = [tool_call["function"]["name"] for tool_call in model_result.tool_calls]
-        yield from _tool_call_events(
-            model_result.tool_calls,
-            api_messages,
-            registry,
-            tool_call_counts,
-        )
-
-        _log.info(
-            "agent_loop tool calls",
-            extra={
-                "fields": {
-                    "turn": turn_idx,
-                    "tools": tool_names,
-                    "latency_ms": model_result.turn_timer.ms,
-                }
-            },
-        )
-
-        tool_results = execute_tool_calls(
-            model_result.tool_calls,
-            workspace,
+        yield from _tool_turn_events(
+            config=config,
+            conversation=conversation,
+            workspace=workspace,
             registry=registry,
             abort=abort,
-        )
-        api_messages.extend(tool_results)
-
-        _record_usage(
-            usage,
-            model_result.stream_state.stream_usage,
-            api_messages,
-            model_result.text,
-            config.model,
-        )
-
-        yield from _context_warning_events(budget, api_messages, turn_idx=turn_idx)
-
-        yield from _tool_result_events(model_result.tool_calls, tool_results, api_messages)
-
-        yield from _drain_steering_events(
-            steering,
-            api_messages,
-            conversation,
+            usage=usage,
+            steering=steering,
+            state=state,
+            model_result_text=model_result.text,
+            model_result_tool_calls=model_result.tool_calls,
+            model_stream_state=model_result.stream_state,
+            model_turn_timer=model_result.turn_timer,
             turn_idx=turn_idx,
         )
-
-        if any(registry.is_control_tool(name) for name in tool_names):
-            yield NoticeEvent("Compacting conversation...", code="manual_compact")
-            api_messages[:] = auto_compact(api_messages, config, workspace)
-            _sync_conversation(conversation, api_messages)
-            continue
 
     yield NoticeEvent("Agent loop reached maximum turns", code="max_turns")
     _log.warning(

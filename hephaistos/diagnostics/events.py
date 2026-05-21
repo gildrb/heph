@@ -6,7 +6,7 @@ import contextlib
 import json
 import urllib.request
 from collections.abc import Mapping
-from typing import Final
+from typing import Final, TypeGuard
 
 from hephaistos.logging import get_logger, redact_text
 from hephaistos.privacy.consent import (
@@ -46,17 +46,39 @@ def _sanitize_properties(properties: Mapping[str, object] | None) -> dict[str, o
     if not properties:
         return cleaned
     for key, value in properties.items():
-        lowered = key.strip().lower()
-        if lowered in _SENSITIVE_KEYS:
-            continue
-        if value is None or isinstance(value, bool | int | float):
-            cleaned[key] = value
-            continue
-        if isinstance(value, str):
-            is_sensitive_name = lowered.endswith(("_path", "path", "filename", "file"))
-            if len(value) <= 120 and not (is_sensitive_name and value):
-                cleaned[key] = redact_text(value)
+        if (sanitized := _sanitized_property_value(key, value)) is not _SKIP_PROPERTY:
+            cleaned[key] = sanitized
     return cleaned
+
+
+_SKIP_PROPERTY = object()
+
+
+def _sanitized_property_value(key: str, value: object) -> object:
+    lowered = key.strip().lower()
+    if _sensitive_property_key(lowered):
+        return _SKIP_PROPERTY
+    if _safe_scalar_property(value):
+        return value
+    if _safe_string_property(value):
+        return redact_text(value)
+    return _SKIP_PROPERTY
+
+
+def _sensitive_property_key(lowered: str) -> bool:
+    return lowered in _SENSITIVE_KEYS or _sensitive_property_name(lowered)
+
+
+def _sensitive_property_name(lowered: str) -> bool:
+    return lowered.endswith(("_path", "path", "filename", "file"))
+
+
+def _safe_scalar_property(value: object) -> bool:
+    return value is None or isinstance(value, bool | int | float)
+
+
+def _safe_string_property(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and len(value) <= 120
 
 
 def get_distinct_id() -> str:

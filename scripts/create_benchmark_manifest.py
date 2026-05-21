@@ -58,7 +58,7 @@ _DEFAULT_DATASETS: tuple[ManifestDataset, ...] = (
     {"path": "chat_events.jsonl", "kind": "chat-events"},
     {"path": "chat_event_expectation.json", "kind": "chat-event-answer-expectation"},
     {"path": "replay.jsonl", "kind": "model-replay-prompts"},
-    {"path": "study_state.jsonl", "kind": "study-state"},
+    {"path": "learning_state.jsonl", "kind": "study-state"},
 )
 _TABLE_ROW_RE = re.compile(r"(?:^|\n)\s*\S+(?:\s{2,}|\t|\|)\S+(?:\s{2,}|\t|\|)\S+")
 _EXTRACTION_NOISE_RE = re.compile(r"\w[\u00a8\u00b4\u02c6`]\w|\ufffd|[|Il1]{6,}")

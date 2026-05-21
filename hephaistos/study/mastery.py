@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from hephaistos.study.state import StudyRecallRating
+from hephaistos.study.state import RecallRating
 
 
 def next_recall_mastery(
     current: float,
-    rating: StudyRecallRating,
+    rating: RecallRating,
     hint_level_needed: int | None,
 ) -> float:
     correctness = {
-        StudyRecallRating.EASY: 1.0,
-        StudyRecallRating.GOOD: 0.82,
-        StudyRecallRating.HARD: 0.22,
-        StudyRecallRating.NONE: 0.0,
+        RecallRating.EASY: 1.0,
+        RecallRating.GOOD: 0.82,
+        RecallRating.HARD: 0.22,
+        RecallRating.NONE: 0.0,
     }[rating]
     if hint_level_needed is not None:
         correctness = max(0.0, correctness - min(0.35, hint_level_needed * 0.07))

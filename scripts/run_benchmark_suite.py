@@ -28,10 +28,12 @@ from scripts import (
     benchmark_priority,
     benchmark_prompt_cache,
     benchmark_rag,
-    benchmark_study_state,
     compare_benchmark_reports,
     replay_answer_benchmark,
     validate_benchmark_manifest,
+)
+from scripts import (
+    benchmark_study_state as learning_state_benchmark,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -79,15 +81,15 @@ DEFAULT_PRIORITY_PAST_EXAM_RECALL = 1.0
 DEFAULT_MIN_REPLAY_TASKS = 3
 DEFAULT_MIN_ACTIVE_RECALL_ASSESSMENT_CASES = 1
 DEFAULT_MIN_HINT_CASES = 1
-DEFAULT_STUDY_STATE_PASS_RATE = 1.0
-DEFAULT_STUDY_STATE_TRANSITION_PASS_RATE = 1.0
-DEFAULT_STUDY_STATE_SCHEDULING_PASS_RATE = 1.0
-DEFAULT_MIN_STUDY_STATE_DOMAINS = 2
-DEFAULT_MIN_STUDY_STATE_SCHEDULE_CASES = 1
-DEFAULT_MIN_STUDY_STATE_PROMPT_CONTRACT_TURNS = 1
+DEFAULT_LEARNING_STATE_PASS_RATE = 1.0
+DEFAULT_LEARNING_STATE_TRANSITION_PASS_RATE = 1.0
+DEFAULT_LEARNING_STATE_SCHEDULING_PASS_RATE = 1.0
+DEFAULT_MIN_LEARNING_STATE_DOMAINS = 2
+DEFAULT_MIN_LEARNING_STATE_SCHEDULE_CASES = 1
+DEFAULT_MIN_LEARNING_STATE_PROMPT_CONTRACT_TURNS = 1
 DEFAULT_MIN_ACADEMIC_QUESTION_TYPES = 6
 DEFAULT_ACADEMIC_QUESTION_QUALITY_RATE = 1.0
-DEFAULT_REQUIRED_STUDY_INTENT_LABELS = (
+DEFAULT_REQUIRED_LEARNING_INTENT_LABELS = (
     "material_overview",
     "source_qa",
     "source_only_policy",
@@ -98,13 +100,13 @@ DEFAULT_REQUIRED_STUDY_INTENT_LABELS = (
     "recall_answer_attempt",
     "chat",
 )
-DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES = (
+DEFAULT_REQUIRED_LEARNING_INTENT_PROMPT_PHRASES = (
     "whatever language",
     "English-first control signal",
     "Do not answer the request",
     "Return JSON only",
 )
-DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES = (
+DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES = (
     "deutsch",
     "español",
     "espanol",
@@ -116,10 +118,19 @@ DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES = (
     "por favor",
     "frag mich",
 )
+_LEGACY_LEARNING_STATE_DATASET = "study_state.jsonl"
+
+
+def _learning_state_dataset_path(suite_path: Path) -> Path:
+    current_path = suite_path / "learning_state.jsonl"
+    if current_path.is_file():
+        return current_path
+    return suite_path / _LEGACY_LEARNING_STATE_DATASET
+
+
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
     "hephaistos/chat/orchestrator.py",
     "hephaistos/study/controller.py",
-    "hephaistos/study/autopilot.py",
     "hephaistos/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
@@ -149,19 +160,19 @@ class BenchmarkSuiteSummary(TypedDict):
     index_integrity: dict[str, object]
     priority: dict[str, object]
     prompt_cache: dict[str, object]
-    study_intent: dict[str, object]
+    learning_intent: dict[str, object]
     replay: dict[str, object]
     chat_events: dict[str, object]
     chat_runtime_events: dict[str, object]
     answers: dict[str, object]
-    study_state: dict[str, object]
+    learning_state: dict[str, object]
     academic_items: dict[str, object]
     manifest: dict[str, object]
     report_path: NotRequired[str]
 
 
 @dataclass(frozen=True, slots=True)
-class StudyIntentContractReport:
+class LearningIntentContractReport:
     passed: bool
     required_intents: tuple[str, ...]
     parsed_intents: tuple[str, ...]
@@ -404,23 +415,23 @@ def _validate_answer_suite_integrity(
     _validate_overview_forbidden_phrase_contract(cases)
 
 
-def _validate_study_state_suite_integrity(
-    report: benchmark_study_state.StudyStateBenchmarkReport,
+def _validate_learning_state_suite_integrity(
+    report: learning_state_benchmark.LearningStateBenchmarkReport,
     *,
-    min_domains: int = DEFAULT_MIN_STUDY_STATE_DOMAINS,
-    min_schedule_cases: int = DEFAULT_MIN_STUDY_STATE_SCHEDULE_CASES,
-    min_prompt_contract_turns: int = DEFAULT_MIN_STUDY_STATE_PROMPT_CONTRACT_TURNS,
+    min_domains: int = DEFAULT_MIN_LEARNING_STATE_DOMAINS,
+    min_schedule_cases: int = DEFAULT_MIN_LEARNING_STATE_SCHEDULE_CASES,
+    min_prompt_contract_turns: int = DEFAULT_MIN_LEARNING_STATE_PROMPT_CONTRACT_TURNS,
 ) -> None:
-    """Reject study-state suites that do not prove scheduling, prompts, and domains."""
+    """Reject learning-state suites that do not prove scheduling, prompts, and domains."""
     if len(report.domains) < min_domains:
         raise ValueError(
-            "study-state benchmark must cover at least "
+            "learning-state benchmark must cover at least "
             f"{min_domains} labelled domains; found {len(report.domains)}"
         )
     schedule_cases = [result for result in report.results if result.scheduled_reviews > 0]
     if len(schedule_cases) < min_schedule_cases:
         raise ValueError(
-            "study-state benchmark must cover at least "
+            "learning-state benchmark must cover at least "
             f"{min_schedule_cases} scheduling case(s); found {len(schedule_cases)}"
         )
     prompt_contract_turns = [
@@ -428,49 +439,49 @@ def _validate_study_state_suite_integrity(
     ]
     if len(prompt_contract_turns) < min_prompt_contract_turns:
         raise ValueError(
-            "study-state benchmark must cover at least "
+            "learning-state benchmark must cover at least "
             f"{min_prompt_contract_turns} prompt contract turn(s); "
             f"found {len(prompt_contract_turns)}"
         )
 
 
-def study_intent_contract_report(
+def learning_intent_contract_report(
     *,
     schema: str | None = None,
     prompt: str | None = None,
     language_generic_prompt_paths: Sequence[str | Path] = DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS,
-) -> StudyIntentContractReport:
-    """Verify the study intent classifier stays English-first and language-generic."""
+) -> LearningIntentContractReport:
+    """Verify the learning intent classifier stays English-first and language-generic."""
     if schema is None or prompt is None:
-        schema = chat_orchestrator._STUDY_INTENT_NORMALIZATION_SCHEMA
-        prompt = chat_orchestrator._STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT
+        schema = chat_orchestrator._LEARNING_INTENT_NORMALIZATION_SCHEMA
+        prompt = chat_orchestrator._LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
 
     combined = f"{prompt}\n{schema}"
     combined_normalized = _normalized_contract_text(combined)
     prompt_normalized = _normalized_contract_text(prompt)
     failures: list[str] = [
         f"schema missing intent label: {intent}"
-        for intent in DEFAULT_REQUIRED_STUDY_INTENT_LABELS
+        for intent in DEFAULT_REQUIRED_LEARNING_INTENT_LABELS
         if intent not in schema
     ]
     failures.extend(
         f"prompt missing phrase: {phrase}"
-        for phrase in DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES
+        for phrase in DEFAULT_REQUIRED_LEARNING_INTENT_PROMPT_PHRASES
         if _normalized_contract_text(phrase) not in prompt_normalized
     )
     failures.extend(
         f"prompt/schema contains language-specific example: {example}"
-        for example in DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES
+        for example in DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES
         if _normalized_contract_text(example) in combined_normalized
     )
     checked_prompt_paths = tuple(str(path) for path in language_generic_prompt_paths)
     failures.extend(_language_generic_prompt_failures(language_generic_prompt_paths))
     parsed_intents: list[str] = []
-    for intent in DEFAULT_REQUIRED_STUDY_INTENT_LABELS:
-        parsed = chat_orchestrator._normalized_study_intent_from_payload(
+    for intent in DEFAULT_REQUIRED_LEARNING_INTENT_LABELS:
+        parsed = chat_orchestrator._normalized_learning_intent_from_payload(
             {
                 "intent": intent.replace("_", " "),
-                "canonical_english_request": "source-grounded study request",
+                "canonical_english_request": "source-grounded material request",
                 "confidence": 1.0,
             }
         )
@@ -480,12 +491,12 @@ def study_intent_contract_report(
         parsed_intents.append(parsed.intent)
         if parsed.intent != intent:
             failures.append(f"parser normalized intent label {intent} as {parsed.intent}")
-    return StudyIntentContractReport(
+    return LearningIntentContractReport(
         passed=not failures,
-        required_intents=DEFAULT_REQUIRED_STUDY_INTENT_LABELS,
+        required_intents=DEFAULT_REQUIRED_LEARNING_INTENT_LABELS,
         parsed_intents=tuple(parsed_intents),
-        required_prompt_phrases=DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES,
-        forbidden_language_examples=DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES,
+        required_prompt_phrases=DEFAULT_REQUIRED_LEARNING_INTENT_PROMPT_PHRASES,
+        forbidden_language_examples=DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES,
         language_generic_prompt_paths=checked_prompt_paths,
         failures=tuple(failures),
     )
@@ -508,15 +519,15 @@ def _language_generic_prompt_failures(paths: Sequence[str | Path]) -> tuple[str,
             continue
         failures.extend(
             f"{display} contains language-specific prompt example: {example}"
-            for example in DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES
+            for example in DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES
             if _normalized_contract_text(example) in normalized
         )
     return tuple(failures)
 
 
-def print_study_intent_contract_report(report: StudyIntentContractReport) -> None:
-    """Print a concise study intent prompt contract report."""
-    print("Study intent contract:")
+def print_learning_intent_contract_report(report: LearningIntentContractReport) -> None:
+    """Print a concise learning intent prompt contract report."""
+    print("Learning intent contract:")
     print(f"  pass: {'yes' if report.passed else 'no'}")
     print(f"  required intents: {', '.join(report.required_intents)}")
     if report.failures:
@@ -560,9 +571,9 @@ def run_suite(
     priority_topic_recall: float = DEFAULT_PRIORITY_TOPIC_RECALL,
     priority_forbidden_avoidance: float = DEFAULT_PRIORITY_FORBIDDEN_AVOIDANCE,
     priority_past_exam_recall: float = DEFAULT_PRIORITY_PAST_EXAM_RECALL,
-    study_state_pass_rate: float = DEFAULT_STUDY_STATE_PASS_RATE,
-    study_state_transition_pass_rate: float = DEFAULT_STUDY_STATE_TRANSITION_PASS_RATE,
-    study_state_scheduling_pass_rate: float = DEFAULT_STUDY_STATE_SCHEDULING_PASS_RATE,
+    learning_state_pass_rate: float = DEFAULT_LEARNING_STATE_PASS_RATE,
+    learning_state_transition_pass_rate: float = DEFAULT_LEARNING_STATE_TRANSITION_PASS_RATE,
+    learning_state_scheduling_pass_rate: float = DEFAULT_LEARNING_STATE_SCHEDULING_PASS_RATE,
     report_path: Path | None = None,
     compare_to: Path | None = None,
     compare_tolerance: float = 0.0,
@@ -579,7 +590,7 @@ def run_suite(
     chat_events_dataset = suite_path / "chat_events.jsonl"
     chat_runtime_events_dataset = suite_path / "chat_events_runtime.jsonl"
     chat_event_expectation = suite_path / "chat_event_expectation.json"
-    study_state_dataset = suite_path / "study_state.jsonl"
+    learning_state_dataset = _learning_state_dataset_path(suite_path)
     academic_items_dataset = suite_path / "academic_items.jsonl"
     manifest_path = suite_path / "manifest.json"
     if not rag_dataset.is_file():
@@ -608,8 +619,10 @@ def run_suite(
         raise ValueError(
             f"benchmark suite is missing chat event expectation: {chat_event_expectation}"
         )
-    if not study_state_dataset.is_file():
-        raise ValueError(f"benchmark suite is missing study-state dataset: {study_state_dataset}")
+    if not learning_state_dataset.is_file():
+        raise ValueError(
+            f"benchmark suite is missing learning-state dataset: {learning_state_dataset}"
+        )
     if not academic_items_dataset.is_file():
         raise ValueError(
             f"benchmark suite is missing academic-item dataset: {academic_items_dataset}"
@@ -666,13 +679,13 @@ def run_suite(
         prompt_cache_report = benchmark_prompt_cache.run_benchmark()
         benchmark_prompt_cache.print_text_report(prompt_cache_report)
         print()
-        study_intent_report = study_intent_contract_report()
-        print_study_intent_contract_report(study_intent_report)
+        learning_intent_report = learning_intent_contract_report()
+        print_learning_intent_contract_report(learning_intent_report)
         print()
-        if not study_intent_report.passed:
+        if not learning_intent_report.passed:
             raise ValueError(
-                "study intent normalizer contract failed: "
-                + "; ".join(study_intent_report.failures)
+                "learning intent normalizer contract failed: "
+                + "; ".join(learning_intent_report.failures)
             )
         replay_cases = replay_answer_benchmark.load_cases(replay_dataset)
         _validate_replay_suite_integrity(replay_cases)
@@ -697,12 +710,12 @@ def run_suite(
         )
         benchmark_chat_events.print_text_report(chat_runtime_events_report)
         print()
-        study_state_report = benchmark_study_state.run_benchmark(
-            benchmark_study_state.load_cases(study_state_dataset),
+        learning_state_report = learning_state_benchmark.run_benchmark(
+            learning_state_benchmark.load_cases(learning_state_dataset),
             armory_path=armory,
         )
-        _validate_study_state_suite_integrity(study_state_report)
-        benchmark_study_state.print_text_report(study_state_report)
+        _validate_learning_state_suite_integrity(learning_state_report)
+        learning_state_benchmark.print_text_report(learning_state_report)
         print()
         academic_items_report = benchmark_academic_items.run_benchmark(
             armory,
@@ -750,10 +763,10 @@ def run_suite(
         or bool(chat_events_report.failures)
         or bool(chat_runtime_events_report.failures)
         or not chat_runtime_events_report.has_tool_runtime
-        or study_state_report.pass_rate < study_state_pass_rate
-        or study_state_report.transition_pass_rate < study_state_transition_pass_rate
-        or study_state_report.scheduling_pass_rate < study_state_scheduling_pass_rate
-        or study_state_report.mastery_metadata_rate < 1.0
+        or learning_state_report.pass_rate < learning_state_pass_rate
+        or learning_state_report.transition_pass_rate < learning_state_transition_pass_rate
+        or learning_state_report.scheduling_pass_rate < learning_state_scheduling_pass_rate
+        or learning_state_report.mastery_metadata_rate < 1.0
         or academic_items_report.pass_rate < 1.0
         or academic_items_report.grounded_question_rate < 1.0
         or academic_items_report.canonical_source_label_rate < 1.0
@@ -797,22 +810,22 @@ def run_suite(
                 priority_topic_recall=priority_topic_recall,
                 priority_forbidden_avoidance=priority_forbidden_avoidance,
                 priority_past_exam_recall=priority_past_exam_recall,
-                study_state_pass_rate=study_state_pass_rate,
-                study_state_transition_pass_rate=study_state_transition_pass_rate,
-                study_state_scheduling_pass_rate=study_state_scheduling_pass_rate,
+                learning_state_pass_rate=learning_state_pass_rate,
+                learning_state_transition_pass_rate=learning_state_transition_pass_rate,
+                learning_state_scheduling_pass_rate=learning_state_scheduling_pass_rate,
                 rag_report=rag_report,
                 material_role_report=material_role_report,
                 document_understanding_report=document_understanding_report,
                 index_integrity_report=index_integrity_report,
                 priority_report=priority_report,
                 prompt_cache_report=prompt_cache_report,
-                study_intent_report=study_intent_report,
+                learning_intent_report=learning_intent_report,
                 replay_case_count=len(replay_cases),
                 replay_tasks=tuple(sorted({case.task for case in replay_cases if case.task})),
                 chat_events_report=chat_events_report,
                 chat_runtime_events_report=chat_runtime_events_report,
                 answer_report=answer_report,
-                study_state_report=study_state_report,
+                learning_state_report=learning_state_report,
                 academic_items_report=academic_items_report,
                 manifest_report=manifest_report,
                 report_path=report_path,
@@ -867,22 +880,22 @@ def _summary(
     priority_topic_recall: float,
     priority_forbidden_avoidance: float,
     priority_past_exam_recall: float,
-    study_state_pass_rate: float,
-    study_state_transition_pass_rate: float,
-    study_state_scheduling_pass_rate: float,
+    learning_state_pass_rate: float,
+    learning_state_transition_pass_rate: float,
+    learning_state_scheduling_pass_rate: float,
     rag_report: benchmark_rag.BenchmarkReport,
     material_role_report: benchmark_material_roles.MaterialRoleBenchmarkReport,
     document_understanding_report: (benchmark_document_understanding.DocumentUnderstandingReport),
     index_integrity_report: benchmark_index_integrity.IndexIntegrityReport,
     priority_report: benchmark_priority.PriorityBenchmarkReport,
     prompt_cache_report: benchmark_prompt_cache.PromptCacheBenchmarkReport,
-    study_intent_report: StudyIntentContractReport,
+    learning_intent_report: LearningIntentContractReport,
     replay_case_count: int,
     replay_tasks: tuple[str, ...],
     chat_events_report: benchmark_chat_events.ChatEventBenchmarkReport,
     chat_runtime_events_report: benchmark_chat_events.ChatEventBenchmarkReport,
     answer_report: benchmark_answers.AnswerBenchmarkReport,
-    study_state_report: benchmark_study_state.StudyStateBenchmarkReport,
+    learning_state_report: learning_state_benchmark.LearningStateBenchmarkReport,
     academic_items_report: benchmark_academic_items.AcademicItemBenchmarkReport,
     manifest_report: validate_benchmark_manifest.ManifestReport,
     report_path: Path | None = None,
@@ -919,9 +932,9 @@ def _summary(
             "priority_topic_recall": priority_topic_recall,
             "priority_forbidden_avoidance": priority_forbidden_avoidance,
             "priority_past_exam_recall": priority_past_exam_recall,
-            "study_state_pass_rate": study_state_pass_rate,
-            "study_state_transition_pass_rate": study_state_transition_pass_rate,
-            "study_state_scheduling_pass_rate": study_state_scheduling_pass_rate,
+            "learning_state_pass_rate": learning_state_pass_rate,
+            "learning_state_transition_pass_rate": learning_state_transition_pass_rate,
+            "learning_state_scheduling_pass_rate": learning_state_scheduling_pass_rate,
         },
         "rag": cast("dict[str, object]", asdict(rag_report)),
         "material_roles": cast("dict[str, object]", asdict(material_role_report)),
@@ -929,7 +942,7 @@ def _summary(
         "index_integrity": cast("dict[str, object]", asdict(index_integrity_report)),
         "priority": cast("dict[str, object]", asdict(priority_report)),
         "prompt_cache": cast("dict[str, object]", asdict(prompt_cache_report)),
-        "study_intent": cast("dict[str, object]", asdict(study_intent_report)),
+        "learning_intent": cast("dict[str, object]", asdict(learning_intent_report)),
         "replay": {
             "cases": replay_case_count,
             "tasks": list(replay_tasks),
@@ -937,7 +950,7 @@ def _summary(
         "chat_events": cast("dict[str, object]", asdict(chat_events_report)),
         "chat_runtime_events": cast("dict[str, object]", asdict(chat_runtime_events_report)),
         "answers": cast("dict[str, object]", asdict(answer_report)),
-        "study_state": cast("dict[str, object]", asdict(study_state_report)),
+        "learning_state": cast("dict[str, object]", asdict(learning_state_report)),
         "academic_items": cast("dict[str, object]", asdict(academic_items_report)),
         "manifest": cast("dict[str, object]", asdict(manifest_report)),
     }
@@ -1034,19 +1047,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PRIORITY_PAST_EXAM_RECALL,
     )
     parser.add_argument(
-        "--min-study-state-pass-rate",
+        "--min-learning-state-pass-rate",
         type=float,
-        default=DEFAULT_STUDY_STATE_PASS_RATE,
+        default=DEFAULT_LEARNING_STATE_PASS_RATE,
     )
     parser.add_argument(
-        "--min-study-state-transition-pass-rate",
+        "--min-learning-state-transition-pass-rate",
         type=float,
-        default=DEFAULT_STUDY_STATE_TRANSITION_PASS_RATE,
+        default=DEFAULT_LEARNING_STATE_TRANSITION_PASS_RATE,
     )
     parser.add_argument(
-        "--min-study-state-scheduling-pass-rate",
+        "--min-learning-state-scheduling-pass-rate",
         type=float,
-        default=DEFAULT_STUDY_STATE_SCHEDULING_PASS_RATE,
+        default=DEFAULT_LEARNING_STATE_SCHEDULING_PASS_RATE,
     )
     parser.add_argument(
         "--json-report",
@@ -1108,9 +1121,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     priority_topic_recall = cast("float", args.min_priority_topic_recall)
     priority_forbidden_avoidance = cast("float", args.min_priority_forbidden_avoidance)
     priority_past_exam_recall = cast("float", args.min_priority_past_exam_recall)
-    study_state_pass_rate = cast("float", args.min_study_state_pass_rate)
-    study_state_transition_pass_rate = cast("float", args.min_study_state_transition_pass_rate)
-    study_state_scheduling_pass_rate = cast("float", args.min_study_state_scheduling_pass_rate)
+    learning_state_pass_rate = cast("float", args.min_learning_state_pass_rate)
+    learning_state_transition_pass_rate = cast(
+        "float", args.min_learning_state_transition_pass_rate
+    )
+    learning_state_scheduling_pass_rate = cast(
+        "float", args.min_learning_state_scheduling_pass_rate
+    )
     json_report = cast("Path | None", args.json_report)
     if json_report is not None:
         json_report = json_report.expanduser().resolve()
@@ -1161,15 +1178,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_rate(priority_topic_recall, "--min-priority-topic-recall", parser)
     _validate_rate(priority_forbidden_avoidance, "--min-priority-forbidden-avoidance", parser)
     _validate_rate(priority_past_exam_recall, "--min-priority-past-exam-recall", parser)
-    _validate_rate(study_state_pass_rate, "--min-study-state-pass-rate", parser)
+    _validate_rate(learning_state_pass_rate, "--min-learning-state-pass-rate", parser)
     _validate_rate(
-        study_state_transition_pass_rate,
-        "--min-study-state-transition-pass-rate",
+        learning_state_transition_pass_rate,
+        "--min-learning-state-transition-pass-rate",
         parser,
     )
     _validate_rate(
-        study_state_scheduling_pass_rate,
-        "--min-study-state-scheduling-pass-rate",
+        learning_state_scheduling_pass_rate,
+        "--min-learning-state-scheduling-pass-rate",
         parser,
     )
     if compare_tolerance < 0:
@@ -1204,9 +1221,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             priority_topic_recall=priority_topic_recall,
             priority_forbidden_avoidance=priority_forbidden_avoidance,
             priority_past_exam_recall=priority_past_exam_recall,
-            study_state_pass_rate=study_state_pass_rate,
-            study_state_transition_pass_rate=study_state_transition_pass_rate,
-            study_state_scheduling_pass_rate=study_state_scheduling_pass_rate,
+            learning_state_pass_rate=learning_state_pass_rate,
+            learning_state_transition_pass_rate=learning_state_transition_pass_rate,
+            learning_state_scheduling_pass_rate=learning_state_scheduling_pass_rate,
             report_path=json_report,
             compare_to=compare_to,
             compare_tolerance=compare_tolerance,

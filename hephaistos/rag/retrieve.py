@@ -18,6 +18,7 @@ cross-encoder re-ranking → top-k results.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
@@ -112,6 +113,7 @@ _SOURCE_INTENT_TOKENS = {
     "source",
     "sources",
 }
+type _ScoreTransform = Callable[[ScoredChunk], float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,49 +171,118 @@ def _create_retriever(
     pseudo_feedback_terms: int = DEFAULT_PSEUDO_FEEDBACK_TERMS,
     pseudo_feedback_weight: float = DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 ) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever | EmbeddingRetriever | HybridRetriever:
+    sparse_retriever = _explicit_sparse_retriever(index, retrieval_mode)
+    if sparse_retriever is not None:
+        return sparse_retriever
+    if dense_retriever := _explicit_dense_retriever(
+        index,
+        retrieval_mode,
+        embed_model=embed_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+    ):
+        return dense_retriever
+    if hybrid := _hybrid_retriever(
+        index,
+        retrieval_mode,
+        embed_model=embed_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        rerank_model=rerank_model,
+        query_transformer=query_transformer,
+        candidate_multiplier=candidate_multiplier,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        hybrid_dense_weight=hybrid_dense_weight,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
+    ):
+        return hybrid
+    return _available_sparse_or_tfidf(index, Bm25Retriever(index))
+
+
+def _explicit_sparse_retriever(
+    index: ArmoryIndex,
+    retrieval_mode: RetrievalMode,
+) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever | None:
     if retrieval_mode == RetrievalMode.TFIDF:
         return TfidfRetriever(index)
     if retrieval_mode == RetrievalMode.BM25:
         return _available_sparse_or_tfidf(index, Bm25Retriever(index))
     if retrieval_mode == RetrievalMode.BM25_DOCUMENT:
         return _available_sparse_or_tfidf(index, DocumentBm25Retriever(index))
-    if retrieval_mode == RetrievalMode.DENSE and _is_sentence_transformers_available():
-        return EmbeddingRetriever(
-            index,
-            model_name=embed_model,
-            query_prefix=embed_query_prefix,
-            document_prefix=embed_document_prefix,
-        )
+    return None
 
-    use_reranker = retrieval_mode in (RetrievalMode.AUTO, RetrievalMode.HYBRID_RERANK)
-    if _is_sentence_transformers_available():
-        reranker: RerankerProtocol | None = None
-        if use_reranker:
-            try:
-                reranker = CrossEncoderReranker(model_name=rerank_model)
-            except Exception:
-                reranker = None
 
-        hybrid = HybridRetriever(
-            index,
-            embed_model=embed_model,
-            embed_query_prefix=embed_query_prefix,
-            embed_document_prefix=embed_document_prefix,
-            reranker=reranker,
-            candidate_multiplier=candidate_multiplier,
-            sparse_weight=hybrid_sparse_weight,
-            dense_weight=hybrid_dense_weight,
-            pseudo_feedback=retrieval_mode == RetrievalMode.HYBRID_PRF,
-            pseudo_feedback_docs=pseudo_feedback_docs,
-            pseudo_feedback_terms=pseudo_feedback_terms,
-            pseudo_feedback_weight=pseudo_feedback_weight,
-            query_transformer=query_transformer,
-        )
-        if hybrid.has_embeddings or (
-            retrieval_mode == RetrievalMode.HYBRID_PRF and hybrid_dense_weight == 0.0
-        ):
-            return hybrid
-    return _available_sparse_or_tfidf(index, Bm25Retriever(index))
+def _explicit_dense_retriever(
+    index: ArmoryIndex,
+    retrieval_mode: RetrievalMode,
+    *,
+    embed_model: str | None,
+    embed_query_prefix: str,
+    embed_document_prefix: str,
+) -> EmbeddingRetriever | None:
+    if retrieval_mode != RetrievalMode.DENSE or not _is_sentence_transformers_available():
+        return None
+    return EmbeddingRetriever(
+        index,
+        model_name=embed_model,
+        query_prefix=embed_query_prefix,
+        document_prefix=embed_document_prefix,
+    )
+
+
+def _hybrid_retriever(
+    index: ArmoryIndex,
+    retrieval_mode: RetrievalMode,
+    *,
+    embed_model: str | None,
+    embed_query_prefix: str,
+    embed_document_prefix: str,
+    rerank_model: str | None,
+    query_transformer: QueryTransformerProtocol | None,
+    candidate_multiplier: int,
+    hybrid_sparse_weight: float,
+    hybrid_dense_weight: float,
+    pseudo_feedback_docs: int,
+    pseudo_feedback_terms: int,
+    pseudo_feedback_weight: float,
+) -> HybridRetriever | None:
+    if not _is_sentence_transformers_available():
+        return None
+    reranker = _hybrid_reranker(retrieval_mode, rerank_model)
+    hybrid = HybridRetriever(
+        index,
+        embed_model=embed_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        reranker=reranker,
+        candidate_multiplier=candidate_multiplier,
+        sparse_weight=hybrid_sparse_weight,
+        dense_weight=hybrid_dense_weight,
+        pseudo_feedback=retrieval_mode == RetrievalMode.HYBRID_PRF,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
+        query_transformer=query_transformer,
+    )
+    if hybrid.has_embeddings or (
+        retrieval_mode == RetrievalMode.HYBRID_PRF and hybrid_dense_weight == 0.0
+    ):
+        return hybrid
+    return None
+
+
+def _hybrid_reranker(
+    retrieval_mode: RetrievalMode,
+    rerank_model: str | None,
+) -> RerankerProtocol | None:
+    if retrieval_mode not in (RetrievalMode.AUTO, RetrievalMode.HYBRID_RERANK):
+        return None
+    try:
+        return CrossEncoderReranker(model_name=rerank_model)
+    except Exception:
+        return None
 
 
 def _retriever_cache_key(
@@ -331,15 +402,22 @@ def _compound_query_variants(query: str) -> list[str]:
     if focus_match is None:
         return [normalized]
 
-    raw_focus = focus_match.group("focus")
-    parts = [
-        " ".join(part.strip(" \t\n\r,;:.?!").split())
-        for part in _COMPOUND_SPLIT_RE.split(raw_focus)
-    ]
-    query_parts = [part for part in parts if len(tokenize(part)) >= _MIN_COMPOUND_QUERY_TOKENS]
+    query_parts = _compound_focus_parts(focus_match.group("focus"))
     if len(query_parts) < 2:
         return [normalized]
     return [normalized, *query_parts[:_MAX_COMPOUND_QUERY_PARTS]]
+
+
+def _compound_focus_parts(raw_focus: str) -> list[str]:
+    return [
+        part
+        for raw_part in _COMPOUND_SPLIT_RE.split(raw_focus)
+        if len(tokenize(part := _normalized_compound_part(raw_part))) >= _MIN_COMPOUND_QUERY_TOKENS
+    ]
+
+
+def _normalized_compound_part(raw_part: str) -> str:
+    return " ".join(raw_part.strip(" \t\n\r,;:.?!").split())
 
 
 def _has_negation_marker(text: str) -> bool:
@@ -368,19 +446,14 @@ def _apply_negation_precision_penalty(
     query_tokens = set(tokenize(query))
     if _has_negation_marker(query) or query_tokens & _NEGATION_QUERY_INTENT_TOKENS:
         return results
-    reranked: list[ScoredChunk] = []
-    changed = False
-    for result in results:
-        if _has_query_relevant_negation(query_tokens, result.chunk.text):
-            reranked.append(
-                ScoredChunk(chunk=result.chunk, score=result.score * _NEGATION_PENALTY)
-            )
-            changed = True
-        else:
-            reranked.append(result)
-    if changed:
-        reranked.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-    return reranked
+    return _rerank_with_score_transform(
+        results,
+        lambda result: (
+            result.score * _NEGATION_PENALTY
+            if _has_query_relevant_negation(query_tokens, result.chunk.text)
+            else result.score
+        ),
+    )
 
 
 def _apply_source_path_boost(
@@ -390,20 +463,15 @@ def _apply_source_path_boost(
     query_tokens = set(tokenize(query))
     if not results or not (query_tokens & _SOURCE_INTENT_TOKENS):
         return results
-    boosted: list[ScoredChunk] = []
-    changed = False
-    for result in results:
-        source_tokens = set(tokenize(result.chunk.source))
-        overlap = query_tokens & source_tokens
-        if not overlap:
-            boosted.append(result)
-            continue
-        boost = min(_SOURCE_MATCH_MAX_BOOST, _SOURCE_MATCH_BOOST * len(overlap))
-        boosted.append(ScoredChunk(chunk=result.chunk, score=result.score + boost))
-        changed = True
-    if changed:
-        boosted.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-    return boosted
+    return _rerank_with_score_transform(
+        results,
+        lambda result: result.score + _source_path_boost(result, query_tokens),
+    )
+
+
+def _source_path_boost(result: ScoredChunk, query_tokens: set[str]) -> float:
+    overlap = query_tokens & set(tokenize(result.chunk.source))
+    return min(_SOURCE_MATCH_MAX_BOOST, _SOURCE_MATCH_BOOST * len(overlap)) if overlap else 0.0
 
 
 def _normalized_hint_text(value: str) -> str:
@@ -411,23 +479,37 @@ def _normalized_hint_text(value: str) -> str:
 
 
 def _explicit_query_hints(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    quoted_hints: list[str] = []
-    source_section_hints: list[str] = []
     source_section_matches = {
         match.group(1).strip() for match in _SOURCE_SECTION_HINT_RE.finditer(query)
     }
-    for hint in source_section_matches:
-        normalized = _normalized_hint_text(hint)
-        if normalized:
-            source_section_hints.append(normalized)
-    for raw_hint in _QUOTED_HINT_RE.findall(query):
-        hint = raw_hint.strip()
-        if not hint or hint in source_section_matches:
-            continue
-        normalized = _normalized_hint_text(hint)
-        if len(normalized.split()) >= 3:
-            quoted_hints.append(normalized)
-    return tuple(quoted_hints), tuple(source_section_hints)
+    return (
+        _quoted_query_hints(query, source_section_matches),
+        _source_section_query_hints(source_section_matches),
+    )
+
+
+def _source_section_query_hints(source_section_matches: set[str]) -> tuple[str, ...]:
+    return tuple(
+        normalized
+        for hint in source_section_matches
+        if (normalized := _normalized_hint_text(hint))
+    )
+
+
+def _quoted_query_hints(query: str, source_section_matches: set[str]) -> tuple[str, ...]:
+    return tuple(
+        normalized
+        for raw_hint in _QUOTED_HINT_RE.findall(query)
+        if (normalized := _normalized_quoted_hint(raw_hint, source_section_matches))
+    )
+
+
+def _normalized_quoted_hint(raw_hint: str, source_section_matches: set[str]) -> str:
+    hint = raw_hint.strip()
+    if not hint or hint in source_section_matches:
+        return ""
+    normalized = _normalized_hint_text(hint)
+    return normalized if len(normalized.split()) >= 3 else ""
 
 
 def _apply_explicit_hint_boost(
@@ -438,24 +520,50 @@ def _apply_explicit_hint_boost(
     if not results or (not quoted_hints and not source_section_hints):
         return results
 
-    boosted: list[ScoredChunk] = []
-    changed = False
-    for result in results:
-        score = result.score
-        chunk_hint_text = _normalized_hint_text(
-            " ".join(part for part in (result.chunk.heading, result.chunk.text) if part)
-        )
-        source_hint_text = _normalized_hint_text(result.chunk.source)
-        if any(hint in chunk_hint_text for hint in quoted_hints):
-            score += _EXPLICIT_HINT_BOOST
-            changed = True
-        if any(hint in source_hint_text for hint in source_section_hints):
-            score += _EXPLICIT_HINT_BOOST
-            changed = True
-        boosted.append(ScoredChunk(chunk=result.chunk, score=score))
-    if changed:
-        boosted.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-    return boosted
+    return _rerank_with_score_transform(
+        results,
+        lambda result: (
+            result.score
+            + _explicit_hint_bonus(
+                result,
+                quoted_hints=quoted_hints,
+                source_section_hints=source_section_hints,
+            )
+        ),
+    )
+
+
+def _rerank_with_score_transform(
+    results: list[ScoredChunk],
+    score_transform: _ScoreTransform,
+) -> list[ScoredChunk]:
+    reranked = [
+        ScoredChunk(chunk=result.chunk, score=score_transform(result)) for result in results
+    ]
+    if any(new.score != old.score for old, new in zip(results, reranked, strict=True)):
+        reranked.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
+    return reranked
+
+
+def _explicit_hint_bonus(
+    result: ScoredChunk,
+    *,
+    quoted_hints: tuple[str, ...],
+    source_section_hints: tuple[str, ...],
+) -> float:
+    return _hint_bonus(_chunk_hint_text(result), quoted_hints) + _hint_bonus(
+        _normalized_hint_text(result.chunk.source), source_section_hints
+    )
+
+
+def _chunk_hint_text(result: ScoredChunk) -> str:
+    return _normalized_hint_text(
+        " ".join(part for part in (result.chunk.heading, result.chunk.text) if part)
+    )
+
+
+def _hint_bonus(text: str, hints: tuple[str, ...]) -> float:
+    return _EXPLICIT_HINT_BOOST if any(hint in text for hint in hints) else 0.0
 
 
 def _merge_compound_query_results(
@@ -463,51 +571,94 @@ def _merge_compound_query_results(
     top_k: int,
 ) -> list[ScoredChunk]:
     entries: dict[tuple[str, int], _CompoundMergeEntry] = {}
-    promoted_keys: list[tuple[str, int]] = []
-    promoted_seen: set[tuple[str, int]] = set()
-
     for list_index, ranked in enumerate(ranked_lists):
-        if list_index > 0 and ranked:
-            promoted_key = _scored_chunk_key(ranked[0])
-            if promoted_key not in promoted_seen:
-                promoted_keys.append(promoted_key)
-                promoted_seen.add(promoted_key)
-        for rank, scored_chunk in enumerate(ranked):
-            key = _scored_chunk_key(scored_chunk)
-            existing = entries.get(key)
-            if existing is None:
-                entries[key] = _CompoundMergeEntry(
-                    scored_chunk=scored_chunk,
-                    best_score=scored_chunk.score,
-                    first_list_index=list_index,
-                    best_rank=rank,
-                )
-                continue
-            entries[key] = _CompoundMergeEntry(
-                scored_chunk=existing.scored_chunk,
-                best_score=max(existing.best_score, scored_chunk.score),
-                first_list_index=min(existing.first_list_index, list_index),
-                best_rank=min(existing.best_rank, rank),
-            )
+        _merge_ranked_entries(entries, ranked, list_index)
 
-    promoted_entries = [
-        _entry_to_scored_chunk(entries[key]) for key in promoted_keys if key in entries
-    ]
-    promoted_key_set = set(promoted_keys)
-    remaining_entries = [entry for key, entry in entries.items() if key not in promoted_key_set]
-    remaining_entries.sort(
-        key=lambda entry: (
-            entry.best_score,
-            -entry.best_rank,
-            -entry.first_list_index,
-        ),
-        reverse=True,
-    )
+    promoted_keys = _promoted_compound_keys(ranked_lists)
+    promoted_entries = _promoted_compound_entries(entries, promoted_keys)
+    remaining_entries = _remaining_compound_entries(entries, promoted_keys)
     merged = [
         *promoted_entries,
         *[_entry_to_scored_chunk(entry) for entry in remaining_entries],
     ]
     return merged[:top_k]
+
+
+def _merge_ranked_entries(
+    entries: dict[tuple[str, int], _CompoundMergeEntry],
+    ranked: list[ScoredChunk],
+    list_index: int,
+) -> None:
+    for rank, scored_chunk in enumerate(ranked):
+        key = _scored_chunk_key(scored_chunk)
+        existing = entries.get(key)
+        entries[key] = (
+            _new_compound_entry(scored_chunk, list_index, rank)
+            if existing is None
+            else _updated_compound_entry(existing, scored_chunk, list_index, rank)
+        )
+
+
+def _promoted_compound_keys(ranked_lists: list[list[ScoredChunk]]) -> list[tuple[str, int]]:
+    promoted_keys: list[tuple[str, int]] = []
+    promoted_seen: set[tuple[str, int]] = set()
+    for ranked in ranked_lists[1:]:
+        if not ranked:
+            continue
+        promoted_key = _scored_chunk_key(ranked[0])
+        if promoted_key in promoted_seen:
+            continue
+        promoted_keys.append(promoted_key)
+        promoted_seen.add(promoted_key)
+    return promoted_keys
+
+
+def _promoted_compound_entries(
+    entries: dict[tuple[str, int], _CompoundMergeEntry],
+    promoted_keys: list[tuple[str, int]],
+) -> list[ScoredChunk]:
+    return [_entry_to_scored_chunk(entries[key]) for key in promoted_keys if key in entries]
+
+
+def _remaining_compound_entries(
+    entries: dict[tuple[str, int], _CompoundMergeEntry],
+    promoted_keys: list[tuple[str, int]],
+) -> list[_CompoundMergeEntry]:
+    promoted_key_set = set(promoted_keys)
+    remaining_entries = [entry for key, entry in entries.items() if key not in promoted_key_set]
+    remaining_entries.sort(key=_compound_entry_sort_key, reverse=True)
+    return remaining_entries
+
+
+def _compound_entry_sort_key(entry: _CompoundMergeEntry) -> tuple[float, int, int]:
+    return entry.best_score, -entry.best_rank, -entry.first_list_index
+
+
+def _new_compound_entry(
+    scored_chunk: ScoredChunk,
+    list_index: int,
+    rank: int,
+) -> _CompoundMergeEntry:
+    return _CompoundMergeEntry(
+        scored_chunk=scored_chunk,
+        best_score=scored_chunk.score,
+        first_list_index=list_index,
+        best_rank=rank,
+    )
+
+
+def _updated_compound_entry(
+    existing: _CompoundMergeEntry,
+    scored_chunk: ScoredChunk,
+    list_index: int,
+    rank: int,
+) -> _CompoundMergeEntry:
+    return _CompoundMergeEntry(
+        scored_chunk=existing.scored_chunk,
+        best_score=max(existing.best_score, scored_chunk.score),
+        first_list_index=min(existing.first_list_index, list_index),
+        best_rank=min(existing.best_rank, rank),
+    )
 
 
 def _scored_chunk_key(scored_chunk: ScoredChunk) -> tuple[str, int]:
@@ -552,16 +703,24 @@ def _retrieve_query_variants(
     if len(query_variants) <= 1:
         return retriever.retrieve(query_variants[0], top_k)
 
-    ranked_lists = [
-        results
-        for query_variant in query_variants
-        if (results := retriever.retrieve(query_variant, top_k))
-    ]
+    ranked_lists = _non_empty_variant_results(retriever, query_variants, top_k)
     if len(ranked_lists) > 1:
         return _merge_compound_query_results(ranked_lists, top_k)
     if ranked_lists:
         return ranked_lists[0][:top_k]
     return []
+
+
+def _non_empty_variant_results(
+    retriever: RetrieverProtocol,
+    query_variants: list[str],
+    top_k: int,
+) -> list[list[ScoredChunk]]:
+    return [
+        results
+        for query_variant in query_variants
+        if (results := retriever.retrieve(query_variant, top_k))
+    ]
 
 
 def _diversify_by_source(results: list[ScoredChunk], top_k: int) -> list[ScoredChunk]:
@@ -656,26 +815,89 @@ def retrieve(
     if diversify_sources:
         results = _diversify_by_source(results, requested_top_k)
 
-    # Filter by minimum relevance score
-    if min_score > 0.0 and results:
-        before = len(results)
-        results = [sc for sc in results if sc.score >= min_score]
-        dropped = before - len(results)
-        if dropped:
-            _log.debug(
-                "retrieve: dropped low-score chunks",
-                extra={
-                    "fields": {
-                        "dropped": dropped,
-                        "kept": len(results),
-                        "min_score": min_score,
-                    }
-                },
-            )
+    results = _filter_min_score(results, min_score)
 
     if not diversify_sources:
         results = results[:requested_top_k]
 
+    _log_retrieve_results(
+        query=query,
+        search_query=search_query,
+        query_variants=query_variants,
+        top_k=top_k,
+        retrieval_top_k=retrieval_top_k,
+        results=results,
+        diversify_sources=diversify_sources,
+        retriever=retriever,
+        retrieval_mode=retrieval_mode,
+        candidate_multiplier=candidate_multiplier,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        hybrid_dense_weight=hybrid_dense_weight,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
+        transform_strategy=transform_strategy,
+        min_score=min_score,
+    )
+    return results
+
+
+def _filter_min_score(results: list[ScoredChunk], min_score: float) -> list[ScoredChunk]:
+    if min_score <= 0.0 or not results:
+        return results
+
+    filtered = [scored_chunk for scored_chunk in results if scored_chunk.score >= min_score]
+    _log_min_score_filter(results, filtered, min_score)
+    return filtered
+
+
+def _log_min_score_filter(
+    before: list[ScoredChunk],
+    after: list[ScoredChunk],
+    min_score: float,
+) -> None:
+    dropped = len(before) - len(after)
+    if dropped:
+        _log_dropped_low_score_chunks(dropped, kept=len(after), min_score=min_score)
+
+
+def _log_dropped_low_score_chunks(dropped: int, *, kept: int, min_score: float) -> None:
+    _log.debug(
+        "retrieve: dropped low-score chunks",
+        extra={
+            "fields": {
+                "dropped": dropped,
+                "kept": kept,
+                "min_score": min_score,
+            }
+        },
+    )
+
+
+def _log_retrieve_results(
+    *,
+    query: str,
+    search_query: str,
+    query_variants: list[str],
+    top_k: int,
+    retrieval_top_k: int,
+    results: list[ScoredChunk],
+    diversify_sources: bool,
+    retriever: RetrieverProtocol,
+    retrieval_mode: RetrievalMode,
+    candidate_multiplier: int,
+    embed_query_prefix: str,
+    embed_document_prefix: str,
+    hybrid_sparse_weight: float,
+    hybrid_dense_weight: float,
+    pseudo_feedback_docs: int,
+    pseudo_feedback_terms: int,
+    pseudo_feedback_weight: float,
+    transform_strategy: TransformStrategy,
+    min_score: float,
+) -> None:
     _log.debug(
         "retrieve results",
         extra={
@@ -702,4 +924,3 @@ def retrieve(
             }
         },
     )
-    return results

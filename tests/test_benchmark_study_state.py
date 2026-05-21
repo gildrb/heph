@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts import benchmark_study_state
+from scripts import benchmark_study_state as learning_state_benchmark
 
 
-def test_load_study_state_cases(tmp_path: Path) -> None:
-    dataset = tmp_path / "study_state.jsonl"
+def test_load_learning_state_cases(tmp_path: Path) -> None:
+    dataset = tmp_path / "learning_state.jsonl"
     dataset.write_text(
         (
             '{"id":"case-1","domain":"mathematics","expected_final_phase":"presenting",'
@@ -20,7 +20,7 @@ def test_load_study_state_cases(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    cases = benchmark_study_state.load_cases(dataset)
+    cases = learning_state_benchmark.load_cases(dataset)
 
     assert len(cases) == 1
     assert cases[0].case_id == "case-1"
@@ -29,9 +29,9 @@ def test_load_study_state_cases(tmp_path: Path) -> None:
     assert cases[0].turns[0].prompt_must_not_include == ("Execute ASSESS",)
 
 
-def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -> None:
+def test_learning_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -> None:
     cases = [
-        benchmark_study_state.StudyStateCase(
+        learning_state_benchmark.LearningStateCase(
             case_id="fast-correct",
             domain="mathematics",
             expected_final_phase="presenting",
@@ -41,7 +41,7 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
             expected_schedule_error_types=("correct",),
             expected_schedule_failures=(0,),
             turns=(
-                benchmark_study_state.StudyTurnCase(
+                learning_state_benchmark.LearningTurnCase(
                     user="Explain integration by parts",
                     reply="Use the product-rule rearrangement.",
                     source_refs=("materials/calculus.md#chunk=0",),
@@ -50,7 +50,7 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
                     expected_feedback="presented",
                     prompt_must_include=("same language as the user's request",),
                 ),
-                benchmark_study_state.StudyTurnCase(
+                learning_state_benchmark.LearningTurnCase(
                     user="ready",
                     reply="State it from memory.",
                     expected_action="prompt_recall",
@@ -59,7 +59,7 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
                     prompt_must_include=("same language as the current item",),
                     prompt_must_not_include=("End with exactly: Answer from memory",),
                 ),
-                benchmark_study_state.StudyTurnCase(
+                learning_state_benchmark.LearningTurnCase(
                     user="Integral of u dv equals uv minus integral v du. confidence 4/5",
                     reply="CORRECT: Correct.",
                     source_refs=("materials/calculus.md#chunk=0",),
@@ -75,7 +75,7 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
         )
     ]
 
-    report = benchmark_study_state.run_benchmark(cases, armory_path=tmp_path)
+    report = learning_state_benchmark.run_benchmark(cases, armory_path=tmp_path)
 
     assert report.pass_rate == 1.0
     assert report.transition_pass_rate == 1.0
@@ -94,11 +94,11 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
     assert report.results[0].schedule_transfer_successes == (False,)
 
 
-def test_study_state_benchmark_reports_failures(tmp_path: Path) -> None:
-    case = benchmark_study_state.StudyStateCase(
+def test_learning_state_benchmark_reports_failures(tmp_path: Path) -> None:
+    case = learning_state_benchmark.LearningStateCase(
         case_id="wrong-expectation",
         turns=(
-            benchmark_study_state.StudyTurnCase(
+            learning_state_benchmark.LearningTurnCase(
                 user="hey",
                 reply="Hey.",
                 expected_action="present",
@@ -106,17 +106,17 @@ def test_study_state_benchmark_reports_failures(tmp_path: Path) -> None:
         ),
     )
 
-    report = benchmark_study_state.run_benchmark([case], armory_path=tmp_path)
+    report = learning_state_benchmark.run_benchmark([case], armory_path=tmp_path)
 
     assert report.pass_rate == 0.0
     assert "action expected 'present', got 'chat'" in report.failures[0]
 
 
-def test_study_state_benchmark_reports_prompt_contract_failures(tmp_path: Path) -> None:
-    case = benchmark_study_state.StudyStateCase(
+def test_learning_state_benchmark_reports_prompt_contract_failures(tmp_path: Path) -> None:
+    case = learning_state_benchmark.LearningStateCase(
         case_id="prompt-contract",
         turns=(
-            benchmark_study_state.StudyTurnCase(
+            learning_state_benchmark.LearningTurnCase(
                 user="Explain Bayes theorem",
                 reply="Bayes theorem relates conditional probabilities.",
                 expected_action="present",
@@ -126,7 +126,7 @@ def test_study_state_benchmark_reports_prompt_contract_failures(tmp_path: Path) 
         ),
     )
 
-    report = benchmark_study_state.run_benchmark([case], armory_path=tmp_path)
+    report = learning_state_benchmark.run_benchmark([case], armory_path=tmp_path)
 
     assert report.pass_rate == 0.0
     assert report.prompt_contract_rate == 0.0

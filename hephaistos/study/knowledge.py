@@ -1,4 +1,4 @@
-"""Source-traceable academic item extraction from indexed study chunks."""
+"""Source-traceable academic item extraction from indexed material chunks."""
 
 from __future__ import annotations
 
@@ -203,7 +203,7 @@ class CourseKnowledgeGraph:
 
 
 @dataclass(frozen=True, slots=True)
-class GroundedStudyQuestion:
+class GroundedQuestion:
     question: str
     question_type: str
     concept: str
@@ -252,12 +252,12 @@ def build_course_knowledge_graph(items: Sequence[AcademicItem]) -> CourseKnowled
     return CourseKnowledgeGraph(nodes=nodes, unassigned_items=tuple(unassigned))
 
 
-def generate_grounded_study_questions(
+def generate_grounded_questions(
     graph: CourseKnowledgeGraph,
     *,
     limit_per_concept: int = 4,
-) -> list[GroundedStudyQuestion]:
-    questions: list[GroundedStudyQuestion] = []
+) -> list[GroundedQuestion]:
+    questions: list[GroundedQuestion] = []
     seen: set[tuple[str, str]] = set()
     for node in graph.nodes:
         if not node.source_refs or not _node_is_question_worthy(node):
@@ -272,7 +272,7 @@ def generate_grounded_study_questions(
     return questions
 
 
-def grounded_study_question_quality_issues(question: GroundedStudyQuestion) -> tuple[str, ...]:
+def grounded_question_quality_issues(question: GroundedQuestion) -> tuple[str, ...]:
     issues: list[str] = []
     text = question.question.strip()
     if not question.grounding_source_refs:
@@ -295,6 +295,15 @@ def grounded_study_question_quality_issues(question: GroundedStudyQuestion) -> t
 
 
 def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+    items = _heading_items(text, source_ref, source_label)
+    for paragraph in _paragraphs(text):
+        items.extend(_definition_items(paragraph, source_ref, source_label))
+        items.extend(_formula_items(paragraph, source_ref, source_label))
+        items.extend(_pattern_items(paragraph, source_ref, source_label))
+    return items
+
+
+def _heading_items(text: str, source_ref: str, source_label: str) -> list[AcademicItem]:
     items: list[AcademicItem] = []
     for line in text.splitlines():
         cleaned = _clean(line)
@@ -311,62 +320,81 @@ def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[Aca
                     source_label=source_label,
                 )
             )
-    for paragraph in _paragraphs(text):
-        definition_match = _DEFINITION_RE.match(paragraph)
-        if definition_match is not None:
-            concept = _clean(definition_match.group("term")).rstrip(":")
-            body = _clean(definition_match.group("body"))
-            if (
-                concept
-                and body
-                and "," not in concept
-                and len(concept.split()) <= 8
-                and concept.casefold() not in _BAD_DEFINITION_TERMS
-            ):
-                items.append(
-                    AcademicItem(
-                        kind=AcademicItemKind.DEFINITION,
-                        text=f"{concept}: {body}",
-                        source_ref=source_ref,
-                        concept=concept,
-                        source_label=source_label,
-                    )
-                )
-        formula_match = _FORMULA_RE.search(paragraph)
-        if formula_match is not None:
-            formula_text = _clean(
-                formula_match.group("labelled") or formula_match.group("symbolic") or ""
-            )
-            if len(formula_text) >= 4:
-                items.append(
-                    AcademicItem(
-                        kind=AcademicItemKind.FORMULA,
-                        text=formula_text,
-                        source_ref=source_ref,
-                        source_label=source_label,
-                    )
-                )
-        for pattern, kind in _PARAGRAPH_ITEM_PATTERNS:
-            match = pattern.search(paragraph)
-            if match is not None and (item_text := _clean(match.group("body"))):
-                item = AcademicItem(
-                    kind=kind,
-                    text=item_text,
-                    source_ref=source_ref,
-                    source_label=source_label,
-                )
-                items.append(item)
-                if kind is AcademicItemKind.EXAM_SKILL:
-                    items.append(
-                        AcademicItem(
-                            kind=AcademicItemKind.RUBRIC_POINT,
-                            text=item.text,
-                            source_ref=item.source_ref,
-                            concept=item.concept,
-                            source_label=item.source_label,
-                        )
-                    )
     return items
+
+
+def _definition_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+    definition_match = _DEFINITION_RE.match(paragraph)
+    if definition_match is None:
+        return []
+    concept = _clean(definition_match.group("term")).rstrip(":")
+    body = _clean(definition_match.group("body"))
+    if not _valid_definition(concept, body):
+        return []
+    return [
+        AcademicItem(
+            kind=AcademicItemKind.DEFINITION,
+            text=f"{concept}: {body}",
+            source_ref=source_ref,
+            concept=concept,
+            source_label=source_label,
+        )
+    ]
+
+
+def _valid_definition(concept: str, body: str) -> bool:
+    return bool(
+        concept
+        and body
+        and "," not in concept
+        and len(concept.split()) <= 8
+        and concept.casefold() not in _BAD_DEFINITION_TERMS
+    )
+
+
+def _formula_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+    formula_match = _FORMULA_RE.search(paragraph)
+    if formula_match is None:
+        return []
+    formula_text = _clean(formula_match.group("labelled") or formula_match.group("symbolic") or "")
+    if len(formula_text) < 4:
+        return []
+    return [
+        AcademicItem(
+            kind=AcademicItemKind.FORMULA,
+            text=formula_text,
+            source_ref=source_ref,
+            source_label=source_label,
+        )
+    ]
+
+
+def _pattern_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+    items: list[AcademicItem] = []
+    for pattern, kind in _PARAGRAPH_ITEM_PATTERNS:
+        match = pattern.search(paragraph)
+        if match is None or not (item_text := _clean(match.group("body"))):
+            continue
+        item = AcademicItem(
+            kind=kind,
+            text=item_text,
+            source_ref=source_ref,
+            source_label=source_label,
+        )
+        items.append(item)
+        if kind is AcademicItemKind.EXAM_SKILL:
+            items.append(_rubric_point_from_exam_skill(item))
+    return items
+
+
+def _rubric_point_from_exam_skill(item: AcademicItem) -> AcademicItem:
+    return AcademicItem(
+        kind=AcademicItemKind.RUBRIC_POINT,
+        text=item.text,
+        source_ref=item.source_ref,
+        concept=item.concept,
+        source_label=item.source_label,
+    )
 
 
 def _heading(line: str) -> str | None:
@@ -415,31 +443,28 @@ def _paragraphs(text: str) -> list[str]:
     for raw_line in text.splitlines():
         line = _clean(raw_line)
         if not line:
-            if current:
-                paragraphs.append(_clean(" ".join(current)))
-                current = []
+            current = _flush_paragraph(paragraphs, current)
             continue
         if _heading(line) is not None:
-            if current:
-                paragraphs.append(_clean(" ".join(current)))
-                current = []
+            current = _flush_paragraph(paragraphs, current)
             continue
-        if raw_line.lstrip().startswith(("- ", "* ", "+ ")):
-            if current:
-                paragraphs.append(_clean(" ".join(current)))
-                current = []
-            paragraphs.append(line)
-            continue
-        if _starts_cued_item(line):
-            if current:
-                paragraphs.append(_clean(" ".join(current)))
-                current = []
+        if _is_standalone_paragraph_line(raw_line, line):
+            current = _flush_paragraph(paragraphs, current)
             paragraphs.append(line)
             continue
         current.append(line)
+    _flush_paragraph(paragraphs, current)
+    return paragraphs
+
+
+def _flush_paragraph(paragraphs: list[str], current: list[str]) -> list[str]:
     if current:
         paragraphs.append(_clean(" ".join(current)))
-    return paragraphs
+    return []
+
+
+def _is_standalone_paragraph_line(raw_line: str, line: str) -> bool:
+    return raw_line.lstrip().startswith(("- ", "* ", "+ ")) or _starts_cued_item(line)
 
 
 def _starts_cued_item(line: str) -> bool:
@@ -455,68 +480,106 @@ def _starts_cued_item(line: str) -> bool:
     )
 
 
-def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion]:
-    questions: list[GroundedStudyQuestion] = []
+def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedQuestion]:
     if not _node_is_question_worthy(node):
-        return questions
+        return []
+    return [
+        _question(text, question_type=question_type, node=node, difficulty=difficulty)
+        for text, question_type, difficulty in _question_specs_for_node(node)
+    ]
 
-    def add(text: str, question_type: str, difficulty: str) -> None:
-        questions.append(
-            _question(text, question_type=question_type, node=node, difficulty=difficulty)
-        )
 
+def _question_specs_for_node(node: CourseKnowledgeNode) -> list[tuple[str, str, str]]:
+    specs: list[tuple[str, str, str]] = []
     if node.definitions:
-        add(f"Define {node.concept} using the course material.", "free_recall", "core")
-        add(f"Cloze deletion: {node.concept} is _____. Fill the blank.", "cloze_deletion", "core")
-        add(
+        specs.extend(_definition_question_specs(node))
+    if node.formulas:
+        specs.append(
+            (
+                f"State the formula or formal condition associated with {node.concept}.",
+                "formula_recall",
+                "core",
+            )
+        )
+    if node.examples:
+        specs.append(
+            (
+                f"Why does this example fit {node.concept}: {node.examples[0]}?",
+                "application_scenario",
+                "transfer",
+            )
+        )
+    if node.tables:
+        specs.append(
+            (
+                f"What key pattern does the table show for {node.concept}?",
+                "data_interpretation",
+                "transfer",
+            )
+        )
+    if node.exam_questions:
+        specs.append((f"Past-exam style: {node.exam_questions[0]}", "past_exam_style", "exam"))
+    specs.extend(_misconception_question_specs(node))
+    specs.extend(_exam_skill_question_specs(node))
+    if node.learning_objectives:
+        specs.append(
+            (
+                f"Explain the learning objective for {node.concept}: "
+                f"{node.learning_objectives[0]}",
+                "explain_the_mechanism",
+                "core",
+            )
+        )
+    return specs
+
+
+def _definition_question_specs(node: CourseKnowledgeNode) -> list[tuple[str, str, str]]:
+    return [
+        (f"Define {node.concept} using the course material.", "free_recall", "core"),
+        (f"Cloze deletion: {node.concept} is _____. Fill the blank.", "cloze_deletion", "core"),
+        (
             f"In one or two sentences, state the key idea of {node.concept}.",
             "short_answer",
             "core",
-        )
-    if node.formulas:
-        add(
-            f"State the formula or formal condition associated with {node.concept}.",
-            "formula_recall",
-            "core",
-        )
-    if node.examples:
-        add(
-            f"Why does this example fit {node.concept}: {node.examples[0]}?",
-            "application_scenario",
-            "transfer",
-        )
-    if node.tables:
-        add(
-            f"What key pattern does the table show for {node.concept}?",
-            "data_interpretation",
-            "transfer",
-        )
-    if node.exam_questions:
-        add(f"Past-exam style: {node.exam_questions[0]}", "past_exam_style", "exam")
-    if node.common_misconceptions:
-        add(
+        ),
+    ]
+
+
+def _exam_skill_question_specs(node: CourseKnowledgeNode) -> list[tuple[str, str, str]]:
+    specs: list[tuple[str, str, str]] = []
+    if node.exam_skills:
+        specs.append((f"Past-exam style: {node.exam_skills[0]}", "past_exam_style", "exam"))
+        if "compar" in node.exam_skills[0].casefold():
+            specs.append(
+                (
+                    f"Compare and contrast: {node.exam_skills[0]}",
+                    "compare_and_contrast",
+                    "transfer",
+                )
+            )
+    return specs
+
+
+def _misconception_question_specs(node: CourseKnowledgeNode) -> list[tuple[str, str, str]]:
+    if not node.common_misconceptions:
+        return []
+    specs = [
+        (
             f"Correct this misconception about {node.concept}: {node.common_misconceptions[0]}",
             "error_correction",
             "misconception",
         )
-        if node.definitions:
-            add(
+    ]
+    if node.definitions:
+        specs.append(
+            (
                 f"Multiple choice: which statement best matches {node.concept}? "
                 f"A. {node.definitions[0]} B. {node.common_misconceptions[0]}",
                 "multiple_choice",
                 "misconception",
             )
-    if node.exam_skills:
-        add(f"Past-exam style: {node.exam_skills[0]}", "past_exam_style", "exam")
-        if "compar" in node.exam_skills[0].casefold():
-            add(f"Compare and contrast: {node.exam_skills[0]}", "compare_and_contrast", "transfer")
-    if node.learning_objectives:
-        add(
-            f"Explain the learning objective for {node.concept}: {node.learning_objectives[0]}",
-            "explain_the_mechanism",
-            "core",
         )
-    return questions
+    return specs
 
 
 def _node_is_question_worthy(node: CourseKnowledgeNode) -> bool:
@@ -532,13 +595,13 @@ def _question(
     question_type: str,
     node: CourseKnowledgeNode,
     difficulty: str,
-) -> GroundedStudyQuestion:
+) -> GroundedQuestion:
     if node.source_labels:
         source_label = "; ".join(node.source_labels)
     else:
         labels = tuple(_source_label_from_ref(ref) for ref in node.source_refs)
         source_label = "; ".join(dict.fromkeys(label for label in labels if label))
-    return GroundedStudyQuestion(
+    return GroundedQuestion(
         question=text,
         question_type=question_type,
         concept=node.concept,

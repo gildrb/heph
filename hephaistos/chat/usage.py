@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeGuard
 
 try:
     import tiktoken
@@ -18,7 +19,7 @@ else:
     except Exception:
         _encoder = None
 
-from hephaistos._types import is_string_mapping
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.providers.registry import ModelInfo, builtin_models, get_registry
 from hephaistos.runtime import ApiMessage, UsagePayload
@@ -150,22 +151,46 @@ def estimate_message_tokens(content: str) -> int:
 
 
 def estimate_conversation_tokens(messages: Sequence[ApiMessage]) -> int:
-    total = 0
-    for msg in messages:
-        total += 4
-        content = msg["content"]
-        if isinstance(content, str):
-            total += estimate_message_tokens(content)
-        elif content is not None:
-            for part in content:
-                text = part.get("text", "") or part.get("content", "")
-                total += estimate_message_tokens(text)
-        for tc in msg.get("tool_calls", []):
-            function = tc.get("function", {})
-            args = function.get("arguments", "")
-            if args:
-                total += estimate_message_tokens(args)
-    return total
+    return sum(_api_message_token_estimate(message) for message in messages)
+
+
+def _api_message_token_estimate(message: ApiMessage) -> int:
+    return (
+        4
+        + _content_token_estimate(message["content"])
+        + sum(_tool_call_token_estimate(tool_call) for tool_call in message.get("tool_calls", []))
+    )
+
+
+def _content_token_estimate(content: object) -> int:
+    if isinstance(content, str):
+        return estimate_message_tokens(content)
+    return sum(
+        estimate_message_tokens(text)
+        for part in _content_parts(content)
+        if (text := _part_text(part))
+    )
+
+
+def _content_parts(content: object) -> list[object]:
+    return content if is_object_list(content) else []
+
+
+def _part_text(part: object) -> str:
+    if not is_string_mapping(part):
+        return ""
+    text = part.get("text", "") or part.get("content", "")
+    return text if isinstance(text, str) else ""
+
+
+def _tool_call_token_estimate(tool_call: object) -> int:
+    if not is_string_mapping(tool_call):
+        return 0
+    function = tool_call.get("function", {})
+    if not is_string_mapping(function):
+        return 0
+    args = function.get("arguments", "")
+    return estimate_message_tokens(args) if isinstance(args, str) and args else 0
 
 
 @dataclass
@@ -246,31 +271,41 @@ def load_usage_summaries(armory_path: Path) -> list[dict[str, int | float | str]
             continue
         if not is_string_mapping(raw):
             continue
-        session_id = raw.get("session_id")
-        if not isinstance(session_id, str):
-            session_id = path.stem
-        summaries.append(
-            {
-                "session_id": session_id,
-                "api_calls": _number_value(raw.get("api_calls")),
-                "prompt_tokens": _number_value(raw.get("prompt_tokens")),
-                "completion_tokens": _number_value(raw.get("completion_tokens")),
-                "total_tokens": _number_value(raw.get("total_tokens")),
-                "cost_usd": _number_value(raw.get("cost_usd"), as_float=True),
-            }
-        )
+        summaries.append(_usage_summary_from_payload(raw, fallback_session_id=path.stem))
     return summaries
+
+
+def _usage_summary_from_payload(
+    raw: dict[str, object],
+    *,
+    fallback_session_id: str,
+) -> dict[str, int | float | str]:
+    session_id = raw.get("session_id")
+    return {
+        "session_id": session_id if isinstance(session_id, str) else fallback_session_id,
+        "api_calls": _number_value(raw.get("api_calls")),
+        "prompt_tokens": _number_value(raw.get("prompt_tokens")),
+        "completion_tokens": _number_value(raw.get("completion_tokens")),
+        "total_tokens": _number_value(raw.get("total_tokens")),
+        "cost_usd": _number_value(raw.get("cost_usd"), as_float=True),
+    }
 
 
 def _number_value(value: object, *, as_float: bool = False) -> int | float:
     default = 0.0 if as_float else 0
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, int | float):
+    if _is_number_value(value):
         return float(value) if as_float else int(value)
     if isinstance(value, str):
-        try:
-            return float(value) if as_float else int(value)
-        except ValueError:
-            return default
+        return _number_from_string(value, default=default, as_float=as_float)
     return default
+
+
+def _is_number_value(value: object) -> TypeGuard[int | float]:
+    return not isinstance(value, bool) and isinstance(value, int | float)
+
+
+def _number_from_string(value: str, *, default: float, as_float: bool) -> int | float:
+    try:
+        return float(value) if as_float else int(value)
+    except ValueError:
+        return default

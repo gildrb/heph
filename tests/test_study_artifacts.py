@@ -5,18 +5,18 @@ from datetime import UTC, datetime
 import pytest
 
 from hephaistos.study.artifacts import (
-    StudyArtifact,
-    StudyArtifactDifficulty,
-    StudyArtifactKind,
-    StudyArtifactReviewState,
-    StudyArtifactSourceSpan,
-    next_study_artifact_review_state,
-    record_study_artifact_review,
-    study_artifacts_to_anki_tsv,
-    validate_study_artifact,
-    validate_study_artifacts,
+    LearningArtifact,
+    LearningArtifactDifficulty,
+    LearningArtifactKind,
+    LearningArtifactReviewState,
+    LearningArtifactSourceSpan,
+    learning_artifacts_to_anki_tsv,
+    next_learning_artifact_review_state,
+    record_learning_artifact_review,
+    validate_learning_artifact,
+    validate_learning_artifacts,
 )
-from hephaistos.study.state import StudyRecallRating
+from hephaistos.study.state import RecallRating
 
 SOURCE_REF = "materials/lecture.md#chunk=2"
 SOURCE_TEXT = (
@@ -28,8 +28,8 @@ SOURCE_TEXT = (
 SOURCE_MAP = {SOURCE_REF: SOURCE_TEXT}
 
 
-def _span() -> StudyArtifactSourceSpan:
-    return StudyArtifactSourceSpan(
+def _span() -> LearningArtifactSourceSpan:
+    return LearningArtifactSourceSpan(
         source_ref=SOURCE_REF,
         text=(
             "Long-term potentiation is persistent strengthening of synapses after "
@@ -39,62 +39,62 @@ def _span() -> StudyArtifactSourceSpan:
 
 
 def test_validate_flashcard_accepts_source_supported_artifact() -> None:
-    artifact = StudyArtifact(
+    artifact = LearningArtifact(
         artifact_id="ltp-card",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
-        difficulty=StudyArtifactDifficulty.CORE,
+        difficulty=LearningArtifactDifficulty.CORE,
         source_spans=(_span(),),
     )
 
-    result = validate_study_artifact(artifact, SOURCE_MAP)
+    result = validate_learning_artifact(artifact, SOURCE_MAP)
 
     assert result.accepted is True
     assert result.issues == ()
 
 
 def test_validate_artifacts_rejects_unsupported_source_mismatched_vague_and_duplicates() -> None:
-    good = StudyArtifact(
+    good = LearningArtifact(
         artifact_id="supported",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
         source_spans=(_span(),),
     )
-    duplicate = StudyArtifact(
+    duplicate = LearningArtifact(
         artifact_id="duplicate",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
         source_spans=(_span(),),
     )
-    unsupported = StudyArtifact(
+    unsupported = LearningArtifact(
         artifact_id="unsupported",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="Explain this",
         answer="Astrocytes directly store the memory trace.",
         source_spans=(_span(),),
     )
-    mismatched = StudyArtifact(
+    mismatched = LearningArtifact(
         artifact_id="mismatched",
-        kind=StudyArtifactKind.SUMMARY,
+        kind=LearningArtifactKind.SUMMARY,
         prompt="",
         content="Long-term potentiation is persistent strengthening of synapses.",
-        source_spans=(StudyArtifactSourceSpan(source_ref=SOURCE_REF, text="not in source"),),
+        source_spans=(LearningArtifactSourceSpan(source_ref=SOURCE_REF, text="not in source"),),
     )
-    broad = StudyArtifact(
+    broad = LearningArtifact(
         artifact_id="broad",
-        kind=StudyArtifactKind.QUIZ,
+        kind=LearningArtifactKind.QUIZ,
         prompt="Explain the entire course?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         source_spans=(_span(),),
     )
 
-    report = validate_study_artifacts(
+    report = validate_learning_artifacts(
         [good, duplicate, unsupported, mismatched, broad],
         SOURCE_MAP,
     )
@@ -111,9 +111,9 @@ def test_validate_artifacts_rejects_unsupported_source_mismatched_vague_and_dupl
 
 
 def test_validate_artifacts_rejects_invalid_runtime_kind_without_crashing() -> None:
-    invalid_kind = StudyArtifact(
+    invalid_kind = LearningArtifact(
         artifact_id="invalid-kind",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
@@ -121,21 +121,21 @@ def test_validate_artifacts_rejects_invalid_runtime_kind_without_crashing() -> N
     )
     object.__setattr__(invalid_kind, "kind", "flashcard")
 
-    report = validate_study_artifacts([invalid_kind], SOURCE_MAP)
+    report = validate_learning_artifacts([invalid_kind], SOURCE_MAP)
 
     assert report.passed is False
     assert {issue.code for issue in report.rejected[0].issues} == {"invalid_kind"}
 
 
 def test_validate_artifact_rejects_out_of_range_source_span_offsets() -> None:
-    artifact = StudyArtifact(
+    artifact = LearningArtifact(
         artifact_id="bad-offsets",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
         source_spans=(
-            StudyArtifactSourceSpan(
+            LearningArtifactSourceSpan(
                 source_ref=SOURCE_REF,
                 text=(
                     "Long-term potentiation is persistent strengthening of synapses after "
@@ -147,32 +147,32 @@ def test_validate_artifact_rejects_out_of_range_source_span_offsets() -> None:
         ),
     )
 
-    result = validate_study_artifact(artifact, SOURCE_MAP)
+    result = validate_learning_artifact(artifact, SOURCE_MAP)
 
     assert {issue.code for issue in result.issues} == {"invalid_source_span"}
 
 
 def test_validate_artifacts_covers_all_supported_study_artifact_kinds() -> None:
-    source_span = StudyArtifactSourceSpan(source_ref=SOURCE_REF, text=SOURCE_TEXT)
+    source_span = LearningArtifactSourceSpan(source_ref=SOURCE_REF, text=SOURCE_TEXT)
     artifacts = [
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="cloze",
-            kind=StudyArtifactKind.CLOZE_CARD,
+            kind=LearningArtifactKind.CLOZE_CARD,
             prompt="",
             content="Long-term potentiation is {{c1::persistent strengthening}} of synapses.",
             concept_tags=("Long-term potentiation",),
             source_spans=(source_span,),
         ),
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="quiz",
-            kind=StudyArtifactKind.QUIZ,
+            kind=LearningArtifactKind.QUIZ,
             prompt="What triggers calcium influx?",
             answer="NMDA receptor coincidence detection triggers calcium influx.",
             source_spans=(source_span,),
         ),
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="summary",
-            kind=StudyArtifactKind.SUMMARY,
+            kind=LearningArtifactKind.SUMMARY,
             prompt="",
             content=(
                 "Long-term potentiation is persistent strengthening of synapses after "
@@ -180,24 +180,24 @@ def test_validate_artifacts_covers_all_supported_study_artifact_kinds() -> None:
             ),
             source_spans=(source_span,),
         ),
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="misconception",
-            kind=StudyArtifactKind.MISCONCEPTION,
+            kind=LearningArtifactKind.MISCONCEPTION,
             prompt="Correct the LTP misconception.",
             answer="LTP is not only structural; it includes persistent synaptic strengthening.",
             concept_tags=("Long-term potentiation",),
             source_spans=(source_span,),
         ),
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="concept",
-            kind=StudyArtifactKind.CONCEPT_TAG,
+            kind=LearningArtifactKind.CONCEPT_TAG,
             prompt="",
             concept_tags=("Long-term potentiation",),
             source_spans=(source_span,),
         ),
-        StudyArtifact(
+        LearningArtifact(
             artifact_id="prerequisite",
-            kind=StudyArtifactKind.PREREQUISITE,
+            kind=LearningArtifactKind.PREREQUISITE,
             prompt="",
             content="Synaptic transmission is a prerequisite.",
             prerequisite_tags=("synaptic transmission",),
@@ -205,7 +205,7 @@ def test_validate_artifacts_covers_all_supported_study_artifact_kinds() -> None:
         ),
     ]
 
-    report = validate_study_artifacts(artifacts, SOURCE_MAP)
+    report = validate_learning_artifacts(artifacts, SOURCE_MAP)
 
     assert report.passed is True
     assert report.accepted == tuple(artifacts)
@@ -213,13 +213,13 @@ def test_validate_artifacts_covers_all_supported_study_artifact_kinds() -> None:
 
 def test_validate_artifact_rejects_invalid_review_state() -> None:
     naive_last_reviewed_at = datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)
-    artifact = StudyArtifact(
+    artifact = LearningArtifact(
         artifact_id="review",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         source_spans=(_span(),),
-        review_state=StudyArtifactReviewState(
+        review_state=LearningArtifactReviewState(
             reviews=1,
             lapses=2,
             mastery=1.5,
@@ -228,7 +228,7 @@ def test_validate_artifact_rejects_invalid_review_state() -> None:
         ),
     )
 
-    result = validate_study_artifact(artifact, SOURCE_MAP)
+    result = validate_learning_artifact(artifact, SOURCE_MAP)
 
     assert {issue.code for issue in result.issues} == {"invalid_review_state"}
     assert any("lapses cannot exceed reviews" in issue.message for issue in result.issues)
@@ -236,33 +236,33 @@ def test_validate_artifact_rejects_invalid_review_state() -> None:
     assert any("timezone-aware" in issue.message for issue in result.issues)
 
 
-def test_record_study_artifact_review_advances_due_date_without_mutating_original() -> None:
-    artifact = StudyArtifact(
+def test_record_learning_artifact_review_advances_due_date_without_mutating_original() -> None:
+    artifact = LearningArtifact(
         artifact_id="ltp-card",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         source_spans=(_span(),),
     )
     reviewed_at = datetime(2026, 5, 19, 12, 0, tzinfo=UTC)
 
-    reviewed = record_study_artifact_review(
+    reviewed = record_learning_artifact_review(
         artifact,
-        StudyRecallRating.EASY,
+        RecallRating.EASY,
         reviewed_at=reviewed_at,
     )
 
-    assert artifact.review_state == StudyArtifactReviewState()
+    assert artifact.review_state == LearningArtifactReviewState()
     assert reviewed.review_state.reviews == 1
     assert reviewed.review_state.lapses == 0
     assert reviewed.review_state.mastery == 1.0
     assert reviewed.review_state.last_reviewed_at == reviewed_at
     assert reviewed.review_state.due_at == datetime(2026, 5, 31, 12, 0, tzinfo=UTC)
-    assert validate_study_artifact(reviewed, SOURCE_MAP).accepted is True
+    assert validate_learning_artifact(reviewed, SOURCE_MAP).accepted is True
 
 
-def test_next_study_artifact_review_state_tracks_lapses_and_hint_penalties() -> None:
-    previous = StudyArtifactReviewState(
+def test_next_learning_artifact_review_state_tracks_lapses_and_hint_penalties() -> None:
+    previous = LearningArtifactReviewState(
         reviews=1,
         lapses=0,
         mastery=1.0,
@@ -271,9 +271,9 @@ def test_next_study_artifact_review_state_tracks_lapses_and_hint_penalties() -> 
     )
     reviewed_at = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
 
-    state = next_study_artifact_review_state(
+    state = next_learning_artifact_review_state(
         previous,
-        StudyRecallRating.HARD,
+        RecallRating.HARD,
         reviewed_at=reviewed_at,
         hint_level_needed=2,
     )
@@ -285,12 +285,12 @@ def test_next_study_artifact_review_state_tracks_lapses_and_hint_penalties() -> 
     assert state.due_at == datetime(2026, 6, 2, 9, 30, tzinfo=UTC)
 
 
-def test_next_study_artifact_review_state_reschedules_missed_reviews_immediately() -> None:
+def test_next_learning_artifact_review_state_reschedules_missed_reviews_immediately() -> None:
     reviewed_at = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
 
-    state = next_study_artifact_review_state(
-        StudyArtifactReviewState(mastery=0.4),
-        StudyRecallRating.NONE,
+    state = next_learning_artifact_review_state(
+        LearningArtifactReviewState(mastery=0.4),
+        RecallRating.NONE,
         reviewed_at=reviewed_at,
     )
 
@@ -300,36 +300,36 @@ def test_next_study_artifact_review_state_reschedules_missed_reviews_immediately
     assert state.due_at == reviewed_at
 
 
-def test_next_study_artifact_review_state_rejects_invalid_review_inputs() -> None:
+def test_next_learning_artifact_review_state_rejects_invalid_review_inputs() -> None:
     naive_reviewed_at = datetime(2026, 5, 19, 12, 0, tzinfo=UTC).replace(tzinfo=None)
 
     with pytest.raises(ValueError, match="timezone-aware"):
-        next_study_artifact_review_state(
-            StudyArtifactReviewState(),
-            StudyRecallRating.GOOD,
+        next_learning_artifact_review_state(
+            LearningArtifactReviewState(),
+            RecallRating.GOOD,
             reviewed_at=naive_reviewed_at,
         )
     with pytest.raises(ValueError, match="hint_level_needed"):
-        next_study_artifact_review_state(
-            StudyArtifactReviewState(),
-            StudyRecallRating.GOOD,
+        next_learning_artifact_review_state(
+            LearningArtifactReviewState(),
+            RecallRating.GOOD,
             reviewed_at=datetime(2026, 5, 19, 12, 0, tzinfo=UTC),
             hint_level_needed=-1,
         )
 
 
 def test_anki_export_requires_validated_card_artifacts() -> None:
-    accepted = StudyArtifact(
+    accepted = LearningArtifact(
         artifact_id="ltp-card",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Long-term potentiation is persistent strengthening of synapses.",
         concept_tags=("Long-term potentiation",),
-        difficulty=StudyArtifactDifficulty.INTRO,
+        difficulty=LearningArtifactDifficulty.INTRO,
         source_spans=(_span(),),
     )
 
-    tsv = study_artifacts_to_anki_tsv([accepted], SOURCE_MAP)
+    tsv = learning_artifacts_to_anki_tsv([accepted], SOURCE_MAP)
 
     assert tsv == (
         "What is long-term potentiation?\t"
@@ -338,12 +338,12 @@ def test_anki_export_requires_validated_card_artifacts() -> None:
         "long_term_potentiation materials_lecture_md\tintro\n"
     )
 
-    rejected = StudyArtifact(
+    rejected = LearningArtifact(
         artifact_id="bad",
-        kind=StudyArtifactKind.FLASHCARD,
+        kind=LearningArtifactKind.FLASHCARD,
         prompt="What is long-term potentiation?",
         answer="Astrocytes directly store the memory trace.",
         source_spans=(_span(),),
     )
     with pytest.raises(ValueError, match="unsupported_content"):
-        study_artifacts_to_anki_tsv([rejected], SOURCE_MAP)
+        learning_artifacts_to_anki_tsv([rejected], SOURCE_MAP)

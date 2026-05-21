@@ -1,4 +1,4 @@
-"""Study material discovery and role inference for armories."""
+"""Material discovery and role inference for armories."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ MaterialRole = Literal[
     "textbook",
     "vocabulary",
 ]
+type MaterialRoleInference = tuple[MaterialRole, float, str]
 
 MATERIALS_DIR = "materials"
 MATERIAL_DIRS: tuple[MaterialKind, ...] = (MATERIALS_DIR,)
@@ -92,6 +93,69 @@ _NUMBERED_TEXTBOOK_SECTION_RE = re.compile(
     r"\b\d{1,2}\.\d{1,2}\s+[A-Z][^|\n]{2,80}\s+\|\s+[A-Z]",
     re.IGNORECASE,
 )
+_PATH_ROLE_RULES: tuple[tuple[tuple[str, ...], MaterialRoleInference], ...] = (
+    (
+        (
+            "exam",
+            "past-paper",
+            "past_paper",
+            "mock",
+            "klausur",
+            "altklausur",
+            "nachklausur",
+            "pruefung",
+            "prüfung",
+        ),
+        ("past_exam", 0.9, "path suggests an exam or past paper"),
+    ),
+    (
+        ("assignment", "homework", "problem-set", "pset"),
+        ("assignment", 0.85, "path suggests assigned problems"),
+    ),
+    (
+        ("vocab", "glossary", "flashcard"),
+        ("vocabulary", 0.85, "path suggests vocabulary practice"),
+    ),
+    (("folie", "folien", "slides"), ("slides", 0.9, "path suggests lecture slides")),
+    (("lecture", "seminar", "class-notes"), ("lecture", 0.8, "path suggests lecture material")),
+    (("slide", "deck", "presentation"), ("slides", 0.8, "path or file type suggests slides")),
+    (("book", "textbook", "chapter"), ("textbook", 0.8, "path suggests a textbook or chapter")),
+)
+_CODE_SUFFIXES = frozenset((".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"))
+_SLIDE_SUFFIXES = frozenset((".ppt", ".pptx"))
+_EXAM_TEXT_TOKENS = (
+    "klausur",
+    "nachklausur",
+    "prüfung",
+    "pruefung",
+    "aufgabe",
+    "bearbeitungszeit",
+    "hilfsmittel",
+    "punkte",
+)
+_ASSIGNMENT_TEXT_TOKENS = (
+    "assignment",
+    "due date",
+    "exercise sheet",
+    "homework",
+    "problem set",
+    "worksheet",
+    "abgabe",
+    "hausaufgabe",
+    "übungsblatt",
+    "uebungsblatt",
+)
+_LECTURE_TEXT_TOKENS = (
+    "vorlesung",
+    "folie",
+    "folien",
+    "table of contents",
+    "inhaltsverzeichnis",
+    "übungsgruppe",
+    "ubungsgruppe",
+    "sommersemester",
+    "wintersemester",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,55 +183,100 @@ def _path_has(normalized: str, tokens: tuple[str, ...]) -> bool:
     return any(token in normalized for token in tokens)
 
 
-def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]:
+def _token_hits(text: str, tokens: tuple[str, ...]) -> int:
+    return sum(token in text for token in tokens)
+
+
+def _path_rule_match(normalized: str) -> MaterialRoleInference | None:
+    for tokens, inference in _PATH_ROLE_RULES:
+        if _path_has(normalized, tokens):
+            return inference
+    return None
+
+
+def infer_material_role(rel_path: str | Path) -> MaterialRoleInference:
     """Infer a material role from its path.
 
     This keeps the filesystem simple for users while giving Heph useful
-    retrieval/study hints. The heuristic is intentionally transparent and cheap;
+    retrieval and learning hints. The heuristic is intentionally transparent and cheap;
     model-assisted classification can refine it later.
     """
     path = Path(rel_path)
-    normalized = "/".join(part.lower() for part in path.parts)
-    suffix = path.suffix.lower()
+    normalized = _normalized_path(path)
 
-    if _path_has(
-        normalized,
-        (
-            "exam",
-            "past-paper",
-            "past_paper",
-            "mock",
-            "klausur",
-            "altklausur",
-            "nachklausur",
-            "pruefung",
-            "prüfung",
-        ),
-    ):
-        return "past_exam", 0.9, "path suggests an exam or past paper"
-    if _path_has(normalized, ("assignment", "homework", "problem-set", "pset")):
-        return "assignment", 0.85, "path suggests assigned problems"
-    if _path_has(normalized, ("vocab", "glossary", "flashcard")):
-        return "vocabulary", 0.85, "path suggests vocabulary practice"
     if path.stem.lower() in {"summary", "reference"}:
         return "reference", 0.76, "path suggests a summary or reference page"
-    if _path_has(normalized, ("folie", "folien", "slides")):
-        return "slides", 0.9, "path suggests lecture slides"
-    if _path_has(normalized, ("lecture", "seminar", "class-notes")):
-        return "lecture", 0.8, "path suggests lecture material"
-    if _path_has(normalized, ("slide", "deck", "presentation")) or suffix in (".ppt", ".pptx"):
+    if (inference := _path_rule_match(normalized)) is not None:
+        return inference
+    if path.suffix.lower() in _SLIDE_SUFFIXES:
         return "slides", 0.8, "path or file type suggests slides"
-    if _path_has(normalized, ("book", "textbook", "chapter")):
-        return "textbook", 0.8, "path suggests a textbook or chapter"
-    if suffix in (".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"):
+    if path.suffix.lower() in _CODE_SUFFIXES:
         return "codebase", 0.75, "file extension suggests source code"
     return "reference", 0.5, "default material role"
+
+
+def _normalized_path(path: Path) -> str:
+    return "/".join(part.lower() for part in path.parts)
+
+
+def _public_material_role(role_hint_text: str) -> MaterialRoleInference | None:
+    if _PUBLIC_TEXTBOOK_RE.search(role_hint_text):
+        return "textbook", 0.84, "content suggests a public textbook section"
+    if _NUMBERED_TEXTBOOK_SECTION_RE.search(role_hint_text):
+        return "textbook", 0.8, "content suggests a numbered textbook section"
+    if _PUBLIC_COURSE_NOTES_RE.search(role_hint_text):
+        return "lecture", 0.82, "content suggests public course notes or lectures"
+    return None
+
+
+def _exam_material_role(
+    rel_path: str | Path,
+    text: str,
+    normalized: str,
+) -> MaterialRoleInference | None:
+    question_parts = len(_STRUCTURED_QUESTION_PART_RE.findall(text))
+    task_directives = len(_TASK_DIRECTIVE_RE.findall(text))
+    has_academic_date = bool(_ACADEMIC_DATE_RE.search(f"{rel_path} {text[:500]}"))
+    if _has_exam_signals(normalized, text, question_parts, task_directives, has_academic_date):
+        return "past_exam", 0.82, "content contains exam questions or marks"
+    return None
+
+
+def _has_exam_signals(
+    normalized: str,
+    text: str,
+    question_parts: int,
+    task_directives: int,
+    has_academic_date: bool,
+) -> bool:
+    return (
+        _token_hits(normalized, _EXAM_TEXT_TOKENS) >= 3
+        or bool(_QUESTION_MARKS_RE.search(text))
+        or (question_parts >= 2 and (has_academic_date or task_directives >= 2))
+    )
+
+
+def _assignment_material_role(text: str, normalized: str) -> MaterialRoleInference | None:
+    exercise_items = len(_EXERCISE_ITEM_RE.findall(text))
+    if (
+        _token_hits(normalized, _ASSIGNMENT_TEXT_TOKENS) >= 1
+        or exercise_items >= 2
+        or _ASSIGNMENT_STRUCTURE_RE.search(text)
+    ):
+        return "assignment", 0.8, "content suggests exercises or assigned problems"
+    return None
+
+
+def _lecture_material_role(text: str, normalized: str) -> MaterialRoleInference | None:
+    if _token_hits(normalized, _LECTURE_TEXT_TOKENS) >= 3 or _LECTURE_STRUCTURE_RE.search(text):
+        return "slides", 0.78, "content suggests lecture slides"
+    return None
 
 
 def infer_material_role_from_text(
     rel_path: str | Path,
     text: str,
-) -> tuple[MaterialRole, float, str]:
+) -> MaterialRoleInference:
     """Infer a material role using path hints plus extracted content.
 
     Filename hints remain the first signal because they are cheap and explicit.
@@ -179,72 +288,17 @@ def infer_material_role_from_text(
         return path_role, path_confidence, path_reason
 
     role_hint_text = f"{rel_path}\n{text[:8000]}"
-    if _PUBLIC_TEXTBOOK_RE.search(role_hint_text):
-        return "textbook", 0.84, "content suggests a public textbook section"
-    if _NUMBERED_TEXTBOOK_SECTION_RE.search(role_hint_text):
-        return "textbook", 0.8, "content suggests a numbered textbook section"
-    if _PUBLIC_COURSE_NOTES_RE.search(role_hint_text):
-        return "lecture", 0.82, "content suggests public course notes or lectures"
+    if (public_role := _public_material_role(role_hint_text)) is not None:
+        return public_role
 
     normalized = text.lower()
-    exam_hits = sum(
-        token in normalized
-        for token in (
-            "klausur",
-            "nachklausur",
-            "prüfung",
-            "pruefung",
-            "aufgabe",
-            "bearbeitungszeit",
-            "hilfsmittel",
-            "punkte",
-        )
-    )
-    question_parts = len(_STRUCTURED_QUESTION_PART_RE.findall(text))
-    task_directives = len(_TASK_DIRECTIVE_RE.findall(text))
-    has_academic_date = bool(_ACADEMIC_DATE_RE.search(f"{rel_path} {text[:500]}"))
-    if (
-        exam_hits >= 3
-        or _QUESTION_MARKS_RE.search(text)
-        or (question_parts >= 2 and (has_academic_date or task_directives >= 2))
+    for classifier in (
+        lambda: _exam_material_role(rel_path, text, normalized),
+        lambda: _assignment_material_role(text, normalized),
+        lambda: _lecture_material_role(text, normalized),
     ):
-        return "past_exam", 0.82, "content contains exam questions or marks"
-
-    assignment_hits = sum(
-        token in normalized
-        for token in (
-            "assignment",
-            "due date",
-            "exercise sheet",
-            "homework",
-            "problem set",
-            "worksheet",
-            "abgabe",
-            "hausaufgabe",
-            "übungsblatt",
-            "uebungsblatt",
-        )
-    )
-    exercise_items = len(_EXERCISE_ITEM_RE.findall(text))
-    if assignment_hits >= 1 or exercise_items >= 2 or _ASSIGNMENT_STRUCTURE_RE.search(text):
-        return "assignment", 0.8, "content suggests exercises or assigned problems"
-
-    lecture_hits = sum(
-        token in normalized
-        for token in (
-            "vorlesung",
-            "folie",
-            "folien",
-            "table of contents",
-            "inhaltsverzeichnis",
-            "übungsgruppe",
-            "ubungsgruppe",
-            "sommersemester",
-            "wintersemester",
-        )
-    )
-    if lecture_hits >= 3 or _LECTURE_STRUCTURE_RE.search(text):
-        return "slides", 0.78, "content suggests lecture slides"
+        if (inference := classifier()) is not None:
+            return inference
 
     return path_role, path_confidence, path_reason
 
@@ -252,6 +306,22 @@ def infer_material_role_from_text(
 def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
     """Yield visible material files using armory ignore rules."""
     ignore_spec = _load_ignore_spec(armory_path)
+    for file_path, rel, kind in _iter_visible_material_paths(armory_path, ignore_spec):
+        role, confidence, reason = infer_material_role(rel)
+        yield MaterialFile(
+            path=file_path,
+            rel_path=rel,
+            kind=kind,
+            role=role,
+            confidence=confidence,
+            reason=reason,
+        )
+
+
+def _iter_visible_material_paths(
+    armory_path: Path,
+    ignore_spec: object,
+) -> Iterator[tuple[Path, str, MaterialKind]]:
     for dirname in MATERIAL_DIRS:
         folder = armory_path / dirname
         if not folder.is_dir():
@@ -259,26 +329,41 @@ def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
         resolved_folder = _resolve_material_folder(folder)
         if resolved_folder is None:
             continue
-        for file_path in sorted(folder.rglob("*")):
-            if _unsafe_material_path(file_path, resolved_folder):
-                continue
-            if not file_path.is_file():
-                continue
-            rel_to_material_dir = file_path.relative_to(folder)
-            if any(part.startswith(".") for part in rel_to_material_dir.parts):
-                continue
-            rel = str(file_path.relative_to(armory_path))
-            if _matches_ignore(ignore_spec, rel):
-                continue
-            role, confidence, reason = infer_material_role(rel)
-            yield MaterialFile(
-                path=file_path,
-                rel_path=rel,
-                kind=dirname,
-                role=role,
-                confidence=confidence,
-                reason=reason,
-            )
+        yield from _iter_visible_material_folder(
+            armory_path,
+            folder,
+            resolved_folder,
+            dirname,
+            ignore_spec,
+        )
+
+
+def _iter_visible_material_folder(
+    armory_path: Path,
+    folder: Path,
+    resolved_folder: Path,
+    kind: MaterialKind,
+    ignore_spec: object,
+) -> Iterator[tuple[Path, str, MaterialKind]]:
+    for file_path in sorted(folder.rglob("*")):
+        if not _visible_material_file(file_path, folder, resolved_folder):
+            continue
+        rel = str(file_path.relative_to(armory_path))
+        if not _matches_ignore(ignore_spec, rel):
+            yield file_path, rel, kind
+
+
+def _visible_material_file(
+    file_path: Path,
+    folder: Path,
+    resolved_folder: Path,
+) -> bool:
+    if _unsafe_material_path(file_path, resolved_folder):
+        return False
+    if not file_path.is_file():
+        return False
+    rel_to_material_dir = file_path.relative_to(folder)
+    return not any(part.startswith(".") for part in rel_to_material_dir.parts)
 
 
 def iter_material_files(armory_path: Path) -> Iterator[Path]:
@@ -295,18 +380,24 @@ def material_manifest(armory_path: Path) -> tuple[MaterialFile, ...]:
 
 def _load_ignore_spec(armory_path: Path) -> object:
     """Load built-in and armory-local material ignore patterns."""
-    patterns = list(DEFAULT_IGNORE_PATTERNS)
-    ignore_path = armory_path / IGNORE_FILE
-    if ignore_path.is_file():
-        try:
-            patterns.extend(ignore_path.read_text(encoding="utf-8").splitlines())
-        except OSError:
-            _log.warning("failed to read armory ignore file", exc_info=True)
+    patterns = _ignore_patterns(armory_path)
     if pathspec is not None:
         return pathspec.PathSpec.from_lines(  # ty:ignore[unresolved-attribute]
             "gitignore", patterns
         )
     return tuple(pattern for pattern in patterns if pattern and not pattern.startswith("#"))
+
+
+def _ignore_patterns(armory_path: Path) -> list[str]:
+    patterns = list(DEFAULT_IGNORE_PATTERNS)
+    ignore_path = armory_path / IGNORE_FILE
+    if not ignore_path.is_file():
+        return patterns
+    try:
+        patterns.extend(ignore_path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        _log.warning("failed to read armory ignore file", exc_info=True)
+    return patterns
 
 
 def _resolve_material_folder(folder: Path) -> Path | None:
@@ -351,17 +442,24 @@ def _matches_ignore(ignore_spec: object, rel_path: str) -> bool:
     if not isinstance(ignore_spec, tuple):
         return False
     patterns = cast("tuple[object, ...]", ignore_spec)  # ty:ignore[redundant-cast]
-    for pattern in patterns:
-        if not isinstance(pattern, str):
-            continue
-        normalized = pattern.rstrip("/")
-        if pattern.endswith("/") and (
-            rel_path == normalized or rel_path.startswith(f"{normalized}/")
-        ):
-            return True
-        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(Path(rel_path).name, pattern):
-            return True
-    return False
+    return any(
+        _fallback_ignore_pattern_matches(pattern, rel_path)
+        for pattern in patterns
+        if isinstance(pattern, str)
+    )
+
+
+def _fallback_ignore_pattern_matches(pattern: str, rel_path: str) -> bool:
+    if _directory_ignore_pattern_matches(pattern, rel_path):
+        return True
+    return fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(Path(rel_path).name, pattern)
+
+
+def _directory_ignore_pattern_matches(pattern: str, rel_path: str) -> bool:
+    if not pattern.endswith("/"):
+        return False
+    normalized = pattern.rstrip("/")
+    return rel_path == normalized or rel_path.startswith(f"{normalized}/")
 
 
 __all__ = [

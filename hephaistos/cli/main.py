@@ -5,6 +5,7 @@ import importlib
 import os
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
@@ -12,7 +13,7 @@ _HELP_OPTIONS_HEADER = "Options:"
 _HELP_EXAMPLES_HEADER = "Examples:"
 
 
-class HephaistosArgumentParser(argparse.ArgumentParser):
+class HephArgumentParser(argparse.ArgumentParser):
     def __init__(self, *args: object, compact_help: bool = False, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)  # ty:ignore[invalid-argument-type]
         self._compact_help = compact_help
@@ -44,27 +45,40 @@ def _resolve_armory_argument(path: str | None) -> Path | None:
     if not path:
         return None
     candidate = Path(path)
-    if candidate.exists() or any(separator in path for separator in ("/", "\\")):
+    if _is_explicit_armory_path(path, candidate):
         return candidate
 
+    matches, prefix_matches = _known_armory_shortcut_matches(path)
+    if match := _single_shortcut_match(matches):
+        return match
+    if match := _single_shortcut_match(prefix_matches):
+        return match
+    if len(matches) > 1 or len(prefix_matches) > 1:
+        _raise_ambiguous_armory_shortcut(path)
+    return candidate
+
+
+def _is_explicit_armory_path(raw_path: str, candidate: Path) -> bool:
+    return candidate.exists() or any(separator in raw_path for separator in ("/", "\\"))
+
+
+def _known_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
     search_index = importlib.import_module("hephaistos.armory.search")
     entries = search_index.load_known_armory_entries()
-    matches = [
-        entry.path for entry in entries if entry.valid and entry.path.name.lower() == path.lower()
-    ]
-    if len(matches) == 1:
-        return matches[0]
-    prefix_matches = [
-        entry.path
-        for entry in entries
-        if entry.valid and entry.path.name.lower().startswith(path.lower())
-    ]
-    if len(prefix_matches) == 1:
-        return prefix_matches[0]
-    if len(matches) > 1 or len(prefix_matches) > 1:
-        print(f"error: armory shortcut '{path}' is ambiguous", file=sys.stderr)
-        raise SystemExit(2)
-    return candidate
+    shortcut_lower = shortcut.lower()
+    valid_paths = [entry.path for entry in entries if entry.valid]
+    matches = [path for path in valid_paths if path.name.lower() == shortcut_lower]
+    prefix_matches = [path for path in valid_paths if path.name.lower().startswith(shortcut_lower)]
+    return matches, prefix_matches
+
+
+def _single_shortcut_match(matches: list[Path]) -> Path | None:
+    return matches[0] if len(matches) == 1 else None
+
+
+def _raise_ambiguous_armory_shortcut(shortcut: str) -> None:
+    print(f"error: armory shortcut '{shortcut}' is ambiguous", file=sys.stderr)
+    raise SystemExit(2)
 
 
 def _cmd_tui(args: argparse.Namespace) -> None:
@@ -349,7 +363,7 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     pathlib = importlib.import_module("pathlib")
     prog = pathlib.Path(sys.argv[0]).name or "hephaistos"
-    parser = HephaistosArgumentParser(
+    parser = HephArgumentParser(
         prog=prog,
         description="TUI-first document CLI.",
         compact_help=True,
@@ -469,26 +483,11 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 def main() -> None:
     _maybe_reexec_source_venv()
+    shutdown_analytics, shutdown_diagnostics = _init_diagnostics()
+    _increment_session_count()
 
-    analytics = importlib.import_module("hephaistos.diagnostics.events")
-    diagnostics = importlib.import_module("hephaistos.diagnostics.crashes")
-
-    analytics.init_analytics()
-    diagnostics.init_diagnostics()
-    for message in _runtime_diagnostic_messages():
-        print(message, file=sys.stderr)
-
-    # Track session count for progressive keybind hints.
-    settings_mod = importlib.import_module("hephaistos.parameters.settings")
-    settings = settings_mod.load_raw_settings()
-    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
-    settings["session_count"] = count
-    settings_mod.save_raw_settings(settings)
-
-    # Detect profile flags before argparse (so profiling covers argparse itself)
     _profile = "--profile" in sys.argv[1:]
     _profile_memory = "--profile-memory" in sys.argv[1:]
-
     _prof = None
     if _profile:
         _cprofile = importlib.import_module("cProfile")
@@ -500,34 +499,58 @@ def main() -> None:
         tracemalloc.start()
 
     try:
-        parser = build_parser()
-        argv = _normalise_argv(sys.argv[1:])
-
-        # If the first non-flag arg isn't a known subcommand (e.g. a path),
-        # transparently inject the default interface subcommand so `heph /my/armory` just works.
-        known_commands: set[str] = set()
-        for action in parser._actions:
-            if isinstance(action, argparse._SubParsersAction):
-                known_commands = set(action.choices.keys())
-                break
-        argv = _inject_default_subcommand(argv, known_commands)
-
-        run_argv(parser, argv)
+        _run_main_argv(sys.argv[1:])
     finally:
         if _profile_memory:
-            tracemalloc = importlib.import_module("tracemalloc")
-            snapshot = tracemalloc.take_snapshot()
-            tracemalloc.stop()
-            top = snapshot.statistics("lineno")[:20]
-            sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
-            for stat in top:
-                sys.stderr.write(f"  {stat}\n")
-            sys.stderr.write("\n")
+            _report_memory_profile()
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
-        analytics.shutdown_analytics()
-        diagnostics.shutdown_diagnostics()
+        shutdown_analytics()
+        shutdown_diagnostics()
+
+
+def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
+    analytics = importlib.import_module("hephaistos.diagnostics.events")
+    diagnostics = importlib.import_module("hephaistos.diagnostics.crashes")
+    analytics.init_analytics()
+    diagnostics.init_diagnostics()
+    for message in _runtime_diagnostic_messages():
+        print(message, file=sys.stderr)
+    return analytics.shutdown_analytics, diagnostics.shutdown_diagnostics
+
+
+def _increment_session_count() -> None:
+    settings_mod = importlib.import_module("hephaistos.parameters.settings")
+    settings = settings_mod.load_raw_settings()
+    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
+    settings["session_count"] = count
+    settings_mod.save_raw_settings(settings)
+
+
+def _run_main_argv(raw_argv: list[str]) -> None:
+    parser = build_parser()
+    argv = _normalise_argv(raw_argv)
+    argv = _inject_default_subcommand(argv, _known_parser_commands(parser))
+    run_argv(parser, argv)
+
+
+def _known_parser_commands(parser: argparse.ArgumentParser) -> set[str]:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return set(action.choices.keys())
+    return set()
+
+
+def _report_memory_profile() -> None:
+    tracemalloc = importlib.import_module("tracemalloc")
+    snapshot = tracemalloc.take_snapshot()
+    tracemalloc.stop()
+    top = snapshot.statistics("lineno")[:20]
+    sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
+    for stat in top:
+        sys.stderr.write(f"  {stat}\n")
+    sys.stderr.write("\n")
 
 
 def _report_profile(prof: object) -> None:

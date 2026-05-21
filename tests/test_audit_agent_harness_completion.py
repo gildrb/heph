@@ -839,7 +839,7 @@ def test_completion_audit_runs_default_deterministic_suite() -> None:
     assert "academic_question_type_count=6" in item.evidence
     assert "academic_grounded_question_rate=1.000" in item.evidence
     assert "academic_canonical_source_label_rate=1.000" in item.evidence
-    assert "study_intent_contract_passed=True" in item.evidence
+    assert "learning_intent_contract_passed=True" in item.evidence
     assert "recall_clarification" in item.evidence
 
 

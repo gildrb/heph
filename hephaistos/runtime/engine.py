@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol, Self, cast
 
 from hephaistos._types import is_string_mapping
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
@@ -37,6 +37,11 @@ from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.oauth import load_credentials
 from hephaistos.providers.registry import get_registry as get_provider_registry
+from hephaistos.reasoning import (
+    DEFAULT_REASONING_LEVEL,
+    normalize_reasoning_level,
+    reasoning_levels_for_model,
+)
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
 from hephaistos.runtime.messages import message_content_text
 from hephaistos.runtime.prompt_cache import (
@@ -63,6 +68,19 @@ class _SpanProtocol(Protocol):
 
 class _TracerProtocol(Protocol):
     def start_span(self, name: str, **kwargs: object) -> _SpanProtocol: ...
+
+
+class _ByteStreamResponseProtocol(Protocol):
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object,
+    ) -> object: ...
+
+    def __iter__(self) -> Iterator[bytes]: ...
 
 
 class _CounterProtocol(Protocol):
@@ -114,12 +132,16 @@ class ChatConfig:
     model: str = ""
     max_tokens: int = 4096
     rag_context_budget: int = 2000
+    reasoning_level: str = DEFAULT_REASONING_LEVEL
     feature_flags: frozenset[str] = field(default_factory=frozenset)
     _provider_slug: str = field(default="", repr=False)
     _provider_env: str = field(default="", repr=False)
 
     def is_feature_enabled(self, flag: str) -> bool:
         return flag in self.feature_flags
+
+    def __post_init__(self) -> None:
+        self.reasoning_level = normalize_reasoning_level(self.reasoning_level)
 
     @property
     def provider_slug(self) -> str:
@@ -243,42 +265,84 @@ class Conversation:
         return self._api_cache
 
 
+@dataclass(frozen=True, slots=True)
+class _ProviderErrorDetail:
+    message: str
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamCompletionRequest:
+    api_messages: list[ApiMessage]
+    prompt_request: PromptCacheRequest
+    message_count: int
+    tool_count: int
+
+
+@dataclass(slots=True)
+class _OpenAIStreamProgress:
+    partial_parts: list[str] = field(default_factory=list)
+    saw_output: bool = False
+
+    def record(self, delta: CompletionDelta) -> None:
+        if delta.content:
+            self.partial_parts.append(delta.content)
+        if delta.content or delta.tool_calls:
+            self.saw_output = True
+
+    @property
+    def partial_content(self) -> str:
+        return "".join(self.partial_parts)
+
+
 def to_chat_completion_messages(messages: list[ApiMessage]) -> list[ChatCompletionMessageParam]:
     return cast("list[ChatCompletionMessageParam]", messages)
 
 
-def _provider_error_fields(exc: Exception) -> tuple[str, str]:
+def _provider_error_body(exc: Exception) -> dict[str, object] | None:
     body = getattr(exc, "body", None)
-    if not is_string_mapping(body):
-        response = getattr(exc, "response", None)
-        json_fn = getattr(response, "json", None)
-        if callable(json_fn):
-            try:
-                response_body = json_fn()
-            except Exception:
-                response_body = None
-            body = response_body if is_string_mapping(response_body) else None
-        else:
-            body = None
-    code = ""
-    message = ""
+    if is_string_mapping(body):
+        return body
 
-    if body is not None:
-        data = body
-        error_val = data.get("error", data)
-        if is_string_mapping(error_val):
-            raw_code = error_val.get("code") or error_val.get("type") or data.get("code")
-            raw_message = error_val.get("message") or data.get("message")
-        else:
-            raw_code = data.get("code")
-            raw_message = data.get("message") or error_val
-        code = str(raw_code or "").strip()
-        message = str(raw_message or "").strip()
+    response = getattr(exc, "response", None)
+    json_fn = getattr(response, "json", None)
+    if not callable(json_fn):
+        return None
 
-    if not message:
-        message = str(getattr(exc, "message", "") or exc).strip()
-    if not code:
-        code = str(getattr(exc, "code", "") or "").strip()
+    try:
+        response_body = json_fn()
+    except Exception:
+        return None
+    return response_body if is_string_mapping(response_body) else None
+
+
+def _provider_error_detail_from_body(body: dict[str, object]) -> _ProviderErrorDetail:
+    raw_message, raw_code = _message_and_code_from_payload(body)
+    return _ProviderErrorDetail(
+        message=str(raw_message or "").strip(),
+        code=str(raw_code or "").strip(),
+    )
+
+
+def _message_and_code_from_payload(payload: dict[str, object]) -> tuple[object, object]:
+    error_value = payload.get("error", payload)
+    if is_string_mapping(error_value):
+        return (
+            error_value.get("message") or payload.get("message"),
+            error_value.get("code") or error_value.get("type") or payload.get("code"),
+        )
+    return payload.get("message") or error_value, payload.get("code")
+
+
+def _provider_error_fields(exc: Exception) -> tuple[str, str]:
+    body = _provider_error_body(exc)
+    detail = (
+        _provider_error_detail_from_body(body)
+        if body is not None
+        else _ProviderErrorDetail(message="", code="")
+    )
+    message = detail.message or str(getattr(exc, "message", "") or exc).strip()
+    code = detail.code or str(getattr(exc, "code", "") or "").strip()
     return message or exc.__class__.__name__, code
 
 
@@ -529,7 +593,7 @@ def _codex_payload(
             inputs.append(_codex_input_item(role, text))
         else:
             inputs.append(_codex_input_item("user", f"{role} result:\n{text}"))
-    return {
+    payload: dict[str, object] = {
         "model": config.model,
         "instructions": "\n\n".join(instructions)
         or "You are a concise source-grounded assistant.",
@@ -537,6 +601,9 @@ def _codex_payload(
         "store": False,
         "stream": True,
     }
+    if reasoning_effort := _model_reasoning_effort(config):
+        payload["reasoning"] = {"effort": reasoning_effort}
+    return payload
 
 
 def _int_value(value: object) -> int:
@@ -566,13 +633,9 @@ def _codex_usage(payload: dict[str, object]) -> UsagePayload | None:
 def _codex_failure_detail(payload: dict[str, object]) -> str:
     response = payload.get("response")
     if is_string_mapping(response):
-        error = response.get("error")
-        if is_string_mapping(error):
-            message = error.get("message")
-            if isinstance(message, str) and message:
-                return redact_text(message)
-        if error:
-            return redact_text(str(error))
+        message, _code = _message_and_code_from_payload(response)
+        if message:
+            return redact_text(str(message))
     detail = payload.get("detail")
     if isinstance(detail, str) and detail:
         return redact_text(detail)
@@ -588,6 +651,46 @@ def _codex_http_error_detail(exc: urllib.error.HTTPError) -> str:
     return redact_text(body.strip() or str(exc))
 
 
+def _codex_event_payload(raw_line: bytes) -> dict[str, object] | None:
+    line = raw_line.decode("utf-8", "replace").strip()
+    if not line.startswith("data:"):
+        return None
+    data = line.removeprefix("data:").strip()
+    if not data:
+        return None
+    if data == "[DONE]":
+        return {"type": "response.done"}
+    try:
+        parsed = json.loads(data)
+    except json.JSONDecodeError:
+        return None
+    return parsed if is_string_mapping(parsed) else None
+
+
+def _codex_delta_from_event(
+    event: dict[str, object],
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest | None,
+) -> CompletionDelta | None:
+    event_type = event.get("type")
+    if event_type == "response.done":
+        return None
+    if event_type == "response.output_text.delta":
+        delta = event.get("delta")
+        return CompletionDelta(content=delta) if isinstance(delta, str) and delta else None
+    if event_type == "response.completed":
+        usage = _codex_usage(event)
+        if usage is None:
+            return CompletionDelta(finish_reason="stop")
+        _record_usage(usage, config.model, span, prompt_request=prompt_request)
+        return CompletionDelta(finish_reason="stop", usage=usage)
+    if event_type == "response.failed":
+        raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(event)}")
+    return None
+
+
 def _stream_codex_backend_completion(
     config: ChatConfig,
     api_messages: list[ApiMessage],
@@ -597,6 +700,77 @@ def _stream_codex_backend_completion(
     span: _SpanProtocol,
     prompt_request: PromptCacheRequest | None = None,
 ) -> Iterator[CompletionDelta]:
+    response = _open_codex_backend_response(config, api_messages, auth)
+    with response:
+        for raw_line in response:
+            if abort is not None and abort.is_set():
+                return
+            event_delta = _codex_event_delta(
+                raw_line,
+                config,
+                span,
+                prompt_request=prompt_request,
+            )
+            if event_delta is None:
+                continue
+            if event_delta.delta is not None:
+                yield event_delta.delta
+            if event_delta.done:
+                return
+
+
+@dataclass(frozen=True, slots=True)
+class _CodexEventDelta:
+    delta: CompletionDelta | None
+    done: bool
+
+
+def _codex_event_delta(
+    raw_line: bytes,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest | None,
+) -> _CodexEventDelta | None:
+    event = _codex_event_payload(raw_line)
+    if event is None:
+        return None
+    delta = _codex_delta_from_event(event, config, span, prompt_request=prompt_request)
+    return _CodexEventDelta(
+        delta=delta,
+        done=event.get("type") in {"response.done", "response.completed"},
+    )
+
+
+def _open_codex_backend_response(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+    auth: tuple[str, str],
+) -> _ByteStreamResponseProtocol:
+    request = _codex_backend_request(config, api_messages, auth)
+    try:
+        return urllib.request.urlopen(request, timeout=120)  # nosec B310
+    except urllib.error.HTTPError as exc:
+        detail = _codex_http_error_detail(exc)
+        raise EngineError(f"ChatGPT Codex request failed: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc.reason))}") from exc
+
+
+def _codex_backend_request(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+    auth: tuple[str, str],
+) -> urllib.request.Request:
+    return urllib.request.Request(
+        _CODEX_BACKEND_RESPONSES_URL,
+        data=json.dumps(_codex_payload(config, api_messages)).encode("utf-8"),
+        headers=_codex_backend_headers(auth),
+        method="POST",
+    )
+
+
+def _codex_backend_headers(auth: tuple[str, str]) -> dict[str, str]:
     access_token, account_id = auth
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -606,56 +780,7 @@ def _stream_codex_backend_completion(
     }
     if account_id:
         headers["ChatGPT-Account-ID"] = account_id
-    request = urllib.request.Request(
-        _CODEX_BACKEND_RESPONSES_URL,
-        data=json.dumps(_codex_payload(config, api_messages)).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        response = urllib.request.urlopen(request, timeout=120)  # nosec B310
-    except urllib.error.HTTPError as exc:
-        detail = _codex_http_error_detail(exc)
-        raise EngineError(f"ChatGPT Codex request failed: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc.reason))}") from exc
-
-    with response:
-        for raw_line in response:
-            if abort is not None and abort.is_set():
-                return
-            line = raw_line.decode("utf-8", "replace").strip()
-            if not line.startswith("data:"):
-                continue
-            data = line.removeprefix("data:").strip()
-            if not data:
-                continue
-            if data == "[DONE]":
-                return
-            try:
-                parsed = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            if not is_string_mapping(parsed):
-                continue
-            event_type = parsed.get("type")
-            if event_type == "response.output_text.delta":
-                delta = parsed.get("delta")
-                if isinstance(delta, str) and delta:
-                    yield CompletionDelta(content=delta)
-            elif event_type == "response.completed":
-                usage = _codex_usage(parsed)
-                if usage is not None:
-                    _record_usage(
-                        usage,
-                        config.model,
-                        span,
-                        prompt_request=prompt_request,
-                    )
-                    yield CompletionDelta(finish_reason="stop", usage=usage)
-                return
-            elif event_type == "response.failed":
-                raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(parsed)}")
+    return headers
 
 
 def _stream_codex_completion(
@@ -730,7 +855,72 @@ def _request_kwargs(
         kwargs["tools"] = list(tools)
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
+    if reasoning_effort := _model_reasoning_effort(config):
+        kwargs["reasoning_effort"] = reasoning_effort
     return kwargs
+
+
+def _model_supports_reasoning(config: ChatConfig) -> bool:
+    return bool(reasoning_levels_for_model(config.model, config.provider_slug or None))
+
+
+def _model_reasoning_effort(config: ChatConfig) -> str | None:
+    levels = reasoning_levels_for_model(config.model, config.provider_slug or None)
+    if not levels:
+        return None
+    normalized = normalize_reasoning_level(config.reasoning_level)
+    return normalized if normalized in levels else levels[0]
+
+
+def _usage_delta_from_chunk(
+    chunk: ChatCompletionChunk,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest,
+) -> CompletionDelta | None:
+    usage = _extract_usage(chunk)
+    if usage is None:
+        return None
+    _record_usage(usage, config.model, span, prompt_request=prompt_request)
+    return CompletionDelta(usage=usage)
+
+
+def _choice_delta_from_chunk(
+    chunk: ChatCompletionChunk,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest,
+) -> CompletionDelta | None:
+    choice = chunk.choices[0]
+    delta = choice.delta
+    finish_reason = choice.finish_reason or ""
+    usage = _extract_usage(chunk)
+    if usage is not None:
+        _record_usage(usage, config.model, span, prompt_request=prompt_request)
+    if _empty_choice_delta(delta, finish_reason=finish_reason, usage=usage):
+        return None
+    return CompletionDelta(
+        content=delta.content or None,
+        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
+
+
+def _empty_choice_delta(
+    delta: object,
+    *,
+    finish_reason: str,
+    usage: UsagePayload | None,
+) -> bool:
+    return not (
+        getattr(delta, "content", None)
+        or getattr(delta, "tool_calls", None)
+        or finish_reason
+        or usage is not None
+    )
 
 
 def _completion_delta_from_chunk(
@@ -740,26 +930,65 @@ def _completion_delta_from_chunk(
     *,
     prompt_request: PromptCacheRequest,
 ) -> CompletionDelta | None:
-    usage = _extract_usage(chunk)
     if not chunk.choices:
-        if usage is not None:
-            _record_usage(usage, config.model, span, prompt_request=prompt_request)
-            return CompletionDelta(usage=usage)
-        return None
+        return _usage_delta_from_chunk(
+            chunk,
+            config,
+            span,
+            prompt_request=prompt_request,
+        )
+    return _choice_delta_from_chunk(chunk, config, span, prompt_request=prompt_request)
 
-    choice = chunk.choices[0]
-    delta = choice.delta
-    finish_reason = choice.finish_reason or ""
-    if usage is not None:
-        _record_usage(usage, config.model, span, prompt_request=prompt_request)
-    if not (delta.content or delta.tool_calls or finish_reason or usage is not None):
-        return None
-    return CompletionDelta(
-        content=delta.content or None,
-        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
-        finish_reason=finish_reason,
-        usage=usage,
+
+def _abort_openai_stream(
+    stream: Stream[ChatCompletionChunk],
+    config: ChatConfig,
+    *,
+    span: _SpanProtocol,
+    timer: Timer,
+) -> None:
+    stream.close()
+    _log.info(
+        "stream_completion aborted",
+        extra={"fields": {"model": config.model, "latency_ms": timer.ms}},
     )
+    span.end()
+
+
+def _handle_openai_stream_error(
+    exc: Exception,
+    progress: _OpenAIStreamProgress,
+    *,
+    config: ChatConfig,
+    attempt: int,
+    retry: RetryConfig,
+    span: _SpanProtocol,
+    timer: Timer,
+) -> None:
+    partial_content = progress.partial_content
+    log = (
+        _log.info
+        if is_retryable_error(exc) and not progress.saw_output and attempt < retry.max_retries
+        else _log.error
+    )
+    log(
+        "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
+        attempt + 1,
+        retry.max_retries + 1,
+        len(partial_content),
+        extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
+    )
+    if progress.saw_output:
+        _mark_span_error(span, "StreamRecoveryError")
+        span.end()
+        raise StreamRecoveryError(partial_content, exc) from exc
+    if is_retryable_error(exc):
+        _circuit_breaker.record_failure()
+        if attempt < retry.max_retries:
+            raise _RetryOpenAIStreamError(exc) from exc
+    _mark_span_error(span, type(exc).__name__)
+    span.end()
+    raise EngineError(_failure_message(exc, stream=True)) from exc
 
 
 def _iter_openai_stream_deltas(
@@ -773,17 +1002,11 @@ def _iter_openai_stream_deltas(
     attempt: int,
     retry: RetryConfig,
 ) -> Iterator[CompletionDelta]:
-    partial_parts: list[str] = []
-    saw_output = False
+    progress = _OpenAIStreamProgress()
     try:
         for chunk in stream:
             if abort is not None and abort.is_set():
-                stream.close()
-                _log.info(
-                    "stream_completion aborted",
-                    extra={"fields": {"model": config.model, "latency_ms": timer.ms}},
-                )
-                span.end()
+                _abort_openai_stream(stream, config, span=span, timer=timer)
                 return
 
             delta = _completion_delta_from_chunk(
@@ -794,36 +1017,18 @@ def _iter_openai_stream_deltas(
             )
             if delta is None:
                 continue
-            if delta.content:
-                partial_parts.append(delta.content)
-            if delta.content or delta.tool_calls:
-                saw_output = True
+            progress.record(delta)
             yield delta
     except Exception as exc:
-        partial_content = "".join(partial_parts)
-        log = (
-            _log.info
-            if is_retryable_error(exc) and not saw_output and attempt < retry.max_retries
-            else _log.error
+        _handle_openai_stream_error(
+            exc,
+            progress,
+            config=config,
+            attempt=attempt,
+            retry=retry,
+            span=span,
+            timer=timer,
         )
-        log(
-            "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
-            attempt + 1,
-            retry.max_retries + 1,
-            len(partial_content),
-            extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
-        )
-        if saw_output:
-            _mark_span_error(span, "StreamRecoveryError")
-            span.end()
-            raise StreamRecoveryError(partial_content, exc) from exc
-        if is_retryable_error(exc):
-            _circuit_breaker.record_failure()
-            if attempt < retry.max_retries:
-                raise _RetryOpenAIStreamError(exc) from exc
-        _mark_span_error(span, type(exc).__name__)
-        span.end()
-        raise EngineError(_failure_message(exc, stream=True)) from exc
 
 
 def _handle_openai_request_error(
@@ -852,75 +1057,101 @@ def _handle_openai_request_error(
     raise EngineError(_failure_message(exc, stream=False)) from exc
 
 
-def stream_completion(
+def _stream_completion_request(
     config: ChatConfig,
     messages: Conversation | list[ApiMessage],
-    *,
-    tools: Sequence[object] | None = None,
-    abort: threading.Event | None = None,
-    retry: RetryConfig | None = None,
-    client_factory: Callable[[ChatConfig], OpenAI] | None = None,
-    tool_choice: object | None = None,
-) -> Iterator[CompletionDelta]:
-    span = _tracer.start_span("llm.completion")
-    span.set_attribute("gen_ai.system", config.provider_slug or "unknown")
-    span.set_attribute("gen_ai.request.model", config.model)
-    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
-    retry = retry or RetryConfig()
-    client_factory = client_factory or build_client
+    tools: Sequence[object] | None,
+) -> _StreamCompletionRequest:
     raw_api_messages = (
         messages.to_api_messages() if isinstance(messages, Conversation) else messages
     )
     prompt_request = _prompt_cache_builder.build_request(raw_api_messages)
     prompt_request = annotate_anthropic_cache_breakpoints(prompt_request, config.model)
     _prompt_cache_metrics.record_request(prompt_request, model=config.model)
-    api_messages = prompt_request.messages
-    msg_count = len(api_messages)
+    return _StreamCompletionRequest(
+        api_messages=prompt_request.messages,
+        prompt_request=prompt_request,
+        message_count=len(prompt_request.messages),
+        tool_count=len(tools or []),
+    )
+
+
+def _configure_completion_span(
+    span: _SpanProtocol,
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+) -> None:
+    span.set_attribute("gen_ai.system", config.provider_slug or "unknown")
+    span.set_attribute("gen_ai.request.model", config.model)
+    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
     span.set_attribute(
         "gen_ai.request.stable_prefix_hash",
-        prompt_request.stable_prefix.fingerprint,
+        request.prompt_request.stable_prefix.fingerprint,
     )
     span.set_attribute(
         "gen_ai.request.stable_prefix_messages",
-        prompt_request.stable_prefix.message_count,
+        request.prompt_request.stable_prefix.message_count,
     )
     span.set_attribute(
         "gen_ai.request.dynamic_tail_messages",
-        prompt_request.dynamic_tail.message_count,
+        request.prompt_request.dynamic_tail.message_count,
     )
+
+
+def _log_stream_completion_start(
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    retry: RetryConfig,
+) -> None:
     _log.debug(
         "stream_completion start",
         extra={
             "fields": {
                 "model": config.model,
-                "message_count": msg_count,
+                "message_count": request.message_count,
                 "max_tokens": config.max_tokens,
                 "max_retries": retry.max_retries,
-                "tool_count": len(tools or []),
+                "tool_count": request.tool_count,
             }
         },
     )
 
-    codex_auth = _codex_backend_auth(config)
-    if codex_auth is not None:
-        yield from _stream_codex_completion(
-            config,
-            api_messages,
-            codex_auth,
-            abort=abort,
-            span=span,
-            prompt_request=prompt_request,
-            message_count=msg_count,
-            tool_count=len(tools or []),
-        )
-        return
-    if config.provider_slug == "openai-codex":
-        span.end()
-        raise EngineError(
-            "OpenAI Codex subscription requires /login OAuth credentials. "
-            "Use the OpenAI API provider for OPENAI_API_KEY billing."
-        )
 
+def _finish_successful_stream_completion(
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    timer: Timer,
+    span: _SpanProtocol,
+) -> None:
+    _log.info(
+        "stream_completion complete",
+        extra={
+            "fields": {
+                "model": config.model,
+                "latency_ms": timer.ms,
+                "message_count": request.message_count,
+                "tool_count": request.tool_count,
+            }
+        },
+    )
+    _circuit_breaker.record_success()
+    span.set_attribute("gen_ai.response.latency_ms", timer.ms)
+    _llm_duration_hist.record(timer.ms, {"model": config.model})
+    span.end()
+
+
+def _iter_openai_completion_attempts(
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    tools: Sequence[object] | None,
+    abort: threading.Event | None,
+    retry: RetryConfig,
+    client_factory: Callable[[ChatConfig], OpenAI],
+    tool_choice: object | None,
+    span: _SpanProtocol,
+) -> Iterator[CompletionDelta]:
     client = client_factory(config)
     last_error: Exception | None = None
 
@@ -928,14 +1159,13 @@ def stream_completion(
         if abort is not None and abort.is_set():
             span.end()
             return
-
         if not _circuit_breaker.allow_request():
             raise EngineError("LLM provider circuit breaker is open — too many recent failures")
 
         timer = Timer()
         request_kwargs = _request_kwargs(
             config,
-            api_messages,
+            request.api_messages,
             tools=tools,
             tool_choice=tool_choice,
         )
@@ -965,7 +1195,7 @@ def stream_completion(
                 config,
                 abort=abort,
                 span=span,
-                prompt_request=prompt_request,
+                prompt_request=request.prompt_request,
                 timer=timer,
                 attempt=attempt,
                 retry=retry,
@@ -976,21 +1206,7 @@ def stream_completion(
                 return
             continue
 
-        _log.info(
-            "stream_completion complete",
-            extra={
-                "fields": {
-                    "model": config.model,
-                    "latency_ms": timer.ms,
-                    "message_count": msg_count,
-                    "tool_count": len(tools or []),
-                }
-            },
-        )
-        _circuit_breaker.record_success()
-        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
-        _llm_duration_hist.record(timer.ms, {"model": config.model})
-        span.end()
+        _finish_successful_stream_completion(config, request, timer=timer, span=span)
         return
 
     _mark_span_error(span, "EngineError")
@@ -1000,6 +1216,55 @@ def stream_completion(
         if last_error is not None
         else f"LLM request failed after {retry.max_retries + 1} attempts"
     ) from last_error
+
+
+def stream_completion(
+    config: ChatConfig,
+    messages: Conversation | list[ApiMessage],
+    *,
+    tools: Sequence[object] | None = None,
+    abort: threading.Event | None = None,
+    retry: RetryConfig | None = None,
+    client_factory: Callable[[ChatConfig], OpenAI] | None = None,
+    tool_choice: object | None = None,
+) -> Iterator[CompletionDelta]:
+    span = _tracer.start_span("llm.completion")
+    retry = retry or RetryConfig()
+    client_factory = client_factory or build_client
+    request = _stream_completion_request(config, messages, tools)
+    _configure_completion_span(span, config, request)
+    _log_stream_completion_start(config, request, retry)
+
+    codex_auth = _codex_backend_auth(config)
+    if codex_auth is not None:
+        yield from _stream_codex_completion(
+            config,
+            request.api_messages,
+            codex_auth,
+            abort=abort,
+            span=span,
+            prompt_request=request.prompt_request,
+            message_count=request.message_count,
+            tool_count=request.tool_count,
+        )
+        return
+    if config.provider_slug == "openai-codex":
+        span.end()
+        raise EngineError(
+            "OpenAI Codex subscription requires /login OAuth credentials. "
+            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+        )
+
+    yield from _iter_openai_completion_attempts(
+        config,
+        request,
+        tools=tools,
+        abort=abort,
+        retry=retry,
+        client_factory=client_factory,
+        tool_choice=tool_choice,
+        span=span,
+    )
 
 
 def stream_reply(

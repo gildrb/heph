@@ -18,6 +18,9 @@ class ModelInfo:
     prompt_price_per_1k: float  # USD per 1K prompt tokens
     completion_price_per_1k: float  # USD per 1K completion tokens
     tags: tuple[str, ...] = ()
+    reasoning_efforts: tuple[str, ...] = ()
+    input_modalities: tuple[str, ...] = ()
+    supports_tools: bool = False
 
     @property
     def is_free(self) -> bool:
@@ -25,11 +28,11 @@ class ModelInfo:
 
 
 _OPENAI_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...]], ...] = (
-    ("gpt-5.5", "GPT-5.5", 1_000_000, 128_000, 0.005, 0.03, ("study", "reasoning")),
+    ("gpt-5.5", "GPT-5.5", 1_000_000, 128_000, 0.005, 0.03, ("recommended", "reasoning")),
     ("gpt-5.4", "GPT-5.4", 128_000, 16_384, 0.002, 0.008, ()),
-    ("gpt-5.4-mini", "GPT-5.4 Mini", 128_000, 16_384, 0.00015, 0.0006, ("study",)),
+    ("gpt-5.4-mini", "GPT-5.4 Mini", 128_000, 16_384, 0.00015, 0.0006, ("recommended",)),
     ("gpt-5.4-pro", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015, ()),
-    ("gpt-5.4-nano", "GPT-5.4 Nano", 128_000, 16_384, 0.00005, 0.0002, ("study",)),
+    ("gpt-5.4-nano", "GPT-5.4 Nano", 128_000, 16_384, 0.00005, 0.0002, ("recommended",)),
     ("gpt-5.3-codex", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008, ()),
     ("gpt-5.2-codex", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008, ()),
     ("gpt-5.2", "GPT-5.2", 128_000, 16_384, 0.002, 0.008, ()),
@@ -39,6 +42,12 @@ _OPENAI_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...
     ("gpt-4o", "GPT-4o", 128_000, 16_384, 0.0025, 0.01, ()),
     ("gpt-4o-mini", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006, ()),
 )
+
+
+def _default_reasoning_efforts(tags: tuple[str, ...]) -> tuple[str, ...]:
+    if "reasoning" not in tags:
+        return ()
+    return ("low", "medium", "high", "xhigh")
 
 
 def _openai_models(provider: str) -> list[ModelInfo]:
@@ -52,6 +61,8 @@ def _openai_models(provider: str) -> list[ModelInfo]:
             prompt_price,
             completion_price,
             tags=tags,
+            reasoning_efforts=_default_reasoning_efforts(tags),
+            supports_tools="tools" in tags,
         )
         for (
             name,
@@ -66,7 +77,7 @@ def _openai_models(provider: str) -> list[ModelInfo]:
 
 
 _POLLINATIONS_MODEL_ROWS: tuple[tuple[str, str, int, int, tuple[str, ...]], ...] = (
-    ("openai", "GPT (Pollinations)", 128_000, 16_384, ("free", "study")),
+    ("openai", "GPT (Pollinations)", 128_000, 16_384, ("free", "recommended")),
     ("openai-large", "GPT Large (Pollinations)", 128_000, 16_384, ("free",)),
     ("openai-reasoning", "o4-mini (Pollinations)", 128_000, 16_384, ("free", "reasoning")),
     ("openai-fast", "GPT Nano (Pollinations)", 128_000, 16_384, ("free",)),
@@ -134,7 +145,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.00125,
         0.005,
-        tags=("google", "study"),
+        tags=("google", "recommended"),
     ),
     ModelInfo(
         "google/gemini-3-flash-preview",
@@ -175,7 +186,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0,
         0.0,
-        tags=("qwen", "free", "study"),
+        tags=("qwen", "free", "recommended"),
     ),
     ModelInfo(
         "qwen/qwen3.5-plus-02-15",
@@ -185,7 +196,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0004,
         0.0012,
-        tags=("qwen", "study"),
+        tags=("qwen", "recommended"),
     ),
     ModelInfo(
         "qwen/qwen3.5-35b-a3b",
@@ -210,7 +221,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.00005,
         0.00005,
-        tags=("study",),
+        tags=("recommended",),
     ),
     ModelInfo(
         "z-ai/glm-5",
@@ -264,7 +275,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0,
         0.0,
-        tags=("free", "study"),
+        tags=("free", "recommended"),
     ),
     ModelInfo(
         "arcee-ai/trinity-large-preview:free",
@@ -292,23 +303,50 @@ class ModelRegistry:
             self.register(m)
 
     def get(self, model_name: str, provider: str | None = None) -> ModelInfo | None:
-        if provider is not None and (info := self._models_by_provider.get((provider, model_name))):
-            return info
+        if provider is not None:
+            return self._get_provider_model(model_name, provider)
+        return self._get_unscoped_model(model_name)
 
-        if model_name in self._models:
-            return self._models[model_name]
+    def _get_provider_model(self, model_name: str, provider: str) -> ModelInfo | None:
+        return self._models_by_provider.get((provider, model_name)) or (
+            self._get_provider_model_alias(model_name, provider)
+        )
 
-        # Try stripping provider prefix: "openai/gpt-5.4" -> "gpt-5.4"
+    def _get_unscoped_model(self, model_name: str) -> ModelInfo | None:
+        return (
+            self._models.get(model_name)
+            or self._get_short_model_name(model_name)
+            or self._get_prefixed_model_name(model_name)
+        )
+
+    def _get_short_model_name(self, model_name: str) -> ModelInfo | None:
         if "/" in model_name:
             _, short = model_name.rsplit("/", 1)
-            if short in self._models:
-                return self._models[short]
+            return self._models.get(short)
+        return None
 
-        # Try adding provider prefixes: "gpt-5.4" -> "openai/gpt-5.4"
+    def _get_prefixed_model_name(self, model_name: str) -> ModelInfo | None:
         for key, info in self._models.items():
             if "/" in key and key.rsplit("/", 1)[1] == model_name:
                 return info
+        return None
 
+    def _get_provider_model_alias(self, model_name: str, provider: str) -> ModelInfo | None:
+        if info := self._get_provider_short_alias(model_name, provider):
+            return info
+        return self._get_provider_suffix_alias(model_name, provider)
+
+    def _get_provider_short_alias(self, model_name: str, provider: str) -> ModelInfo | None:
+        if "/" not in model_name:
+            return None
+        _, short = model_name.rsplit("/", 1)
+        return self._models_by_provider.get((provider, short))
+
+    def _get_provider_suffix_alias(self, model_name: str, provider: str) -> ModelInfo | None:
+        for provider_model, info in self._models_by_provider.items():
+            model_provider, registered_name = provider_model
+            if model_provider == provider and registered_name.rsplit("/", 1)[-1] == model_name:
+                return info
         return None
 
     def get_context_window(self, model_name: str) -> int:

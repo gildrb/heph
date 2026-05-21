@@ -19,6 +19,8 @@ from typing import NotRequired, TypedDict, cast
 from hephaistos.rag.retrieval_types import EvidenceReference
 from scripts import benchmark_answers, replay_answer_benchmark
 
+_LEGACY_MATERIAL_TASK_KEY = "study_task"
+
 
 class TraceEvidenceItem(TypedDict):
     evidence_id: str
@@ -147,9 +149,11 @@ def extract_trace_replies(path: Path) -> list[TraceReply]:
 
 def _trace_reply_labels(event: Mapping[str, object]) -> TraceReplyLabels:
     labels: TraceReplyLabels = {}
-    task = event.get("study_task")
-    if isinstance(task, str) and task.strip():
-        labels["task"] = task.strip()
+    material_task = event.get("material_task")
+    if material_task is None:
+        material_task = event.get(_LEGACY_MATERIAL_TASK_KEY)
+    if isinstance(material_task, str) and material_task.strip():
+        labels["task"] = material_task.strip()
     return labels
 
 

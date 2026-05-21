@@ -124,25 +124,49 @@ _STOP_WORDS = frozenset(
         "out",
     }
 )
+type _PluralRule = tuple[int, str | tuple[str, ...], int, str]
+_PLURAL_RULES: tuple[_PluralRule, ...] = (
+    (5, "ies", 3, "y"),
+    (5, ("sses", "shes", "ches", "xes", "zes"), 2, ""),
+    (4, "s", 1, ""),
+)
 
 
 def tokenize(text: str) -> list[str]:
-    tokens = _WORD_RE.findall(text.lower())
     normalized: list[str] = []
-    for token in tokens:
-        if token in _STOP_WORDS or (len(token) <= 1 and not token.isdigit()):
+    for token in _WORD_RE.findall(text.lower()):
+        if not _keep_token(token):
             continue
         normalized.append(token)
-        stem = token
-        if len(token) > 5 and token.endswith("ies"):
-            stem = token[:-3] + "y"
-        elif len(token) > 5 and token.endswith(("sses", "shes", "ches", "xes", "zes")):
-            stem = token[:-2]
-        elif len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
-            stem = token[:-1]
-        if stem != token and stem not in _STOP_WORDS and len(stem) > 1:
-            normalized.append(stem)
+        if (plural_variant := _plural_variant(token)) is not None:
+            normalized.append(plural_variant)
     return normalized
+
+
+def _keep_token(token: str) -> bool:
+    return token not in _STOP_WORDS and (len(token) > 1 or token.isdigit())
+
+
+def _plural_variant(token: str) -> str | None:
+    for min_length, suffix, trim, replacement in _PLURAL_RULES:
+        if _matches_plural_rule(token, min_length=min_length, suffix=suffix):
+            return _kept_variant(token, token[:-trim] + replacement)
+    return None
+
+
+def _matches_plural_rule(
+    token: str,
+    *,
+    min_length: int,
+    suffix: str | tuple[str, ...],
+) -> bool:
+    return len(token) > min_length and token.endswith(suffix) and not token.endswith("ss")
+
+
+def _kept_variant(token: str, variant: str) -> str | None:
+    if variant == token or not _keep_token(variant):
+        return None
+    return variant
 
 
 def reciprocal_rank_fusion(
@@ -156,17 +180,11 @@ def reciprocal_rank_fusion(
     merged: dict[tuple[str, int], tuple[float, ScoredChunk]] = {}
 
     for list_index, ranked in enumerate(ranked_lists):
-        weight = 1.0 if weights is None else max(0.0, float(weights[list_index]))
+        weight = _rrf_weight(weights, list_index)
         if weight == 0.0:
             continue
         for rank, scored_chunk in enumerate(ranked):
-            key = (scored_chunk.chunk.source, scored_chunk.chunk.index)
-            rrf_delta = weight / (k + rank + 1)
-            if key in merged:
-                current_score, best_scored_chunk = merged[key]
-                merged[key] = (current_score + rrf_delta, best_scored_chunk)
-            else:
-                merged[key] = (rrf_delta, scored_chunk)
+            _merge_rrf_result(merged, scored_chunk, score_delta=weight / (k + rank + 1))
 
     results = [
         ScoredChunk(chunk=scored_chunk.chunk, score=score)
@@ -174,3 +192,22 @@ def reciprocal_rank_fusion(
     ]
     results.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
     return results
+
+
+def _rrf_weight(weights: Sequence[float] | None, list_index: int) -> float:
+    return 1.0 if weights is None else max(0.0, float(weights[list_index]))
+
+
+def _merge_rrf_result(
+    merged: dict[tuple[str, int], tuple[float, ScoredChunk]],
+    scored_chunk: ScoredChunk,
+    *,
+    score_delta: float,
+) -> None:
+    key = (scored_chunk.chunk.source, scored_chunk.chunk.index)
+    current = merged.get(key)
+    if current is None:
+        merged[key] = (score_delta, scored_chunk)
+        return
+    current_score, best_scored_chunk = current
+    merged[key] = (current_score + score_delta, best_scored_chunk)

@@ -10,7 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from email.message import Message
 from typing import Protocol, Self, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import ParseResult, urljoin, urlparse
 
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
@@ -23,6 +23,15 @@ _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 class FetchTarget:
     safe_url: str
     host_header: str | None
+
+
+type FetchTargetResult = FetchTarget | str
+
+
+@dataclass(frozen=True, slots=True)
+class FetchSuccess:
+    url: str
+    content: str
 
 
 class FetchResponse(Protocol):
@@ -72,84 +81,158 @@ def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> st
     actual_timeout = timeout or _WEB_FETCH_TIMEOUT
 
     while True:
-        target = _prepare_fetch_target(current_url)
+        target = _fetch_target(current_url)
         if isinstance(target, str):
             return target
 
-        req = urllib.request.Request(
-            target.safe_url,
-            headers={"User-Agent": _WEB_USER_AGENT},
-        )
-        if target.host_header:
-            req.add_header("Host", target.host_header)
         try:
-            with _open_without_redirect(req, timeout=actual_timeout) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                if not any(ct in content_type for ct in ("text", "json", "xml")):
-                    return f"Error: non-text content type ({content_type}). URL: {original_url}"
-                raw = resp.read().decode("utf-8", errors="replace")
-                break
+            success = _fetch_once(target, current_url, timeout=actual_timeout)
         except urllib.error.HTTPError as exc:
-            if exc.code in _REDIRECT_STATUS_CODES:
-                location = exc.headers.get("Location", "") if exc.headers else ""
-                if not location:
-                    return f"Error: HTTP {exc.code} redirect missing Location for {current_url}"
-                if redirects >= _WEB_FETCH_MAX_REDIRECTS:
-                    return f"Error: too many redirects fetching {original_url}"
-                current_url = urljoin(current_url, location)
-                redirects += 1
-                continue
-            return f"Error: HTTP {exc.code} fetching {current_url}"
+            redirect = _redirect_result(current_url, original_url, redirects, exc)
+            if redirect.startswith("Error:"):
+                return redirect
+            current_url = redirect
+            redirects += 1
+            continue
         except urllib.error.URLError as exc:
             return f"Error: could not reach {current_url} - {exc.reason}"
         except Exception as exc:
             return f"Error fetching {current_url}: {exc}"
 
-    if len(raw) > _WEB_FETCH_MAX_CHARS:
-        raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
-    if "<html" in raw.lower() or "<body" in raw.lower():
-        raw = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"<[^>]+>", " ", raw)
-        raw = re.sub(r"\s+", " ", raw).strip()
-        if len(raw) > _WEB_FETCH_MAX_CHARS:
-            raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
+        if isinstance(success, str):
+            return success
+        return _fetched_content(original_url, success)
 
+
+def _fetch_once(
+    target: FetchTarget,
+    current_url: str,
+    *,
+    timeout: int,
+) -> FetchSuccess | str:
+    request = _fetch_request(target)
+    with _open_without_redirect(request, timeout=timeout) as response:
+        content_type = response.headers.get("Content-Type", "")
+        if not _is_text_content_type(content_type):
+            return f"Error: non-text content type ({content_type}). URL: {current_url}"
+        raw = response.read().decode("utf-8", errors="replace")
+    return FetchSuccess(url=current_url, content=_normalize_fetched_text(raw))
+
+
+def _fetch_request(target: FetchTarget) -> urllib.request.Request:
+    request = urllib.request.Request(
+        target.safe_url,
+        headers={"User-Agent": _WEB_USER_AGENT},
+    )
+    if target.host_header:
+        request.add_header("Host", target.host_header)
+    return request
+
+
+def _is_text_content_type(content_type: str) -> bool:
+    return any(kind in content_type for kind in ("text", "json", "xml"))
+
+
+def _redirect_url(current_url: str, exc: urllib.error.HTTPError) -> str | None:
+    if exc.code not in _REDIRECT_STATUS_CODES:
+        return None
+    location = exc.headers.get("Location", "") if exc.headers else ""
+    return urljoin(current_url, location) if location else ""
+
+
+def _redirect_result(
+    current_url: str,
+    original_url: str,
+    redirects: int,
+    exc: urllib.error.HTTPError,
+) -> str:
+    redirect_url = _redirect_url(current_url, exc)
+    if redirect_url is None:
+        return f"Error: HTTP {exc.code} fetching {current_url}"
+    if not redirect_url:
+        return f"Error: HTTP {exc.code} redirect missing Location for {current_url}"
+    if redirects >= _WEB_FETCH_MAX_REDIRECTS:
+        return f"Error: too many redirects fetching {original_url}"
+    return redirect_url
+
+
+def _normalize_fetched_text(raw: str) -> str:
+    text = _trim_fetched_text(raw)
+    if not _looks_like_html(text):
+        return text
+    return _trim_fetched_text(_html_to_text(text))
+
+
+def _looks_like_html(text: str) -> bool:
+    lowered = text.lower()
+    return "<html" in lowered or "<body" in lowered
+
+
+def _html_to_text(raw: str) -> str:
+    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.IGNORECASE)
+    text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _trim_fetched_text(text: str) -> str:
+    if len(text) <= _WEB_FETCH_MAX_CHARS:
+        return text
+    return text[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
+
+
+def _fetched_content(original_url: str, success: FetchSuccess) -> str:
     header = f"--- Source: {original_url} ---"
-    if current_url != original_url:
-        header += f"\n--- Final URL: {current_url} ---"
-    return f"{header}\n{raw}\n--- End of fetched content ---"
+    if success.url != original_url:
+        header += f"\n--- Final URL: {success.url} ---"
+    return f"{header}\n{success.content}\n--- End of fetched content ---"
 
 
-def _prepare_fetch_target(url: str) -> FetchTarget | str:
+def _fetch_target(url: str) -> FetchTargetResult:
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
 
     parsed = urlparse(url)
+    validation_error = _target_validation_error(parsed)
+    if validation_error:
+        return validation_error
+    hostname = parsed.hostname or ""
+    port = parsed.port
+    resolved_ips = _resolve_hostname_ips(hostname)
+    if not resolved_ips:
+        return f"Error: could not resolve host ({hostname})"
+    if _has_private_ip(resolved_ips):
+        return f"Error: blocked private/internal host ({hostname})"
+    netloc = _netloc(resolved_ips[0], port)
+    safe_url = parsed._replace(netloc=netloc).geturl()
+    host_header = _netloc(hostname, port)
+    return FetchTarget(safe_url=safe_url, host_header=host_header)
+
+
+def _target_validation_error(parsed: ParseResult) -> str:
     hostname = parsed.hostname
     if not hostname:
         return "Error: URL must include a host"
     if parsed.username is not None or parsed.password is not None:
         return "Error: URL must not include credentials"
     try:
-        port = parsed.port
+        _port = parsed.port
     except ValueError:
         return "Error: URL has invalid port"
+    return ""
 
-    resolved_ips = _resolve_hostname_ips(hostname)
-    if not resolved_ips:
-        return f"Error: could not resolve host ({hostname})"
+
+def _has_private_ip(resolved_ips: list[str]) -> bool:
     for ip_str in resolved_ips:
         ip = ipaddress.ip_address(ip_str)
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            return f"Error: blocked private/internal host ({hostname})"
-    first_ip = resolved_ips[0]
-    ip_host = f"[{first_ip}]" if ":" in first_ip else first_ip
-    netloc = ip_host if port is None else f"{ip_host}:{port}"
-    safe_url = parsed._replace(netloc=netloc).geturl()
-    host = f"[{hostname}]" if ":" in hostname else hostname
-    host_header = host if port is None else f"{host}:{port}"
-    return FetchTarget(safe_url=safe_url, host_header=host_header)
+            return True
+    return False
+
+
+def _netloc(host: str, port: int | None) -> str:
+    wrapped_host = f"[{host}]" if ":" in host else host
+    return wrapped_host if port is None else f"{wrapped_host}:{port}"
 
 
 def _resolve_hostname_ips(hostname: str) -> list[str]:

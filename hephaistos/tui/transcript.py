@@ -111,6 +111,8 @@ class _TranscriptHost(Protocol):
 
     def _append_entry(self, content: str, kind: str = "plain") -> None: ...
 
+    def _replace_last_notice(self, text: str) -> None: ...
+
     def _append_activity(self, text: str) -> None: ...
 
     def _start_thinking_animation(self) -> None: ...
@@ -398,6 +400,13 @@ class TuiTranscriptMixin:
 
     def _append_notice(self: _TranscriptHost, text: str) -> None:
         self._append_entry(text, "notice")
+
+    def _replace_last_notice(self: _TranscriptHost, text: str) -> None:
+        if not self.state.transcript or self.state.transcript[-1].kind != "notice":
+            self._append_entry(text, "notice")
+            return
+        self.state.transcript[-1] = TuiTranscriptEntry(text, "notice")
+        self._reflow_transcript_entries()
 
     def _append_activity(self: _TranscriptHost, text: str) -> None:
         self._append_entry(text, "activity")

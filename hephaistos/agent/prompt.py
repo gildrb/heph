@@ -24,17 +24,18 @@ if TYPE_CHECKING:
 _log = get_logger("agent.prompt")
 
 _DEFAULT_ROLE_BLOCK = """\
-Heph. Local document agent for accurate, cited understanding.
+You are running inside Heph.
 """
 
 _BASE_GUIDELINES = (
-    "Be clear, direct, practical, and brief.",
+    "Answer with the minimum useful text.",
+    "No greetings, filler, praise, reassurance, emoji, stickers, or decorative symbols.",
     "Do not fabricate. If evidence is missing or uncertain, say what is missing.",
     "For material-specific claims, reason from retrieved evidence and cite IDs like `[E1]`.",
     "Use general reasoning to explain evidence, never as pretend file evidence.",
     "Verify exact file/source details, numbers, formulas, dates, labels, units, and wording.",
     "If asked what `[E1]` means, quote that evidence and name its source.",
-    "During recall, follow injected study-phase instructions and keep the answer hidden.",
+    "During recall, follow injected recall instructions and keep the answer hidden.",
     "Armory: portable workspace with `.hephaistos/armory.toml`.",
     "User files go in `materials/`; app state stays in `.hephaistos/`.",
     "Use `create_armory` or `validate_armory` for armory setup/repair.",

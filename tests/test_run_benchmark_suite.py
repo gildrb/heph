@@ -105,7 +105,7 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["thresholds"]["index_integrity_required_text"] == 1.0
     assert report["thresholds"]["index_integrity_forbidden_text"] == 1.0
     assert report["thresholds"]["index_integrity_corpus_forbidden_text"] == 1.0
-    assert report["thresholds"]["study_state_pass_rate"] == 1.0
+    assert report["thresholds"]["learning_state_pass_rate"] == 1.0
     assert report["rag"]["hit_rate"] == 1.0
     assert report["rag"]["forbidden_before_expected_avoidance"] == 1.0
     assert report["material_roles"]["pass_rate"] == 1.0
@@ -121,14 +121,14 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["prompt_cache"]["pass_rate"] == 1.0
     assert report["prompt_cache"]["stable_hash_reuse_rate"] == 1.0
     assert report["prompt_cache"]["dynamic_tail_preservation_rate"] == 1.0
-    assert report["study_intent"]["passed"] is True
-    assert "recall_clarification" in report["study_intent"]["required_intents"]
-    assert "recall_clarification" in report["study_intent"]["parsed_intents"]
+    assert report["learning_intent"]["passed"] is True
+    assert "recall_clarification" in report["learning_intent"]["required_intents"]
+    assert "recall_clarification" in report["learning_intent"]["parsed_intents"]
     assert (
         "hephaistos/chat/orchestrator.py"
-        in report["study_intent"]["language_generic_prompt_paths"]
+        in report["learning_intent"]["language_generic_prompt_paths"]
     )
-    assert report["study_intent"]["failures"] == []
+    assert report["learning_intent"]["failures"] == []
     assert report["replay"]["cases"] == 7
     assert report["chat_events"]["has_reading"] is True
     assert report["chat_events"]["has_evidence"] is True
@@ -153,10 +153,10 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["answers"]["contradiction_rate"] == 1.0
     assert report["answers"]["answer_shape_rate"] == 1.0
     assert report["answers"]["evidence_coverage_rate"] == 1.0
-    assert report["study_state"]["pass_rate"] == 1.0
-    assert report["study_state"]["scheduling_pass_rate"] == 1.0
-    assert report["study_state"]["mastery_metadata_rate"] == 1.0
-    assert report["study_state"]["prompt_contract_rate"] == 1.0
+    assert report["learning_state"]["pass_rate"] == 1.0
+    assert report["learning_state"]["scheduling_pass_rate"] == 1.0
+    assert report["learning_state"]["mastery_metadata_rate"] == 1.0
+    assert report["learning_state"]["prompt_contract_rate"] == 1.0
     assert report["academic_items"]["pass_rate"] == 1.0
     assert report["academic_items"]["question_type_count"] >= 3
     assert report["academic_items"]["grounded_question_rate"] == 1.0
@@ -209,13 +209,13 @@ def test_suite_gates_answer_shape_thresholds() -> None:
     assert run_benchmark_suite.run_suite(index_integrity_required_text=1.01) == 1
     assert run_benchmark_suite.run_suite(index_integrity_forbidden_text=1.01) == 1
     assert run_benchmark_suite.run_suite(index_integrity_corpus_forbidden_text=1.01) == 1
-    assert run_benchmark_suite.run_suite(study_state_pass_rate=1.01) == 1
-    assert run_benchmark_suite.run_suite(study_state_scheduling_pass_rate=1.01) == 1
+    assert run_benchmark_suite.run_suite(learning_state_pass_rate=1.01) == 1
+    assert run_benchmark_suite.run_suite(learning_state_scheduling_pass_rate=1.01) == 1
     assert run_benchmark_suite.run_suite(document_understanding_overview_coverage=1.01) == 1
 
 
-def test_study_intent_contract_rejects_language_specific_prompt_examples() -> None:
-    report = run_benchmark_suite.study_intent_contract_report(
+def test_learning_intent_contract_rejects_language_specific_prompt_examples() -> None:
+    report = run_benchmark_suite.learning_intent_contract_report(
         schema=(
             '{"intent":"material_overview | source_qa | source_only_policy | '
             "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
@@ -231,7 +231,7 @@ def test_study_intent_contract_rejects_language_specific_prompt_examples() -> No
     assert "prompt/schema contains language-specific example: german" in report.failures
 
 
-def test_study_intent_contract_rejects_language_specific_production_prompt(
+def test_learning_intent_contract_rejects_language_specific_production_prompt(
     tmp_path: Path,
 ) -> None:
     prompt_file = tmp_path / "prompt_source.py"
@@ -240,7 +240,7 @@ def test_study_intent_contract_rejects_language_specific_production_prompt(
         encoding="utf-8",
     )
 
-    report = run_benchmark_suite.study_intent_contract_report(
+    report = run_benchmark_suite.learning_intent_contract_report(
         schema=(
             '{"intent":"material_overview | source_qa | source_only_policy | '
             "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
@@ -258,10 +258,10 @@ def test_study_intent_contract_rejects_language_specific_production_prompt(
     assert f"{prompt_file} contains language-specific prompt example: spanish" in report.failures
 
 
-def test_suite_rejects_broken_study_intent_contract(monkeypatch, capsys) -> None:
+def test_suite_rejects_broken_learning_intent_contract(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         chat_orchestrator,
-        "_STUDY_INTENT_NORMALIZATION_SCHEMA",
+        "_LEARNING_INTENT_NORMALIZATION_SCHEMA",
         '{"intent":"material_overview | source_qa | topic_presentation | chat"}',
     )
 
@@ -269,7 +269,7 @@ def test_suite_rejects_broken_study_intent_contract(monkeypatch, capsys) -> None
 
     captured = capsys.readouterr()
     assert status == 2
-    assert "study intent normalizer contract failed" in captured.err
+    assert "learning intent normalizer contract failed" in captured.err
     assert "schema missing intent label: source_only_policy" in captured.err
 
 
@@ -715,13 +715,13 @@ def test_suite_rejects_narrow_index_integrity_domains(
     assert "labelled domains" in captured.err
 
 
-def test_suite_rejects_narrow_study_state_domains(
+def test_suite_rejects_narrow_learning_state_domains(
     tmp_path: Path,
     capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
-    (suite / "study_state.jsonl").write_text(
+    (suite / "learning_state.jsonl").write_text(
         (
             '{"id":"one-domain","domain":"mathematics","expected_final_phase":"presenting",'
             '"expected_scheduled_reviews":1,"turns":['
@@ -740,16 +740,16 @@ def test_suite_rejects_narrow_study_state_domains(
 
     captured = capsys.readouterr()
     assert status == 2
-    assert "study-state benchmark must cover at least" in captured.err
+    assert "learning-state benchmark must cover at least" in captured.err
 
 
-def test_suite_rejects_study_state_without_prompt_contracts(
+def test_suite_rejects_learning_state_without_prompt_contracts(
     tmp_path: Path,
     capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
-    (suite / "study_state.jsonl").write_text(
+    (suite / "learning_state.jsonl").write_text(
         (
             '{"id":"math-schedule","domain":"mathematics","expected_final_phase":"presenting",'
             '"expected_scheduled_reviews":1,"turns":['

@@ -7,6 +7,10 @@ respect the active theme's transparency setting consistently.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 from hephaistos.terminal import Theme, current_palette
 from hephaistos.terminal.palette import BLACK_RGB, RICH_BLACK_COLOR_NAME
 
@@ -24,6 +28,16 @@ except ImportError:
     Selection = None  # ty:ignore[invalid-assignment]
     Strip = None  # ty:ignore[invalid-assignment]
     RichLog = None  # ty:ignore[invalid-assignment]
+
+if TYPE_CHECKING:
+    from rich.segment import ControlType
+
+    SegmentControl = (
+        Sequence[tuple[ControlType] | tuple[ControlType, int | str] | tuple[ControlType, int, int]]
+        | None
+    )
+else:
+    SegmentControl = object
 
 
 def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -146,6 +160,143 @@ def normalize_selected_text_style(
     return style + _RichStyle(color=palette.text_primary)
 
 
+@dataclass(frozen=True, slots=True)
+class SelectableTextRange:
+    start: int
+    end: int
+
+    @property
+    def empty(self) -> bool:
+        return self.start >= self.end
+
+
+def _selectable_text_range(text: str) -> SelectableTextRange:
+    return SelectableTextRange(
+        start=len(text) - len(text.lstrip(" ")),
+        end=len(text.rstrip(" ")),
+    )
+
+
+def _selected_text_range(
+    *,
+    selectable_range: SelectableTextRange,
+    selected_span: tuple[int, int] | None,
+    segment_x: int,
+) -> SelectableTextRange:
+    if selected_span is None:
+        return SelectableTextRange(selectable_range.end, selectable_range.start)
+
+    selected_start, selected_end = selected_span
+    overlap_start = max(selectable_range.start, selected_start - segment_x)
+    overlap_end = (
+        selectable_range.end
+        if selected_end == -1
+        else min(selectable_range.end, selected_end - segment_x)
+    )
+    return SelectableTextRange(overlap_start, overlap_end)
+
+
+def _append_selectable_part(
+    segments: list[Segment],
+    *,
+    text: str,
+    part_start: int,
+    line_y: int,
+    segment_x: int,
+    base_style: _RichStyle | None,
+    segment_control: SegmentControl,
+    selected: bool,
+    palette: Theme,
+    selection_style: _RichStyle | None,
+    selection_effect: _RichStyle,
+) -> None:
+    if not text:
+        return
+    if selected:
+        base_style = normalize_selected_text_style(base_style, palette)
+    part_style = style_with_offset(base_style, segment_x + part_start, line_y)
+    if selected and selection_style is not None:
+        part_style += selection_effect
+    segments.append(Segment(text, part_style, segment_control))
+
+
+def _append_unselected_selectable_text(
+    segments: list[Segment],
+    *,
+    text: str,
+    selectable_range: SelectableTextRange,
+    line_y: int,
+    segment_x: int,
+    segment_style: _RichStyle | None,
+    segment_control: SegmentControl,
+    palette: Theme,
+    selection_style: _RichStyle | None,
+    selection_effect: _RichStyle,
+) -> None:
+    _append_selectable_part(
+        segments,
+        text=text[: selectable_range.start],
+        part_start=0,
+        line_y=line_y,
+        segment_x=segment_x,
+        base_style=segment_style,
+        segment_control=segment_control,
+        selected=False,
+        palette=palette,
+        selection_style=selection_style,
+        selection_effect=selection_effect,
+    )
+    _append_selectable_part(
+        segments,
+        text=text[selectable_range.start : selectable_range.end],
+        part_start=selectable_range.start,
+        line_y=line_y,
+        segment_x=segment_x,
+        base_style=segment_style,
+        segment_control=segment_control,
+        selected=False,
+        palette=palette,
+        selection_style=selection_style,
+        selection_effect=selection_effect,
+    )
+
+
+def _append_selected_selectable_text(
+    segments: list[Segment],
+    *,
+    text: str,
+    selectable_range: SelectableTextRange,
+    selected_range: SelectableTextRange,
+    line_y: int,
+    segment_x: int,
+    segment_style: _RichStyle | None,
+    segment_control: SegmentControl,
+    palette: Theme,
+    selection_style: _RichStyle | None,
+    selection_effect: _RichStyle,
+) -> None:
+    pieces = (
+        (text[: selectable_range.start], 0, False),
+        (text[selectable_range.start : selected_range.start], selectable_range.start, False),
+        (text[selected_range.start : selected_range.end], selected_range.start, True),
+        (text[selected_range.end : selectable_range.end], selected_range.end, False),
+    )
+    for part_text, part_start, selected in pieces:
+        _append_selectable_part(
+            segments,
+            text=part_text,
+            part_start=part_start,
+            line_y=line_y,
+            segment_x=segment_x,
+            base_style=segment_style,
+            segment_control=segment_control,
+            selected=selected,
+            palette=palette,
+            selection_style=selection_style,
+            selection_effect=selection_effect,
+        )
+
+
 def selectable_text_strip(
     strip: Strip,
     *,
@@ -167,10 +318,6 @@ def selectable_text_strip(
     palette = current_palette()
     selection_effect = text_effects_style(selection_style)
     selected_span = selection.get_span(line_y) if selection is not None else None
-    selected_start = 0
-    selected_end = -1
-    if selected_span is not None:
-        selected_start, selected_end = selected_span
 
     char_x = x_offset
     segments: list[Segment] = []
@@ -180,62 +327,46 @@ def selectable_text_strip(
             segments.append(segment)
             continue
 
-        selectable_start = len(text) - len(text.lstrip(" "))
-        selectable_end = len(text.rstrip(" "))
-        if selectable_start >= selectable_end:
+        selectable_range = _selectable_text_range(text)
+        if selectable_range.empty:
             segments.append(segment)
             char_x += len(text)
             continue
 
-        leading_text = text[:selectable_start]
-        selectable_text = text[selectable_start:selectable_end]
-        trailing_text = text[selectable_end:]
-        local_start = selectable_start
-        local_end = selectable_end
-        absolute_start = char_x
-        overlap_start = local_end
-        overlap_end = local_start
-        if selected_span is not None:
-            overlap_start = max(local_start, selected_start - absolute_start)
-            overlap_end = (
-                local_end if selected_end == -1 else min(local_end, selected_end - absolute_start)
+        selected_range = _selected_text_range(
+            selectable_range=selectable_range,
+            selected_span=selected_span,
+            segment_x=char_x,
+        )
+        if selected_range.empty:
+            _append_unselected_selectable_text(
+                segments,
+                text=text,
+                selectable_range=selectable_range,
+                line_y=line_y,
+                segment_x=char_x,
+                segment_style=segment.style,
+                segment_control=segment.control,
+                palette=palette,
+                selection_style=selection_style,
+                selection_effect=selection_effect,
             )
-
-        def append_part(
-            part_text: str,
-            part_start: int,
-            *,
-            selected: bool,
-            base_style: _RichStyle | None = segment.style,
-            segment_control=segment.control,
-            segment_start: int = absolute_start,
-        ) -> None:
-            if not part_text:
-                return
-            if selected:
-                base_style = normalize_selected_text_style(base_style, palette)
-            part_style = style_with_offset(
-                base_style,
-                segment_start + part_start,
-                line_y,
-            )
-            if selected and selection_style is not None:
-                part_style += selection_effect
-            segments.append(Segment(part_text, part_style, segment_control))
-
-        if selected_span is None or overlap_start >= overlap_end:
-            append_part(leading_text, 0, selected=False)
-            append_part(selectable_text, selectable_start, selected=False)
         else:
-            append_part(leading_text, 0, selected=False)
-            append_part(text[selectable_start:overlap_start], selectable_start, selected=False)
-            append_part(
-                text[overlap_start:overlap_end],
-                overlap_start,
-                selected=True,
+            _append_selected_selectable_text(
+                segments,
+                text=text,
+                selectable_range=selectable_range,
+                selected_range=selected_range,
+                line_y=line_y,
+                segment_x=char_x,
+                segment_style=segment.style,
+                segment_control=segment.control,
+                palette=palette,
+                selection_style=selection_style,
+                selection_effect=selection_effect,
             )
-            append_part(text[overlap_end:selectable_end], overlap_end, selected=False)
 
+        trailing_text = text[selectable_range.end :]
         if trailing_text:
             segments.append(Segment(trailing_text, segment.style, segment.control))
         char_x += len(text)

@@ -11,7 +11,7 @@ The project already has useful primitives:
 
 - `hephaistos.agent.dispatch` owns the model/tool loop, streaming events,
   compaction, tool execution, and per-turn evidence injection.
-- `hephaistos.chat.orchestrator` owns turn planning, rollback, study state,
+- `hephaistos.chat.orchestrator` owns turn planning, rollback, learning state,
   citation verification, memory extraction, and trace/usage recording.
 - `hephaistos.rag` owns local chunking, indexing, hybrid retrieval, query
   transformation, re-ranking, and citable evidence rendering.
@@ -25,7 +25,7 @@ improves academic RAG quality instead of merely changing behavior.
 
 Heph should win with its own harness instead of outsourcing the core
 runtime to an agent framework. The important pieces are already local: armory
-layout, document conversion, retrieval, evidence IDs, study state, tool events,
+layout, document conversion, retrieval, evidence IDs, learning state, tool events,
 privacy boundaries, and benchmark gates.
 
 Frameworks are not part of the plan. New work should improve native source
@@ -40,7 +40,7 @@ Each agent turn should become an explicit state transition:
 2. Resolve required evidence or produce a grounded no-evidence response.
 3. Build a bounded context package with citations and memory.
 4. Run the model/tool loop with tool policy and interruption points.
-5. Verify citations, study-state transition, and answer shape.
+5. Verify citations, learning-state transition, and answer shape.
 6. Persist trace, usage, retrieval metadata, and evaluation hooks.
 
 This contract should be implemented in the existing orchestrator and agent
@@ -62,7 +62,7 @@ Use several small gates instead of one vague "agent quality" score:
 - Faithfulness: answers do not introduce unsupported claims when evidence is
   missing or thin.
 - Study control: recall, reveal refusal, hints, simplification, review, and
-  assessment transitions match the deterministic study state; completed recall
+  assessment transitions match the deterministic learning state; completed recall
   attempts create review schedule items.
 - Tooling: tool calls are valid JSON, respect workspace policy, and recover
   cleanly from errors.
@@ -120,10 +120,10 @@ uv run python -m scripts.benchmark_answers path/to/answers.jsonl \
   --min-supported-claims 1.0
 ```
 
-Study-state fixtures can be checked with:
+Learning-state fixtures can be checked with:
 
 ```bash
-uv run python -m scripts.benchmark_study_state path/to/study-state.jsonl \
+uv run python -m scripts.benchmark_study_state path/to/learning-state.jsonl \
   --armory path/to/armory \
   --min-pass-rate 1.0 \
   --min-transition-pass-rate 1.0 \

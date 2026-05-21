@@ -63,7 +63,7 @@ def input_without_ctrl_a_class(base: type) -> type:
     )
     bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
 
-    class HephaistosInput(
+    class HephInput(
         base,  # ty:ignore[unsupported-base]
         inherit_bindings=False,
     ):
@@ -76,7 +76,7 @@ def input_without_ctrl_a_class(base: type) -> type:
             event.prevent_default()
             event.stop()
 
-    return HephaistosInput
+    return HephInput
 
 
 def transparent_screen_class() -> type:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from hephaistos.armory.search import load_known_armories
@@ -38,27 +39,32 @@ def status_text(session: ChatSession) -> Text:
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.text_muted)
     text.stylize(f"bold {palette.brand_primary}", 0, len("Heph"))
+    _stylize_status_labels(text, plain)
+    _stylize_status_values(text, plain)
+    return text
 
-    for label in ("armory", "model", "mode"):
+
+def _stylize_status_labels(text: Text, plain: str) -> None:
+    palette = current_palette()
+    for label in ("armory", "model", "reasoning"):
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
         text.stylize(palette.text_secondary, start, start + len(label))
 
-    for label in ("armory", "model"):
+
+def _stylize_status_values(text: Text, plain: str) -> None:
+    palette = current_palette()
+    for label in ("armory", "model", "reasoning"):
         value_start = plain.index(f"{label} ") + len(label) + 1
-        next_label = " model " if label == "armory" else " mode "
-        value_end = plain.index(next_label, value_start)
+        value_end = _status_value_end(plain, label, value_start)
         text.stylize(palette.text_muted, value_start, value_end)
 
-    mode = session.study_state.autonomy_mode.value
-    mode_start = plain.index(mode, plain.index("mode "))
-    mode_style = palette.text_muted
-    if mode == "guided":
-        mode_style = palette.text_primary
-    elif mode != "manual":
-        mode_style = f"bold {palette.status_error_text}"
-    text.stylize(mode_style, mode_start, mode_start + len(mode))
 
-    return text
+def _status_value_end(plain: str, label: str, value_start: int) -> int:
+    if label == "armory":
+        return plain.index(" model ", value_start)
+    if label == "model":
+        return plain.index(" reasoning ", value_start)
+    return len(plain)
 
 
 def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
@@ -71,17 +77,13 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
         parts = ["armory", "enter open", "esc clear", "arrows move", "n new"]
     else:
         parts = ["armory", "type filter", "enter open", "n new", "esc close"]
-    plain = "  ".join(parts)
-    text = require_rich_text()(plain, style=footer_style)
-    for label in ("armory", "enter", "esc", "arrows", "type", "n"):
-        start = 0
-        while True:
-            idx = plain.find(label, start)
-            if idx == -1:
-                break
-            text.stylize(shortcut_style, idx, idx + len(label))
-            start = idx + len(label)
-    return text
+    return _shortcut_hints_text(
+        parts,
+        ("armory", "enter", "esc", "arrows", "type", "n"),
+        footer_style=footer_style,
+        shortcut_style=shortcut_style,
+        every_match=True,
+    )
 
 
 def footer_hints_text(
@@ -94,18 +96,19 @@ def footer_hints_text(
     shortcut_style = palette.text_secondary
 
     if busy:
-        plain = "esc stop  ctrl+c exit"
-        text = require_rich_text()(plain, style=footer_style)
-        for label in ("esc", "ctrl+c"):
-            start = plain.index(label)
-            text.stylize(shortcut_style, start, start + len(label))
-        return text
+        return _shortcut_hints_text(
+            ("esc stop", "ctrl+c exit"),
+            ("esc", "ctrl+c"),
+            footer_style=footer_style,
+            shortcut_style=shortcut_style,
+        )
 
     key_ok = has_configured_access(session.config, refresh_oauth=False)
     shortcut = armory_shortcut_key()
     parts = [
         "enter send",
         "tab complete",
+        "shift+tab reasoning",
         "ctrl+p commands",
         f"{shortcut} armory",
         "ctrl+c exit",
@@ -113,17 +116,34 @@ def footer_hints_text(
     ]
     if not key_ok:
         parts.append("api missing")
-    plain = "  ".join(parts)
-    text = require_rich_text()(plain, style=footer_style)
-    for label in ("enter", "tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"):
-        try:
-            start = plain.index(label)
-        except ValueError:
-            continue
-        text.stylize(shortcut_style, start, start + len(label))
+    text = _shortcut_hints_text(
+        parts,
+        ("enter", "tab", "shift+tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"),
+        footer_style=footer_style,
+        shortcut_style=shortcut_style,
+    )
+    plain = text.plain
     if "api missing" in plain:
         api_start = plain.index("api missing")
         text.stylize(palette.status_error_text, api_start, api_start + len("api missing"))
+    return text
+
+
+def _shortcut_hints_text(
+    parts: Sequence[str],
+    labels: Sequence[str],
+    *,
+    footer_style: str,
+    shortcut_style: str,
+    every_match: bool = False,
+) -> Text:
+    plain = "  ".join(parts)
+    text = require_rich_text()(plain, style=footer_style)
+    for label in labels:
+        if every_match:
+            _stylize_all(text, plain, label, shortcut_style)
+        else:
+            _stylize_first(text, plain, label, shortcut_style)
     return text
 
 
@@ -144,52 +164,61 @@ def _material_panel_display_name(name: str) -> str:
     return f"{display_name[: _INFO_PANEL_MATERIAL_NAME_WIDTH - 3]}..."
 
 
-def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
-    palette = current_palette()
-    title = session.title or "Session"
+def _info_panel_material_lines(session: ChatSession) -> list[str]:
     visible_materials = list(session.source_files[:8])
     material_lines = ["materials"]
-    if visible_materials:
-        material_lines.extend(
-            f"  @{_material_panel_display_name(name)}" for name in visible_materials
-        )
-        if len(session.source_files) > len(visible_materials):
-            material_lines.append(f"  +{len(session.source_files) - len(visible_materials)} more")
-    else:
+    if not visible_materials:
         material_lines.append("  none")
+        return material_lines
 
-    lines: list[str] = [
-        title,
+    material_lines.extend(f"  @{_material_panel_display_name(name)}" for name in visible_materials)
+    if len(session.source_files) > len(visible_materials):
+        material_lines.append(f"  +{len(session.source_files) - len(visible_materials)} more")
+    return material_lines
+
+
+def _info_panel_lines(session: ChatSession, session_seconds: int) -> list[str]:
+    return [
+        session.title or "Session",
         f"time {_session_duration(session_seconds)}",
         "",
-        *material_lines,
+        *_info_panel_material_lines(session),
         "",
         "next",
         "  /exam active recall",
         "  /priority plan focus",
         "  /remind due review",
     ]
-    lines = [f"  {line}" if line else "" for line in lines]
-    plain = "\n".join(lines)
-    text = require_rich_text()(plain, style=palette.text_muted)
-    title_start = plain.index(title)
-    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
+
+
+def _indented_panel_text(lines: Sequence[str]) -> str:
+    return "\n".join(f"  {line}" if line else "" for line in lines)
+
+
+def _stylize_all(text: Text, plain: str, label: str, style: str) -> None:
+    start = 0
+    while True:
+        idx = plain.find(label, start)
+        if idx == -1:
+            return
+        text.stylize(style, idx, idx + len(label))
+        start = idx + len(label)
+
+
+def _stylize_first(text: Text, plain: str, label: str, style: str) -> None:
+    idx = plain.find(label)
+    if idx != -1:
+        text.stylize(style, idx, idx + len(label))
+
+
+def _stylize_info_panel_labels(text: Text, plain: str) -> None:
+    palette = current_palette()
     for label in ("time", "materials", "next"):
-        start = 0
-        while True:
-            idx = plain.find(label, start)
-            if idx == -1:
-                break
-            text.stylize(palette.text_secondary, idx, idx + len(label))
-            start = idx + len(label)
-    duration = _session_duration(session_seconds)
-    duration_start = plain.index(duration, plain.index("time "))
-    text.stylize(palette.text_muted, duration_start, duration_start + len(duration))
-    hidden_material_count = max(0, len(session.source_files) - 8)
-    if hidden_material_count:
-        detail = f"+{hidden_material_count} more"
-        detail_start = plain.index(detail)
-        text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
+        _stylize_all(text, plain, label, palette.text_secondary)
+
+
+def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) -> None:
+    palette = current_palette()
     search_from = 0
     for name in session.source_files:
         display_name = _material_panel_display_name(name)
@@ -204,6 +233,31 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
             else palette.action_primary_bg
         )
         text.stylize(style, idx, idx + len(token))
+
+
+def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession) -> None:
+    hidden_material_count = max(0, len(session.source_files) - 8)
+    if not hidden_material_count:
+        return
+    palette = current_palette()
+    detail = f"+{hidden_material_count} more"
+    detail_start = plain.index(detail)
+    text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
+
+
+def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
+    palette = current_palette()
+    title = session.title or "Session"
+    plain = _indented_panel_text(_info_panel_lines(session, session_seconds))
+    text = require_rich_text()(plain, style=palette.text_muted)
+    title_start = plain.index(title)
+    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
+    _stylize_info_panel_labels(text, plain)
+    duration = _session_duration(session_seconds)
+    duration_start = plain.index(duration, plain.index("time "))
+    text.stylize(palette.text_muted, duration_start, duration_start + len(duration))
+    _stylize_hidden_material_count(text, plain, session)
+    _stylize_info_panel_materials(text, plain, session)
     return text
 
 
@@ -255,39 +309,54 @@ def armory_home_text() -> str:
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:
     palette = current_palette()
-    is_user = entry.kind == "user"
-    is_assistant = entry.kind == "markdown"
-    sep = "\u2500" * 26
-
-    if is_user:
-        content = entry.content
-        preview = content[:120] + ("..." if len(content) > 120 else "")
-        lines = ["You message", sep, preview]
-    elif is_assistant:
-        model = session.config.model or "unknown"
-        evidence_str = evidence_summary_text(entry.evidence or session.last_turn_evidence)
-        usage = session.usage.summary()
-        lines = [
-            "Assistant reply",
-            sep,
-            f"model   {model}",
-            f"tokens  {usage['total_tokens']}",
-            f"cost    ${usage['cost_usd']:.4f}",
-            f"evidence {evidence_str}",
-        ]
-    else:
-        lines = ["Message", sep, entry.kind]
-
-    lines = [f"  {line}" if line else "" for line in lines]
+    lines = [f"  {line}" if line else "" for line in _info_panel_message_lines(entry, session)]
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style=palette.text_muted)
-    first_line = lines[0].strip()
-    title_start = plain.index(first_line)
-    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(first_line))
-    for label in ("model", "tokens", "cost", "evidence"):
-        try:
-            start = plain.index(label)
-            text.stylize(f"dim {palette.text_muted}", start, start + len(label))
-        except ValueError:
-            pass
+    _stylize_message_panel_title(text, plain, lines[0].strip())
+    _stylize_message_panel_labels(text, plain)
     return text
+
+
+def _info_panel_message_lines(entry: TuiTranscriptEntry, session: ChatSession) -> list[str]:
+    sep = "\u2500" * 26
+
+    if entry.kind == "user":
+        return _user_message_panel_lines(entry.content, sep)
+    if entry.kind == "markdown":
+        return _assistant_message_panel_lines(entry, session, sep)
+    return ["Message", sep, entry.kind]
+
+
+def _user_message_panel_lines(content: str, sep: str) -> list[str]:
+    preview = content[:120] + ("..." if len(content) > 120 else "")
+    return ["You message", sep, preview]
+
+
+def _assistant_message_panel_lines(
+    entry: TuiTranscriptEntry,
+    session: ChatSession,
+    sep: str,
+) -> list[str]:
+    model = session.config.model or "unknown"
+    evidence_str = evidence_summary_text(entry.evidence or session.last_turn_evidence)
+    usage = session.usage.summary()
+    return [
+        "Assistant reply",
+        sep,
+        f"model   {model}",
+        f"tokens  {usage['total_tokens']}",
+        f"cost    ${usage['cost_usd']:.4f}",
+        f"evidence {evidence_str}",
+    ]
+
+
+def _stylize_message_panel_title(text: Text, plain: str, title: str) -> None:
+    palette = current_palette()
+    title_start = plain.index(title)
+    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
+
+
+def _stylize_message_panel_labels(text: Text, plain: str) -> None:
+    palette = current_palette()
+    for label in ("model", "tokens", "cost", "evidence"):
+        _stylize_first(text, plain, label, f"dim {palette.text_muted}")

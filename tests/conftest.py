@@ -81,7 +81,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     auth_dir = tmp_path / "hephaistos_auth"
     auth_file = auth_dir / "auth.json"
     _ks._volatile.clear()
-    _log_mod._root_initialised = False
+    _log_mod._hephaistos_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -109,7 +109,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     yield
 
     _ks._volatile.clear()
-    _log_mod._root_initialised = False
+    _log_mod._hephaistos_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()

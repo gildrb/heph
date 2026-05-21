@@ -45,8 +45,6 @@ needs the explicit TUI subcommand.
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and review stats |
 | /priority | Generate a printable priority PDF cheat sheet |
-| /mode | Set manual, guided, or autopilot review mode |
-| /autopilot | Let Heph drive a bounded material review session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |

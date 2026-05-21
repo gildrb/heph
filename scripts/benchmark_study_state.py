@@ -30,16 +30,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
+from hephaistos._types import is_string_mapping
 from hephaistos.study import (
-    StudyAction,
-    StudyState,
+    LearningAction,
+    LearningState,
     apply_turn_result,
     plan_turn,
 )
-from hephaistos.study.schedule import StudyScheduleStore
+from hephaistos.study.schedule import RecallScheduleStore
 
 
-class RawStudyTurn(TypedDict):
+class RawLearningTurn(TypedDict):
     user: str
     reply: str
     expected_action: NotRequired[str]
@@ -54,8 +55,8 @@ class RawStudyTurn(TypedDict):
     record_schedule: NotRequired[bool]
 
 
-class RawStudyStateCase(TypedDict):
-    turns: list[RawStudyTurn]
+class RawLearningStateCase(TypedDict):
+    turns: list[RawLearningTurn]
     domain: NotRequired[str]
     id: NotRequired[str]
     expected_final_phase: NotRequired[str]
@@ -67,7 +68,7 @@ class RawStudyStateCase(TypedDict):
 
 
 @dataclass(frozen=True, slots=True)
-class StudyTurnCase:
+class LearningTurnCase:
     user: str
     reply: str
     source_refs: tuple[str, ...] = ()
@@ -83,9 +84,9 @@ class StudyTurnCase:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyStateCase:
+class LearningStateCase:
     case_id: str
-    turns: tuple[StudyTurnCase, ...]
+    turns: tuple[LearningTurnCase, ...]
     domain: str | None = None
     expected_final_phase: str | None = None
     expected_scheduled_reviews: int | None = None
@@ -96,7 +97,7 @@ class StudyStateCase:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyTurnResult:
+class LearningTurnResult:
     turn: int
     user: str
     action: str
@@ -111,7 +112,7 @@ class StudyTurnResult:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyStateCaseResult:
+class LearningStateCaseResult:
     case_id: str
     domain: str | None
     final_phase: str
@@ -125,11 +126,11 @@ class StudyStateCaseResult:
     schedule_transfer_successes: tuple[bool, ...]
     passed: bool
     failures: tuple[str, ...]
-    turns: tuple[StudyTurnResult, ...]
+    turns: tuple[LearningTurnResult, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class StudyStateBenchmarkReport:
+class LearningStateBenchmarkReport:
     cases: int
     domains: tuple[str, ...]
     pass_rate: float
@@ -138,25 +139,25 @@ class StudyStateBenchmarkReport:
     mastery_metadata_rate: float
     prompt_contract_rate: float
     failures: tuple[str, ...]
-    results: tuple[StudyStateCaseResult, ...]
+    results: tuple[LearningStateCaseResult, ...]
 
 
-def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
-    raw_cases = payload.get("cases") if isinstance(payload, dict) else payload
+def _as_raw_cases(payload: object) -> list[RawLearningStateCase]:
+    raw_cases = payload.get("cases") if is_string_mapping(payload) else payload
     if not isinstance(raw_cases, list):
-        raise TypeError("study state dataset must be a JSON list or object with a 'cases' list")
+        raise TypeError("learning state dataset must be a JSON list or object with a 'cases' list")
 
-    cases: list[RawStudyStateCase] = []
+    cases: list[RawLearningStateCase] = []
     for idx, raw in enumerate(raw_cases, start=1):
-        if not isinstance(raw, dict):
+        if not is_string_mapping(raw):
             raise TypeError(f"case {idx} must be an object")
         raw_turns = raw.get("turns")
         if not isinstance(raw_turns, list) or not raw_turns:
             raise ValueError(f"case {idx} must include non-empty turns")
 
-        turns: list[RawStudyTurn] = []
+        turns: list[RawLearningTurn] = []
         for turn_idx, raw_turn in enumerate(raw_turns, start=1):
-            if not isinstance(raw_turn, dict):
+            if not is_string_mapping(raw_turn):
                 raise TypeError(f"case {idx} turn {turn_idx} must be an object")
             user = raw_turn.get("user")
             reply = raw_turn.get("reply")
@@ -164,10 +165,10 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
                 raise ValueError(f"case {idx} turn {turn_idx} must include user")
             if not isinstance(reply, str):
                 raise TypeError(f"case {idx} turn {turn_idx} must include reply")
-            turn: RawStudyTurn = {"user": user, "reply": reply}
+            turn: RawLearningTurn = {"user": user, "reply": reply}
             raw_refs = raw_turn.get("source_refs")
             if isinstance(raw_refs, list):
-                turn["source_refs"] = list(raw_refs)
+                turn["source_refs"] = [ref for ref in raw_refs if isinstance(ref, str)]
             for field in (
                 "expected_action",
                 "expected_phase",
@@ -195,7 +196,7 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
                     turn[field] = prompt_phrases
             turns.append(turn)
 
-        case: RawStudyStateCase = {"turns": turns}
+        case: RawLearningStateCase = {"turns": turns}
         raw_id = raw.get("id")
         if isinstance(raw_id, str) and raw_id.strip():
             case["id"] = raw_id.strip()
@@ -264,12 +265,12 @@ def _string_tuple(value: object, field_name: str, case_idx: int, turn_idx: int) 
     return refs
 
 
-def load_cases(path: Path) -> list[StudyStateCase]:
-    """Load study-state benchmark cases from JSON or JSONL."""
+def load_cases(path: Path) -> list[LearningStateCase]:
+    """Load learning-state benchmark cases from JSON or JSONL."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ValueError(f"could not read study state benchmark dataset: {path}") from exc
+        raise ValueError(f"could not read learning state benchmark dataset: {path}") from exc
     try:
         if path.suffix == ".jsonl":
             payload: object = [
@@ -280,12 +281,12 @@ def load_cases(path: Path) -> list[StudyStateCase]:
         else:
             payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid study state benchmark JSON: {path}") from exc
+        raise ValueError(f"invalid learning state benchmark JSON: {path}") from exc
 
-    cases: list[StudyStateCase] = []
+    cases: list[LearningStateCase] = []
     for idx, raw in enumerate(_as_raw_cases(payload), start=1):
         turns = tuple(
-            StudyTurnCase(
+            LearningTurnCase(
                 user=raw_turn["user"],
                 reply=raw_turn["reply"],
                 source_refs=_string_tuple(
@@ -304,7 +305,7 @@ def load_cases(path: Path) -> list[StudyStateCase]:
             for turn_idx, raw_turn in enumerate(raw["turns"], start=1)
         )
         cases.append(
-            StudyStateCase(
+            LearningStateCase(
                 case_id=raw.get("id", f"case-{idx}"),
                 domain=raw.get("domain"),
                 turns=turns,
@@ -320,9 +321,9 @@ def load_cases(path: Path) -> list[StudyStateCase]:
 
 
 def run_benchmark(
-    cases: Sequence[StudyStateCase], *, armory_path: Path
-) -> StudyStateBenchmarkReport:
-    """Run study-state transition and scheduling benchmark cases."""
+    cases: Sequence[LearningStateCase], *, armory_path: Path
+) -> LearningStateBenchmarkReport:
+    """Run learning-state transition and scheduling benchmark cases."""
     domains = tuple(sorted({case.domain for case in cases if case.domain}))
     results = [_run_case(case, armory_path=armory_path) for case in cases]
 
@@ -345,7 +346,7 @@ def run_benchmark(
     failures = tuple(
         f"{result.case_id}: {failure}" for result in results for failure in result.failures
     )
-    return StudyStateBenchmarkReport(
+    return LearningStateBenchmarkReport(
         cases=len(cases),
         domains=domains,
         pass_rate=case_passes / len(cases) if cases else 0.0,
@@ -362,7 +363,7 @@ def run_benchmark(
     )
 
 
-def _mastery_metadata_rate(results: Sequence[StudyStateCaseResult]) -> float:
+def _mastery_metadata_rate(results: Sequence[LearningStateCaseResult]) -> float:
     scheduled_items = [
         (
             concept,
@@ -395,11 +396,11 @@ def _mastery_metadata_rate(results: Sequence[StudyStateCaseResult]) -> float:
     return complete / len(scheduled_items)
 
 
-def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResult:
-    state = StudyState()
-    store = StudyScheduleStore(armory_path)
+def _run_case(case: LearningStateCase, *, armory_path: Path) -> LearningStateCaseResult:
+    state = LearningState()
+    store = RecallScheduleStore(armory_path)
     now = datetime(2026, 5, 11, 9, 0, tzinfo=UTC)
-    turn_results: list[StudyTurnResult] = []
+    turn_results: list[LearningTurnResult] = []
     failures: list[str] = []
 
     for idx, turn in enumerate(case.turns, start=1):
@@ -429,7 +430,7 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
             )
         failures.extend(turn_failures)
         turn_results.append(
-            StudyTurnResult(
+            LearningTurnResult(
                 turn=idx,
                 user=turn.user,
                 action=plan.action.value,
@@ -489,7 +490,7 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
             f"{case.expected_schedule_failures!r}, got {schedule_failures!r}"
         )
 
-    return StudyStateCaseResult(
+    return LearningStateCaseResult(
         case_id=case.case_id,
         domain=case.domain,
         final_phase=state.phase.value,
@@ -509,9 +510,9 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
 
 def _turn_failures(
     turn_idx: int,
-    turn: StudyTurnCase,
-    action: StudyAction,
-    state: StudyState,
+    turn: LearningTurnCase,
+    action: LearningAction,
+    state: LearningState,
 ) -> list[str]:
     failures: list[str] = []
     if turn.expected_action is not None and action.value != turn.expected_action:
@@ -546,7 +547,7 @@ def _turn_failures(
 
 def _prompt_contract_failures(
     turn_idx: int,
-    turn: StudyTurnCase,
+    turn: LearningTurnCase,
     prompt: str,
 ) -> list[str]:
     failures = [
@@ -562,9 +563,9 @@ def _prompt_contract_failures(
     return failures
 
 
-def print_text_report(report: StudyStateBenchmarkReport) -> None:
-    """Print a concise human-readable study-state benchmark report."""
-    print(f"Study-state benchmark: {report.cases} case(s)")
+def print_text_report(report: LearningStateBenchmarkReport) -> None:
+    """Print a concise human-readable learning-state benchmark report."""
+    print(f"Learning-state benchmark: {report.cases} case(s)")
     print(f"  pass rate: {report.pass_rate:.2%}")
     print(f"  transition pass rate: {report.transition_pass_rate:.2%}")
     print(f"  scheduling pass rate: {report.scheduling_pass_rate:.2%}")
@@ -608,7 +609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             armory_path=cast("Path", args.armory).expanduser().resolve(),
         )
     except (OSError, TypeError, ValueError) as exc:
-        print(f"study state benchmark error: {exc}", file=sys.stderr)
+        print(f"learning state benchmark error: {exc}", file=sys.stderr)
         return 2
 
     print_text_report(report)
@@ -620,7 +621,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(asdict(report), ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(f"Wrote study-state benchmark report to {json_report}")
+        print(f"Wrote learning-state benchmark report to {json_report}")
     return (
         0
         if report.pass_rate >= min_pass_rate

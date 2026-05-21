@@ -126,16 +126,16 @@ def test_compare_reports_fails_on_study_mastery_metadata_regression(
     current = tmp_path / "current.json"
     _write_json(
         baseline,
-        {"study_state": {"mastery_metadata_rate": 1.0}},
+        {"learning_state": {"mastery_metadata_rate": 1.0}},
     )
     _write_json(
         current,
-        {"study_state": {"mastery_metadata_rate": 0.0}},
+        {"learning_state": {"mastery_metadata_rate": 0.0}},
     )
 
     report = compare_benchmark_reports.compare_reports(baseline, current)
 
-    assert report.regressions == ("study_state.mastery_metadata_rate",)
+    assert report.regressions == ("learning_state.mastery_metadata_rate",)
 
 
 def test_compare_reports_fails_on_study_prompt_contract_regression(
@@ -145,16 +145,16 @@ def test_compare_reports_fails_on_study_prompt_contract_regression(
     current = tmp_path / "current.json"
     _write_json(
         baseline,
-        {"study_state": {"prompt_contract_rate": 1.0}},
+        {"learning_state": {"prompt_contract_rate": 1.0}},
     )
     _write_json(
         current,
-        {"study_state": {"prompt_contract_rate": 0.0}},
+        {"learning_state": {"prompt_contract_rate": 0.0}},
     )
 
     report = compare_benchmark_reports.compare_reports(baseline, current)
 
-    assert report.regressions == ("study_state.prompt_contract_rate",)
+    assert report.regressions == ("learning_state.prompt_contract_rate",)
 
 
 def test_compare_reports_fails_on_regression(tmp_path: Path, capsys) -> None:

@@ -222,9 +222,8 @@ def material_drill_query(text: str) -> str | None:
         match = pattern.search(normalized)
         if match is None:
             continue
-        topic = _normalize(match.group("topic").strip(" .?!:;"))
-        words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic)]
-        if any(word not in _REFERENT_ONLY_WORDS for word in words):
+        topic = _topic_from_match(match)
+        if _has_non_referent_topic_words(topic):
             return topic
     return None
 
@@ -234,15 +233,25 @@ def is_new_material_topic_request(text: str) -> bool:
     if _SOURCE_ONLY_POLICY_RE.search(normalized):
         return False
     match = _NEW_TOPIC_REQUEST_RE.search(normalized)
-    if match is None:
-        return False
-    topic = _normalize(match.group("topic").strip(" .?!:;"))
-    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic)]
+    return match is not None and _is_new_material_topic(_topic_from_match(match))
+
+
+def _is_new_material_topic(topic: str) -> bool:
     return (
         bool(topic)
         and topic.casefold() not in _FOLLOWUP_TOPIC_REFERENTS
-        and not (_FOLLOWUP_TOPIC_REFERENT_RE.search(topic))
-        and any(word not in _REFERENT_ONLY_WORDS for word in words)
+        and not _FOLLOWUP_TOPIC_REFERENT_RE.search(topic)
+        and _has_non_referent_topic_words(topic)
+    )
+
+
+def _topic_from_match(match: re.Match[str]) -> str:
+    return _normalize(match.group("topic").strip(" .?!:;"))
+
+
+def _has_non_referent_topic_words(topic: str) -> bool:
+    return any(
+        word.casefold() not in _REFERENT_ONLY_WORDS for word in _TOPIC_WORD_RE.findall(topic)
     )
 
 

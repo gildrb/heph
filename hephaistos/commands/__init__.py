@@ -25,9 +25,7 @@ from hephaistos.commands.session import (
 )
 from hephaistos.commands.settings import SettingsCommand
 from hephaistos.commands.study import (
-    AutopilotCommand,
     ExamCommand,
-    ModeCommand,
     PriorityCommand,
     RemindCommand,
     VocabCommand,
@@ -84,8 +82,6 @@ def get_registry() -> CommandRegistry:
                 CostCommand,
                 StatsCommand,
                 PriorityCommand,
-                ModeCommand,
-                AutopilotCommand,
                 ExamCommand,
                 ExportCommand,
                 ImportCommand,
@@ -112,7 +108,6 @@ set_command_registry_fn(get_registry)
 __all__ = [
     # Command classes (for direct import)
     "ArmoryCommand",
-    "AutopilotCommand",
     "Command",
     "CommandRegistry",
     "CommandResult",
@@ -128,7 +123,6 @@ __all__ = [
     "LoginCommand",
     "LogoutCommand",
     "MemoryCommand",
-    "ModeCommand",
     "ModelsCommand",
     "NewCommand",
     "PriorityCommand",

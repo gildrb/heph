@@ -96,9 +96,11 @@ def save_on_exit(session: ChatSession) -> None:
     session.trace.close()
 
 
-def run_tui(session: ChatSession | None = None) -> None:
-    tui_module = sys.modules["hephaistos.tui"]
+def _tui_module():
+    return sys.modules["hephaistos.tui"]
 
+
+def _ensure_tui_dependencies(tui_module) -> None:
     missing_dependency = any(
         dependency is None
         for dependency in (
@@ -116,64 +118,74 @@ def run_tui(session: ChatSession | None = None) -> None:
     if missing_dependency:
         raise TuiDependencyError(tui_dependency_message())
 
-    if session is None:
-        session = tui_module.create_startup_session(load_config())
 
-    set_theme(tui_module.load_app_settings().theme)
-    session_ref = [session]
+def _startup_session(tui_module, session: ChatSession | None) -> ChatSession:
+    if session is not None:
+        return session
+    return tui_module.create_startup_session(load_config())
+
+
+def _runtime_state(tui_module, session: ChatSession):
     history_path = tui_module.get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
     history_obj = InputHistory.load(history_path)
-    state = tui_module._TuiRuntimeState(
-        history=history_obj.entries[-500:],
-        history_obj=history_obj,
+    return (
+        tui_module._TuiRuntimeState(
+            history=history_obj.entries[-500:],
+            history_obj=history_obj,
+        ),
+        history_path,
     )
+
+
+def _run_app_once(tui_module, session: ChatSession, state) -> None:
+    palette = current_palette()
+    tui_module.HephTui(session, state, palette).run(mouse=tui_module._TUI_ENABLE_MOUSE)
+
+
+def _consume_pending_input(tui_module, session: ChatSession, state) -> tuple[ChatSession, bool]:
+    pending_input = state.pending_input
+    state.pending_input = None
+    if pending_input is None:
+        return session, False
+
+    history = InputHistory(state.history)
+    if tui_module._pending_input_requires_terminal(pending_input):
+        new_session, should_continue = handle_input(session, pending_input, history)
+    else:
+        stdout = tui_module._TuiCaptureWriter()
+        stderr = tui_module._TuiCaptureWriter()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            new_session, should_continue = handle_input(session, pending_input, history)
+        output = tui_module._command_output_text(stdout, stderr)
+        if output:
+            state.transcript.append(tui_module._TuiTranscriptEntry(output, "notice"))
+    state.history = history.entries
+    return new_session, should_continue
+
+
+def _save_tui_exit_state(tui_module, session: ChatSession, state, history_path: Path) -> None:
+    if state.history_obj is not None:
+        state.history_obj.save(history_path)
+    tui_module.save_on_exit(session)
+
+
+def run_tui(session: ChatSession | None = None) -> None:
+    tui_module = sys.modules["hephaistos.tui"]
+    _ensure_tui_dependencies(tui_module)
+    session = _startup_session(tui_module, session)
+
+    set_theme(tui_module.load_app_settings().theme)
+    state, history_path = _runtime_state(tui_module, session)
 
     try:
         while True:
-            palette = current_palette()
-            tui_module.HephaistosTui(session_ref[0], state, palette).run(
-                mouse=tui_module._TUI_ENABLE_MOUSE
-            )
-
-            pending_input = state.pending_input
-            state.pending_input = None
-            if pending_input is None:
-                break
-
-            history = InputHistory(state.history)
-            if tui_module._pending_input_requires_terminal(pending_input):
-                new_session, should_continue = handle_input(
-                    session_ref[0],
-                    pending_input,
-                    history,
-                )
-                session_ref[0] = new_session
-                state.history = history.entries
-                if not should_continue:
-                    break
-                continue
-
-            stdout = tui_module._TuiCaptureWriter()
-            stderr = tui_module._TuiCaptureWriter()
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                new_session, should_continue = handle_input(
-                    session_ref[0],
-                    pending_input,
-                    history,
-                )
-            session_ref[0] = new_session
-            state.history = history.entries
-
-            output = tui_module._command_output_text(stdout, stderr)
-            if output:
-                state.transcript.append(tui_module._TuiTranscriptEntry(output, "notice"))
+            _run_app_once(tui_module, session, state)
+            session, should_continue = _consume_pending_input(tui_module, session, state)
             if not should_continue:
                 break
     finally:
-        if state.history_obj is not None:
-            state.history_obj.save(history_path)
-        tui_module.save_on_exit(session_ref[0])
+        _save_tui_exit_state(tui_module, session, state, history_path)
 
 
 def run_tui_for_path(path: Path | None) -> None:

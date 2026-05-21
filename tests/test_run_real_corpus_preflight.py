@@ -72,7 +72,7 @@ def _make_real_corpus(tmp_path: Path) -> tuple[Path, Path]:
         "priority.jsonl",
         "answers.jsonl",
         "replay.jsonl",
-        "study_state.jsonl",
+        "learning_state.jsonl",
     ):
         (suite / dataset).write_text("{}\n", encoding="utf-8")
     manifest = {
@@ -86,7 +86,7 @@ def _make_real_corpus(tmp_path: Path) -> tuple[Path, Path]:
             {"path": "priority.jsonl", "kind": "priority"},
             {"path": "answers.jsonl", "kind": "grounded-answers"},
             {"path": "replay.jsonl", "kind": "model-replay-prompts"},
-            {"path": "study_state.jsonl", "kind": "study-state"},
+            {"path": "learning_state.jsonl", "kind": "study-state"},
         ],
         "known_limits": [],
     }

@@ -10,7 +10,6 @@ from hephaistos.memory.extract import extract_and_store
 from hephaistos.runtime import ChatConfig
 
 _log = get_logger("memory.workflow")
-_MIN_REPLY_LENGTH_FOR_EXTRACTION = 100
 
 
 def schedule_memory_extraction(
@@ -21,7 +20,7 @@ def schedule_memory_extraction(
     reply: str,
     evidence: str,
 ) -> None:
-    if memory is None or len(reply) < _MIN_REPLY_LENGTH_FOR_EXTRACTION:
+    if memory is None or not (user_input.strip() or reply.strip()):
         return
 
     def _bg_extract() -> None:

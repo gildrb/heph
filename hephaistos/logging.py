@@ -45,17 +45,17 @@ def redact_text(text: str) -> str:
 
 
 def _redact_dict(data: Mapping[str, object]) -> dict[str, object]:
-    redacted: dict[str, object] = {}
-    for key, value in data.items():
-        if any(pattern.search(key) for pattern in _SENSITIVE_KEY_PATTERNS):
-            redacted[key] = _REDACTED
-        elif is_string_mapping(value):
-            redacted[key] = _redact_dict(value)
-        elif isinstance(value, str):
-            redacted[key] = redact_text(value)
-        else:
-            redacted[key] = value
-    return redacted
+    return {key: _redact_value(key, value) for key, value in data.items()}
+
+
+def _redact_value(key: str, value: object) -> object:
+    if any(pattern.search(key) for pattern in _SENSITIVE_KEY_PATTERNS):
+        return _REDACTED
+    if is_string_mapping(value):
+        return _redact_dict(value)
+    if isinstance(value, str):
+        return redact_text(value)
+    return value
 
 
 class _JsonFormatter(logging.Formatter):
@@ -89,61 +89,86 @@ class _TextFormatter(logging.Formatter):
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")
         colour = self._LEVEL_COLOURS.get(record.levelname, "")
         level = f"{colour}{record.levelname:<8}{self._RESET}"
-        fields = getattr(record, "fields", None)
-
         parts = [f"{self._DIM}{ts}{self._RESET} {level} {record.name}: {record.getMessage()}"]
-        if is_string_mapping(fields):
-            redacted_fields = _redact_dict(fields)
-            for k, v in redacted_fields.items():
-                parts.append(f"  {self._DIM}{k}={v}{self._RESET}")
-
-        if record.exc_info and record.exc_info[1] is not None:
-            parts.append(self.formatException(record.exc_info))
-
+        parts.extend(self._field_lines(record))
+        parts.extend(self._exception_lines(record))
         return "\n".join(parts)
+
+    def _field_lines(self, record: logging.LogRecord) -> list[str]:
+        fields = getattr(record, "fields", None)
+        if not is_string_mapping(fields):
+            return []
+        return [
+            f"  {self._DIM}{key}={value}{self._RESET}"
+            for key, value in _redact_dict(fields).items()
+        ]
+
+    def _exception_lines(self, record: logging.LogRecord) -> list[str]:
+        if record.exc_info and record.exc_info[1] is not None:
+            return [self.formatException(record.exc_info)]
+        return []
 
 
 _LOG_LEVEL_ENV = "HEPHAISTOS_LOG_LEVEL"
 _LOG_FILE_ENV = "HEPHAISTOS_LOG_FILE"
 _LOG_FORMAT_ENV = "HEPHAISTOS_LOG_FORMAT"
 
-_root_initialised = False
+_hephaistos_logger_initialised = False
 
 
 def get_logger(name: str) -> logging.Logger:
-    global _root_initialised  # noqa: PLW0603
-    if not _root_initialised:
-        _root_initialised = True
-
-        is_tty = sys.stderr.isatty()
-        default_level_name = "ERROR" if is_tty else "WARNING"
-        default_format = "text" if is_tty else "json"
-
-        level_name = os.environ.get(_LOG_LEVEL_ENV, default_level_name).upper()
-        level = getattr(logging, level_name, logging.WARNING)
-        fmt = os.environ.get(_LOG_FORMAT_ENV, default_format).lower()
-
-        hephaistos_logger = logging.getLogger("hephaistos")
-        hephaistos_logger.setLevel(level)
-        hephaistos_logger.propagate = False
-        if not hephaistos_logger.handlers:
-            stderr_handler = logging.StreamHandler(sys.stderr)
-            stderr_handler.setLevel(level)
-            stderr_handler.setFormatter(_JsonFormatter() if fmt == "json" else _TextFormatter())
-            hephaistos_logger.addHandler(stderr_handler)
-            log_file = os.environ.get(_LOG_FILE_ENV)
-            if log_file:
-                path = Path(log_file)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                file_handler = logging.FileHandler(path, encoding="utf-8")
-                file_handler.setLevel(level)
-                file_handler.setFormatter(_JsonFormatter())
-                hephaistos_logger.addHandler(file_handler)
-        for noisy in ("openai", "httpx", "httpcore", "urllib3", "sentence_transformers"):
-            logging.getLogger(noisy).setLevel(logging.WARNING)
+    _ensure_hephaistos_logger()
     if not name.startswith("hephaistos"):
         name = f"hephaistos.{name}"
     return logging.getLogger(name)
+
+
+def _ensure_hephaistos_logger() -> None:
+    global _hephaistos_logger_initialised  # noqa: PLW0603
+    if _hephaistos_logger_initialised:
+        return
+    _hephaistos_logger_initialised = True
+
+    level, fmt = _logging_config()
+    logger = logging.getLogger("hephaistos")
+    logger.setLevel(level)
+    logger.propagate = False
+    if not logger.handlers:
+        logger.addHandler(_stderr_handler(level, fmt))
+        if log_file := os.environ.get(_LOG_FILE_ENV):
+            logger.addHandler(_file_handler(Path(log_file), level))
+    _quiet_noisy_loggers()
+
+
+def _logging_config() -> tuple[int, str]:
+    is_tty = sys.stderr.isatty()
+    default_level_name = "ERROR" if is_tty else "WARNING"
+    default_format = "text" if is_tty else "json"
+    level_name = os.environ.get(_LOG_LEVEL_ENV, default_level_name).upper()
+    return getattr(logging, level_name, logging.WARNING), os.environ.get(
+        _LOG_FORMAT_ENV,
+        default_format,
+    ).lower()
+
+
+def _stderr_handler(level: int, fmt: str) -> logging.Handler:
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(level)
+    handler.setFormatter(_JsonFormatter() if fmt == "json" else _TextFormatter())
+    return handler
+
+
+def _file_handler(path: Path, level: int) -> logging.Handler:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setLevel(level)
+    handler.setFormatter(_JsonFormatter())
+    return handler
+
+
+def _quiet_noisy_loggers() -> None:
+    for noisy in ("openai", "httpx", "httpcore", "urllib3", "sentence_transformers"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 class Timer:
@@ -188,22 +213,26 @@ class TraceWriter:
         return self._path
 
     def _write(self, event: Mapping[str, object]) -> None:
-        if self._file_handle is None:
-            if self._armory_path is None:
-                return
-            p = self.path
-            assert p is not None
-            p.parent.mkdir(parents=True, exist_ok=True)
-            self._file_handle = p.open("a", encoding="utf-8")
-        fh = self._file_handle
-        if fh is None:
+        file_handle = self._trace_file_handle()
+        if file_handle is None:
             return
         line = json.dumps(_redact_dict(event), default=str, ensure_ascii=False)
         try:
-            fh.write(line + "\n")
-            fh.flush()
+            file_handle.write(line + "\n")
+            file_handle.flush()
         except OSError as exc:
             self._log.warning("trace write failed", extra={"fields": {"error": str(exc)}})
+
+    def _trace_file_handle(self) -> TextIO | None:
+        if self._file_handle is not None:
+            return self._file_handle
+        if self._armory_path is None:
+            return None
+        path = self.path
+        assert path is not None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._file_handle = path.open("a", encoding="utf-8")
+        return self._file_handle
 
     @staticmethod
     def _ts() -> str:

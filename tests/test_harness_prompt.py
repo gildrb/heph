@@ -5,13 +5,13 @@ from pathlib import Path
 from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sections
 from hephaistos.rag.context import estimate_tokens
 from hephaistos.rag.health import ExtractionHealthIssue
-from hephaistos.study import StudyPhase, StudyState, plan_turn
+from hephaistos.study import LearningPhase, LearningState, plan_turn
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Heph. Local document agent")
+    assert prompt.startswith("You are running inside Heph.")
     assert "Available tools:" in prompt
     assert "## Guidelines" in prompt
     assert "## Verification-First Operating Mode" not in prompt
@@ -27,12 +27,12 @@ def test_default_prompt_and_common_steering_fit_token_budget() -> None:
     assert estimate_tokens(prompt) <= 600
 
     common_steering = [
-        plan_turn(StudyState(), "what is this material about").prompt,
-        plan_turn(StudyState(), "what do the notes say about this topic?").prompt,
-        plan_turn(StudyState(), "explain the selected concept").prompt,
+        plan_turn(LearningState(), "what is this material about").prompt,
+        plan_turn(LearningState(), "what do the notes say about this topic?").prompt,
+        plan_turn(LearningState(), "explain the selected concept").prompt,
         plan_turn(
-            StudyState(
-                phase=StudyPhase.WAITING_FOR_READY,
+            LearningState(
+                phase=LearningPhase.WAITING_FOR_READY,
                 current_item="the selected concept",
             ),
             "ready",
@@ -49,7 +49,7 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
     assert prompt.startswith("Custom system prompt.")
-    assert "Heph. Local document agent" not in prompt
+    assert "You are running inside Heph." not in prompt
     assert "## Recall Loop" not in prompt
     assert "## Guidelines" in prompt
 
@@ -60,7 +60,7 @@ def test_blank_custom_system_prompt_falls_back_to_default_role_block(armory: Pat
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Heph. Local document agent")
+    assert prompt.startswith("You are running inside Heph.")
     assert "## Guidelines" in prompt
 
 
@@ -104,7 +104,7 @@ def test_build_system_prompt_appends_memory_context(armory: Path) -> None:
 def test_build_system_prompt_without_armory_uses_default_role_block_and_date() -> None:
     prompt = build_system_prompt()
 
-    assert prompt.startswith("Heph. Local document agent")
+    assert prompt.startswith("You are running inside Heph.")
     assert "## Guidelines" in prompt
     assert "Current date: " in prompt
     assert "Armory workspace:" not in prompt
@@ -155,6 +155,14 @@ def test_system_prompt_has_single_pi_style_guidelines_section() -> None:
     assert "## Tool Contract" not in prompt
     assert "## Accuracy" not in prompt
     assert "## Recall Loop" not in prompt
+
+
+def test_system_prompt_keeps_output_blunt_without_decorative_style() -> None:
+    prompt = build_system_prompt()
+
+    assert "Answer with the minimum useful text" in prompt
+    assert "No greetings, filler, praise, reassurance, emoji" in prompt
+    assert "act professional" not in prompt.lower()
 
 
 def test_tool_docs_are_generated_from_registry_schema() -> None:

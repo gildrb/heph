@@ -735,17 +735,49 @@ def chunk_semantic(
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
+    emb_lists = _semantic_sentence_embeddings(model, sentences)
+    if emb_lists is None:
+        return chunk_text(text, source, chunk_size, overlap)
+    breakpoints = _semantic_breakpoints(emb_lists, similarity_threshold)
+    chunks = _semantic_chunks_from_breakpoints(
+        sentences,
+        breakpoints,
+        source=source,
+        min_chunk=min_chunk,
+    )
+    return chunks or chunk_text(text, source, chunk_size, overlap)
+
+
+def _semantic_sentence_embeddings(
+    model: _SentenceEncoderProtocol,
+    sentences: list[str],
+) -> list[list[float]] | None:
     emb_lists = embedding_rows(
         model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
     )
-    if len(emb_lists) != len(sentences):
-        return chunk_text(text, source, chunk_size, overlap)
-    breakpoints: list[int] = [0]
-    for i in range(1, len(emb_lists)):
-        sim = cosine_similarity(emb_lists[i - 1], emb_lists[i])
+    return emb_lists if len(emb_lists) == len(sentences) else None
+
+
+def _semantic_breakpoints(
+    emb_lists: list[list[float]],
+    similarity_threshold: float,
+) -> list[int]:
+    breakpoints = [0]
+    for index in range(1, len(emb_lists)):
+        sim = cosine_similarity(emb_lists[index - 1], emb_lists[index])
         if sim < similarity_threshold:
-            breakpoints.append(i)
-    breakpoints.append(len(sentences))
+            breakpoints.append(index)
+    breakpoints.append(len(emb_lists))
+    return breakpoints
+
+
+def _semantic_chunks_from_breakpoints(
+    sentences: list[str],
+    breakpoints: list[int],
+    *,
+    source: str,
+    min_chunk: int,
+) -> list[Chunk]:
     chunks: list[Chunk] = []
     char_pos = 0
     idx = 0
@@ -783,7 +815,7 @@ def chunk_semantic(
         idx += 1
         char_pos += len(chunk_str) + 1
 
-    return chunks or chunk_text(text, source, chunk_size, overlap)
+    return chunks
 
 
 def _split_sentences(text: str) -> list[str]:

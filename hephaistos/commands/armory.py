@@ -14,6 +14,9 @@ from hephaistos.chat.session import refresh_armory_sources
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.terminal import print_error, print_info, print_success
 
+_SUPPORTED_IMPORT_SUFFIXES = frozenset((".md", ".txt", ".pdf", ".rst", ".py", ".json"))
+_INDEX_REMOVE_COMMANDS = frozenset(("remove", "rm", "delete"))
+
 
 class ImportCommand(Command):
     name = "import"
@@ -35,29 +38,12 @@ class ImportCommand(Command):
             print_error(f"Path not found: {source}")
             return CommandResult()
 
-        dest_dir = s.armory_path / "materials"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        imported: list[str] = []
-
-        targets = sorted(source.iterdir()) if source.is_dir() else [source]
-        for target in targets:
-            if target.is_dir():
-                continue
-            if target.suffix.lower() not in (".md", ".txt", ".pdf", ".rst", ".py", ".json"):
-                continue
-            dest = dest_dir / target.name
-            if dest.exists():
-                continue
-            shutil.copy2(target, dest)
-            imported.append(target.name)
-
+        imported = _import_material_files(source, s.armory_path / "materials")
         if not imported:
             print_info("No new files to import (unsupported format or already present).")
             return CommandResult()
 
-        print_success(f"Imported {len(imported)} file{'s' if len(imported) != 1 else ''}:")
-        for name in imported:
-            print(f"  {name}")
+        _print_imported_files(imported)
         refresh_armory_sources(s)
         print_info("Use /materials to browse or /vocabulary to review extracted cards.")
         return CommandResult()
@@ -97,6 +83,33 @@ class ExportCommand(Command):
         return CommandResult()
 
 
+def _import_material_files(source: Path, dest_dir: Path) -> list[str]:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    imported: list[str] = []
+    for target in _import_targets(source):
+        dest = dest_dir / target.name
+        if dest.exists():
+            continue
+        shutil.copy2(target, dest)
+        imported.append(target.name)
+    return imported
+
+
+def _import_targets(source: Path) -> list[Path]:
+    targets = sorted(source.iterdir()) if source.is_dir() else [source]
+    return [
+        target
+        for target in targets
+        if target.is_file() and target.suffix.lower() in _SUPPORTED_IMPORT_SUFFIXES
+    ]
+
+
+def _print_imported_files(imported: list[str]) -> None:
+    print_success(f"Imported {len(imported)} file{'s' if len(imported) != 1 else ''}:")
+    for name in imported:
+        print(f"  {name}")
+
+
 class IndexCommand(Command):
     name = "index"
     description = "Manage cross-armory search index"
@@ -108,32 +121,44 @@ class IndexCommand(Command):
         value = parts[1].strip() if len(parts) > 1 else ""
 
         if subcmd == "list":
-            armories = load_known_armories()
-            if not armories:
-                print_info("No armories indexed. Use /index add <path> to add one.")
-                return CommandResult()
-            lines = ["Indexed armories:"]
-            lines.extend(f"  {p}" for p in armories)
-            print("\n".join(lines))
-            return CommandResult()
+            return _handle_index_list()
         if subcmd == "add":
-            if not value:
-                print_error("Usage: /index add <path>")
-                return CommandResult()
-            path = Path(value).expanduser().resolve()
-            if not path.is_dir():
-                print_error(f"Not a directory: {path}")
-                return CommandResult()
-            paths = add_known_armory(path)
-            print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
-            return CommandResult()
-        if subcmd in ("remove", "rm", "delete"):
-            if not value:
-                print_error("Usage: /index remove <path>")
-                return CommandResult()
-            path = Path(value).expanduser().resolve()
-            paths = remove_known_armory(path)
-            print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
-            return CommandResult()
+            return _handle_index_add(value)
+        if subcmd in _INDEX_REMOVE_COMMANDS:
+            return _handle_index_remove(value)
         print_error("Usage: /index [list | add <path> | remove <path>]")
         return CommandResult()
+
+
+def _handle_index_list() -> CommandResult:
+    armories = load_known_armories()
+    if not armories:
+        print_info("No armories indexed. Use /index add <path> to add one.")
+        return CommandResult()
+    lines = ["Indexed armories:"]
+    lines.extend(f"  {p}" for p in armories)
+    print("\n".join(lines))
+    return CommandResult()
+
+
+def _handle_index_add(value: str) -> CommandResult:
+    if not value:
+        print_error("Usage: /index add <path>")
+        return CommandResult()
+    path = Path(value).expanduser().resolve()
+    if not path.is_dir():
+        print_error(f"Not a directory: {path}")
+        return CommandResult()
+    paths = add_known_armory(path)
+    print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
+    return CommandResult()
+
+
+def _handle_index_remove(value: str) -> CommandResult:
+    if not value:
+        print_error("Usage: /index remove <path>")
+        return CommandResult()
+    path = Path(value).expanduser().resolve()
+    paths = remove_known_armory(path)
+    print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
+    return CommandResult()

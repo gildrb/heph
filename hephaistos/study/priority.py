@@ -608,7 +608,7 @@ class PriorityVerificationReport:
     latex_ok: bool
     pdf_ok: bool
     anti_regression_ok: bool
-    autopilot_ok: bool
+    practice_ok: bool
     issues: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
@@ -621,8 +621,19 @@ class PriorityVerificationReport:
             and self.latex_ok
             and self.pdf_ok
             and self.anti_regression_ok
-            and self.autopilot_ok
+            and self.practice_ok
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _PriorityVerificationChecks:
+    extraction_ok: bool
+    priority_ok: bool
+    source_support_ok: bool
+    latex_ok: bool
+    pdf_ok: bool
+    anti_regression_ok: bool
+    practice_ok: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -634,6 +645,13 @@ class PriorityReport:
     tex_path: Path | None = None
     sidecar_path: Path | None = None
     verification: PriorityVerificationReport | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PriorityReportArtifacts:
+    sheet: PriorityCheatSheet
+    tex_text: str
+    model_payload: dict[str, object] | None
 
 
 class PriorityPdfError(RuntimeError):
@@ -653,35 +671,50 @@ class PriorityAnalysis:
     exam_questions: tuple[PriorityExamQuestion, ...] = ()
 
     def render_for_prompt(self, *, limit: int = 6) -> str:
-        if not self.topics:
-            return "Local priority scan: no recurring indexed topics were found."
+        return _render_priority_analysis_for_prompt(self, limit=limit)
 
-        lines = ["Local priority scan from indexed materials:"]
-        if self.past_exam_sources:
-            lines.append(f"- Past exams scanned: {', '.join(self.past_exam_sources[:5])}")
-        if self.material_sources:
-            lines.append(f"- Supporting materials scanned: {', '.join(self.material_sources[:5])}")
-        lines.append("- Candidate priorities:")
-        for topic in self.topics[:limit]:
-            sources = ", ".join(topic.sources[:3])
-            prerequisites = ""
-            if topic.prerequisites:
-                prerequisites = f"; prerequisites to check: {', '.join(topic.prerequisites[:3])}"
-            elif topic.web_prerequisites:
-                terms = ", ".join(item.term for item in topic.web_prerequisites[:3])
-                prerequisites = f"; web-backed prerequisite hints: {terms}"
-            if topic.exam_marks:
-                exam_signal = f"{topic.exam_hits} exam hit(s), {topic.exam_marks} visible mark(s)"
-            elif topic.exam_hits:
-                exam_signal = f"{topic.exam_hits} exam hit(s), no explicit marks found"
-            else:
-                exam_signal = "No past-exam hit found"
-            lines.append(
-                f"  - {topic.topic}: {priority_tier(topic)}; "
-                f"{exam_signal}; "
-                f"sources: {sources}{prerequisites}"
-            )
-        return "\n".join(lines)
+
+def _render_priority_analysis_for_prompt(analysis: PriorityAnalysis, *, limit: int) -> str:
+    if not analysis.topics:
+        return "Local priority scan: no recurring indexed topics were found."
+
+    lines = ["Local priority scan from indexed materials:"]
+    lines.extend(_priority_source_summary_lines(analysis))
+    lines.append("- Candidate priorities:")
+    lines.extend(_priority_prompt_topic_line(topic) for topic in analysis.topics[:limit])
+    return "\n".join(lines)
+
+
+def _priority_source_summary_lines(analysis: PriorityAnalysis) -> Iterator[str]:
+    if analysis.past_exam_sources:
+        yield f"- Past exams scanned: {', '.join(analysis.past_exam_sources[:5])}"
+    if analysis.material_sources:
+        yield f"- Supporting materials scanned: {', '.join(analysis.material_sources[:5])}"
+
+
+def _priority_prompt_topic_line(topic: PriorityTopic) -> str:
+    return (
+        f"  - {topic.topic}: {priority_tier(topic)}; "
+        f"{_priority_prompt_exam_signal(topic)}; "
+        f"sources: {', '.join(topic.sources[:3])}{_priority_prompt_prerequisites(topic)}"
+    )
+
+
+def _priority_prompt_exam_signal(topic: PriorityTopic) -> str:
+    if topic.exam_marks:
+        return f"{topic.exam_hits} exam hit(s), {topic.exam_marks} visible mark(s)"
+    if topic.exam_hits:
+        return f"{topic.exam_hits} exam hit(s), no explicit marks found"
+    return "No past-exam hit found"
+
+
+def _priority_prompt_prerequisites(topic: PriorityTopic) -> str:
+    if topic.prerequisites:
+        return f"; prerequisites to check: {', '.join(topic.prerequisites[:3])}"
+    if topic.web_prerequisites:
+        terms = ", ".join(item.term for item in topic.web_prerequisites[:3])
+        return f"; web-backed prerequisite hints: {terms}"
+    return ""
 
 
 @dataclass(slots=True)
@@ -1178,24 +1211,36 @@ def _topic_part_candidates(phrase: str) -> Iterator[str]:
 
 
 def _heading_candidates(raw: str) -> Iterator[str]:
-    for line in raw.splitlines():
-        cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
-        if not cleaned or len(cleaned) > 90 or _is_boilerplate_line(cleaned):
-            continue
-        parts = [
-            part.strip()
-            for part in _PROMPT_TOPIC_SPLIT_RE.split(cleaned)
-            if part.strip() and part.strip() != cleaned
-        ]
+    for cleaned in _clean_heading_lines(raw):
+        parts = _split_topic_parts(cleaned)
         if parts:
             for part in parts:
                 yield from _topic_part_candidates(part)
             continue
-        useful = _useful_topic_words(cleaned)
-        if 2 <= len(useful) <= 6:
-            yield " ".join(useful)
-        elif len(useful) == 1 and len(useful[0]) >= 5:
-            yield useful[0]
+        yield from _heading_word_candidates(cleaned)
+
+
+def _clean_heading_lines(raw: str) -> Iterator[str]:
+    for line in raw.splitlines():
+        cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
+        if cleaned and len(cleaned) <= 90 and not _is_boilerplate_line(cleaned):
+            yield cleaned
+
+
+def _split_topic_parts(text: str) -> list[str]:
+    return [
+        part.strip()
+        for part in _PROMPT_TOPIC_SPLIT_RE.split(text)
+        if part.strip() and part.strip() != text
+    ]
+
+
+def _heading_word_candidates(cleaned: str) -> Iterator[str]:
+    useful = _useful_topic_words(cleaned)
+    if 2 <= len(useful) <= 6:
+        yield " ".join(useful)
+    elif len(useful) == 1 and len(useful[0]) >= 5:
+        yield useful[0]
 
 
 def _prompt_topic_candidates(text: str) -> Iterator[str]:
@@ -1313,24 +1358,28 @@ def _looks_like_person_name_sentence(text: str) -> bool:
 
 def _valid_topic(candidate: str) -> bool:
     words = candidate.split()
-    if not words:
-        return False
-    if any(
+    return bool(
+        words
+        and not _invalid_topic_phrase(candidate)
+        and not _invalid_topic_words(words)
+        and len(words) <= 5
+    )
+
+
+def _invalid_topic_phrase(candidate: str) -> bool:
+    return candidate in _BOILERPLATE_TOPIC_PHRASES or any(
         fragment in candidate
         for fragment in ("not-decoded", "formula-not", "image-not", "ocr-noise")
-    ):
-        return False
-    if candidate in _BOILERPLATE_TOPIC_PHRASES:
-        return False
-    if any(word in _STOPWORDS for word in words):
-        return False
-    if any(_SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) for word in words):
-        return False
-    if any(len(word) <= 1 for word in words):
-        return False
-    if len(words) == 1 and len(words[0]) < 4:
-        return False
-    return len(words) <= 5
+    )
+
+
+def _invalid_topic_words(words: list[str]) -> bool:
+    return (
+        any(word in _STOPWORDS for word in words)
+        or any(_SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) for word in words)
+        or any(len(word) <= 1 for word in words)
+        or (len(words) == 1 and len(words[0]) < 4)
+    )
 
 
 def _covered_by_preferred_topic(topic: PriorityTopic, topics: list[PriorityTopic]) -> bool:
@@ -1526,7 +1575,7 @@ _PRIORITY_SCHEMA = """
       "name": "exact topic name from the materials",
       "importance": "critical|high|medium|low",
       "why": "why this is important based only on supplied evidence",
-      "study_actions": ["concrete, measurable goal grounded in the material"],
+      "learning_actions": ["concrete, measurable goal grounded in the material"],
       "prerequisites": ["required prerequisite found in evidence or marked as web-backed"]
     }
   ],
@@ -1537,7 +1586,7 @@ _PRIORITY_SCHEMA = """
       "marks": "visible mark distribution or unknown"
     }
   ],
-  "study_plan": ["ordered next steps grounded in evidence"],
+  "learning_plan": ["ordered next steps grounded in evidence"],
   "unknowns": ["important detail missing from indexed materials"]
 }
 """.strip()
@@ -1549,7 +1598,7 @@ indexed material excerpts for topics, exam claims, marks, and source evidence. D
 facts for those sections. Web-backed prerequisite hints may be used only when they are explicitly
 listed in the local scan context; label them as web-backed if you mention them. If the material
 does not specify a detail, write that it is unknown. Favor exact topic names from the evidence
-over filename fragments. Make each study action a concrete, checkable goal rather than a vague
+over filename fragments. Make each learning action a concrete, checkable goal rather than a vague
 instruction to review the topic.
 Return JSON only, matching this schema:
 """.strip()
@@ -1571,35 +1620,72 @@ def generate_priority_report(
         progress,
         f"Ran priority.report --topics {len(analysis.topics)} --output {output_dir}.",
     )
-    if os.environ.get(_WEB_PREREQ_ENV, "").lower() in {"1", "true", "yes", "on"} or (
-        config is not None and config.is_feature_enabled("priority_web_prereqs")
-    ):
-        _emit_progress(progress, "Checking web-backed prerequisite hints for top topics...")
-        analysis = replace(
-            analysis,
-            topics=tuple(_with_web_prerequisites(list(analysis.topics), _duckduckgo_search)),
-        )
-    _emit_progress(progress, "Building report sections from indexed evidence...")
-    can_use_model = config is not None and _can_use_model(config)
-    if can_use_model:
-        model_name = config.model or "configured model"
-        _emit_progress(progress, f"Requesting model synthesis from {model_name}...")
-    model_payload = _model_priority_payload(
+    analysis = _analysis_with_optional_web_prerequisites(analysis, config, progress)
+    artifacts = _build_priority_report_artifacts(analysis, config, focus, progress)
+    path = output_dir / f"hephaistos-priority-{datetime.now(UTC):%Y%m%d-%H%M%S}.pdf"
+    sidecar_path = path.with_suffix(".json")
+    compiler = compiler or ExternalLatexCompiler.discover()
+    tex_path = _compile_priority_report_pdf(
         analysis,
-        config=config,
-        focus=focus,
+        artifacts.sheet,
+        artifacts.tex_text,
+        path=path,
+        sidecar_path=sidecar_path,
+        compiler=compiler,
+        keep_tex=keep_tex,
         progress=progress,
     )
-    if model_payload is None:
-        if can_use_model:
-            _emit_progress(
-                progress,
-                "Model synthesis unavailable; using deterministic local output.",
-            )
-        else:
-            _emit_progress(progress, "Using deterministic local output (no model configured).")
-    else:
-        _emit_progress(progress, "Model synthesis complete; grounding to indexed evidence.")
+    verification = _verify_priority_report_artifacts(
+        analysis,
+        artifacts,
+        path=path,
+        sidecar_path=sidecar_path,
+        progress=progress,
+    )
+    _emit_progress(
+        progress,
+        f"Priority report verified in {_format_elapsed_since(report_started_at)}.",
+    )
+    return PriorityReport(
+        path=path,
+        used_model=artifacts.model_payload is not None,
+        topic_count=len(analysis.topics),
+        source_count=len(set(analysis.past_exam_sources) | set(analysis.material_sources)),
+        tex_path=tex_path,
+        sidecar_path=sidecar_path,
+        verification=verification,
+    )
+
+
+def _analysis_with_optional_web_prerequisites(
+    analysis: PriorityAnalysis,
+    config: ChatConfig | None,
+    progress: PriorityProgressReporter | None,
+) -> PriorityAnalysis:
+    if not _web_prerequisites_enabled(config):
+        return analysis
+    _emit_progress(progress, "Checking web-backed prerequisite hints for top topics...")
+    return replace(
+        analysis,
+        topics=tuple(_with_web_prerequisites(list(analysis.topics), _duckduckgo_search)),
+    )
+
+
+def _web_prerequisites_enabled(config: ChatConfig | None) -> bool:
+    env_enabled = os.environ.get(_WEB_PREREQ_ENV, "").lower() in {"1", "true", "yes", "on"}
+    return env_enabled or (
+        config is not None and config.is_feature_enabled("priority_web_prereqs")
+    )
+
+
+def _build_priority_report_artifacts(
+    analysis: PriorityAnalysis,
+    config: ChatConfig | None,
+    focus: str,
+    progress: PriorityProgressReporter | None,
+) -> _PriorityReportArtifacts:
+    _emit_progress(progress, "Building report sections from indexed evidence...")
+    model_payload = _priority_report_model_payload(analysis, config, focus, progress)
     sheet_started_at = time.perf_counter()
     sheet = build_priority_cheat_sheet(analysis, model_payload=model_payload, focus=focus)
     _emit_progress(
@@ -1614,22 +1700,58 @@ def generate_priority_report(
         f"Rendered LaTeX priority sheet ({len(tex_text.encode('utf-8'))} bytes) "
         f"in {_format_elapsed_since(render_started_at)}.",
     )
-    path = output_dir / f"hephaistos-priority-{datetime.now(UTC):%Y%m%d-%H%M%S}.pdf"
-    sidecar_path = path.with_suffix(".json")
-    compiler = compiler or ExternalLatexCompiler.discover()
-    tex_path = _compile_priority_report_pdf(
+    return _PriorityReportArtifacts(sheet=sheet, tex_text=tex_text, model_payload=model_payload)
+
+
+def _priority_report_model_payload(
+    analysis: PriorityAnalysis,
+    config: ChatConfig | None,
+    focus: str,
+    progress: PriorityProgressReporter | None,
+) -> dict[str, object] | None:
+    can_use_model = config is not None and _can_use_model(config)
+    if can_use_model:
+        model_name = config.model or "configured model"
+        _emit_progress(progress, f"Requesting model synthesis from {model_name}...")
+    model_payload = _model_priority_payload(
         analysis,
-        sheet,
-        tex_text,
-        path=path,
-        sidecar_path=sidecar_path,
-        compiler=compiler,
-        keep_tex=keep_tex,
+        config=config,
+        focus=focus,
         progress=progress,
     )
+    _emit_model_payload_progress(model_payload, can_use_model, progress)
+    return model_payload
+
+
+def _emit_model_payload_progress(
+    model_payload: dict[str, object] | None,
+    can_use_model: bool,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    if model_payload is not None:
+        _emit_progress(progress, "Model synthesis complete; grounding to indexed evidence.")
+    elif can_use_model:
+        _emit_progress(progress, "Model synthesis unavailable; using deterministic local output.")
+    else:
+        _emit_progress(progress, "Using deterministic local output (no model configured).")
+
+
+def _verify_priority_report_artifacts(
+    analysis: PriorityAnalysis,
+    artifacts: _PriorityReportArtifacts,
+    *,
+    path: Path,
+    sidecar_path: Path,
+    progress: PriorityProgressReporter | None,
+) -> PriorityVerificationReport:
     _emit_progress(progress, f"Read compiled PDF {path} for verification.")
     verify_started_at = time.perf_counter()
-    verification = verify_priority_output(analysis, sheet, tex_text, pdf_path=path)
+    verification = verify_priority_output(
+        analysis,
+        artifacts.sheet,
+        artifacts.tex_text,
+        pdf_path=path,
+    )
     _emit_progress(
         progress,
         f"Ran priority verification checks in {_format_elapsed_since(verify_started_at)}.",
@@ -1638,19 +1760,7 @@ def generate_priority_report(
     if not verification.passed:
         issue_text = "; ".join(verification.issues) or "verification failed"
         raise PriorityPdfError(f"Priority PDF verification failed: {issue_text}")
-    _emit_progress(
-        progress,
-        f"Priority report verified in {_format_elapsed_since(report_started_at)}.",
-    )
-    return PriorityReport(
-        path=path,
-        used_model=model_payload is not None,
-        topic_count=len(analysis.topics),
-        source_count=len(set(analysis.past_exam_sources) | set(analysis.material_sources)),
-        tex_path=tex_path,
-        sidecar_path=sidecar_path,
-        verification=verification,
-    )
+    return verification
 
 
 def duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
@@ -1693,15 +1803,10 @@ def _model_priority_payload(
     model_name = config.model or "configured model"
     context_chunks = _representative_chunks(analysis)
     for index, chunk in enumerate(context_chunks, start=1):
-        chunk_label = (
-            f"@{material_display_name(chunk.source)} chunk {chunk.index} "
-            f"chars {chunk.char_start}-{chunk.char_end}"
-        )
-        if chunk.heading:
-            chunk_label += f' heading "{_truncate(chunk.heading, 56)}"'
         _emit_progress(
             progress,
-            f"Read model context {index}/{len(context_chunks)}: {chunk_label}.",
+            f"Read model context {index}/{len(context_chunks)}: "
+            f"{_priority_chunk_progress_label(chunk)}.",
         )
     conversation = Conversation()
     conversation.add("system", f"{_PRIORITY_SYSTEM_PROMPT}\n{_PRIORITY_SCHEMA}")
@@ -1710,6 +1815,42 @@ def _model_priority_payload(
         progress,
         f"Ran model synthesis {model_name} with {len(context_chunks)} evidence excerpt(s).",
     )
+    raw_payload = _read_model_priority_response(
+        config,
+        conversation,
+        model_name,
+        progress=progress,
+    )
+    if raw_payload is None:
+        return None
+    parsed = parse_json_object_fragment(raw_payload)
+    if parsed is None:
+        _emit_progress(
+            progress,
+            "Model response was not valid JSON; using deterministic fallback.",
+        )
+        return None
+    _emit_progress(progress, "Parsed model JSON priority payload.")
+    return parsed
+
+
+def _priority_chunk_progress_label(chunk: PriorityChunk) -> str:
+    label = (
+        f"@{material_display_name(chunk.source)} chunk {chunk.index} "
+        f"chars {chunk.char_start}-{chunk.char_end}"
+    )
+    if chunk.heading:
+        label += f' heading "{_truncate(chunk.heading, 56)}"'
+    return label
+
+
+def _read_model_priority_response(
+    config: ChatConfig,
+    conversation: Conversation,
+    model_name: str,
+    *,
+    progress: PriorityProgressReporter | None,
+) -> str | None:
     parts: list[str] = []
     started_at = time.perf_counter()
     last_progress_at = started_at
@@ -1756,15 +1897,7 @@ def _model_priority_payload(
         f"Read complete model response from {model_name}: {len(raw_payload)} character(s) "
         f"across {chunk_count} delta(s) in {_format_elapsed_since(started_at)}.",
     )
-    parsed = parse_json_object_fragment(raw_payload)
-    if parsed is None:
-        _emit_progress(
-            progress,
-            "Model response was not valid JSON; using deterministic fallback.",
-        )
-        return None
-    _emit_progress(progress, "Parsed model JSON priority payload.")
-    return parsed
+    return raw_payload
 
 
 def _can_use_model(config: ChatConfig) -> bool:
@@ -1812,27 +1945,33 @@ def _representative_chunks(
     *,
     limit: int = 28,
 ) -> tuple[PriorityChunk, ...]:
+    topic_names = {topic.topic.lower() for topic in analysis.topics}
+    preferred_chunks = (
+        chunk for chunk in analysis.chunks if _is_priority_model_context(chunk, topic_names)
+    )
+    return _first_unique_priority_chunks((*preferred_chunks, *analysis.chunks), limit=limit)
+
+
+def _is_priority_model_context(chunk: PriorityChunk, topic_names: set[str]) -> bool:
+    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
+    return role == "past_exam" or any(topic in chunk.text.lower() for topic in topic_names)
+
+
+def _first_unique_priority_chunks(
+    chunks: Iterable[PriorityChunk],
+    *,
+    limit: int,
+) -> tuple[PriorityChunk, ...]:
     selected: list[PriorityChunk] = []
     seen: set[tuple[str, str]] = set()
-    topic_names = {topic.topic.lower() for topic in analysis.topics}
-    for chunk in analysis.chunks:
+    for chunk in chunks:
         key = (chunk.source, chunk.text[:120])
         if key in seen:
             continue
-        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-        text = chunk.text.lower()
-        if role == "past_exam" or any(topic in text for topic in topic_names):
-            selected.append(chunk)
-            seen.add(key)
+        selected.append(chunk)
+        seen.add(key)
         if len(selected) >= limit:
             return tuple(selected)
-    for chunk in analysis.chunks:
-        key = (chunk.source, chunk.text[:120])
-        if key not in seen:
-            selected.append(chunk)
-            seen.add(key)
-        if len(selected) >= limit:
-            break
     return tuple(selected)
 
 
@@ -1951,12 +2090,21 @@ def _compile_priority_report_pdf(
         temp_tex_path = Path(temp_dir_name) / path.with_suffix(".tex").name
         _write_text_artifact(temp_tex_path, tex_text, progress=progress, label="temporary LaTeX")
         try:
-            _run_priority_pdf_compiler(
-                compiler,
-                temp_tex_path,
-                path,
-                progress=progress,
+            compile_started_at = time.perf_counter()
+            if isinstance(compiler, ExternalLatexCompiler):
+                compiler.compile(temp_tex_path, path, progress=progress)
+            else:
+                _emit_progress(
+                    progress,
+                    f"Ran {compiler.__class__.__name__}.compile({temp_tex_path}, {path}).",
+                )
+                compiler.compile(temp_tex_path, path)
+            _emit_progress(
+                progress,
+                f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
             )
+            if path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
+                _emit_progress(progress, f"Wrote PDF {path} ({path.stat().st_size} bytes).")
         except (OSError, subprocess.CalledProcessError, PriorityPdfError) as exc:
             tex_path = _save_priority_draft(
                 analysis,
@@ -1975,30 +2123,6 @@ def _compile_priority_report_pdf(
     tex_path = path.with_suffix(".tex")
     _write_text_artifact(tex_path, tex_text, progress=progress, label="LaTeX source")
     return tex_path
-
-
-def _run_priority_pdf_compiler(
-    compiler: PriorityPdfCompiler,
-    tex_path: Path,
-    pdf_path: Path,
-    *,
-    progress: PriorityProgressReporter | None,
-) -> None:
-    compile_started_at = time.perf_counter()
-    if isinstance(compiler, ExternalLatexCompiler):
-        compiler.compile(tex_path, pdf_path, progress=progress)
-    else:
-        _emit_progress(
-            progress,
-            f"Ran {compiler.__class__.__name__}.compile({tex_path}, {pdf_path}).",
-        )
-        compiler.compile(tex_path, pdf_path)
-    _emit_progress(
-        progress,
-        f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
-    )
-    if pdf_path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
-        _emit_progress(progress, f"Wrote PDF {pdf_path} ({pdf_path.stat().st_size} bytes).")
 
 
 def build_priority_cheat_sheet(
@@ -2073,46 +2197,66 @@ def verify_priority_output(
     *,
     pdf_path: Path | None,
 ) -> PriorityVerificationReport:
-    issues: list[str] = []
-    warnings: list[str] = []
-    extraction_ok = bool(analysis.chunks)
-    if not extraction_ok:
-        issues.append("no indexed chunks were available")
-    if not analysis.past_exam_sources:
-        warnings.append("no past-exam sources were identified from content")
-    priority_ok = _verify_priority_order(analysis)
-    if not priority_ok:
-        issues.append("top priorities are not supported by past-exam signals")
-    source_support_ok = all(topic.source_ids or topic.uncertainty for topic in sheet.topics)
-    if not source_support_ok:
-        issues.append("one or more topic sections lack source IDs or uncertainty labels")
-    latex_ok = _verify_latex_text(tex_text)
-    if not latex_ok:
-        issues.append("generated LaTeX failed syntax or anti-debug checks")
-    pdf_ok = pdf_path is not None and pdf_path.is_file() and pdf_path.stat().st_size > 0
-    if not pdf_ok:
-        issues.append("compiled PDF was not produced")
-    anti_regression_ok = "HEPHAISTOS PRIORITY" not in tex_text and not _FORBIDDEN_REPORT_RE.search(
-        tex_text
-    )
-    if not anti_regression_ok:
-        issues.append("report text contains a forbidden raw metric or boilerplate pattern")
-    autopilot_ok = bool(analysis.topics) and not _RAW_METRIC_RE.search(
-        analysis.render_for_prompt(limit=8)
-    )
-    if not autopilot_ok:
-        issues.append("priority context is empty or exposes raw metric strings")
+    checks = _priority_verification_checks(analysis, sheet, tex_text, pdf_path=pdf_path)
     return PriorityVerificationReport(
-        extraction_ok=extraction_ok,
-        priority_ok=priority_ok,
-        source_support_ok=source_support_ok,
-        latex_ok=latex_ok,
-        pdf_ok=pdf_ok,
-        anti_regression_ok=anti_regression_ok,
-        autopilot_ok=autopilot_ok,
-        issues=tuple(issues),
-        warnings=tuple(warnings),
+        extraction_ok=checks.extraction_ok,
+        priority_ok=checks.priority_ok,
+        source_support_ok=checks.source_support_ok,
+        latex_ok=checks.latex_ok,
+        pdf_ok=checks.pdf_ok,
+        anti_regression_ok=checks.anti_regression_ok,
+        practice_ok=checks.practice_ok,
+        issues=tuple(_priority_verification_issues(checks)),
+        warnings=_priority_verification_warnings(analysis),
     )
+
+
+def _priority_verification_checks(
+    analysis: PriorityAnalysis,
+    sheet: PriorityCheatSheet,
+    tex_text: str,
+    *,
+    pdf_path: Path | None,
+) -> _PriorityVerificationChecks:
+    return _PriorityVerificationChecks(
+        extraction_ok=bool(analysis.chunks),
+        priority_ok=_verify_priority_order(analysis),
+        source_support_ok=all(topic.source_ids or topic.uncertainty for topic in sheet.topics),
+        latex_ok=_verify_latex_text(tex_text),
+        pdf_ok=pdf_path is not None and pdf_path.is_file() and pdf_path.stat().st_size > 0,
+        anti_regression_ok=(
+            "HEPHAISTOS PRIORITY" not in tex_text and not _FORBIDDEN_REPORT_RE.search(tex_text)
+        ),
+        practice_ok=(
+            bool(analysis.topics)
+            and not _RAW_METRIC_RE.search(analysis.render_for_prompt(limit=8))
+        ),
+    )
+
+
+def _priority_verification_issues(checks: _PriorityVerificationChecks) -> Iterator[str]:
+    issue_specs = (
+        (checks.extraction_ok, "no indexed chunks were available"),
+        (checks.priority_ok, "top priorities are not supported by past-exam signals"),
+        (
+            checks.source_support_ok,
+            "one or more topic sections lack source IDs or uncertainty labels",
+        ),
+        (checks.latex_ok, "generated LaTeX failed syntax or anti-debug checks"),
+        (checks.pdf_ok, "compiled PDF was not produced"),
+        (
+            checks.anti_regression_ok,
+            "report text contains a forbidden raw metric or boilerplate pattern",
+        ),
+        (checks.practice_ok, "priority context is empty or exposes raw metric strings"),
+    )
+    yield from (message for passed, message in issue_specs if not passed)
+
+
+def _priority_verification_warnings(analysis: PriorityAnalysis) -> tuple[str, ...]:
+    if analysis.past_exam_sources:
+        return ()
+    return ("no past-exam sources were identified from content",)
 
 
 def _write_priority_sidecar(
@@ -2162,16 +2306,7 @@ def _cheat_sheet_topic(
     *,
     model_payload: dict[str, object] | None,
 ) -> PriorityCheatSheetTopic:
-    payload: dict[str, object] | None = None
-    raw_topics = model_payload.get("topics") if model_payload is not None else None
-    if isinstance(raw_topics, list):
-        for raw_topic in raw_topics:
-            if not is_string_mapping(raw_topic):
-                continue
-            raw_name = raw_topic.get("name")
-            if isinstance(raw_name, str) and raw_name.strip().lower() == topic.topic.lower():
-                payload = dict(raw_topic)
-                break
+    payload = _topic_model_payload(topic, model_payload)
     source_labels = tuple(source_ids[source] for source in topic.sources if source in source_ids)
     evidence_sentences = _topic_sentences(topic)
     definitions = _payload_string_list(payload, "definitions") or _select_by_keywords(
@@ -2189,13 +2324,6 @@ def _cheat_sheet_topic(
         evidence_sentences,
         ("not ", "except", "avoid", "pitfall", "common mistake", "confuse", "but "),
     )
-    uncertainty: list[str] = []
-    if not definitions and not formulas and not procedures:
-        uncertainty.append(
-            "Indexed materials do not expose enough factual content for this topic."
-        )
-    if topic.confidence < 0.45:
-        uncertainty.append("Extraction confidence is limited; verify against the cited sources.")
     return PriorityCheatSheetTopic(
         title=topic.topic,
         tier=priority_tier(topic),
@@ -2206,8 +2334,47 @@ def _cheat_sheet_topic(
         procedures=tuple(procedures[:3]),
         exam_tasks=tuple(exam_tasks[:4]),
         pitfalls=tuple(pitfalls[:3]),
-        uncertainty=tuple(uncertainty),
+        uncertainty=_topic_uncertainty(
+            topic,
+            definitions=definitions,
+            formulas=formulas,
+            procedures=procedures,
+        ),
     )
+
+
+def _topic_model_payload(
+    topic: PriorityTopic,
+    model_payload: dict[str, object] | None,
+) -> dict[str, object] | None:
+    raw_topics = model_payload.get("topics") if model_payload is not None else None
+    if not isinstance(raw_topics, list):
+        return None
+    topic_name = topic.topic.lower()
+    for raw_topic in raw_topics:
+        if not is_string_mapping(raw_topic):
+            continue
+        raw_name = raw_topic.get("name")
+        if isinstance(raw_name, str) and raw_name.strip().lower() == topic_name:
+            return dict(raw_topic)
+    return None
+
+
+def _topic_uncertainty(
+    topic: PriorityTopic,
+    *,
+    definitions: list[str],
+    formulas: list[str],
+    procedures: list[str],
+) -> tuple[str, ...]:
+    uncertainty: list[str] = []
+    if not definitions and not formulas and not procedures:
+        uncertainty.append(
+            "Indexed materials do not expose enough factual content for this topic."
+        )
+    if topic.confidence < 0.45:
+        uncertainty.append("Extraction confidence is limited; verify against the cited sources.")
+    return tuple(uncertainty)
 
 
 def _analysis_uncertainties(

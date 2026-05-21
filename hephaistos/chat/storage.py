@@ -60,27 +60,15 @@ def save(
 
     file_path = _session_path(armory_path, session_id)
     now = datetime.now(UTC).isoformat()
-
-    data: dict[str, object] = {
-        "session_id": session_id,
-        "title": title,
-        "updated_at": now,
-        "messages": [
-            {"role": message.role, "content": message.content} for message in conversation.messages
-        ],
-    }
-    existing: dict[str, object] = {}
-    if file_path.exists():
-        raw_existing: object = json.loads(file_path.read_text(encoding="utf-8"))
-        if is_string_mapping(raw_existing):
-            existing = raw_existing
-        data["created_at"] = existing.get("created_at", now)
-    else:
-        data["created_at"] = now
-    if metadata is not None:
-        data["metadata"] = metadata
-    elif is_string_mapping(existing.get("metadata")):
-        data["metadata"] = existing["metadata"]
+    existing = _read_existing_session_data(file_path)
+    data = _session_data(
+        session_id=session_id,
+        title=title,
+        conversation=conversation,
+        now=now,
+        existing=existing,
+        metadata=metadata,
+    )
 
     file_path.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
@@ -97,6 +85,38 @@ def save(
         },
     )
     return file_path
+
+
+def _session_data(
+    *,
+    session_id: str,
+    title: str,
+    conversation: Conversation,
+    now: str,
+    existing: dict[str, object],
+    metadata: dict[str, object] | None,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "session_id": session_id,
+        "title": title,
+        "created_at": existing.get("created_at", now),
+        "updated_at": now,
+        "messages": [
+            {"role": message.role, "content": message.content} for message in conversation.messages
+        ],
+    }
+    if metadata is not None:
+        data["metadata"] = metadata
+    elif is_string_mapping(existing.get("metadata")):
+        data["metadata"] = existing["metadata"]
+    return data
+
+
+def _read_existing_session_data(file_path: Path) -> dict[str, object]:
+    if not file_path.exists():
+        return {}
+    raw_existing: object = json.loads(file_path.read_text(encoding="utf-8"))
+    return raw_existing if is_string_mapping(raw_existing) else {}
 
 
 def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
@@ -117,18 +137,7 @@ def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
 
 def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     data = _load_session_data(armory_path, session_id)
-    conversation = Conversation()
-    raw_messages = data.get("messages", [])
-    if not is_object_list(raw_messages):
-        raw_messages = []
-    for msg in raw_messages:
-        if not is_string_mapping(msg):
-            continue
-        role_val = msg.get("role")
-        content_val = msg.get("content")
-        if role_val is None or content_val is None:
-            continue
-        conversation.add(str(role_val), str(content_val))
+    conversation = _conversation_from_data(data)
     _log.debug(
         "session loaded",
         extra={
@@ -140,6 +149,25 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     )
     title = data.get("title", "")
     return conversation, title if isinstance(title, str) else ""
+
+
+def _conversation_from_data(data: dict[str, object]) -> Conversation:
+    conversation = Conversation()
+    raw_messages = data.get("messages", [])
+    if not is_object_list(raw_messages):
+        return conversation
+    for msg in raw_messages:
+        _add_message_from_payload(conversation, msg)
+    return conversation
+
+
+def _add_message_from_payload(conversation: Conversation, payload: object) -> None:
+    if not is_string_mapping(payload):
+        return
+    role_val = payload.get("role")
+    content_val = payload.get("content")
+    if role_val is not None and content_val is not None:
+        conversation.add(str(role_val), str(content_val))
 
 
 def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:

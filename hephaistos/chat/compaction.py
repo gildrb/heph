@@ -9,35 +9,47 @@ from hephaistos.runtime import Conversation, Message, stream_reply
 
 
 def compact_session(session: ChatSession) -> None:
-    non_system = [m for m in session.conversation.messages if m.role != "system"]
-    summary_prompt = (
-        "Summarize the following conversation in a concise paragraph. "
-        "Preserve key facts, decisions, and context needed to continue.\n\n"
-        + "".join(f"{msg.role}: {msg.content}\n" for msg in non_system)
-    )
+    summary = _stream_summary(session)
+    session.conversation.messages = [*_system_messages(session), _summary_message(summary)]
+    session.dirty = True
 
-    temp = Conversation()
-    temp.add("system", "You are a helpful assistant that summarizes conversations.")
-    temp.add("user", summary_prompt)
 
+def _stream_summary(session: ChatSession) -> str:
     parts: list[str] = []
-    for chunk in stream_reply(session.config, temp):
+    for chunk in stream_reply(session.config, _summary_conversation(session.conversation)):
         sys.stdout.write(chunk)
         sys.stdout.flush()
         parts.append(chunk)
-    summary = "".join(parts)
     sys.stdout.write("\n")
     sys.stdout.flush()
+    return "".join(parts)
 
-    system_msgs = [m for m in session.conversation.messages if m.role == "system"]
-    session.conversation.messages = [
-        *system_msgs,
-        Message(
-            role="system",
-            content="[Conversation summary] " + summary,
-        ),
-    ]
-    session.dirty = True
+
+def _summary_conversation(conversation: Conversation) -> Conversation:
+    temp = Conversation()
+    temp.add("system", "You are a helpful assistant that summarizes conversations.")
+    temp.add("user", _summary_prompt(conversation))
+    return temp
+
+
+def _summary_prompt(conversation: Conversation) -> str:
+    return (
+        "Summarize the following conversation in a concise paragraph. "
+        "Preserve key facts, decisions, and context needed to continue.\n\n"
+        + "".join(
+            f"{message.role}: {message.content}\n"
+            for message in conversation.messages
+            if message.role != "system"
+        )
+    )
+
+
+def _system_messages(session: ChatSession) -> list[Message]:
+    return [message for message in session.conversation.messages if message.role == "system"]
+
+
+def _summary_message(summary: str) -> Message:
+    return Message(role="system", content="[Conversation summary] " + summary)
 
 
 __all__ = ["compact_session"]

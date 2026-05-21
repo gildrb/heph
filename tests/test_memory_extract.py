@@ -40,8 +40,24 @@ def _mock_llm_response(content: str | None) -> MagicMock:
 class TestExtractFromExchange:
     def test_short_content_returns_empty(self) -> None:
         config = _make_config()
-        result = extract_from_exchange(config, "hi", "short reply")
-        assert result == []
+        entries = [
+            {
+                "topic": "answer style",
+                "content": "User prefers blunt answers.",
+                "source": "conversation",
+            }
+        ]
+        mock_response = _mock_llm_response(json.dumps(entries))
+
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_build.return_value = mock_client
+
+            result = extract_from_exchange(config, "Prefer blunt answers.", "Done.")
+
+        assert len(result) == 1
+        assert result[0]["topic"] == "answer style"
 
     def test_extracts_valid_json(self) -> None:
         config = _make_config()

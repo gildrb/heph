@@ -46,7 +46,7 @@ class _ArmoryHost(Protocol):
     _armory_inline_active: bool
     _armory_current: Path
     _armory_filter: str
-    _armory_mode: str
+    _armory_flow: str
     _armory_creating: bool
     _armory_entries: list[_DirEntry]
     _active_turn_sessions: dict[str, ChatSession]
@@ -88,11 +88,17 @@ class _ArmoryHost(Protocol):
 
     def _update_info_panel(self) -> None: ...
 
-    def _open_armory_inline(self, mode: str) -> None: ...
+    def _open_armory_inline(self, flow: str) -> None: ...
 
     def _close_armory_inline(self) -> None: ...
 
     def _refresh_armory_inline(self) -> None: ...
+
+    def _refresh_armory_header(self) -> None: ...
+
+    def _refreshed_armory_highlight(self, previous_key: tuple[str, str] | None) -> int | None: ...
+
+    def _armory_entry_selectable(self, index: int) -> bool: ...
 
     def _render_armory_options(self, highlighted: int | None = None) -> None: ...
 
@@ -113,15 +119,15 @@ class _ArmoryHost(Protocol):
     def _open_selected_armory(self, path: Path) -> None: ...
 
 
-def _armory_command_mode(value: str) -> str | None:
-    modes: dict[tuple[str, ...], str] = {
+def _armory_command_flow(value: str) -> str | None:
+    flows: dict[tuple[str, ...], str] = {
         ("/armory",): "manage",
         ("/armory", "menu"): "manage",
         ("/armory", "open"): "open",
         ("/armory", "create"): "create",
         ("/armory", "new"): "create",
     }
-    return modes.get(tuple(value.strip().lower().split()))
+    return flows.get(tuple(value.strip().lower().split()))
 
 
 _ARMORY_USAGE_MESSAGE = (
@@ -137,6 +143,27 @@ def _display_path(path: Path) -> str:
 
 
 _ACTIVE_TURN_BADGE = "  working"
+
+
+def _armory_selectable_count(entries: list[_DirEntry]) -> int:
+    return sum(1 for entry in entries if entry.path is not None or entry.is_create)
+
+
+def _armory_header_text(
+    *,
+    current_path: Path,
+    filter_query: str,
+    entries: list[_DirEntry],
+) -> str:
+    location = _display_path(current_path)
+    filter_hint = f"  {filter_query}" if filter_query else ""
+    return f"armory  {location}{filter_hint}  {_armory_selectable_count(entries)} item(s)"
+
+
+def _armory_flow_hint(*, creating: bool) -> str:
+    if creating:
+        return "enter create  esc cancel"
+    return "enter open  n new  esc close"
 
 
 def _armory_entry_text(entry: _DirEntry, *, selected: bool, active: bool = False) -> str | Text:
@@ -166,20 +193,20 @@ def _armory_entry_text(entry: _DirEntry, *, selected: bool, active: bool = False
 
 class TuiArmoryMixin:
     def _handle_armory_browser(self: _ArmoryHost, value: str) -> None:
-        mode = _armory_command_mode(value)
+        flow = _armory_command_flow(value)
         composer = self.query_one("#composer", Input)
-        if mode is None:
+        if flow is None:
             self._append_error(_ARMORY_USAGE_MESSAGE)
             composer.focus()
             return
-        self._open_armory_inline(mode)
+        self._open_armory_inline(flow)
 
-    def _open_armory_inline(self: _ArmoryHost, mode: str) -> None:
+    def _open_armory_inline(self: _ArmoryHost, flow: str) -> None:
         self._armory_inline_active = True
         self._armory_current = default_armory_home()
         self._armory_filter = ""
-        self._armory_mode = mode
-        self._armory_creating = mode == "create"
+        self._armory_flow = flow
+        self._armory_creating = flow == "create"
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
         self.query_one("#armory-inline").add_class("active")
@@ -199,7 +226,7 @@ class TuiArmoryMixin:
         self._armory_inline_active = False
         self._armory_filter = ""
         self._armory_creating = False
-        self._armory_mode = "manage"
+        self._armory_flow = "manage"
         self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
         self.query_one("#armory-inline").remove_class("active")
@@ -218,41 +245,44 @@ class TuiArmoryMixin:
             self._armory_current = default_armory_home()
         previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
-            allow_create=self._armory_mode in ("manage", "create"),
+            allow_create=self._armory_flow in ("manage", "create"),
             filter_query=self._armory_filter,
             show_places=False,
         )
-        header = self.query_one("#armory-header", Static)
-        breadcrumbs = self.query_one("#armory-breadcrumbs", Static)
-        mode_hint = self.query_one("#armory-mode-hint", Static)
-        pane_hint = self.query_one("#armory-pane-hint", Static)
-
-        location = _display_path(self._armory_current)
-        filter_hint = f"  {self._armory_filter}" if self._armory_filter else ""
-        selectable_count = sum(
-            1 for entry in self._armory_entries if entry.path is not None or entry.is_create
-        )
-        count_hint = f"  {selectable_count} item(s)"
-        header.update(f"armory  {location}{filter_hint}{count_hint}")
-        breadcrumbs.update("")
-
-        if self._armory_creating:
-            mode_hint.update("enter create  esc cancel")
-        else:
-            mode_hint.update("enter open  n new  esc close")
-
-        pane_hint.update("")
-        self.query_one("#armory-count-hint", Static).update("")
-
-        highlighted = self._armory_index_for_key(previous_key)
-        if highlighted is not None:
-            entry = self._armory_entries[highlighted]
-            if entry.path is None and not entry.is_create:
-                highlighted = None
-        if highlighted is None:
-            highlighted = self._first_selectable_armory_index()
+        self._refresh_armory_header()
+        highlighted = self._refreshed_armory_highlight(previous_key)
         self._render_armory_options(highlighted)
         self._update_armory_preview()
+
+    def _refresh_armory_header(self: _ArmoryHost) -> None:
+        self.query_one("#armory-header", Static).update(
+            _armory_header_text(
+                current_path=self._armory_current,
+                filter_query=self._armory_filter,
+                entries=self._armory_entries,
+            )
+        )
+        self.query_one("#armory-breadcrumbs", Static).update("")
+        self.query_one("#armory-flow-hint", Static).update(
+            _armory_flow_hint(creating=self._armory_creating)
+        )
+        self.query_one("#armory-pane-hint", Static).update("")
+        self.query_one("#armory-count-hint", Static).update("")
+
+    def _refreshed_armory_highlight(
+        self: _ArmoryHost,
+        previous_key: tuple[str, str] | None,
+    ) -> int | None:
+        highlighted = self._armory_index_for_key(previous_key)
+        if highlighted is None or not self._armory_entry_selectable(highlighted):
+            return self._first_selectable_armory_index()
+        return highlighted
+
+    def _armory_entry_selectable(self: _ArmoryHost, index: int) -> bool:
+        if index < 0 or index >= len(self._armory_entries):
+            return False
+        entry = self._armory_entries[index]
+        return entry.path is not None or entry.is_create
 
     def _render_armory_options(
         self: _ArmoryHost,
@@ -377,7 +407,7 @@ class TuiArmoryMixin:
 
     def _start_inline_create(self: _ArmoryHost) -> None:
         self._armory_creating = True
-        self._armory_mode = "create"
+        self._armory_flow = "create"
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = "Module or topic name..."
@@ -483,7 +513,7 @@ class TuiArmoryMixin:
             event.prevent_default()
             event.stop()
             return True
-        if event.key == "n" and self._armory_mode != "open":
+        if event.key == "n" and self._armory_flow != "open":
             self._start_inline_create()
             event.prevent_default()
             event.stop()

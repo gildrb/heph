@@ -370,7 +370,7 @@ def _deterministic_suite_evidence(suite: Path | None = None) -> str:
         return str(suite)
     try:
         prompt_cache_report = benchmark_prompt_cache.run_benchmark()
-        study_intent_report = run_benchmark_suite.study_intent_contract_report()
+        learning_intent_report = run_benchmark_suite.learning_intent_contract_report()
         with tempfile.TemporaryDirectory(prefix="heph-audit-academic-items-") as tmp:
             armory = Path(tmp) / "armory"
             shutil.copytree(suite / "armory", armory)
@@ -386,11 +386,11 @@ def _deterministic_suite_evidence(suite: Path | None = None) -> str:
         f"academic_grounded_question_rate={academic_report.grounded_question_rate:.3f}, "
         "academic_canonical_source_label_rate="
         f"{academic_report.canonical_source_label_rate:.3f}, "
-        f"study_intent_contract_passed={study_intent_report.passed}, "
-        "study_intent_required_intents="
-        f"{','.join(study_intent_report.required_intents)}, "
-        "study_intent_parsed_intents="
-        f"{','.join(study_intent_report.parsed_intents)}, "
+        f"learning_intent_contract_passed={learning_intent_report.passed}, "
+        "learning_intent_required_intents="
+        f"{','.join(learning_intent_report.required_intents)}, "
+        "learning_intent_parsed_intents="
+        f"{','.join(learning_intent_report.parsed_intents)}, "
         f"prompt_cache_pass_rate={prompt_cache_report.pass_rate:.3f}, "
         f"prompt_cache_stable_hash_reuse={prompt_cache_report.stable_hash_reuse_rate:.3f}"
     )

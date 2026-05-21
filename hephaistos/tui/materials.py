@@ -39,7 +39,7 @@ class _MaterialsHost(Protocol):
     _materials_entries: list[str]
     _materials_columns: tuple[list[str], list[str]]
     _materials_highlighted_index: int | None
-    _materials_mode: str
+    _materials_flow: str
     _sidebar_width_visible: bool
     session: ChatSession
     size: Size
@@ -69,11 +69,29 @@ class _MaterialsHost(Protocol):
 
     def _update_info_panel(self) -> None: ...
 
-    def _open_materials_inline(self, value: str = "", *, mode: str = "toggle") -> None: ...
+    def _open_materials_inline(self, value: str = "", *, flow: str = "toggle") -> None: ...
 
     def _close_materials_inline(self) -> None: ...
 
     def _refresh_materials_inline(self) -> None: ...
+
+    def _refresh_material_columns(
+        self,
+        left_entries: list[str],
+        right_entries: list[str],
+    ) -> None: ...
+
+    def _refresh_material_list(
+        self,
+        list_id: str,
+        material_list: OptionList,
+        entries: list[str],
+        *,
+        highlighted: int | None,
+        right_column_start: int,
+    ) -> None: ...
+
+    def _refresh_materials_footer(self, query: str) -> None: ...
 
     def _materials_footer_text(self) -> str: ...
 
@@ -120,16 +138,50 @@ def _active_material_count(host: _MaterialsHost) -> int:
     )
 
 
+def _filtered_material_entries(source_files: tuple[str, ...], query: str) -> list[str]:
+    entries = list(source_files)
+    if not query:
+        return entries
+    return [file for file in entries if query in file.lower()]
+
+
+def _materials_header_text(
+    *,
+    flow: str,
+    enabled: int,
+    total: int,
+    query: str,
+    shown: int,
+) -> str:
+    noun = "materials" if flow == "toggle" else "sources"
+    header = f"{noun}  {enabled}/{total} active"
+    if query:
+        return f"{header}  {shown} shown"
+    return header
+
+
+def _clamped_material_highlight(
+    *,
+    previous: int | None,
+    entry_count: int,
+) -> int | None:
+    if entry_count == 0:
+        return None
+    if previous is None:
+        return 0
+    return min(max(previous, 0), entry_count - 1)
+
+
 class TuiMaterialsMixin:
     def _open_materials_inline(
         self: _MaterialsHost,
         value: str = "",
         *,
-        mode: str = "toggle",
+        flow: str = "toggle",
     ) -> None:
         _, _, args = value.partition(" ")
         self._materials_filter = args.strip()
-        self._materials_mode = mode
+        self._materials_flow = flow
         self._materials_inline_active = True
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
@@ -148,7 +200,7 @@ class TuiMaterialsMixin:
     def _close_materials_inline(self: _MaterialsHost) -> None:
         self._materials_inline_active = False
         self._materials_filter = ""
-        self._materials_mode = "toggle"
+        self._materials_flow = "toggle"
         self._materials_highlighted_index = None
         self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
@@ -165,55 +217,77 @@ class TuiMaterialsMixin:
 
     def _refresh_materials_inline(self: _MaterialsHost) -> None:
         query = self._materials_filter.strip().lower()
-        files = list(self.session.source_files)
-        if query:
-            files = [file for file in files if query in file.lower()]
-        self._materials_entries = files
+        self._materials_entries = _filtered_material_entries(self.session.source_files, query)
         total = len(self.session.source_files)
         enabled = _active_material_count(self)
-        header = (
-            f"materials  {enabled}/{total} active"
-            if self._materials_mode == "toggle"
-            else f"sources  {enabled}/{total} active"
+        self.query_one("#materials-header", Static).update(
+            _materials_header_text(
+                flow=self._materials_flow,
+                enabled=enabled,
+                total=total,
+                query=query,
+                shown=len(self._materials_entries),
+            )
         )
-        if query:
-            header = f"{header}  {len(self._materials_entries)} shown"
-        self.query_one("#materials-header", Static).update(header)
 
-        previous = self._materials_highlighted_index
-        if not self._materials_entries:
-            highlighted = None
-        elif previous is None:
-            highlighted = 0
-        else:
-            highlighted = min(max(previous, 0), len(self._materials_entries) - 1)
-        self._materials_highlighted_index = highlighted
+        self._materials_highlighted_index = _clamped_material_highlight(
+            previous=self._materials_highlighted_index,
+            entry_count=len(self._materials_entries),
+        )
 
         left_entries, right_entries = self._material_columns_for_entries()
         self._materials_columns = (left_entries, right_entries)
+        self._refresh_material_columns(left_entries, right_entries)
+        if self._materials_entries:
+            self._focus_materials_highlighted_list()
+        self._refresh_materials_highlight_class()
+        self._refresh_materials_footer(query)
+        self._update_materials_sidebar()
+
+    def _refresh_material_columns(
+        self: _MaterialsHost,
+        left_entries: list[str],
+        right_entries: list[str],
+    ) -> None:
         columns = self.query_one("#materials-columns")
         if right_entries:
             columns.add_class("two-column")
         else:
             columns.remove_class("two-column")
-
+        highlighted = self._materials_highlighted_index
         left = self.query_one("#materials-list", OptionList)
         right = self.query_one("#materials-list-right", OptionList)
         for list_id, material_list, entries in (
             ("materials-list", left, left_entries),
             ("materials-list-right", right, right_entries),
         ):
-            material_list.clear_options()
-            start = len(left_entries) if list_id == "materials-list-right" else 0
-            for local_index, file in enumerate(entries):
-                global_index = start + local_index
-                material_list.add_option(
-                    self._format_material_option(file, selected=global_index == highlighted)
-                )
-            material_list.highlighted = self._materials_local_index(list_id, highlighted)
-        if self._materials_entries:
-            self._focus_materials_highlighted_list()
-        self._refresh_materials_highlight_class()
+            self._refresh_material_list(
+                list_id,
+                material_list,
+                entries,
+                highlighted=highlighted,
+                right_column_start=len(left_entries),
+            )
+
+    def _refresh_material_list(
+        self: _MaterialsHost,
+        list_id: str,
+        material_list: OptionList,
+        entries: list[str],
+        *,
+        highlighted: int | None,
+        right_column_start: int,
+    ) -> None:
+        material_list.clear_options()
+        start = right_column_start if list_id == "materials-list-right" else 0
+        for local_index, file in enumerate(entries):
+            global_index = start + local_index
+            material_list.add_option(
+                self._format_material_option(file, selected=global_index == highlighted)
+            )
+        material_list.highlighted = self._materials_local_index(list_id, highlighted)
+
+    def _refresh_materials_footer(self: _MaterialsHost, query: str) -> None:
         footer = self.query_one("#materials-footer", Static)
         if not self.session.source_files:
             footer.update("No materials attached.")
@@ -221,10 +295,9 @@ class TuiMaterialsMixin:
             footer.update(f"No materials match: {self._materials_filter}")
         else:
             footer.update(self._materials_footer_text())
-        self._update_materials_sidebar()
 
     def _materials_footer_text(self: _MaterialsHost) -> str:
-        if self._materials_mode == "toggle":
+        if self._materials_flow == "toggle":
             return "type to filter  space or enter toggle  esc close"
         return "type to filter  enter or esc close"
 
@@ -233,7 +306,7 @@ class TuiMaterialsMixin:
         idx = self._materials_highlighted_index
         total = len(self.session.source_files)
         enabled = _active_material_count(self)
-        title = "Materials" if self._materials_mode == "toggle" else "Sources"
+        title = "Materials" if self._materials_flow == "toggle" else "Sources"
         if idx is None or idx < 0 or idx >= len(self._materials_entries):
             if self._materials_filter:
                 content = (
@@ -352,7 +425,7 @@ class TuiMaterialsMixin:
         if global_index is None:
             return
         self._materials_highlighted_index = global_index
-        if self._materials_mode == "toggle":
+        if self._materials_flow == "toggle":
             self._toggle_highlighted_material()
         else:
             self._close_materials_inline()
@@ -411,7 +484,7 @@ class TuiMaterialsMixin:
             event.stop()
             return True
         if event.key == "enter":
-            if self._materials_mode == "toggle":
+            if self._materials_flow == "toggle":
                 self._toggle_highlighted_material()
             else:
                 self._close_materials_inline()
@@ -429,7 +502,7 @@ class TuiMaterialsMixin:
             event.stop()
             return True
         if event.key == "space" or event.character == " ":
-            if self._materials_mode == "toggle":
+            if self._materials_flow == "toggle":
                 self._toggle_highlighted_material()
             event.prevent_default()
             event.stop()

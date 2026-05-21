@@ -34,49 +34,90 @@ def tool_runtime_note(name: str, tool_result: ApiMessage) -> NoticeEvent | None:
     metadata_raw = tool_result.get("tool_metadata", {})
     metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
     success = bool(tool_result.get("tool_success", True))
-    error = tool_result.get("tool_error")
     latency_ms = metadata_float(metadata, "latency_ms")
     result_length = metadata_int(metadata, "result_length")
 
-    notice_metadata: dict[str, object] = {"tool": name}
-    if latency_ms is not None:
-        notice_metadata["latency_ms"] = latency_ms
-    if result_length is not None:
-        notice_metadata["result_length"] = result_length
+    notice_metadata = _tool_notice_metadata(
+        name,
+        latency_ms=latency_ms,
+        result_length=result_length,
+    )
 
     if not success:
-        message = (
-            f"Execution note: tool '{name}' failed. Inspect the error before retrying "
-            "the same call."
-        )
-        if isinstance(error, str) and error:
-            notice_metadata["error"] = error
-        notice_metadata["reason"] = "failed"
-        return NoticeEvent(message, code="tool_runtime", metadata=notice_metadata)
+        return _failed_tool_notice(name, tool_result, notice_metadata)
 
     if latency_ms is not None and latency_ms >= SLOW_TOOL_LATENCY_MS:
-        notice_metadata["reason"] = "slow"
-        return NoticeEvent(
-            (
-                f"Execution note: tool '{name}' took {latency_ms / 1000:.1f}s. "
-                "Prefer a narrower action before repeating it."
-            ),
-            code="tool_runtime",
-            metadata=notice_metadata,
-        )
+        return _slow_tool_notice(name, latency_ms, notice_metadata)
 
     if result_length is not None and result_length >= LARGE_TOOL_RESULT_CHARS:
-        notice_metadata["reason"] = "large_result"
-        return NoticeEvent(
-            (
-                f"Execution note: tool '{name}' returned {result_length} characters. "
-                "Use a narrower query or inspect the specific file next."
-            ),
-            code="tool_runtime",
-            metadata=notice_metadata,
-        )
+        return _large_tool_result_notice(name, result_length, notice_metadata)
 
     return None
+
+
+def _tool_notice_metadata(
+    name: str,
+    *,
+    latency_ms: float | None,
+    result_length: int | None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {"tool": name}
+    if latency_ms is not None:
+        metadata["latency_ms"] = latency_ms
+    if result_length is not None:
+        metadata["result_length"] = result_length
+    return metadata
+
+
+def _failed_tool_notice(
+    name: str,
+    tool_result: ApiMessage,
+    metadata: dict[str, object],
+) -> NoticeEvent:
+    error = tool_result.get("tool_error")
+    if isinstance(error, str) and error:
+        metadata["error"] = error
+    metadata["reason"] = "failed"
+    return NoticeEvent(
+        (
+            f"Execution note: tool '{name}' failed. Inspect the error before retrying "
+            "the same call."
+        ),
+        code="tool_runtime",
+        metadata=metadata,
+    )
+
+
+def _slow_tool_notice(
+    name: str,
+    latency_ms: float,
+    metadata: dict[str, object],
+) -> NoticeEvent:
+    metadata["reason"] = "slow"
+    return NoticeEvent(
+        (
+            f"Execution note: tool '{name}' took {latency_ms / 1000:.1f}s. "
+            "Prefer a narrower action before repeating it."
+        ),
+        code="tool_runtime",
+        metadata=metadata,
+    )
+
+
+def _large_tool_result_notice(
+    name: str,
+    result_length: int,
+    metadata: dict[str, object],
+) -> NoticeEvent:
+    metadata["reason"] = "large_result"
+    return NoticeEvent(
+        (
+            f"Execution note: tool '{name}' returned {result_length} characters. "
+            "Use a narrower query or inspect the specific file next."
+        ),
+        code="tool_runtime",
+        metadata=metadata,
+    )
 
 
 def acceptance_criteria_notice() -> NoticeEvent:

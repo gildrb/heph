@@ -79,7 +79,7 @@ def test_public_reusable_package_apis_are_explicit() -> None:
         materials: {"MaterialFile", "iter_materials", "material_manifest"},
         rag: {"ArmoryIndex", "ScoredChunk", "retrieve", "build_turn_evidence"},
         memory: {"MemoryStore", "MemoryEntry", "load_memory", "save_memory"},
-        study: {"StudyState", "StudyTurnPlan", "plan_turn", "apply_turn_result"},
+        study: {"LearningState", "LearningTurnPlan", "plan_turn", "apply_turn_result"},
         armory: {"ArmoryError", "initialize", "validate", "normalize_path"},
     }
     for module, names in expected_exports.items():

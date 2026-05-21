@@ -1,4 +1,4 @@
-"""Source-grounded study artifact models and validators."""
+"""Source-grounded learning artifact models and validators."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from hephaistos.study.mastery import next_recall_mastery
-from hephaistos.study.state import StudyRecallRating
+from hephaistos.study.state import RecallRating
 
 
-class StudyArtifactKind(StrEnum):
+class LearningArtifactKind(StrEnum):
     FLASHCARD = "flashcard"
     CLOZE_CARD = "cloze_card"
     QUIZ = "quiz"
@@ -24,14 +24,14 @@ class StudyArtifactKind(StrEnum):
     PREREQUISITE = "prerequisite"
 
 
-class StudyArtifactDifficulty(StrEnum):
+class LearningArtifactDifficulty(StrEnum):
     INTRO = "intro"
     CORE = "core"
     ADVANCED = "advanced"
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifactSourceSpan:
+class LearningArtifactSourceSpan:
     source_ref: str
     text: str
     start: int | None = None
@@ -39,7 +39,7 @@ class StudyArtifactSourceSpan:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifactReviewState:
+class LearningArtifactReviewState:
     reviews: int = 0
     lapses: int = 0
     mastery: float = 0.0
@@ -48,30 +48,30 @@ class StudyArtifactReviewState:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifact:
+class LearningArtifact:
     artifact_id: str
-    kind: StudyArtifactKind
+    kind: LearningArtifactKind
     prompt: str
     answer: str = ""
     content: str = ""
     concept_tags: tuple[str, ...] = ()
     prerequisite_tags: tuple[str, ...] = ()
-    difficulty: StudyArtifactDifficulty = StudyArtifactDifficulty.CORE
-    source_spans: tuple[StudyArtifactSourceSpan, ...] = ()
-    review_state: StudyArtifactReviewState = field(default_factory=StudyArtifactReviewState)
+    difficulty: LearningArtifactDifficulty = LearningArtifactDifficulty.CORE
+    source_spans: tuple[LearningArtifactSourceSpan, ...] = ()
+    review_state: LearningArtifactReviewState = field(default_factory=LearningArtifactReviewState)
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifactIssue:
+class LearningArtifactIssue:
     artifact_id: str
     code: str
     message: str
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifactValidationResult:
-    artifact: StudyArtifact
-    issues: tuple[StudyArtifactIssue, ...] = ()
+class LearningArtifactValidationResult:
+    artifact: LearningArtifact
+    issues: tuple[LearningArtifactIssue, ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -79,15 +79,15 @@ class StudyArtifactValidationResult:
 
 
 @dataclass(frozen=True, slots=True)
-class StudyArtifactValidationReport:
-    results: tuple[StudyArtifactValidationResult, ...]
+class LearningArtifactValidationReport:
+    results: tuple[LearningArtifactValidationResult, ...]
 
     @property
-    def accepted(self) -> tuple[StudyArtifact, ...]:
+    def accepted(self) -> tuple[LearningArtifact, ...]:
         return tuple(result.artifact for result in self.results if result.accepted)
 
     @property
-    def rejected(self) -> tuple[StudyArtifactValidationResult, ...]:
+    def rejected(self) -> tuple[LearningArtifactValidationResult, ...]:
         return tuple(result for result in self.results if not result.accepted)
 
     @property
@@ -141,69 +141,69 @@ _STOPWORDS = frozenset(
     }
 )
 _MAX_ARTIFACT_REVIEW_INTERVAL_DAYS = 365
-type _ArtifactRule = tuple[str, str, Callable[[StudyArtifact], bool]]
+type _ArtifactRule = tuple[str, str, Callable[[LearningArtifact], bool]]
 
 
-def _valid_flashcard(artifact: StudyArtifact) -> bool:
+def _valid_flashcard(artifact: LearningArtifact) -> bool:
     return bool(_clean(artifact.prompt) and _clean(artifact.answer))
 
 
-def _valid_cloze_card(artifact: StudyArtifact) -> bool:
+def _valid_cloze_card(artifact: LearningArtifact) -> bool:
     return bool(_CLOZE_RE.search(_clean(artifact.content) or _clean(artifact.prompt)))
 
 
-def _valid_quiz(artifact: StudyArtifact) -> bool:
+def _valid_quiz(artifact: LearningArtifact) -> bool:
     return "?" in _clean(artifact.prompt) and bool(_clean(artifact.answer))
 
 
-def _valid_summary(artifact: StudyArtifact) -> bool:
+def _valid_summary(artifact: LearningArtifact) -> bool:
     return len(_TOKEN_RE.findall(_clean(artifact.content) or _clean(artifact.answer))) >= 8
 
 
-def _valid_misconception(artifact: StudyArtifact) -> bool:
+def _valid_misconception(artifact: LearningArtifact) -> bool:
     return bool(_clean(artifact.content) or _clean(artifact.answer))
 
 
-def _valid_concept_tag(artifact: StudyArtifact) -> bool:
+def _valid_concept_tag(artifact: LearningArtifact) -> bool:
     return bool(artifact.concept_tags)
 
 
-def _valid_prerequisite(artifact: StudyArtifact) -> bool:
+def _valid_prerequisite(artifact: LearningArtifact) -> bool:
     return bool(artifact.prerequisite_tags)
 
 
-_ARTIFACT_KIND_RULES: dict[StudyArtifactKind, _ArtifactRule] = {
-    StudyArtifactKind.FLASHCARD: (
+_ARTIFACT_KIND_RULES: dict[LearningArtifactKind, _ArtifactRule] = {
+    LearningArtifactKind.FLASHCARD: (
         "invalid_flashcard",
         "flashcards need prompt and answer",
         _valid_flashcard,
     ),
-    StudyArtifactKind.CLOZE_CARD: (
+    LearningArtifactKind.CLOZE_CARD: (
         "invalid_cloze",
         "cloze cards need {{c1::...}} text",
         _valid_cloze_card,
     ),
-    StudyArtifactKind.QUIZ: (
+    LearningArtifactKind.QUIZ: (
         "invalid_quiz",
         "quizzes need a question and answer",
         _valid_quiz,
     ),
-    StudyArtifactKind.SUMMARY: (
+    LearningArtifactKind.SUMMARY: (
         "invalid_summary",
         "summaries need supported content",
         _valid_summary,
     ),
-    StudyArtifactKind.MISCONCEPTION: (
+    LearningArtifactKind.MISCONCEPTION: (
         "invalid_misconception",
         "misconceptions need a correction",
         _valid_misconception,
     ),
-    StudyArtifactKind.CONCEPT_TAG: (
+    LearningArtifactKind.CONCEPT_TAG: (
         "invalid_concept_tag",
         "concept tags are required",
         _valid_concept_tag,
     ),
-    StudyArtifactKind.PREREQUISITE: (
+    LearningArtifactKind.PREREQUISITE: (
         "invalid_prerequisite",
         "prerequisite tags are required",
         _valid_prerequisite,
@@ -211,27 +211,27 @@ _ARTIFACT_KIND_RULES: dict[StudyArtifactKind, _ArtifactRule] = {
 }
 
 
-def validate_study_artifact(
-    artifact: StudyArtifact,
+def validate_learning_artifact(
+    artifact: LearningArtifact,
     source_text_by_ref: Mapping[str, str] | None = None,
-) -> StudyArtifactValidationResult:
+) -> LearningArtifactValidationResult:
     source_map = source_text_by_ref or {}
-    return StudyArtifactValidationResult(artifact, _artifact_issues(artifact, source_map))
+    return LearningArtifactValidationResult(artifact, _artifact_issues(artifact, source_map))
 
 
-def validate_study_artifacts(
-    artifacts: Sequence[StudyArtifact],
+def validate_learning_artifacts(
+    artifacts: Sequence[LearningArtifact],
     source_text_by_ref: Mapping[str, str] | None = None,
-) -> StudyArtifactValidationReport:
+) -> LearningArtifactValidationReport:
     seen: dict[str, str] = {}
-    results: list[StudyArtifactValidationResult] = []
+    results: list[LearningArtifactValidationResult] = []
     source_map = source_text_by_ref or {}
     for artifact in artifacts:
         issues = list(_artifact_issues(artifact, source_map))
         fingerprint = _artifact_fingerprint(artifact)
         if fingerprint in seen:
             issues.append(
-                StudyArtifactIssue(
+                LearningArtifactIssue(
                     artifact_id=artifact.artifact_id,
                     code="duplicate_artifact",
                     message=f"duplicates artifact {seen[fingerprint]}",
@@ -239,44 +239,19 @@ def validate_study_artifacts(
             )
         else:
             seen[fingerprint] = artifact.artifact_id
-        results.append(StudyArtifactValidationResult(artifact=artifact, issues=tuple(issues)))
-    return StudyArtifactValidationReport(results=tuple(results))
+        results.append(LearningArtifactValidationResult(artifact=artifact, issues=tuple(issues)))
+    return LearningArtifactValidationReport(results=tuple(results))
 
 
-def study_artifacts_to_anki_tsv(
-    artifacts: Sequence[StudyArtifact],
+def learning_artifacts_to_anki_tsv(
+    artifacts: Sequence[LearningArtifact],
     source_text_by_ref: Mapping[str, str] | None = None,
 ) -> str:
-    report = validate_study_artifacts(artifacts, source_text_by_ref)
+    report = validate_learning_artifacts(artifacts, source_text_by_ref)
     if report.rejected:
-        failures = [
-            f"{result.artifact.artifact_id}: {', '.join(issue.code for issue in result.issues)}"
-            for result in report.rejected
-        ]
-        raise ValueError("cannot export rejected study artifacts: " + "; ".join(failures))
+        raise ValueError(_rejected_artifact_export_message(report.rejected))
 
-    rows: list[tuple[str, str, str, str, str]] = []
-    for artifact in report.accepted:
-        if artifact.kind is StudyArtifactKind.CLOZE_CARD:
-            front, back = artifact.content or artifact.prompt, artifact.answer
-        elif artifact.kind in {StudyArtifactKind.FLASHCARD, StudyArtifactKind.QUIZ}:
-            front, back = artifact.prompt, artifact.answer or artifact.content
-        else:
-            continue
-        if not front:
-            continue
-        rows.append(
-            (
-                front,
-                back,
-                ", ".join(span.source_ref for span in artifact.source_spans),
-                " ".join(
-                    re.sub(r"[^A-Za-z0-9_]+", "_", tag.strip().casefold()).strip("_") or "source"
-                    for tag in _anki_tags(artifact)
-                ),
-                artifact.difficulty.value,
-            )
-        )
+    rows = [row for artifact in report.accepted if (row := _anki_row_for_artifact(artifact))]
     if not rows:
         raise ValueError("no flashcard, cloze, or quiz artifacts available for Anki export")
 
@@ -286,35 +261,58 @@ def study_artifacts_to_anki_tsv(
     return output.getvalue()
 
 
-def next_study_artifact_review_state(
-    state: StudyArtifactReviewState,
-    rating: StudyRecallRating,
+def _rejected_artifact_export_message(
+    rejected: Sequence[LearningArtifactValidationResult],
+) -> str:
+    failures = [
+        f"{result.artifact.artifact_id}: {', '.join(issue.code for issue in result.issues)}"
+        for result in rejected
+    ]
+    return "cannot export rejected learning artifacts: " + "; ".join(failures)
+
+
+def _anki_row_for_artifact(artifact: LearningArtifact) -> tuple[str, str, str, str, str] | None:
+    front_back = _anki_front_back(artifact)
+    if front_back is None:
+        return None
+    front, back = front_back
+    if not front:
+        return None
+    return (
+        front,
+        back,
+        ", ".join(span.source_ref for span in artifact.source_spans),
+        " ".join(_anki_tag_value(tag) for tag in _anki_tags(artifact)),
+        artifact.difficulty.value,
+    )
+
+
+def _anki_front_back(artifact: LearningArtifact) -> tuple[str, str] | None:
+    if artifact.kind is LearningArtifactKind.CLOZE_CARD:
+        return artifact.content or artifact.prompt, artifact.answer
+    if artifact.kind in {LearningArtifactKind.FLASHCARD, LearningArtifactKind.QUIZ}:
+        return artifact.prompt, artifact.answer or artifact.content
+    return None
+
+
+def _anki_tag_value(tag: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]+", "_", tag.strip().casefold()).strip("_") or "source"
+
+
+def next_learning_artifact_review_state(
+    state: LearningArtifactReviewState,
+    rating: RecallRating,
     *,
     reviewed_at: datetime,
     hint_level_needed: int | None = None,
-) -> StudyArtifactReviewState:
-    if not isinstance(rating, StudyRecallRating):
-        raise TypeError("rating must be a StudyRecallRating")
-    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
-        raise ValueError("reviewed_at must be timezone-aware")
-    if hint_level_needed is not None and hint_level_needed < 0:
-        raise ValueError("hint_level_needed cannot be negative")
-
+) -> LearningArtifactReviewState:
+    _validate_review_input(rating, reviewed_at, hint_level_needed)
     reviews = state.reviews + 1
-    lapse = rating in {StudyRecallRating.HARD, StudyRecallRating.NONE}
+    lapse = rating in {RecallRating.HARD, RecallRating.NONE}
     lapses = state.lapses + (1 if lapse else 0)
     mastery = next_recall_mastery(state.mastery, rating, hint_level_needed)
-    if rating is StudyRecallRating.NONE:
-        interval = timedelta(0)
-    elif rating is StudyRecallRating.HARD:
-        interval = timedelta(days=1)
-    else:
-        base_days = 7 if rating is StudyRecallRating.EASY else 3
-        review_multiplier = 1.0 + (min(max(reviews - 1, 0), 8) * 0.35)
-        mastery_multiplier = 1.0 + (mastery * (0.65 if rating is StudyRecallRating.EASY else 0.35))
-        days = round(base_days * review_multiplier * mastery_multiplier)
-        interval = timedelta(days=min(_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS, max(1, days)))
-    return StudyArtifactReviewState(
+    interval = _next_artifact_review_interval(rating, reviews=reviews, mastery=mastery)
+    return LearningArtifactReviewState(
         reviews=reviews,
         lapses=lapses,
         mastery=mastery,
@@ -323,16 +321,46 @@ def next_study_artifact_review_state(
     )
 
 
-def record_study_artifact_review(
-    artifact: StudyArtifact,
-    rating: StudyRecallRating,
+def _validate_review_input(
+    rating: RecallRating,
+    reviewed_at: datetime,
+    hint_level_needed: int | None,
+) -> None:
+    if not isinstance(rating, RecallRating):
+        raise TypeError("rating must be a RecallRating")
+    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
+        raise ValueError("reviewed_at must be timezone-aware")
+    if hint_level_needed is not None and hint_level_needed < 0:
+        raise ValueError("hint_level_needed cannot be negative")
+
+
+def _next_artifact_review_interval(
+    rating: RecallRating,
+    *,
+    reviews: int,
+    mastery: float,
+) -> timedelta:
+    if rating is RecallRating.NONE:
+        return timedelta(0)
+    if rating is RecallRating.HARD:
+        return timedelta(days=1)
+    base_days = 7 if rating is RecallRating.EASY else 3
+    review_multiplier = 1.0 + (min(max(reviews - 1, 0), 8) * 0.35)
+    mastery_multiplier = 1.0 + (mastery * (0.65 if rating is RecallRating.EASY else 0.35))
+    days = round(base_days * review_multiplier * mastery_multiplier)
+    return timedelta(days=min(_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS, max(1, days)))
+
+
+def record_learning_artifact_review(
+    artifact: LearningArtifact,
+    rating: RecallRating,
     *,
     reviewed_at: datetime,
     hint_level_needed: int | None = None,
-) -> StudyArtifact:
+) -> LearningArtifact:
     return replace(
         artifact,
-        review_state=next_study_artifact_review_state(
+        review_state=next_learning_artifact_review_state(
             artifact.review_state,
             rating,
             reviewed_at=reviewed_at,
@@ -342,10 +370,10 @@ def record_study_artifact_review(
 
 
 def _artifact_issues(
-    artifact: StudyArtifact,
+    artifact: LearningArtifact,
     source_text_by_ref: Mapping[str, str],
-) -> tuple[StudyArtifactIssue, ...]:
-    issues: list[StudyArtifactIssue] = []
+) -> tuple[LearningArtifactIssue, ...]:
+    issues: list[LearningArtifactIssue] = []
     issues.extend(_shape_issues(artifact))
     issues.extend(_source_span_issues(artifact, source_text_by_ref))
     issues.extend(_review_state_issues(artifact))
@@ -356,29 +384,25 @@ def _artifact_issues(
     return tuple(issues)
 
 
-def _shape_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
-    issues: list[StudyArtifactIssue] = []
+def _shape_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIssue, ...]:
+    issues: list[LearningArtifactIssue] = []
     if not artifact.artifact_id.strip():
         issues.append(_issue(artifact, "missing_id", "artifact_id is required"))
-    valid_kind = isinstance(artifact.kind, StudyArtifactKind)
+    valid_kind = isinstance(artifact.kind, LearningArtifactKind)
     if not valid_kind:
-        issues.append(_issue(artifact, "invalid_kind", "kind must be a StudyArtifactKind"))
-    if not isinstance(artifact.difficulty, StudyArtifactDifficulty):
+        issues.append(_issue(artifact, "invalid_kind", "kind must be a LearningArtifactKind"))
+    if not isinstance(artifact.difficulty, LearningArtifactDifficulty):
         issues.append(
-            _issue(artifact, "invalid_difficulty", "difficulty must be a StudyArtifactDifficulty")
+            _issue(
+                artifact,
+                "invalid_difficulty",
+                "difficulty must be a LearningArtifactDifficulty",
+            )
         )
     prompt = _clean(artifact.prompt)
     answer = _clean(artifact.answer)
     content = _clean(artifact.content)
-    if any(_is_vague(text) for text in (prompt, answer, content)):
-        issues.append(_issue(artifact, "vague_artifact", "artifact text is too vague"))
-    if any(
-        _BROAD_RE.search(text) or len(_TOKEN_RE.findall(text)) > 180
-        for text in (prompt, answer, content)
-    ):
-        issues.append(
-            _issue(artifact, "overly_broad_artifact", "artifact asks for too broad a scope")
-        )
+    issues.extend(_text_shape_issues(artifact, (prompt, answer, content)))
 
     if valid_kind:
         code, message, is_valid = _ARTIFACT_KIND_RULES[artifact.kind]
@@ -387,23 +411,41 @@ def _shape_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
     return tuple(issues)
 
 
+def _text_shape_issues(
+    artifact: LearningArtifact,
+    texts: tuple[str, str, str],
+) -> tuple[LearningArtifactIssue, ...]:
+    issues: list[LearningArtifactIssue] = []
+    if any(_is_vague(text) for text in texts):
+        issues.append(_issue(artifact, "vague_artifact", "artifact text is too vague"))
+    if any(_is_overly_broad_text(text) for text in texts):
+        issues.append(
+            _issue(artifact, "overly_broad_artifact", "artifact asks for too broad a scope")
+        )
+    return tuple(issues)
+
+
+def _is_overly_broad_text(text: str) -> bool:
+    return bool(_BROAD_RE.search(text)) or len(_TOKEN_RE.findall(text)) > 180
+
+
 def _source_span_issues(
-    artifact: StudyArtifact,
+    artifact: LearningArtifact,
     source_text_by_ref: Mapping[str, str],
-) -> tuple[StudyArtifactIssue, ...]:
+) -> tuple[LearningArtifactIssue, ...]:
     if not artifact.source_spans:
         return (_issue(artifact, "missing_source_span", "at least one source span is required"),)
-    issues: list[StudyArtifactIssue] = []
+    issues: list[LearningArtifactIssue] = []
     for span in artifact.source_spans:
         issues.extend(_single_source_span_issues(artifact, span, source_text_by_ref))
     return tuple(issues)
 
 
 def _single_source_span_issues(
-    artifact: StudyArtifact,
-    span: StudyArtifactSourceSpan,
+    artifact: LearningArtifact,
+    span: LearningArtifactSourceSpan,
     source_text_by_ref: Mapping[str, str],
-) -> tuple[StudyArtifactIssue, ...]:
+) -> tuple[LearningArtifactIssue, ...]:
     if not span.source_ref.strip() or not span.text.strip():
         return (_issue(artifact, "invalid_source_span", "source ref and text required"),)
     if offset_issue := _source_span_offset_issue(artifact, span):
@@ -434,9 +476,9 @@ def _single_source_span_issues(
 
 
 def _source_span_offset_issue(
-    artifact: StudyArtifact,
-    span: StudyArtifactSourceSpan,
-) -> StudyArtifactIssue | None:
+    artifact: LearningArtifact,
+    span: LearningArtifactSourceSpan,
+) -> LearningArtifactIssue | None:
     if (span.start is None) != (span.end is None):
         return _issue(artifact, "invalid_source_span", "span offsets must be paired")
     if span.start is None or span.end is None:
@@ -447,18 +489,18 @@ def _source_span_offset_issue(
 
 
 def _source_span_bounds_issue(
-    artifact: StudyArtifact,
-    span: StudyArtifactSourceSpan,
+    artifact: LearningArtifact,
+    span: LearningArtifactSourceSpan,
     source_text: str,
-) -> StudyArtifactIssue | None:
+) -> LearningArtifactIssue | None:
     if span.end is not None and span.end > len(source_text):
         return _issue(artifact, "invalid_source_span", "span offsets are invalid")
     return None
 
 
-def _review_state_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
+def _review_state_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIssue, ...]:
     state = artifact.review_state
-    issues: list[StudyArtifactIssue] = []
+    issues: list[LearningArtifactIssue] = []
     if state.reviews < 0 or state.lapses < 0:
         issues.append(
             _issue(artifact, "invalid_review_state", "reviews and lapses cannot be negative")
@@ -479,12 +521,12 @@ def _review_state_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, .
 
 
 def _support_issues(
-    artifact: StudyArtifact,
+    artifact: LearningArtifact,
     source_tokens: set[str],
-) -> tuple[StudyArtifactIssue, ...]:
+) -> tuple[LearningArtifactIssue, ...]:
     if not source_tokens:
         return ()
-    issues: list[StudyArtifactIssue] = []
+    issues: list[LearningArtifactIssue] = []
     for label, text in (("answer", artifact.answer), ("content", artifact.content)):
         tokens = _significant_tokens(_CLOZE_RE.sub(lambda match: match.group("text"), text))
         if tokens and len(tokens & source_tokens) / len(tokens) < 0.55:
@@ -508,7 +550,7 @@ def _support_issues(
     return tuple(issues)
 
 
-def _span_matches_source(span: StudyArtifactSourceSpan, source_text: str) -> bool:
+def _span_matches_source(span: LearningArtifactSourceSpan, source_text: str) -> bool:
     normalized_span = _normalized_for_match(span.text)
     if not normalized_span:
         return False
@@ -526,9 +568,9 @@ def _significant_tokens(text: str) -> set[str]:
     }
 
 
-def _artifact_fingerprint(artifact: StudyArtifact) -> str:
+def _artifact_fingerprint(artifact: LearningArtifact) -> str:
     kind = artifact.kind
-    kind_value = kind.value if isinstance(kind, StudyArtifactKind) else str(kind)
+    kind_value = kind.value if isinstance(kind, LearningArtifactKind) else str(kind)
     parts = (
         kind_value,
         _normalized_for_match(artifact.prompt),
@@ -539,7 +581,7 @@ def _artifact_fingerprint(artifact: StudyArtifact) -> str:
     return "\n".join(parts)
 
 
-def _anki_tags(artifact: StudyArtifact) -> tuple[str, ...]:
+def _anki_tags(artifact: LearningArtifact) -> tuple[str, ...]:
     source_tags = tuple(
         span.source_ref.split("#", maxsplit=1)[0] for span in artifact.source_spans
     )
@@ -564,5 +606,5 @@ def _normalized_for_match(text: str) -> str:
     return _clean(text).casefold()
 
 
-def _issue(artifact: StudyArtifact, code: str, message: str) -> StudyArtifactIssue:
-    return StudyArtifactIssue(artifact_id=artifact.artifact_id, code=code, message=message)
+def _issue(artifact: LearningArtifact, code: str, message: str) -> LearningArtifactIssue:
+    return LearningArtifactIssue(artifact_id=artifact.artifact_id, code=code, message=message)

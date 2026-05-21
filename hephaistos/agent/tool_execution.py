@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import TypedDict
 
 from hephaistos._types import is_string_mapping
+from hephaistos.agent.tool_schema import ToolHandlerResult
 from hephaistos.agent.tools import ToolRegistry, ToolResult, default_registry
 from hephaistos.logging import Timer, get_logger
 from hephaistos.runtime import ApiMessage, ToolCallDelta
@@ -64,141 +66,224 @@ def execute_tool_calls(
 ) -> list[ApiMessage]:
     if registry is None:
         registry = default_registry
-    if len(tool_calls) > max_calls:
-        _log.warning(
-            "tool call limit exceeded",
-            extra={"fields": {"requested": len(tool_calls), "max": max_calls}},
-        )
+    _warn_if_tool_call_limit_exceeded(len(tool_calls), max_calls)
 
     results: list[ApiMessage] = []
-    for i, tc in enumerate(tool_calls):
-        call_id = tc.get("id", "")
-        name = tc["function"]["name"]
-        if i >= max_calls:
-            content = (
-                f"Error: tool call limit reached ({max_calls} per turn). "
-                f"Prioritize reading and writing documents. "
-                f"Tool '{name}' was not executed."
-            )
-            results.append(
-                _tool_message(
-                    call_id,
-                    ToolResult(
-                        success=False,
-                        content=content,
-                        metadata={"max_calls": max_calls},
-                        error=content,
-                    ),
-                )
-            )
-            continue
-
-        if registry.is_control_tool(name):
-            results.append(
-                _tool_message(
-                    call_id,
-                    ToolResult(
-                        success=True,
-                        content=f"Control tool handled by agent: {name}",
-                        metadata={"control": True},
-                    ),
-                )
-            )
-            continue
-
-        try:
-            arguments = parse_tool_arguments(tc["function"]["arguments"])
-        except json.JSONDecodeError:
-            _log.warning(
-                "tool call invalid JSON",
-                extra={"fields": {"tool": name, "call_id": call_id}},
-            )
-            content = f"Error: invalid JSON arguments for {name}"
-            results.append(_tool_message(call_id, ToolResult(False, content, error=content)))
-            continue
-
-        arguments.pop("workspace", None)
-        handler = registry.get_handler(name)
-        if handler is None:
-            _log.warning(
-                "unknown tool",
-                extra={"fields": {"tool": name, "call_id": call_id}},
-            )
-            content = f"Unknown tool: {name}"
-            results.append(_tool_message(call_id, ToolResult(False, content, error=content)))
-            continue
-
-        if abort is not None and abort.is_set():
-            result = ToolResult(
-                success=False,
-                content=f"Tool cancelled before execution: {name}",
-                metadata={"tool": name},
-                error="cancelled",
-            )
-            results.append(_tool_message(call_id, result))
-            continue
-
-        timer = Timer()
-        try:
-            with timer:
-                output = handler(workspace=workspace, abort=abort, **arguments)
-                result = (
-                    output if isinstance(output, ToolResult) else ToolResult(True, str(output))
-                )
-        except Exception as exc:
-            result = ToolResult(
-                success=False,
-                content=f"Tool error ({name}): {exc}",
-                metadata={},
-                error=str(exc),
-            )
-            _log.error(
-                "tool execution failed",
-                extra={
-                    "fields": {
-                        "tool": name,
-                        "args": arguments,
-                        "latency_ms": timer.ms,
-                        "error": str(exc),
-                    }
-                },
-            )
-
-        if name == "bash":
-            args_summary: dict[str, object] = {"command": _string_arg(arguments, "command")[:200]}
-        elif name == "write_file":
-            args_summary = {
-                "path": _string_arg(arguments, "path"),
-                "content_len": len(_string_arg(arguments, "content")),
-            }
-        else:
-            args_summary = {
-                key: (str(value)[:100] if isinstance(value, str) and len(value) > 100 else value)
-                for key, value in arguments.items()
-            }
-        _log.info(
-            "tool executed",
-            extra={
-                "fields": {
-                    "tool": name,
-                    "args": args_summary,
-                    "latency_ms": round(timer.ms, 1),
-                    "result_len": len(result.content),
-                    "success": result.success,
-                }
-            },
-        )
-        metadata = dict(result.metadata)
-        metadata.setdefault("tool", name)
-        metadata["latency_ms"] = round(timer.ms, 1)
-        metadata["result_length"] = len(result.content)
+    for index, tool_call in enumerate(tool_calls):
         results.append(
-            _tool_message(
-                call_id, ToolResult(result.success, result.content, metadata, result.error)
+            _execute_tool_call(
+                tool_call,
+                workspace,
+                registry=registry,
+                max_calls=max_calls,
+                index=index,
+                abort=abort,
             )
         )
 
     return results
+
+
+def _warn_if_tool_call_limit_exceeded(requested: int, max_calls: int) -> None:
+    if requested <= max_calls:
+        return
+    _log.warning(
+        "tool call limit exceeded",
+        extra={"fields": {"requested": requested, "max": max_calls}},
+    )
+
+
+def _execute_tool_call(
+    tool_call: ToolCall,
+    workspace: Path,
+    *,
+    registry: ToolRegistry,
+    max_calls: int,
+    index: int,
+    abort: threading.Event | None,
+) -> ApiMessage:
+    call_id = tool_call.get("id", "")
+    name = tool_call["function"]["name"]
+    if index >= max_calls:
+        return _tool_call_limit_message(call_id, name, max_calls)
+    if registry.is_control_tool(name):
+        return _control_tool_message(call_id, name)
+
+    arguments = _parse_tool_call_arguments(tool_call, call_id, name)
+    if arguments is None:
+        return _invalid_json_message(call_id, name)
+
+    arguments.pop("workspace", None)
+    handler = registry.get_handler(name)
+    if handler is None:
+        return _unknown_tool_message(call_id, name)
+    if abort is not None and abort.is_set():
+        return _cancelled_tool_message(call_id, name)
+
+    timer = Timer()
+    result = _run_tool_handler(handler, name, workspace, arguments, timer, abort)
+    _log_tool_result(name, arguments, result, timer.ms)
+    return _timed_tool_message(call_id, name, result, timer.ms)
+
+
+def _tool_call_limit_message(call_id: str, name: str, max_calls: int) -> ApiMessage:
+    content = (
+        f"Error: tool call limit reached ({max_calls} per turn). "
+        f"Prioritize reading and writing documents. "
+        f"Tool '{name}' was not executed."
+    )
+    return _tool_message(
+        call_id,
+        ToolResult(
+            success=False,
+            content=content,
+            metadata={"max_calls": max_calls},
+            error=content,
+        ),
+    )
+
+
+def _control_tool_message(call_id: str, name: str) -> ApiMessage:
+    return _tool_message(
+        call_id,
+        ToolResult(
+            success=True,
+            content=f"Control tool handled by agent: {name}",
+            metadata={"control": True},
+        ),
+    )
+
+
+def _parse_tool_call_arguments(
+    tool_call: ToolCall,
+    call_id: str,
+    name: str,
+) -> dict[str, object] | None:
+    try:
+        return parse_tool_arguments(tool_call["function"]["arguments"])
+    except json.JSONDecodeError:
+        _log.warning(
+            "tool call invalid JSON",
+            extra={"fields": {"tool": name, "call_id": call_id}},
+        )
+        return None
+
+
+def _invalid_json_message(call_id: str, name: str) -> ApiMessage:
+    content = f"Error: invalid JSON arguments for {name}"
+    return _tool_message(call_id, ToolResult(False, content, error=content))
+
+
+def _unknown_tool_message(call_id: str, name: str) -> ApiMessage:
+    _log.warning(
+        "unknown tool",
+        extra={"fields": {"tool": name, "call_id": call_id}},
+    )
+    content = f"Unknown tool: {name}"
+    return _tool_message(call_id, ToolResult(False, content, error=content))
+
+
+def _cancelled_tool_message(call_id: str, name: str) -> ApiMessage:
+    return _tool_message(
+        call_id,
+        ToolResult(
+            success=False,
+            content=f"Tool cancelled before execution: {name}",
+            metadata={"tool": name},
+            error="cancelled",
+        ),
+    )
+
+
+def _run_tool_handler(
+    handler: Callable[..., ToolHandlerResult],
+    name: str,
+    workspace: Path,
+    arguments: dict[str, object],
+    timer: Timer,
+    abort: threading.Event | None,
+) -> ToolResult:
+    try:
+        with timer:
+            output = handler(workspace=workspace, abort=abort, **arguments)
+    except Exception as exc:
+        _log_tool_error(name, arguments, timer.ms, exc)
+        return ToolResult(
+            success=False,
+            content=f"Tool error ({name}): {exc}",
+            metadata={},
+            error=str(exc),
+        )
+    return output if isinstance(output, ToolResult) else ToolResult(True, str(output))
+
+
+def _log_tool_error(
+    name: str,
+    arguments: dict[str, object],
+    latency_ms: float,
+    exc: Exception,
+) -> None:
+    _log.error(
+        "tool execution failed",
+        extra={
+            "fields": {
+                "tool": name,
+                "args": arguments,
+                "latency_ms": latency_ms,
+                "error": str(exc),
+            }
+        },
+    )
+
+
+def _log_tool_result(
+    name: str,
+    arguments: dict[str, object],
+    result: ToolResult,
+    latency_ms: float,
+) -> None:
+    _log.info(
+        "tool executed",
+        extra={
+            "fields": {
+                "tool": name,
+                "args": _tool_args_summary(name, arguments),
+                "latency_ms": round(latency_ms, 1),
+                "result_len": len(result.content),
+                "success": result.success,
+            }
+        },
+    )
+
+
+def _tool_args_summary(name: str, arguments: dict[str, object]) -> dict[str, object]:
+    if name == "bash":
+        return {"command": _string_arg(arguments, "command")[:200]}
+    if name == "write_file":
+        return {
+            "path": _string_arg(arguments, "path"),
+            "content_len": len(_string_arg(arguments, "content")),
+        }
+    return {
+        key: (str(value)[:100] if isinstance(value, str) and len(value) > 100 else value)
+        for key, value in arguments.items()
+    }
+
+
+def _timed_tool_message(
+    call_id: str,
+    name: str,
+    result: ToolResult,
+    latency_ms: float,
+) -> ApiMessage:
+    metadata = dict(result.metadata)
+    metadata.setdefault("tool", name)
+    metadata["latency_ms"] = round(latency_ms, 1)
+    metadata["result_length"] = len(result.content)
+    return _tool_message(
+        call_id,
+        ToolResult(result.success, result.content, metadata, result.error),
+    )
 
 
 def merge_tool_call_deltas(accumulated: list[ToolCall], deltas: list[ToolCallDelta]) -> None:

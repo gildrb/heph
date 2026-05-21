@@ -21,17 +21,26 @@ def is_object_list(value: object) -> TypeGuard[list[object]]:
 
 def parse_json_object_fragment(text: str) -> dict[str, object] | None:
     """Extract a JSON object from plain text or a fenced JSON block."""
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        if stripped.lower().startswith("json"):
-            stripped = stripped[4:].strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end <= start:
+    fragment = _json_object_fragment(_strip_json_fence(text.strip()))
+    if fragment is None:
         return None
     try:
-        parsed: object = json.loads(stripped[start : end + 1])
+        parsed: object = json.loads(fragment)
     except json.JSONDecodeError:
         return None
     return parsed if is_string_mapping(parsed) else None
+
+
+def _strip_json_fence(text: str) -> str:
+    if not text.startswith("```"):
+        return text
+    stripped = text.strip("`").strip()
+    return stripped[4:].strip() if stripped.casefold().startswith("json") else stripped
+
+
+def _json_object_fragment(text: str) -> str | None:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    return text[start : end + 1]

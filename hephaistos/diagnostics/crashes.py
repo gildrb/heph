@@ -108,20 +108,23 @@ def _safe_string(key: str, value: str) -> str | None:
     return redact_text(value)
 
 
+def _key_is_sensitive(key: str) -> bool:
+    lowered = key.lower()
+    return lowered in _DROP_KEYS or any(pattern.search(key) for pattern in _SENSITIVE_KEY_PATTERNS)
+
+
+def _scrub_mapping_field(key: str, value: object) -> object:
+    if _key_is_sensitive(key):
+        return _REDACTED
+    if isinstance(value, str):
+        safe = _safe_string(key.lower(), value)
+        return safe if safe is not None else _REDACTED
+    return _scrub_value(value)
+
+
 def _scrub_value(value: object) -> object:
     if is_string_mapping(value):
-        cleaned: dict[str, object] = {}
-        for key, nested in value.items():
-            lowered = key.lower()
-            if lowered in _DROP_KEYS or any(p.search(key) for p in _SENSITIVE_KEY_PATTERNS):
-                cleaned[key] = _REDACTED
-                continue
-            if isinstance(nested, str):
-                safe = _safe_string(lowered, nested)
-                cleaned[key] = safe if safe is not None else _REDACTED
-            else:
-                cleaned[key] = _scrub_value(nested)
-        return cleaned
+        return {key: _scrub_mapping_field(key, nested) for key, nested in value.items()}
     if is_object_list(value):
         return [_scrub_value(item) for item in value]
     if isinstance(value, str):

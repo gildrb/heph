@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import log
@@ -10,18 +11,20 @@ from typing import TypedDict
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.study.mastery import next_recall_mastery
-from hephaistos.study.state import StudyRecallRating
+from hephaistos.study.state import RecallRating
 
-_SCHEDULE_FILE = "study_schedule.json"
+_RECALL_SCHEDULE_FILE = "recall_schedule.json"
+_LEGACY_RECALL_SCHEDULE_FILE = "study_schedule.json"
 _DEFAULT_DIFFICULTY = 5.0
 _DEFAULT_STABILITY = 1.0
 _MAX_INTERVAL_DAYS = 365
 _DESIRED_RETENTION = 0.9
 _FAST_RECALL_SECONDS = 30
 _SLOW_RECALL_SECONDS = 120
+type _NextActionRule = tuple[Callable[[RecallRating, float, float | None, int | None], bool], str]
 
 
-class StudyItemPayload(TypedDict, total=False):
+class RecallItemPayload(TypedDict, total=False):
     item: str
     concept: str
     retrieval_query: str
@@ -60,7 +63,13 @@ class PolicyMoveStatsPayload(TypedDict):
 
 
 @dataclass(slots=True)
-class StudyItemState:
+class _SchedulePayload:
+    items: dict[str, RecallItemState]
+    policy_stats: dict[str, PolicyMoveStats]
+
+
+@dataclass(slots=True)
+class RecallItemState:
     item: str
     concept: str = ""
     retrieval_query: str = ""
@@ -70,7 +79,7 @@ class StudyItemState:
     difficulty: float = _DEFAULT_DIFFICULTY
     stability: float = _DEFAULT_STABILITY
     last_recall_seconds: int | None = None
-    last_rating: StudyRecallRating = StudyRecallRating.NONE
+    last_rating: RecallRating = RecallRating.NONE
     last_correct: bool = False
     last_confidence: float | None = None
     last_retrieval_success: bool = False
@@ -102,8 +111,8 @@ class StudyItemState:
         refs = "|".join(self.source_refs or [])
         return f"{self.retrieval_query or self.item}:{refs}"
 
-    def to_dict(self) -> StudyItemPayload:
-        payload: StudyItemPayload = {
+    def to_dict(self) -> RecallItemPayload:
+        payload: RecallItemPayload = {
             "item": self.item,
             "concept": self.concept,
             "retrieval_query": self.retrieval_query,
@@ -125,28 +134,17 @@ class StudyItemState:
             "next_best_action": self.next_best_action,
             "exam_importance": self.exam_importance,
         }
-        if self.last_recall_seconds is not None:
-            payload["last_recall_seconds"] = self.last_recall_seconds
-        if self.last_confidence is not None:
-            payload["last_confidence"] = self.last_confidence
-        if self.calibration_gap is not None:
-            payload["calibration_gap"] = self.calibration_gap
-        if self.hint_level_needed is not None:
-            payload["hint_level_needed"] = self.hint_level_needed
-        if self.last_review is not None:
-            payload["last_review"] = self.last_review.isoformat()
-        if self.next_review is not None:
-            payload["next_review"] = self.next_review.isoformat()
+        payload.update(_optional_recall_item_payload(self))
         return payload
 
     @classmethod
-    def from_dict(cls, data: dict[str, object]) -> StudyItemState:
+    def from_dict(cls, data: dict[str, object]) -> RecallItemState:
         refs = _string_list(data.get("source_refs"))
         raw_rating = data.get("last_rating", "")
-        rating = StudyRecallRating.NONE
+        rating = RecallRating.NONE
         if isinstance(raw_rating, str):
             with contextlib.suppress(ValueError):
-                rating = StudyRecallRating(raw_rating)
+                rating = RecallRating(raw_rating)
         raw_seconds = data.get("last_recall_seconds")
         raw_hint_level = data.get("hint_level_needed")
         return cls(
@@ -160,7 +158,7 @@ class StudyItemState:
             stability=_float_or(data.get("stability"), _DEFAULT_STABILITY),
             last_recall_seconds=raw_seconds if isinstance(raw_seconds, int) else None,
             last_rating=rating,
-            last_correct=_bool_or(data.get("last_correct"), rating is StudyRecallRating.EASY),
+            last_correct=_bool_or(data.get("last_correct"), rating is RecallRating.EASY),
             last_confidence=_optional_bounded_float(data.get("last_confidence"), 0.0, 1.0),
             last_retrieval_success=_bool_or(data.get("last_retrieval_success"), bool(refs)),
             last_transfer_success=_bool_or(data.get("last_transfer_success"), False),
@@ -179,6 +177,35 @@ class StudyItemState:
             last_review=_parse_datetime(data.get("last_review")),
             next_review=_parse_datetime(data.get("next_review")),
         )
+
+
+def _optional_recall_item_payload(state: RecallItemState) -> RecallItemPayload:
+    return {
+        **_optional_recall_metrics_payload(state),
+        **_optional_recall_dates_payload(state),
+    }
+
+
+def _optional_recall_metrics_payload(state: RecallItemState) -> RecallItemPayload:
+    payload: RecallItemPayload = {}
+    if state.last_recall_seconds is not None:
+        payload["last_recall_seconds"] = state.last_recall_seconds
+    if state.last_confidence is not None:
+        payload["last_confidence"] = state.last_confidence
+    if state.calibration_gap is not None:
+        payload["calibration_gap"] = state.calibration_gap
+    if state.hint_level_needed is not None:
+        payload["hint_level_needed"] = state.hint_level_needed
+    return payload
+
+
+def _optional_recall_dates_payload(state: RecallItemState) -> RecallItemPayload:
+    payload: RecallItemPayload = {}
+    if state.last_review is not None:
+        payload["last_review"] = state.last_review.isoformat()
+    if state.next_review is not None:
+        payload["next_review"] = state.next_review.isoformat()
+    return payload
 
 
 @dataclass(slots=True)
@@ -220,59 +247,47 @@ class PolicyMoveStats:
         )
 
 
-class StudyScheduleStore:
+class RecallScheduleStore:
     def __init__(self, armory_path: Path) -> None:
         self.armory_path = armory_path
-        self.items: dict[str, StudyItemState] = {}
+        self.items: dict[str, RecallItemState] = {}
         self.policy_stats: dict[str, PolicyMoveStats] = {}
         self._dirty = False
 
     @property
     def _path(self) -> Path:
-        return self.armory_path / ".hephaistos" / _SCHEDULE_FILE
+        return self.armory_path / ".hephaistos" / _RECALL_SCHEDULE_FILE
 
     @property
-    def item_list(self) -> list[StudyItemState]:
+    def _legacy_path(self) -> Path:
+        return self.armory_path / ".hephaistos" / _LEGACY_RECALL_SCHEDULE_FILE
+
+    @property
+    def _read_path(self) -> Path:
+        return self._path if self._path.is_file() else self._legacy_path
+
+    @property
+    def item_list(self) -> list[RecallItemState]:
         return list(self.items.values())
 
-    def due_items(self, *, now: datetime | None = None, limit: int = 0) -> list[StudyItemState]:
+    def due_items(self, *, now: datetime | None = None, limit: int = 0) -> list[RecallItemState]:
         current_time = now or datetime.now(UTC)
         due = sorted(
-            (
-                item
-                for item in self.items.values()
-                if item.next_review is not None and item.next_review <= current_time
-            ),
-            key=lambda item: (
-                item.next_review or current_time,
-                -item.exam_importance,
-                -item.failures,
-                -item.difficulty,
-            ),
+            _due_recall_items(self.items.values(), current_time),
+            key=lambda item: _due_item_sort_key(item, current_time),
         )
         return due[:limit] if limit > 0 else due
 
     def load(self) -> bool:
-        if not self._path.is_file():
+        path = self._read_path
+        if not path.is_file():
             return False
         with contextlib.suppress(json.JSONDecodeError, OSError):
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-            if not is_string_mapping(raw):
+            payload = _schedule_payload(json.loads(path.read_text(encoding="utf-8")))
+            if payload is None:
                 return False
-            raw_items = raw.get("items", {})
-            if is_string_mapping(raw_items):
-                self.items = {
-                    key: StudyItemState.from_dict(value)
-                    for key, value in raw_items.items()
-                    if is_string_mapping(value)
-                }
-            raw_policy_stats = raw.get("policy_stats", {})
-            if is_string_mapping(raw_policy_stats):
-                self.policy_stats = {
-                    key: PolicyMoveStats.from_dict(value)
-                    for key, value in raw_policy_stats.items()
-                    if is_string_mapping(value)
-                }
+            self.items = payload.items
+            self.policy_stats = payload.policy_stats
             return True
         return False
 
@@ -297,7 +312,7 @@ class StudyScheduleStore:
         concept: str = "",
         retrieval_query: str,
         source_refs: list[str],
-        rating: StudyRecallRating,
+        rating: RecallRating,
         elapsed_seconds: int | None,
         confidence: float | None = None,
         hint_level_needed: int | None = None,
@@ -307,7 +322,7 @@ class StudyScheduleStore:
         intervention: str = "",
         exam_importance: float = 0.0,
         now: datetime | None = None,
-    ) -> StudyItemState:
+    ) -> RecallItemState:
         current_time = now or datetime.now(UTC)
         state = self._review_state(
             item=item,
@@ -317,16 +332,13 @@ class StudyScheduleStore:
             error_type=error_type,
             exam_importance=exam_importance,
         )
-
-        state.reviews += 1
-        state.last_rating = rating
-        state.last_correct = rating in {StudyRecallRating.EASY, StudyRecallRating.GOOD}
-        if not state.last_correct:
-            state.failures += 1
-        state.last_recall_seconds = elapsed_seconds
-        state.last_confidence = confidence
-        state.last_retrieval_success = (
-            bool(source_refs) if retrieval_success is None else retrieval_success
+        _record_recall_result(
+            state,
+            rating=rating,
+            elapsed_seconds=elapsed_seconds,
+            confidence=confidence,
+            source_refs=source_refs,
+            retrieval_success=retrieval_success,
         )
         state.last_transfer_success = _transfer_success(
             item,
@@ -370,9 +382,9 @@ class StudyScheduleStore:
         source_refs: list[str],
         error_type: str,
         exam_importance: float,
-    ) -> StudyItemState:
+    ) -> RecallItemState:
         bounded_exam_importance = _clamp(exam_importance, 0.0, 1.0)
-        state = StudyItemState(
+        state = RecallItemState(
             item=item,
             concept=concept,
             retrieval_query=retrieval_query,
@@ -415,14 +427,64 @@ class StudyScheduleStore:
         return stats
 
 
-def load_study_schedule(armory_path: Path) -> StudyScheduleStore:
-    store = StudyScheduleStore(armory_path)
+def load_recall_schedule(armory_path: Path) -> RecallScheduleStore:
+    store = RecallScheduleStore(armory_path)
     store.load()
     return store
 
 
-def save_study_schedule(store: StudyScheduleStore) -> Path:
+def save_recall_schedule(store: RecallScheduleStore) -> Path:
     return store.save() if store._dirty else store._path
+
+
+def _due_recall_items(
+    items: Iterable[RecallItemState],
+    current_time: datetime,
+) -> list[RecallItemState]:
+    return [
+        item for item in items if item.next_review is not None and item.next_review <= current_time
+    ]
+
+
+def _due_item_sort_key(
+    item: RecallItemState,
+    current_time: datetime,
+) -> tuple[datetime, float, int, float]:
+    return (
+        item.next_review or current_time,
+        -item.exam_importance,
+        -item.failures,
+        -item.difficulty,
+    )
+
+
+def _schedule_payload(raw: object) -> _SchedulePayload | None:
+    if not is_string_mapping(raw):
+        return None
+    return _SchedulePayload(
+        items=_schedule_items(raw.get("items", {})),
+        policy_stats=_policy_stats(raw.get("policy_stats", {})),
+    )
+
+
+def _schedule_items(raw_items: object) -> dict[str, RecallItemState]:
+    if not is_string_mapping(raw_items):
+        return {}
+    return {
+        key: RecallItemState.from_dict(value)
+        for key, value in raw_items.items()
+        if is_string_mapping(value)
+    }
+
+
+def _policy_stats(raw_policy_stats: object) -> dict[str, PolicyMoveStats]:
+    if not is_string_mapping(raw_policy_stats):
+        return {}
+    return {
+        key: PolicyMoveStats.from_dict(value)
+        for key, value in raw_policy_stats.items()
+        if is_string_mapping(value)
+    }
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -501,58 +563,147 @@ def _transfer_success(
 
 
 def _record_error_and_intervention(
-    state: StudyItemState,
+    state: RecallItemState,
     *,
     error_type: str,
     intervention: str,
 ) -> None:
-    state.common_errors = state.common_errors or []
-    state.successful_interventions = state.successful_interventions or []
-    state.failed_interventions = state.failed_interventions or []
-    if error_type and error_type not in {"", "none", "correct"} and not state.last_correct:
+    _ensure_review_lists(state)
+    if _recordable_error(error_type, correct=state.last_correct):
+        assert state.common_errors is not None
         _append_unique(state.common_errors, error_type)
     if not intervention:
         return
+    _append_unique(_intervention_bucket(state), intervention)
+
+
+def _record_recall_result(
+    state: RecallItemState,
+    *,
+    rating: RecallRating,
+    elapsed_seconds: int | None,
+    confidence: float | None,
+    source_refs: list[str],
+    retrieval_success: bool | None,
+) -> None:
+    state.reviews += 1
+    state.last_rating = rating
+    state.last_correct = rating in {RecallRating.EASY, RecallRating.GOOD}
+    if not state.last_correct:
+        state.failures += 1
+    state.last_recall_seconds = elapsed_seconds
+    state.last_confidence = confidence
+    state.last_retrieval_success = (
+        bool(source_refs) if retrieval_success is None else retrieval_success
+    )
+
+
+def _ensure_review_lists(state: RecallItemState) -> None:
+    state.common_errors = state.common_errors or []
+    state.successful_interventions = state.successful_interventions or []
+    state.failed_interventions = state.failed_interventions or []
+
+
+def _recordable_error(error_type: str, *, correct: bool) -> bool:
+    return bool(error_type) and error_type not in {"", "none", "correct"} and not correct
+
+
+def _intervention_bucket(state: RecallItemState) -> list[str]:
     if state.last_correct:
-        _append_unique(state.successful_interventions, intervention)
-    else:
-        _append_unique(state.failed_interventions, intervention)
+        assert state.successful_interventions is not None
+        return state.successful_interventions
+    assert state.failed_interventions is not None
+    return state.failed_interventions
 
 
 def _next_best_action(
-    rating: StudyRecallRating,
+    rating: RecallRating,
     *,
     mastery: float,
     confidence: float | None,
     hint_level_needed: int | None,
 ) -> str:
-    high_confidence_gap = confidence is not None and confidence >= 0.75 and mastery < 0.55
-    if high_confidence_gap:
-        return "contrastive_question"
-    if rating is StudyRecallRating.HARD and hint_level_needed is None:
-        return "give_hint"
-    if rating is StudyRecallRating.HARD:
-        return "prerequisite_repair"
-    if rating is StudyRecallRating.GOOD and mastery < 0.75:
-        return "ask_recall"
-    if rating is StudyRecallRating.EASY and confidence is not None and confidence >= 0.75:
-        return "move_to_harder_question"
-    if rating is StudyRecallRating.EASY:
-        return "interleave_related_topic"
+    for rule, action in _NEXT_ACTION_RULES:
+        if rule(rating, mastery, confidence, hint_level_needed):
+            return action
     return "ask_recall"
 
 
+def _has_high_confidence_gap(
+    _rating: RecallRating,
+    mastery: float,
+    confidence: float | None,
+    _hint_level_needed: int | None,
+) -> bool:
+    return confidence is not None and confidence >= 0.75 and mastery < 0.55
+
+
+def _needs_hint(
+    rating: RecallRating,
+    _mastery: float,
+    _confidence: float | None,
+    hint: int | None,
+) -> bool:
+    return rating is RecallRating.HARD and hint is None
+
+
+def _needs_prerequisite_repair(
+    rating: RecallRating,
+    _mastery: float,
+    _confidence: float | None,
+    _hint_level_needed: int | None,
+) -> bool:
+    return rating is RecallRating.HARD
+
+
+def _needs_recall(
+    rating: RecallRating,
+    mastery: float,
+    _confidence: float | None,
+    _hint: int | None,
+) -> bool:
+    return rating is RecallRating.GOOD and mastery < 0.75
+
+
+def _ready_for_harder_question(
+    rating: RecallRating,
+    _mastery: float,
+    confidence: float | None,
+    _hint_level_needed: int | None,
+) -> bool:
+    return rating is RecallRating.EASY and confidence is not None and confidence >= 0.75
+
+
+def _ready_for_interleaving(
+    rating: RecallRating,
+    _mastery: float,
+    _confidence: float | None,
+    _hint_level_needed: int | None,
+) -> bool:
+    return rating is RecallRating.EASY
+
+
+_NEXT_ACTION_RULES: tuple[_NextActionRule, ...] = (
+    (_has_high_confidence_gap, "contrastive_question"),
+    (_needs_hint, "give_hint"),
+    (_needs_prerequisite_repair, "prerequisite_repair"),
+    (_needs_recall, "ask_recall"),
+    (_ready_for_harder_question, "move_to_harder_question"),
+    (_ready_for_interleaving, "interleave_related_topic"),
+)
+
+
 def _next_difficulty_and_stability(
-    state: StudyItemState,
+    state: RecallItemState,
     *,
-    rating: StudyRecallRating,
+    rating: RecallRating,
     elapsed_seconds: int | None,
 ) -> tuple[float, float]:
     difficulty_delta = {
-        StudyRecallRating.EASY: -0.45,
-        StudyRecallRating.GOOD: -0.15,
-        StudyRecallRating.HARD: 0.65,
-        StudyRecallRating.NONE: 0.0,
+        RecallRating.EASY: -0.45,
+        RecallRating.GOOD: -0.15,
+        RecallRating.HARD: 0.65,
+        RecallRating.NONE: 0.0,
     }[rating]
     speed_factor = 1.0
     if elapsed_seconds is not None and elapsed_seconds <= _FAST_RECALL_SECONDS:
@@ -562,10 +713,10 @@ def _next_difficulty_and_stability(
         difficulty_delta += 0.25
         speed_factor = 0.75
     stability_multiplier = {
-        StudyRecallRating.EASY: 2.6,
-        StudyRecallRating.GOOD: 1.8,
-        StudyRecallRating.HARD: 0.6,
-        StudyRecallRating.NONE: 1.0,
+        RecallRating.EASY: 2.6,
+        RecallRating.GOOD: 1.8,
+        RecallRating.HARD: 0.6,
+        RecallRating.NONE: 1.0,
     }[rating]
     difficulty = _clamp(round(state.difficulty + difficulty_delta, 3), 1.0, 10.0)
     stability = _clamp(
@@ -576,10 +727,10 @@ def _next_difficulty_and_stability(
     return difficulty, stability
 
 
-def _review_interval(rating: StudyRecallRating, stability: float) -> timedelta:
-    if rating is StudyRecallRating.HARD:
+def _review_interval(rating: RecallRating, stability: float) -> timedelta:
+    if rating is RecallRating.HARD:
         return timedelta(days=1)
-    if rating is StudyRecallRating.NONE:
+    if rating is RecallRating.NONE:
         return timedelta(0)
     retention = _clamp(_DESIRED_RETENTION, 0.7, 0.99)
     days = stability * log(retention) / log(0.9)

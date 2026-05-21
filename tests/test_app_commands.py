@@ -8,7 +8,7 @@ import pytest
 
 import hephaistos.commands.display as _commands_display
 import hephaistos.commands.model as _commands_model
-import hephaistos.commands.study as _commands_study
+import hephaistos.commands.study as _learning_commands
 import hephaistos.providers.model_choices as _model_choices
 from hephaistos import commands
 from hephaistos.armory.storage import initialize
@@ -21,9 +21,9 @@ from hephaistos.providers.registry import ModelInfo
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 from hephaistos.runtime import ChatConfig, Conversation
-from hephaistos.study import StudyAutonomyMode, StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study import LearningFeedbackType, LearningPhase, RecallRating
 from hephaistos.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
-from hephaistos.study.schedule import load_study_schedule
+from hephaistos.study.schedule import load_recall_schedule
 from hephaistos.terminal import MenuOption
 from hephaistos.terminal.source_open import SourceOpenResult
 
@@ -94,90 +94,10 @@ def test_command_registry_includes_exam_and_priority() -> None:
 
     assert registry.find("exam") is not None
     assert registry.find("priority") is not None
-    assert registry.find("mode") is not None
-    assert registry.find("autopilot") is not None
+    assert registry.find("mode") is None
+    assert registry.find("autopilot") is None
     assert "exam" in names
     assert "priority" in names
-    assert "mode" in names
-    assert "autopilot" in names
-
-
-def test_mode_command_updates_study_autonomy(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    result = commands.ModeCommand().handle(session, "manual")
-
-    out = capsys.readouterr().out
-    assert result.output is None
-    assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
-    assert session.dirty is True
-    assert "manual" in out
-
-
-def test_mode_autopilot_starts_immediate_session(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    result = commands.ModeCommand().handle(session, "autopilot")
-
-    out = capsys.readouterr().out
-    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-    assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "guided material review"
-    assert session.study_state.autopilot_started_at is not None
-    assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot session")
-    assert "internal planning labels" not in result.output
-    assert "autopilot" in out
-
-
-def test_autopilot_exam_command_sets_bounded_session(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    result = commands.AutopilotCommand().handle(session, "exam 45m")
-
-    out = capsys.readouterr().out
-    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-    assert session.study_state.autopilot_session_type == "exam"
-    assert session.study_state.time_budget_minutes == 45
-    assert session.study_state.session_goal == "exam preparation"
-    assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot session")
-    assert "confidence from 0-100%" in result.output
-    assert "45 minute" in out
-
-
-def test_autopilot_without_args_starts_general_session(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    result = commands.AutopilotCommand().handle(session, "")
-
-    out = capsys.readouterr().out
-    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-    assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "guided material review"
-    assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot session")
-    assert "confidence from 0-100%" in result.output
-    assert "Drive the session yourself" in result.output
-    assert "Autopilot general session started" in out
-
-
-def test_autopilot_off_returns_to_manual(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-    commands.AutopilotCommand().handle(session, "exam 30m")
-
-    result = commands.AutopilotCommand().handle(session, "off")
-
-    out = capsys.readouterr().out
-    assert result.output is None
-    assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
-    assert session.study_state.autopilot_session_type == ""
-    assert session.study_state.time_budget_minutes is None
-    assert "Autopilot off" in out
 
 
 def test_import_command_refreshes_running_session_sources(tmp_path: Path) -> None:
@@ -283,8 +203,8 @@ def test_priority_command_prints_local_priority_scan(
         "Explain Dijkstra shortest paths. [10 marks]\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(_commands_study, "_priority_output_dir", lambda: tmp_path / "Downloads")
-    original_generate_priority_report = _commands_study.generate_priority_report
+    monkeypatch.setattr(_learning_commands, "_priority_output_dir", lambda: tmp_path / "Downloads")
+    original_generate_priority_report = _learning_commands.generate_priority_report
 
     def generate_test_priority_report(
         analysis: PriorityAnalysis,
@@ -307,7 +227,7 @@ def test_priority_command_prints_local_priority_scan(
         )
 
     monkeypatch.setattr(
-        _commands_study,
+        _learning_commands,
         "generate_priority_report",
         generate_test_priority_report,
     )
@@ -370,14 +290,14 @@ def test_memory_status_reports_local_memory(capsys: pytest.CaptureFixture[str]) 
     assert "Entries:" in out
 
 
-def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]) -> None:
+def test_recommend_command_lists_recommended_models(capsys: pytest.CaptureFixture[str]) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
     commands.RecommendCommand().handle(session, "")
 
     out = capsys.readouterr().out
     assert "Model picks" in out
-    assert "study" in out
+    assert "recommended" in out
 
 
 def test_command_registry_uses_sessions_for_saved_chat_switching() -> None:
@@ -446,18 +366,18 @@ def test_stats_command_reports_study_recall_timing(
         session_id="study-stats",
         armory_path=armory,
     )
-    session.study_state.phase = StudyPhase.RECALL
-    session.study_state.current_item = "Q1"
-    session.study_state.attempt_count = 2
-    session.study_state.last_feedback_type = StudyFeedbackType.PARTIAL
-    session.study_state.last_recall_seconds = 75
-    session.study_state.last_recall_rating = StudyRecallRating.HARD
-    store = load_study_schedule(armory)
+    session.learning_state.phase = LearningPhase.RECALL
+    session.learning_state.current_item = "Q1"
+    session.learning_state.attempt_count = 2
+    session.learning_state.last_feedback_type = LearningFeedbackType.PARTIAL
+    session.learning_state.last_recall_seconds = 75
+    session.learning_state.last_recall_rating = RecallRating.HARD
+    store = load_recall_schedule(armory)
     store.record_review(
         "Q1",
         retrieval_query="Q1",
         source_refs=["materials/exam.md#chunk=0"],
-        rating=StudyRecallRating.HARD,
+        rating=RecallRating.HARD,
         elapsed_seconds=75,
     )
     store.save()
@@ -465,7 +385,7 @@ def test_stats_command_reports_study_recall_timing(
     commands.StatsCommand().handle(session, "")
 
     out = capsys.readouterr().out
-    assert "Learning mode:" in out
+    assert "Learning state:" in out
     assert "Recall:    1m 15s" in out
     assert "Effort:    hard" in out
     assert "Scheduled: 1 item(s)" in out
@@ -483,12 +403,12 @@ def test_remind_command_reports_due_study_items_without_vocab(
         session_id="remind-study",
         armory_path=armory,
     )
-    store = load_study_schedule(armory)
+    store = load_recall_schedule(armory)
     store.record_review(
         "Explain Dijkstra",
         retrieval_query="dijkstra",
         source_refs=["materials/exam.md#chunk=0"],
-        rating=StudyRecallRating.HARD,
+        rating=RecallRating.HARD,
         elapsed_seconds=160,
         concept="Dijkstra shortest paths",
         error_type="misconception",

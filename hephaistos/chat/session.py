@@ -7,7 +7,7 @@ import contextlib
 import os
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +17,7 @@ from hephaistos.agent.steering import Steering
 from hephaistos.agent.tools import ToolRegistry, default_registry
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.events import TurnEvent, render_turn_event
 from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
 from hephaistos.diagnostics.crashes import set_session_context
@@ -27,9 +28,17 @@ from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
 from hephaistos.rag.health import ExtractionHealthIssue, scan_extraction_health
 from hephaistos.runtime import ChatConfig, Conversation, Message
-from hephaistos.study import StudyState
+from hephaistos.study import LearningState
 
 _log = get_logger("chat.session")
+_LEGACY_LEARNING_STATE_KEY = "study_state"
+
+
+@dataclass(frozen=True, slots=True)
+class _SessionArmoryContext:
+    source_file_count: int
+    source_files: list[str]
+    disabled_source_files: set[str]
 
 
 @dataclass
@@ -59,7 +68,7 @@ class ChatSession:
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(init=False, repr=False)
     steering: Steering = field(default_factory=Steering, init=False, repr=False)
-    study_state: StudyState = field(default_factory=StudyState)
+    learning_state: LearningState = field(default_factory=LearningState)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
@@ -105,8 +114,7 @@ class SessionError(Exception):
 
 
 _SYSTEM_PROMPT_FALLBACK = (
-    "Heph. A recall practice engine.\n"
-    "You need an armory with materials for source-grounded answers. No armory is attached.\n"
+    "No armory is attached.\n"
     "Tell the user to create one: run `heph armory init <path>` or type /armory. "
     "Say nothing else."
 )
@@ -152,13 +160,34 @@ def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
     return len(names), names
 
 
+def _armory_context(
+    armory_path: Path,
+    metadata: Mapping[str, object] | None = None,
+) -> _SessionArmoryContext:
+    source_file_count, source_files = _scan_source_files(armory_path)
+    return _SessionArmoryContext(
+        source_file_count=source_file_count,
+        source_files=source_files,
+        disabled_source_files=_active_disabled_sources(
+            metadata.get("disabled_source_files") if metadata else None,
+            source_files,
+        ),
+    )
+
+
+def _active_disabled_sources(raw_disabled: object, source_files: list[str]) -> set[str]:
+    if not isinstance(raw_disabled, list):
+        return set()
+    return {item for item in raw_disabled if isinstance(item, str)} & set(source_files)
+
+
 def refresh_armory_sources(session: ChatSession) -> None:
     if session.armory_path is None:
         return
-    source_file_count, source_files = _scan_source_files(session.armory_path)
-    session.source_file_count = source_file_count
-    session.source_files = tuple(source_files)
-    session.disabled_source_files &= set(source_files)
+    context = _armory_context(session.armory_path)
+    session.source_file_count = context.source_file_count
+    session.source_files = tuple(context.source_files)
+    session.disabled_source_files &= set(context.source_files)
     session.rag_index = None
     _replace_system_prompt(session)
 
@@ -166,20 +195,8 @@ def refresh_armory_sources(session: ChatSession) -> None:
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     registry = default_registry.child()
     tools_dir = armory_path / ".hephaistos" / "tools"
-    raw_trust = os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "")
-    if raw_trust.strip().lower() not in _TRUTHY_ENV_VALUES:
-        if tools_dir.is_dir() and any(
-            path.is_file() and not path.name.startswith("_") for path in tools_dir.glob("*.py")
-        ):
-            _log.warning(
-                "armory tools skipped; explicit trust not enabled",
-                extra={
-                    "fields": {
-                        "armory": str(armory_path),
-                        "env": ARMORY_PLUGINS_TRUST_ENV,
-                    }
-                },
-            )
+    if not _armory_plugins_trusted():
+        _warn_untrusted_armory_plugins(armory_path, tools_dir)
         return registry
 
     loaded = registry.load_plugins(tools_dir)
@@ -189,6 +206,29 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
             extra={"fields": {"armory": str(armory_path), "plugins": loaded}},
         )
     return registry
+
+
+def _armory_plugins_trusted() -> bool:
+    return os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _warn_untrusted_armory_plugins(armory_path: Path, tools_dir: Path) -> None:
+    has_plugins = any(_is_visible_plugin_file(path) for path in tools_dir.glob("*.py"))
+    if not tools_dir.is_dir() or not has_plugins:
+        return
+    _log.warning(
+        "armory tools skipped; explicit trust not enabled",
+        extra={
+            "fields": {
+                "armory": str(armory_path),
+                "env": ARMORY_PLUGINS_TRUST_ENV,
+            }
+        },
+    )
+
+
+def _is_visible_plugin_file(path: Path) -> bool:
+    return path.is_file() and not path.name.startswith("_")
 
 
 def _build_plain_system_prompt() -> str:
@@ -208,21 +248,7 @@ def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthI
 
 
 def _replace_system_prompt(session: ChatSession) -> None:
-    if session.armory_path is None:
-        new_prompt = _build_plain_system_prompt()
-    else:
-        source_files = _scan_source_files(session.armory_path)[1]
-        memory_ctx = ""
-        with contextlib.suppress(Exception):
-            memory_ctx = load_memory(session.armory_path).build_system_context()
-        unindexable = scan_unindexable_files(session.armory_path)
-        new_prompt = build_system_prompt(
-            armory_path=session.armory_path,
-            source_files=source_files or None,
-            unindexable_files=unindexable or None,
-            extraction_health_issues=_scan_extraction_health_issues(session.armory_path),
-            memory_context=memory_ctx,
-        )
+    new_prompt = _system_prompt_for_session(session)
     for msg in session.conversation.messages:
         if msg.role == "system" and not msg.content.startswith("[Conversation summary]"):
             msg.content = new_prompt
@@ -232,6 +258,32 @@ def _replace_system_prompt(session: ChatSession) -> None:
 
 
 replace_system_prompt = _replace_system_prompt
+
+
+def _system_prompt_for_session(session: ChatSession) -> str:
+    if session.armory_path is None:
+        return _build_plain_system_prompt()
+    return _armory_system_prompt(session.armory_path)
+
+
+def _armory_system_prompt(armory_path: Path, source_files: list[str] | None = None) -> str:
+    material_files = (
+        source_files if source_files is not None else _scan_source_files(armory_path)[1]
+    )
+    unindexable = scan_unindexable_files(armory_path)
+    return build_system_prompt(
+        armory_path=armory_path,
+        source_files=material_files or None,
+        unindexable_files=unindexable or None,
+        extraction_health_issues=_scan_extraction_health_issues(armory_path),
+        memory_context=_memory_system_context(armory_path),
+    )
+
+
+def _memory_system_context(armory_path: Path) -> str:
+    with contextlib.suppress(Exception):
+        return load_memory(armory_path).build_system_context()
+    return ""
 
 
 def create_plain_session(config: ChatConfig) -> ChatSession:
@@ -261,44 +313,29 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     if armory_path is None:
         raise SessionError("An armory is required. Create one with: heph armory init <path>")
 
-    source_file_count, source_files = _scan_source_files(armory_path)
-    if source_file_count == 0:
+    context = _armory_context(armory_path)
+    if context.source_file_count == 0:
         raise SessionError(empty_armory_guidance(armory_path))
 
     conversation = Conversation()
-    memory_ctx = ""
-    with contextlib.suppress(Exception):
-        memory_ctx = load_memory(armory_path).build_system_context()
-    conversation.add(
-        "system",
-        build_system_prompt(
-            armory_path=armory_path,
-            source_files=source_files,
-            unindexable_files=scan_unindexable_files(armory_path),
-            extraction_health_issues=_scan_extraction_health_issues(armory_path),
-            memory_context=memory_ctx,
-        ),
-    )
+    conversation.add("system", _armory_system_prompt(armory_path, context.source_files))
 
     session = ChatSession(
         config=config,
         conversation=conversation,
         session_id=chat_storage.new_session_id(),
         armory_path=armory_path,
-        source_file_count=source_file_count,
-        source_files=tuple(source_files),
+        source_file_count=context.source_file_count,
+        source_files=tuple(context.source_files),
     )
-    session.configure_armory_context(
-        memory=load_memory(armory_path),
-        tool_registry=_load_armory_tools(armory_path),
-    )
+    _configure_session_armory_context(session, armory_path)
     _log.info(
         "session created",
         extra={
             "fields": {
                 "session_id": session.session_id,
                 "armory": str(armory_path),
-                "source_files": source_file_count,
+                "source_files": context.source_file_count,
                 "model": config.model,
                 "memory_entries": len(session.memory.entries) if session.memory else 0,
                 "tools": len(session.tool_registry.schemas),
@@ -316,7 +353,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         "session_created",
         {
             "mode": "armory",
-            "source_file_count": source_file_count,
+            "source_file_count": context.source_file_count,
             "model": config.model,
         },
     )
@@ -326,41 +363,24 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
 def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> ChatSession:
     conversation, title = chat_storage.load(armory_path, session_id)
     metadata = chat_storage.load_metadata(armory_path, session_id)
-    source_file_count, source_files = _scan_source_files(armory_path)
+    context = _armory_context(armory_path, metadata)
     now = datetime.now(UTC)
-    disabled = metadata.get("disabled_source_files")
-    active_sources = set(source_files)
-    disabled_source_files = (
-        {item for item in disabled if isinstance(item, str)} & active_sources
-        if isinstance(disabled, list)
-        else set()
-    )
-    raw_started_at = metadata.get("started_at")
-    started_at = now
-    if isinstance(raw_started_at, str):
-        with contextlib.suppress(ValueError):
-            parsed = datetime.fromisoformat(raw_started_at)
-            started_at = (
-                parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
-            )
+    started_at = _metadata_datetime(metadata, "started_at") or now
     session = ChatSession(
         config=config,
         conversation=conversation,
         session_id=session_id,
         title=title,
         armory_path=armory_path,
-        source_file_count=source_file_count,
-        source_files=tuple(source_files),
-        study_state=StudyState.from_dict(metadata.get("study_state")),
-        disabled_source_files=disabled_source_files,
+        source_file_count=context.source_file_count,
+        source_files=tuple(context.source_files),
+        learning_state=LearningState.from_dict(_session_learning_state_payload(metadata)),
+        disabled_source_files=context.disabled_source_files,
         started_at=started_at,
         resumed_at=now,
         last_activity_at=now,
     )
-    session.configure_armory_context(
-        memory=load_memory(armory_path),
-        tool_registry=_load_armory_tools(armory_path),
-    )
+    _configure_session_armory_context(session, armory_path)
     replace_system_prompt(session)
     _log.info(
         "session resumed",
@@ -391,6 +411,30 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     return session
 
 
+def _configure_session_armory_context(session: ChatSession, armory_path: Path) -> None:
+    session.configure_armory_context(
+        memory=load_memory(armory_path),
+        tool_registry=_load_armory_tools(armory_path),
+    )
+
+
+def _metadata_datetime(metadata: Mapping[str, object], key: str) -> datetime | None:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    with contextlib.suppress(ValueError):
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    return None
+
+
+def _session_learning_state_payload(metadata: Mapping[str, object]) -> object:
+    current_payload = metadata.get("learning_state")
+    if current_payload is not None:
+        return current_payload
+    return metadata.get(_LEGACY_LEARNING_STATE_KEY)
+
+
 def session_has_messages(session: ChatSession) -> bool:
     return any(message.role != "system" for message in session.conversation.messages)
 
@@ -409,36 +453,56 @@ def send_user_message(
     being written to ``sys.stdout``. This keeps backward compatibility with
     callers that still rely on stdout behaviour.
     """
-    from hephaistos.chat.events import render_turn_event
     from hephaistos.chat.orchestrator import TurnOrchestrator
 
     session.mark_activity()
     orchestrator = TurnOrchestrator(session)
+    write = _session_writer(writer)
+    _write_rendered_turn_events(
+        orchestrator.iter_events(user_input, abort=abort),
+        reply_prefix=reply_prefix,
+        write=write,
+    )
+    if orchestrator.last_reply:
+        write("\n")
+    session.mark_activity()
+    _save_dirty_session_if_needed(session)
+    return orchestrator.last_reply
+
+
+def _write_rendered_turn_events(
+    events: Iterator[TurnEvent],
+    *,
+    reply_prefix: str,
+    write: Callable[[str], None],
+) -> None:
     printed_prefix = False
-
-    def _write(text: str) -> None:
-        if writer is not None:
-            writer(text)
-        else:
-            sys.stdout.write(text)
-            sys.stdout.flush()
-
-    for event in orchestrator.iter_events(user_input, abort=abort):
+    for event in events:
         rendered = render_turn_event(event)
         if not rendered:
             continue
         if reply_prefix and not printed_prefix:
-            _write(reply_prefix)
+            write(reply_prefix)
             printed_prefix = True
-        _write(rendered)
+        write(rendered)
 
-    if orchestrator.last_reply:
-        _write("\n")
-    session.mark_activity()
-    if session.armory_path is not None and session.dirty and session_has_messages(session):
-        with contextlib.suppress(chat_storage.ChatStorageError):
-            save_session(session)
-    return orchestrator.last_reply
+
+def _session_writer(writer: Callable[[str], None] | None) -> Callable[[str], None]:
+    if writer is not None:
+        return writer
+
+    def _write_stdout(text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    return _write_stdout
+
+
+def _save_dirty_session_if_needed(session: ChatSession) -> None:
+    if session.armory_path is None or not session.dirty or not session_has_messages(session):
+        return
+    with contextlib.suppress(chat_storage.ChatStorageError):
+        save_session(session)
 
 
 def save_session(session: ChatSession) -> Path:
@@ -453,7 +517,7 @@ def save_session(session: ChatSession) -> Path:
         session.conversation,
         title=title,
         metadata={
-            "study_state": session.study_state.to_dict(),
+            "learning_state": session.learning_state.to_dict(),
             "disabled_source_files": sorted(session.disabled_source_files),
             "started_at": session.started_at.isoformat(),
             "last_activity_at": session.last_activity_at.isoformat(),

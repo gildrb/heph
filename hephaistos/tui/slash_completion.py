@@ -258,13 +258,6 @@ class SlashCompletionEngine:
                 ("resume", "Resume the latest saved session"),
             ]
 
-        if cmd_name == "mode":
-            return [
-                ("manual", "Set manual review mode"),
-                ("guided", "Set guided review mode"),
-                ("autopilot", "Set bounded autopilot review mode"),
-            ]
-
         if cmd_name == "vocabulary":
             return [
                 ("status", "Show vocabulary practice schedule"),

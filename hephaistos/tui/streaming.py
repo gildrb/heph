@@ -19,6 +19,7 @@ from hephaistos.chat.events import (
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
+    TurnEvent,
 )
 from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
@@ -40,6 +41,23 @@ _MAX_PROGRESS_TEXT = 64
 _MAX_SUMMARY_TEXT = 160
 _MAX_ACTIVITY_TEXT = 180
 _ACTIVITY_TRACE_INDENT = "    "
+_ACTIVITY_NOTICE_CODES = frozenset(
+    {
+        "reading",
+        "writing",
+        "evidence",
+        "model_request",
+        "model_delta",
+        "model_complete",
+        "verification",
+        "context_warning",
+        "tool_runtime",
+        "auto_compact",
+        "context_compact",
+        "max_turns",
+        "dry_run",
+    }
+)
 
 
 def _clean_text(text: str) -> str:
@@ -95,43 +113,38 @@ def _compact_tool_call(event: ToolCallEvent) -> str:
     return event.name
 
 
+def _tool_result_latency(event: ToolResultEvent) -> str:
+    latency_value = event.metadata.get("latency_ms")
+    latency = float(latency_value) if isinstance(latency_value, int | float) else None
+    return f" in {latency:.0f}ms" if latency is not None else ""
+
+
+def _tool_result_activity_line(event: ToolResultEvent) -> str:
+    elapsed = _tool_result_latency(event)
+    if not event.success:
+        error = event.error or event.summary or "tool failed"
+        return (
+            f"{_ACTIVITY_TRACE_INDENT}! {event.name} failed{elapsed}: "
+            f"{_truncate(error, _MAX_ACTIVITY_TEXT)}"
+        )
+
+    summary = _clean_text(event.summary) or _clean_text(event.content)
+    if not summary:
+        return f"{_ACTIVITY_TRACE_INDENT}-> {event.name} finished{elapsed}"
+    prefix = f"{event.name} finished{elapsed}: " if elapsed else ""
+    return f"{_ACTIVITY_TRACE_INDENT}-> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
+
+
 def _activity_line(
     event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
 ) -> str | None:
     if isinstance(event, ToolCallEvent):
         return f"{_ACTIVITY_TRACE_INDENT}Ran {_compact_tool_call(event)}"
     if isinstance(event, ToolResultEvent):
-        latency_value = event.metadata.get("latency_ms")
-        latency = float(latency_value) if isinstance(latency_value, int | float) else None
-        elapsed = f" in {latency:.0f}ms" if latency is not None else ""
-        if not event.success:
-            error = event.error or event.summary or "tool failed"
-            return (
-                f"{_ACTIVITY_TRACE_INDENT}! {event.name} failed{elapsed}: "
-                f"{_truncate(error, _MAX_ACTIVITY_TEXT)}"
-            )
-        summary = _clean_text(event.summary) or _clean_text(event.content)
-        if summary:
-            prefix = f"{event.name} finished{elapsed}: " if latency is not None else ""
-            return f"{_ACTIVITY_TRACE_INDENT}-> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
-        return f"{_ACTIVITY_TRACE_INDENT}-> {event.name} finished{elapsed}"
+        return _tool_result_activity_line(event)
     if isinstance(event, MaterialOperationEvent):
         return f"{_ACTIVITY_TRACE_INDENT}{_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
-    if event.code in {
-        "reading",
-        "writing",
-        "evidence",
-        "model_request",
-        "model_delta",
-        "model_complete",
-        "verification",
-        "context_warning",
-        "tool_runtime",
-        "auto_compact",
-        "manual_compact",
-        "max_turns",
-        "dry_run",
-    }:
+    if event.code in _ACTIVITY_NOTICE_CODES:
         return f"{_ACTIVITY_TRACE_INDENT}{_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
     return None
 
@@ -160,7 +173,7 @@ def _progress_text(
         "writing": "writing response",
         "verification": "checking citations",
         "auto_compact": "compacting context",
-        "manual_compact": "compacting context",
+        "context_compact": "compacting context",
         "context_warning": "checking context",
         "tool_runtime": "checking tool result",
     }
@@ -256,7 +269,7 @@ class _TurnActivitySummary:
             "max_turns",
             "dry_run",
             "auto_compact",
-            "manual_compact",
+            "context_compact",
             "steering",
         }:
             self.important_notices.append(clean)
@@ -279,33 +292,47 @@ class _TurnActivitySummary:
         if refs:
             self.opened_refs.extend(ref for ref in refs if ref not in self.opened_refs)
 
-    def _material_line(self) -> str:
-        parts: list[str] = []
-        if self.indexed_sources is not None and self.indexed_chunks is not None:
+    def _index_phrase(self) -> str:
+        if self.indexed_sources is None or self.indexed_chunks is None:
+            return ""
+        return (
+            f"index {_plural(self.indexed_sources, 'source')} / "
+            f"{_plural(self.indexed_chunks, 'chunk')}"
+        )
+
+    def _no_matches_phrase(self) -> str:
+        if not self.no_material_matches:
+            return ""
+        searched = self._searched_fragment()
+        return f"{searched}; no matching evidence" if searched else "no matching evidence"
+
+    def _evidence_phrase(self) -> str:
+        if self.evidence_blocks is None:
+            return ""
+        detail = f"using {_plural(self.evidence_blocks, 'evidence excerpt')}"
+        if self.sampled_sources is None or self.total_sources is None:
+            return detail
+        if self.total_sources > self.sampled_sources:
+            return f"{detail} from {self.sampled_sources} of {self.total_sources} sources"
+        return f"{detail} from {_plural(self.sampled_sources, 'source')}"
+
+    def _opened_refs_phrase(self) -> str:
+        if not self.opened_refs:
+            return ""
+        return f"opened {_plural(len(set(self.opened_refs)), 'evidence excerpt')}"
+
+    def _material_parts(self) -> list[str]:
+        parts = [phrase for phrase in (self._index_phrase(), self._no_matches_phrase()) if phrase]
+        if not self.no_material_matches:
             parts.append(
-                f"index {_plural(self.indexed_sources, 'source')} / "
-                f"{_plural(self.indexed_chunks, 'chunk')}"
+                self._evidence_phrase() or self._opened_refs_phrase() or self._searched_fragment()
             )
-        if self.no_material_matches:
-            searched = self._searched_fragment()
-            if searched:
-                parts.append(f"{searched}; no matching evidence")
-            else:
-                parts.append("no matching evidence")
-        elif self.evidence_blocks is not None:
-            detail = f"using {_plural(self.evidence_blocks, 'evidence excerpt')}"
-            if self.sampled_sources is not None and self.total_sources is not None:
-                if self.total_sources > self.sampled_sources:
-                    detail += f" from {self.sampled_sources} of {self.total_sources} sources"
-                else:
-                    detail += f" from {_plural(self.sampled_sources, 'source')}"
-            parts.append(detail)
-        elif self.opened_refs:
-            parts.append(f"opened {_plural(len(set(self.opened_refs)), 'evidence excerpt')}")
-        elif self.searched_query:
-            parts.append(self._searched_fragment())
         if self.read_all_scope:
             parts.append("sampled indexed evidence, not every file end to end")
+        return [part for part in parts if part]
+
+    def _material_line(self) -> str:
+        parts = self._material_parts()
         if not parts:
             return ""
         suffix = " Details: /evidence" if self.evidence_blocks or self.opened_refs else ""
@@ -334,6 +361,105 @@ class _TurnActivitySummary:
         return f"{line}."
 
 
+@dataclass(frozen=True, slots=True)
+class _TurnCallbacks:
+    on_reply: Callable[[str], None]
+    on_notice: Callable[[str], None]
+    on_error: Callable[[str], None]
+    on_finish: Callable[[], None]
+    on_progress: Callable[[str], None] | None = None
+    on_activity: Callable[[str], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ActivityTraceConfig:
+    show_activity: bool
+    show_full_activity: bool
+    show_minimal_activity: bool
+
+
+@dataclass(slots=True)
+class _TurnStreamState:
+    reply_parts: list[str] = field(default_factory=list)
+    completed_reply: str | None = None
+    activity: _TurnActivitySummary = field(default_factory=_TurnActivitySummary)
+
+
+def _activity_trace_config() -> _ActivityTraceConfig:
+    activity_trace_mode = load_app_settings().activity_trace_mode
+    return _ActivityTraceConfig(
+        show_activity=activity_trace_mode != ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+        show_full_activity=activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS,
+        show_minimal_activity=activity_trace_mode == ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    )
+
+
+def _report_activity_summary(
+    activity: _TurnActivitySummary,
+    trace_config: _ActivityTraceConfig,
+    callbacks: _TurnCallbacks,
+) -> None:
+    if not trace_config.show_activity:
+        return
+    if not trace_config.show_minimal_activity and callbacks.on_activity is not None:
+        return
+    if summary_lines := activity.lines():
+        callbacks.on_notice("\n".join(summary_lines))
+
+
+def _handle_activity_event(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
+    state: _TurnStreamState,
+    trace_config: _ActivityTraceConfig,
+    callbacks: _TurnCallbacks,
+) -> None:
+    if trace_config.show_activity:
+        state.activity.record(event)
+    if trace_config.show_activity and callbacks.on_progress is not None:
+        callbacks.on_progress(_truncate(_progress_text(event), _MAX_PROGRESS_TEXT))
+    if trace_config.show_full_activity and callbacks.on_activity is not None:
+        line = _activity_line(event)
+        if line:
+            callbacks.on_activity(line)
+
+
+def _handle_turn_event(
+    event: TurnEvent,
+    state: _TurnStreamState,
+    trace_config: _ActivityTraceConfig,
+    callbacks: _TurnCallbacks,
+) -> None:
+    if isinstance(event, AssistantDeltaEvent):
+        state.reply_parts.append(event.delta)
+        return
+    if isinstance(event, TurnCompleteEvent):
+        state.completed_reply = event.full_text
+        return
+    if isinstance(event, ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent):
+        _handle_activity_event(event, state, trace_config, callbacks)
+
+
+def _assembled_reply(state: _TurnStreamState) -> str:
+    reply = (
+        state.completed_reply if state.completed_reply is not None else "".join(state.reply_parts)
+    ).strip()
+    if not reply and state.reply_parts:
+        return "".join(state.reply_parts).strip()
+    return reply
+
+
+def _report_turn_error(
+    exc: StreamRecoveryError | EngineError,
+    session: ChatSession,
+    callbacks: _TurnCallbacks,
+) -> None:
+    provider = session.config.provider_slug or "the provider"
+    if is_network_error(exc):
+        callbacks.on_notice(offline_message(provider))
+    else:
+        callbacks.on_error(str(exc))
+
+
 def run_tui_turn(
     session: ChatSession,
     user_input: str,
@@ -347,52 +473,26 @@ def run_tui_turn(
     on_activity: Callable[[str], None] | None = None,
 ) -> None:
     """Run one chat turn and report UI-ready events through callbacks."""
-    parts: list[str] = []
-    completed_reply: str | None = None
-    activity = _TurnActivitySummary()
-    activity_trace_mode = load_app_settings().activity_trace_mode
-    show_full_activity = activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS
-    show_minimal_activity = activity_trace_mode == ACTIVITY_TRACE_MINIMAL_TOOL_CALLS
-    show_activity = activity_trace_mode != ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
-
-    def report_activity() -> None:
-        if not show_activity:
-            return
-        if not show_minimal_activity and on_activity is not None:
-            return
-        if summary_lines := activity.lines():
-            on_notice("\n".join(summary_lines))
+    callbacks = _TurnCallbacks(
+        on_reply=on_reply,
+        on_notice=on_notice,
+        on_error=on_error,
+        on_finish=on_finish,
+        on_progress=on_progress,
+        on_activity=on_activity,
+    )
+    trace_config = _activity_trace_config()
+    state = _TurnStreamState()
 
     try:
         for event in iter_chat_events(session, user_input, abort=abort_event):
-            if isinstance(event, AssistantDeltaEvent):
-                parts.append(event.delta)
-            elif isinstance(event, TurnCompleteEvent):
-                completed_reply = event.full_text
-            elif isinstance(
-                event,
-                ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
-            ):
-                if show_activity:
-                    activity.record(event)
-                if show_activity and on_progress is not None:
-                    on_progress(_truncate(_progress_text(event), _MAX_PROGRESS_TEXT))
-                if show_full_activity and on_activity is not None:
-                    line = _activity_line(event)
-                    if line:
-                        on_activity(line)
-        report_activity()
-        reply = (completed_reply if completed_reply is not None else "".join(parts)).strip()
-        if not reply and parts:
-            reply = "".join(parts).strip()
+            _handle_turn_event(event, state, trace_config, callbacks)
+        _report_activity_summary(state.activity, trace_config, callbacks)
+        reply = _assembled_reply(state)
         if reply:
-            on_reply(reply)
+            callbacks.on_reply(reply)
     except (StreamRecoveryError, EngineError) as exc:
-        report_activity()
-        provider = session.config.provider_slug or "the provider"
-        if is_network_error(exc):
-            on_notice(offline_message(provider))
-        else:
-            on_error(str(exc))
+        _report_activity_summary(state.activity, trace_config, callbacks)
+        _report_turn_error(exc, session, callbacks)
     finally:
-        on_finish()
+        callbacks.on_finish()

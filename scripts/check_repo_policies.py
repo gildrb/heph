@@ -164,6 +164,38 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
         }
     ),
 }
+PROMPT_RULE_SCAN_ROOTS: Final[tuple[str, ...]] = (
+    "hephaistos/agent/",
+    "hephaistos/chat/",
+    "hephaistos/study/",
+)
+PROMPT_RULE_DUPLICATE_MESSAGE: Final[str] = (
+    "duplicate model-facing prompt rule; define the rule once as a named policy constant"
+)
+HARDCODED_ANSWER_SCAN_ROOTS: Final[tuple[str, ...]] = (
+    "hephaistos/chat/",
+    "hephaistos/study/",
+    "hephaistos/tui/",
+)
+HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "_direct_reply_plan",
+        "_DeterministicStudyReply",
+        "no_armory_guidance_reply",
+    }
+)
+HARDCODED_ANSWER_KEYWORDS: Final[frozenset[str]] = frozenset({"direct_reply", "reply"})
+HARDCODED_ANSWER_MESSAGE: Final[str] = (
+    "hardcoded assistant answer for non-deterministic chat is forbidden; use a "
+    "model-facing prompt or an allowlisted harness fallback"
+)
+ALLOWED_HARDCODED_ANSWER_PREFIXES: Final[tuple[str, ...]] = (
+    "Practice session complete:",
+    "No searchable armory evidence",
+    "No grounded source",
+    "I could not generate",
+    "I could not produce",
+)
 
 
 @dataclass(frozen=True)
@@ -408,6 +440,22 @@ class PolicyVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+@dataclass(frozen=True)
+class PromptRuleLiteral:
+    text: str
+    path: str
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class HardcodedAnswerLiteral:
+    text: str
+    path: str
+    line: int
+    column: int
+
+
 def _is_benchmark_only_module(module: str) -> bool:
     top_level = module.split(".", maxsplit=1)[0]
     return top_level in BENCHMARK_ONLY_TOP_LEVEL_MODULES
@@ -466,10 +514,203 @@ def _check_source(source: str, rel_path: str, *, filename: str | None = None) ->
     return violations
 
 
+def _prompt_rule_literals(
+    source: str,
+    rel_path: str,
+    *,
+    filename: str | None = None,
+) -> list[PromptRuleLiteral]:
+    if not rel_path.startswith(PROMPT_RULE_SCAN_ROOTS):
+        return []
+    tree = ast.parse(source, filename=filename or rel_path)
+    parent_by_child = {
+        child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+    }
+    literals: list[PromptRuleLiteral] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        if isinstance(parent_by_child.get(node), ast.JoinedStr):
+            continue
+        for line in node.value.splitlines():
+            normalized = _normalize_prompt_rule_line(line)
+            if normalized is None:
+                continue
+            literals.append(
+                PromptRuleLiteral(
+                    text=normalized,
+                    path=rel_path,
+                    line=getattr(node, "lineno", 1),
+                    column=getattr(node, "col_offset", 0) + 1,
+                )
+            )
+    return literals
+
+
+def _normalize_prompt_rule_line(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped.startswith("- ") or len(stripped) < 32:
+        return None
+    if "{" in stripped or "}" in stripped:
+        return None
+    return " ".join(stripped.casefold().split())
+
+
 def _check_file(path: Path) -> list[Violation]:
     rel_path = path.relative_to(REPO_ROOT).as_posix()
     source = path.read_text(encoding="utf-8")
     return _check_source(source, rel_path, filename=str(path))
+
+
+def _check_duplicate_prompt_rules() -> list[Violation]:
+    literals: list[PromptRuleLiteral] = []
+    for path in _iter_python_files():
+        rel_path = path.relative_to(REPO_ROOT).as_posix()
+        source = path.read_text(encoding="utf-8")
+        literals.extend(_prompt_rule_literals(source, rel_path, filename=str(path)))
+
+    return _duplicate_prompt_rule_violations(literals)
+
+
+def _hardcoded_answer_literals(
+    source: str,
+    rel_path: str,
+    *,
+    filename: str | None = None,
+) -> list[HardcodedAnswerLiteral]:
+    if not rel_path.startswith(HARDCODED_ANSWER_SCAN_ROOTS):
+        return []
+    tree = ast.parse(source, filename=filename or rel_path)
+    literals: list[HardcodedAnswerLiteral] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            literals.extend(_hardcoded_answer_literals_from_call(node, rel_path))
+        elif isinstance(node, ast.Assign):
+            literals.extend(_hardcoded_answer_literals_from_assignment(node, rel_path))
+    return literals
+
+
+def _hardcoded_answer_literals_from_call(
+    node: ast.Call,
+    rel_path: str,
+) -> list[HardcodedAnswerLiteral]:
+    dotted = _dotted_name(node.func)
+    literals: list[HardcodedAnswerLiteral] = []
+    if dotted is not None and dotted.split(".")[-1] in HARDCODED_ANSWER_CALL_NAMES:
+        if node.args:
+            literal = _string_literal_value(node.args[0])
+            if literal is not None:
+                literals.append(_hardcoded_answer_literal(literal, rel_path, node.args[0]))
+        for keyword in node.keywords:
+            if keyword.arg in HARDCODED_ANSWER_KEYWORDS:
+                literal = _string_literal_value(keyword.value)
+                if literal is not None:
+                    literals.append(_hardcoded_answer_literal(literal, rel_path, keyword.value))
+
+    for keyword in node.keywords:
+        if keyword.arg not in HARDCODED_ANSWER_KEYWORDS:
+            continue
+        literal = _string_literal_value(keyword.value)
+        if literal is not None:
+            literals.append(_hardcoded_answer_literal(literal, rel_path, keyword.value))
+    return literals
+
+
+def _hardcoded_answer_literals_from_assignment(
+    node: ast.Assign,
+    rel_path: str,
+) -> list[HardcodedAnswerLiteral]:
+    has_direct_reply_target = any(
+        isinstance(target, ast.Name) and target.id == "direct_reply" for target in node.targets
+    )
+    if not has_direct_reply_target:
+        return []
+    literal = _string_literal_value(node.value)
+    if literal is None:
+        return []
+    return [_hardcoded_answer_literal(literal, rel_path, node.value)]
+
+
+def _string_literal_value(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            else:
+                parts.append("{}")
+        return "".join(parts)
+    return None
+
+
+def _hardcoded_answer_literal(
+    text: str,
+    rel_path: str,
+    node: ast.AST,
+) -> HardcodedAnswerLiteral:
+    return HardcodedAnswerLiteral(
+        text=" ".join(text.split()),
+        path=rel_path,
+        line=getattr(node, "lineno", 1),
+        column=getattr(node, "col_offset", 0) + 1,
+    )
+
+
+def _check_hardcoded_answers() -> list[Violation]:
+    literals: list[HardcodedAnswerLiteral] = []
+    for path in _iter_python_files():
+        rel_path = path.relative_to(REPO_ROOT).as_posix()
+        source = path.read_text(encoding="utf-8")
+        literals.extend(_hardcoded_answer_literals(source, rel_path, filename=str(path)))
+    return _hardcoded_answer_violations(literals)
+
+
+def _hardcoded_answer_violations(
+    literals: Sequence[HardcodedAnswerLiteral],
+) -> list[Violation]:
+    violations: list[Violation] = []
+    for literal in literals:
+        if _is_allowed_hardcoded_answer(literal.text):
+            continue
+        violations.append(
+            Violation(
+                path=literal.path,
+                line=literal.line,
+                column=literal.column,
+                message=HARDCODED_ANSWER_MESSAGE,
+            )
+        )
+    return violations
+
+
+def _is_allowed_hardcoded_answer(text: str) -> bool:
+    return any(text.startswith(prefix) for prefix in ALLOWED_HARDCODED_ANSWER_PREFIXES)
+
+
+def _duplicate_prompt_rule_violations(literals: Sequence[PromptRuleLiteral]) -> list[Violation]:
+    by_text: dict[str, list[PromptRuleLiteral]] = {}
+    for literal in literals:
+        by_text.setdefault(literal.text, []).append(literal)
+    violations: list[Violation] = []
+    for duplicates in by_text.values():
+        if len(duplicates) < 2:
+            continue
+        for duplicate in duplicates[1:]:
+            first = duplicates[0]
+            violations.append(
+                Violation(
+                    path=duplicate.path,
+                    line=duplicate.line,
+                    column=duplicate.column,
+                    message=(
+                        f"{PROMPT_RULE_DUPLICATE_MESSAGE} "
+                        f"(first seen at {first.path}:{first.line})"
+                    ),
+                )
+            )
+    return violations
 
 
 def main() -> None:
@@ -481,6 +722,8 @@ def main() -> None:
     violations: list[Violation] = []
     for path in _iter_python_files():
         violations.extend(_check_file(path))
+    violations.extend(_check_duplicate_prompt_rules())
+    violations.extend(_check_hardcoded_answers())
 
     if not violations:
         print("Repo policy check passed.")

@@ -10,6 +10,7 @@ from typing import Never, Self
 
 import pytest
 
+from hephaistos.providers.registry import ModelInfo, get_registry
 from hephaistos.runtime import (
     ChatConfig,
     Conversation,
@@ -144,6 +145,90 @@ def test_is_feature_enabled() -> None:
 def test_is_feature_enabled_default_empty() -> None:
     config = ChatConfig()
     assert not config.is_feature_enabled("anything")
+
+
+def test_chat_config_defaults_to_low_reasoning() -> None:
+    config = ChatConfig()
+
+    assert config.reasoning_level == "low"
+
+
+def test_request_kwargs_include_reasoning_for_reasoning_models() -> None:
+    config = ChatConfig(
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.5",
+        reasoning_level="high",
+    )
+    config.apply_provider_reference("openai", "OPENAI_API_KEY")
+
+    kwargs = runtime_engine._request_kwargs(
+        config,
+        [{"role": "user", "content": "hello"}],
+        tools=None,
+        tool_choice=None,
+    )
+
+    assert kwargs["reasoning_effort"] == "high"
+
+
+def test_request_kwargs_clamp_reasoning_to_supported_tiers() -> None:
+    get_registry().register(
+        ModelInfo(
+            "non-openai-reasoning",
+            "custom",
+            "Non-OpenAI Reasoning",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high"),
+        )
+    )
+    config = ChatConfig(
+        base_url="https://example.com/v1",
+        model="non-openai-reasoning",
+        reasoning_level="xhigh",
+    )
+    config.apply_provider_reference("custom", "CUSTOM_API_KEY")
+
+    kwargs = runtime_engine._request_kwargs(
+        config,
+        [{"role": "user", "content": "hello"}],
+        tools=None,
+        tool_choice=None,
+    )
+
+    assert kwargs["reasoning_effort"] == "low"
+
+
+def test_request_kwargs_omit_reasoning_for_non_reasoning_models() -> None:
+    get_registry().register(
+        ModelInfo(
+            "plain-model",
+            "custom",
+            "Plain Model",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+        )
+    )
+    config = ChatConfig(
+        base_url="https://example.com/v1",
+        model="plain-model",
+        reasoning_level="high",
+    )
+    config.apply_provider_reference("custom", "CUSTOM_API_KEY")
+
+    kwargs = runtime_engine._request_kwargs(
+        config,
+        [{"role": "user", "content": "hello"}],
+        tools=None,
+        tool_choice=None,
+    )
+
+    assert "reasoning_effort" not in kwargs
 
 
 def test_codex_http_error_detail_redacts_sensitive_text() -> None:

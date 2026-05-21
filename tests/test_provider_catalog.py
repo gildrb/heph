@@ -10,6 +10,7 @@ from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
 from hephaistos.providers.registry import ModelInfo, get_registry
+from hephaistos.reasoning import reasoning_levels_for_model
 
 
 def _openrouter_live_catalog() -> LiveProviderCatalog:
@@ -289,6 +290,114 @@ def test_fetch_openrouter_catalog_parses_models(monkeypatch: pytest.MonkeyPatch)
     assert info.max_output == 4_096
     assert info.prompt_price_per_1k == 0.0
     assert set(info.tags) == {"free", "reasoning", "tools"}
+
+
+def test_models_dev_metadata_registers_openai_xhigh_and_non_openai_standard_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    catalog.invalidate_catalog_cache()
+    monkeypatch.setattr(catalog, "_models_dev_cache_fresh", lambda: False)
+    payload = {
+        "openai": {
+            "models": {
+                "gpt-test-5.5": {
+                    "id": "gpt-test-5.5",
+                    "name": "GPT-5.5",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "modalities": {"input": ["text", "image"]},
+                    "limit": {"context": 1_050_000, "output": 128_000},
+                    "cost": {"input": 5, "output": 30},
+                }
+            }
+        },
+        "openrouter": {
+            "models": {
+                "anthropic/claude-opus-4-1": {
+                    "id": "anthropic/claude-opus-4-1",
+                    "name": "Claude Opus",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "modalities": {"input": ["text"]},
+                    "limit": {"context": 200_000, "output": 32_000},
+                    "cost": {"input": 15, "output": 75},
+                }
+            }
+        },
+    }
+    monkeypatch.setattr(catalog, "_fetch_models_dev_payload", lambda: payload)
+
+    config = default_config()
+    catalog.hydrate_provider_models(config, allow_network=True)
+
+    openai_info = get_registry().get("gpt-test-5.5", provider="openai")
+    openrouter_info = get_registry().get("anthropic/claude-opus-4-1", provider="openrouter")
+    assert openai_info is not None
+    assert openai_info.reasoning_efforts == ("low", "medium", "high", "xhigh")
+    assert openai_info.input_modalities == ("text", "image")
+    assert openai_info.supports_tools is True
+    assert openrouter_info is not None
+    assert openrouter_info.reasoning_efforts == ("low", "medium", "high")
+
+
+def test_provider_scoped_model_lookup_does_not_inherit_openai_reasoning() -> None:
+    get_registry().register(
+        ModelInfo(
+            "same-model",
+            "openai",
+            "OpenAI Same Model",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high", "xhigh"),
+        )
+    )
+    get_registry().register(
+        ModelInfo(
+            "same-model",
+            "custom",
+            "Custom Same Model",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high"),
+        )
+    )
+
+    custom_info = get_registry().get("same-model", provider="custom")
+
+    assert custom_info is not None
+    assert custom_info.provider == "custom"
+    assert custom_info.reasoning_efforts == ("low", "medium", "high")
+
+
+def test_provider_scoped_reasoning_does_not_fall_back_to_openai_model() -> None:
+    get_registry().register(
+        ModelInfo(
+            "openai-only-test-model",
+            "openai",
+            "OpenAI Only Test Model",
+            128_000,
+            8_192,
+            0.0,
+            0.0,
+            tags=("reasoning",),
+            reasoning_efforts=("low", "medium", "high", "xhigh"),
+        )
+    )
+
+    assert reasoning_levels_for_model("openai-only-test-model", "openai") == (
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    assert reasoning_levels_for_model("openai-only-test-model", "openrouter") == ()
 
 
 @pytest.mark.parametrize(

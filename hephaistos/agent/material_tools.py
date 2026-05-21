@@ -1,11 +1,12 @@
-"""Handlers for study-material search tools used by the agent harness."""
+"""Handlers for material search tools used by the agent harness."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from hephaistos.agent.tool_schema import ToolResult
-from hephaistos.rag import load_or_build, retrieve
+from hephaistos.rag import ArmoryIndex, load_or_build, retrieve
+from hephaistos.rag.chunker import ChunkedDocument
 
 _MAX_MATERIAL_TOOL_CHARS = 18_000
 
@@ -104,28 +105,63 @@ def run_open_material(
             error="index_error",
         )
 
-    document = next((doc for doc in index.documents if doc.source == source), None)
+    document = _indexed_document(index, source)
     if document is None:
-        available = ", ".join(doc.source for doc in index.documents[:8])
-        suffix = "..." if len(index.documents) > 8 else ""
-        return ToolResult(
-            success=False,
-            content=f"Indexed source not found: {source}. Available sources: {available}{suffix}",
-            metadata={"sources": [doc.source for doc in index.documents]},
-            error="source_not_found",
-        )
+        return _missing_source_result(index, source)
     if not document.chunks:
-        return ToolResult(
-            success=False,
-            content=f"Indexed source has no readable chunks: {source}",
-            error="empty_source",
-        )
+        return _empty_source_result(source)
 
+    start, end = _material_window(document, chunk=chunk, context=context)
+    return ToolResult(
+        success=True,
+        content=_trim_tool_content(_material_window_content(document, source, start, end)),
+        metadata={"source": source, "start_chunk": start, "end_chunk": end - 1},
+    )
+
+
+def _indexed_document(index: ArmoryIndex, source: str) -> ChunkedDocument | None:
+    return next((doc for doc in index.documents if doc.source == source), None)
+
+
+def _missing_source_result(index: ArmoryIndex, source: str) -> ToolResult:
+    available = ", ".join(doc.source for doc in index.documents[:8])
+    suffix = "..." if len(index.documents) > 8 else ""
+    return ToolResult(
+        success=False,
+        content=f"Indexed source not found: {source}. Available sources: {available}{suffix}",
+        metadata={"sources": [doc.source for doc in index.documents]},
+        error="source_not_found",
+    )
+
+
+def _empty_source_result(source: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        content=f"Indexed source has no readable chunks: {source}",
+        error="empty_source",
+    )
+
+
+def _material_window(
+    document: ChunkedDocument,
+    *,
+    chunk: int | None,
+    context: int | None,
+) -> tuple[int, int]:
     requested_chunk = chunk if chunk is not None and chunk >= 0 else 0
     center = min(requested_chunk, len(document.chunks) - 1)
     radius = max(0, min(context or 1, 5))
     start = max(0, center - radius)
     end = min(len(document.chunks), center + radius + 1)
+    return start, end
+
+
+def _material_window_content(
+    document: ChunkedDocument,
+    source: str,
+    start: int,
+    end: int,
+) -> str:
     lines = [f"Opened indexed material: {source} chunks {start}-{end - 1}"]
     for material_chunk in document.chunks[start:end]:
         heading = f" under {material_chunk.heading}" if material_chunk.heading else ""
@@ -136,12 +172,7 @@ def run_open_material(
                 material_chunk.text.strip(),
             ]
         )
-
-    return ToolResult(
-        success=True,
-        content=_trim_tool_content("\n".join(lines)),
-        metadata={"source": source, "start_chunk": start, "end_chunk": end - 1},
-    )
+    return "\n".join(lines)
 
 
 def _trim_tool_content(content: str) -> str:

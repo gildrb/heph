@@ -7,20 +7,14 @@ from enum import StrEnum
 from hephaistos._types import is_object_list, is_string_mapping
 
 
-class StudyPhase(StrEnum):
+class LearningPhase(StrEnum):
     PRESENTING = "presenting"
     WAITING_FOR_READY = "waiting_for_ready"
     RECALL = "recall"
     ASSESS = "assess"
 
 
-class StudyAutonomyMode(StrEnum):
-    MANUAL = "manual"
-    GUIDED = "guided"
-    AUTOPILOT = "autopilot"
-
-
-class StudyAction(StrEnum):
+class LearningAction(StrEnum):
     CHAT = "chat"
     CALIBRATE = "calibrate"
     PRIORITY = "priority"
@@ -35,7 +29,7 @@ class StudyAction(StrEnum):
     REVIEW = "review"
 
 
-class StudyFeedbackType(StrEnum):
+class LearningFeedbackType(StrEnum):
     NONE = "none"
     CALIBRATING = "calibrating"
     NO_SOURCE = "no_source"
@@ -51,7 +45,7 @@ class StudyFeedbackType(StrEnum):
     WRONG = "wrong"
 
 
-class StudyRecallRating(StrEnum):
+class RecallRating(StrEnum):
     NONE = "none"
     HARD = "hard"
     GOOD = "good"
@@ -59,51 +53,49 @@ class StudyRecallRating(StrEnum):
 
 
 @dataclass(slots=True)
-class StudyState:
-    phase: StudyPhase = StudyPhase.PRESENTING
+class LearningState:
+    phase: LearningPhase = LearningPhase.PRESENTING
     current_item: str = ""
     expected_source_refs: list[str] = field(default_factory=list)
     attempt_count: int = 0
-    last_feedback_type: StudyFeedbackType = StudyFeedbackType.NONE
+    last_feedback_type: LearningFeedbackType = LearningFeedbackType.NONE
     retrieval_query: str = ""
     recall_started_at: datetime | None = None
     last_recall_seconds: int | None = None
-    last_recall_rating: StudyRecallRating = StudyRecallRating.NONE
+    last_recall_rating: RecallRating = RecallRating.NONE
     last_confidence: float | None = None
     hint_level: int = 0
-    autonomy_mode: StudyAutonomyMode = StudyAutonomyMode.GUIDED
     session_goal: str = ""
     time_budget_minutes: int | None = None
-    autopilot_session_type: str = ""
-    autopilot_started_at: datetime | None = None
-    autopilot_turns: int = 0
-    autopilot_stop_reason: str = ""
+    practice_session_type: str = ""
+    practice_started_at: datetime | None = None
+    practice_turns: int = 0
+    practice_stop_reason: str = ""
 
-    def clone(self) -> StudyState:
-        return StudyState.from_dict(self.to_dict())
+    def clone(self) -> LearningState:
+        return LearningState.from_dict(self.to_dict())
 
-    def clear_autopilot_session(self) -> None:
+    def clear_practice_session(self) -> None:
         self.session_goal = ""
         self.time_budget_minutes = None
-        self.autopilot_session_type = ""
-        self.autopilot_started_at = None
-        self.autopilot_turns = 0
-        self.autopilot_stop_reason = ""
+        self.practice_session_type = ""
+        self.practice_started_at = None
+        self.practice_turns = 0
+        self.practice_stop_reason = ""
 
-    def start_autopilot_session(
+    def start_practice_session(
         self,
         *,
         session_type: str,
         session_goal: str,
         time_budget_minutes: int | None,
     ) -> None:
-        self.autonomy_mode = StudyAutonomyMode.AUTOPILOT
         self.session_goal = session_goal
         self.time_budget_minutes = time_budget_minutes
-        self.autopilot_session_type = session_type
-        self.autopilot_started_at = datetime.now(UTC)
-        self.autopilot_turns = 0
-        self.autopilot_stop_reason = ""
+        self.practice_session_type = session_type
+        self.practice_started_at = datetime.now(UTC)
+        self.practice_turns = 0
+        self.practice_stop_reason = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -120,69 +112,57 @@ class StudyState:
             "last_recall_rating": self.last_recall_rating.value,
             "last_confidence": self.last_confidence,
             "hint_level": self.hint_level,
-            "autonomy_mode": self.autonomy_mode.value,
             "session_goal": self.session_goal,
             "time_budget_minutes": self.time_budget_minutes,
-            "autopilot_session_type": self.autopilot_session_type,
-            "autopilot_started_at": (
-                self.autopilot_started_at.isoformat()
-                if self.autopilot_started_at is not None
+            "practice_session_type": self.practice_session_type,
+            "practice_started_at": (
+                self.practice_started_at.isoformat()
+                if self.practice_started_at is not None
                 else ""
             ),
-            "autopilot_turns": self.autopilot_turns,
-            "autopilot_stop_reason": self.autopilot_stop_reason,
+            "practice_turns": self.practice_turns,
+            "practice_stop_reason": self.practice_stop_reason,
         }
 
     @classmethod
-    def from_dict(cls, data: object | None) -> StudyState:
+    def from_dict(cls, data: object | None) -> LearningState:
         if not is_string_mapping(data):
             return cls()
-
-        raw_refs = data.get("expected_source_refs")
-        expected_source_refs = (
-            [ref for ref in raw_refs if isinstance(ref, str)] if is_object_list(raw_refs) else []
-        )
-
-        raw_confidence = data.get("last_confidence")
-        last_confidence = (
-            float(raw_confidence)
-            if isinstance(raw_confidence, int | float)
-            and not isinstance(raw_confidence, bool)
-            and 0 <= raw_confidence <= 1
-            else None
-        )
-
         return cls(
-            phase=_parse_enum(StudyPhase, data.get("phase"), StudyPhase.PRESENTING),
+            phase=_parse_enum(LearningPhase, data.get("phase"), LearningPhase.PRESENTING),
             current_item=_parse_string(data.get("current_item")),
-            expected_source_refs=expected_source_refs,
+            expected_source_refs=_parse_string_list(data.get("expected_source_refs")),
             attempt_count=_parse_nonnegative_int(data.get("attempt_count")) or 0,
             last_feedback_type=_parse_enum(
-                StudyFeedbackType,
+                LearningFeedbackType,
                 data.get("last_feedback_type"),
-                StudyFeedbackType.NONE,
+                LearningFeedbackType.NONE,
             ),
             retrieval_query=_parse_string(data.get("retrieval_query")),
             recall_started_at=_parse_datetime(data.get("recall_started_at")),
             last_recall_seconds=_parse_nonnegative_int(data.get("last_recall_seconds")),
             last_recall_rating=_parse_enum(
-                StudyRecallRating,
+                RecallRating,
                 data.get("last_recall_rating"),
-                StudyRecallRating.NONE,
+                RecallRating.NONE,
             ),
-            last_confidence=last_confidence,
+            last_confidence=_parse_bounded_float(data.get("last_confidence")),
             hint_level=min(5, _parse_nonnegative_int(data.get("hint_level")) or 0),
-            autonomy_mode=_parse_enum(
-                StudyAutonomyMode,
-                data.get("autonomy_mode"),
-                StudyAutonomyMode.GUIDED,
-            ),
             session_goal=_parse_string(data.get("session_goal")),
             time_budget_minutes=_parse_nonnegative_int(data.get("time_budget_minutes")) or None,
-            autopilot_session_type=_parse_string(data.get("autopilot_session_type")),
-            autopilot_started_at=_parse_datetime(data.get("autopilot_started_at")),
-            autopilot_turns=_parse_nonnegative_int(data.get("autopilot_turns")) or 0,
-            autopilot_stop_reason=_parse_string(data.get("autopilot_stop_reason")),
+            practice_session_type=_parse_string(
+                data.get("practice_session_type"),
+            ),
+            practice_started_at=_parse_datetime(
+                data.get("practice_started_at"),
+            ),
+            practice_turns=_parse_nonnegative_int(
+                data.get("practice_turns"),
+            )
+            or 0,
+            practice_stop_reason=_parse_string(
+                data.get("practice_stop_reason"),
+            ),
         )
 
 
@@ -203,9 +183,19 @@ def _parse_string(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _parse_string_list(value: object) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if is_object_list(value) else []
+
+
 def _parse_nonnegative_int(value: object) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
+    return None
+
+
+def _parse_bounded_float(value: object) -> float | None:
+    if isinstance(value, int | float) and not isinstance(value, bool) and 0 <= value <= 1:
+        return float(value)
     return None
 
 

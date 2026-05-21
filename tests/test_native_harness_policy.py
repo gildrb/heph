@@ -293,6 +293,59 @@ def test_repo_policy_rejects_product_runtime_references_to_generated_artifacts()
     assert rendered.count("generated benchmark artifact paths") == 2
 
 
+def test_repo_policy_rejects_duplicate_model_facing_prompt_rules() -> None:
+    first = check_repo_policies.PromptRuleLiteral(
+        text="- answer in the same language as the user's request when clear.",
+        path="hephaistos/study/controller.py",
+        line=10,
+        column=5,
+    )
+    duplicate = check_repo_policies.PromptRuleLiteral(
+        text="- answer in the same language as the user's request when clear.",
+        path="hephaistos/chat/orchestrator.py",
+        line=20,
+        column=9,
+    )
+
+    violations = check_repo_policies._duplicate_prompt_rule_violations([first, duplicate])
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "duplicate model-facing prompt rule" in rendered
+    assert "first seen at hephaistos/study/controller.py:10" in rendered
+
+
+def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
+    violations = check_repo_policies._hardcoded_answer_violations(
+        [
+            check_repo_policies.HardcodedAnswerLiteral(
+                text="Hey. I can help with your documents.",
+                path="hephaistos/study/controller.py",
+                line=12,
+                column=8,
+            )
+        ]
+    )
+
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "hardcoded assistant answer" in rendered
+
+
+def test_repo_policy_allows_harness_fallback_answers() -> None:
+    violations = check_repo_policies._hardcoded_answer_violations(
+        [
+            check_repo_policies.HardcodedAnswerLiteral(
+                text="No searchable armory evidence was found.",
+                path="hephaistos/study/controller.py",
+                line=12,
+                column=8,
+            )
+        ]
+    )
+
+    assert violations == []
+
+
 def test_current_product_runtime_has_no_benchmark_only_import_or_artifact_coupling() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     product_root = repo_root / "hephaistos"

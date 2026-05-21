@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -22,7 +23,7 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.study import AutopilotSessionType, StudyAutonomyMode
+from hephaistos.reasoning import next_reasoning_level, reasoning_levels_for_model
 from hephaistos.terminal import Theme, current_palette
 from hephaistos.terminal import set_theme as set_theme
 from hephaistos.terminal.history import InputHistory
@@ -115,7 +116,7 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from hephaistos.chat.session import ChatSession
-    from hephaistos.commands import CommandRegistry
+    from hephaistos.commands import CommandRegistry, CommandResult
 
 try:
     from rich.markdown import Markdown
@@ -164,7 +165,7 @@ _startup_card_text = startup_card_text
 _new_chat_card_text = new_chat_card_text
 _config_error = config_error
 
-_armory_command_mode = _tui_armory._armory_command_mode
+_armory_command_flow = _tui_armory._armory_command_flow
 
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _WidgetClasses = _tui_widgets._WidgetClasses
@@ -204,7 +205,14 @@ _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
 _INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
-_TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
+_TUI_MANAGED_RESEND_COMMANDS = {"exam"}
+
+
+@dataclass(slots=True)
+class _ManagedResendCommand:
+    result: CommandResult
+    output: str
+    resend_input: str
 
 
 def _captured_command_output(
@@ -224,7 +232,7 @@ def _captured_command_output(
 _InlineFlow = InlineFlow
 
 
-class HephaistosTui(
+class HephTui(
     TuiHistoryMixin,
     TuiInlineFlowMixin,
     TuiArmoryMixin,
@@ -235,7 +243,7 @@ class HephaistosTui(
 ):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("tab", "complete", "Complete"),
-        Binding("shift+tab", "cycle_study_mode", "Mode", show=False, priority=True),
+        Binding("shift+tab", "cycle_reasoning_level", "Reasoning", show=False, priority=True),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
@@ -271,14 +279,14 @@ class HephaistosTui(
         self._armory_current = active_session.armory_path or Path.home()
         self._armory_filter = ""
         self._armory_creating = False
-        self._armory_mode = "manage"
+        self._armory_flow = "manage"
         self._armory_entries: list[_DirEntry] = []
         self._materials_inline_active = False
         self._materials_filter = ""
         self._materials_entries: list[str] = []
         self._materials_columns: tuple[list[str], list[str]] = ([], [])
         self._materials_highlighted_index: int | None = None
-        self._materials_mode = "toggle"
+        self._materials_flow = "toggle"
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
         self._transcript_reflow_pending = False
@@ -298,7 +306,7 @@ class HephaistosTui(
                 with w.vertical(id="armory-inline"):
                     yield w.static("", id="armory-header")
                     yield w.static("", id="armory-breadcrumbs")
-                    yield w.static("", id="armory-mode-hint")
+                    yield w.static("", id="armory-flow-hint")
                     yield w.static("", id="armory-pane-hint")
                     yield w.static("", id="armory-count-hint")
                     with w.horizontal(id="armory-columns-inline-labels"):
@@ -440,26 +448,19 @@ class HephaistosTui(
 
     def _handle_composer_shortcut(self, event: events.Key) -> bool:
         match event.key:
-            case "escape" if self.busy:
-                self.action_cancel_turn()
+            case "escape":
+                if not self._handle_escape_shortcut():
+                    return False
             case "ctrl+up":
                 self._focus_message(-1)
             case "ctrl+down":
                 self._focus_message(1)
             case "up":
-                if self._completion_menu_visible():
-                    self._move_completion(-1)
-                else:
-                    self._history_previous()
+                self._move_completion_or_history(-1)
             case "down":
-                if self._completion_menu_visible():
-                    self._move_completion(1)
-                else:
-                    self._history_next()
-            case "escape" if self._completion_menu_visible():
-                self._hide_completions()
+                self._move_completion_or_history(1)
             case "shift+tab":
-                self.action_cycle_study_mode()
+                self.action_cycle_reasoning_level()
             case "tab":
                 self.action_complete()
             case _:
@@ -467,6 +468,23 @@ class HephaistosTui(
 
         self._consume_key(event)
         return True
+
+    def _handle_escape_shortcut(self) -> bool:
+        if self.busy:
+            self.action_cancel_turn()
+            return True
+        if self._completion_menu_visible():
+            self._hide_completions()
+            return True
+        return False
+
+    def _move_completion_or_history(self, offset: int) -> None:
+        if self._completion_menu_visible():
+            self._move_completion(offset)
+        elif offset < 0:
+            self._history_previous()
+        else:
+            self._history_next()
 
     def _redirect_printable_key_to_composer(self, event: events.Key, composer: Input) -> None:
         if self.focused is composer or not event.character or not event.is_printable:
@@ -611,22 +629,14 @@ class HephaistosTui(
 
     def _submit_composer_value(self, *, apply_highlighted_completion: bool) -> None:
         composer = self.query_one("#composer", Input)
-        value = composer.value.strip()
         if self._inline_flow.active:
-            self._submit_inline_flow(value)
+            self._submit_inline_flow(composer.value.strip())
             return
-        if (
-            apply_highlighted_completion
-            and self._completion_menu_visible()
-            and self.completion_candidates
-        ):
-            self._apply_highlighted_completion()
-            value = composer.value.strip()
+        value = self._composer_submission_value(composer, apply_highlighted_completion)
         if self._submit_active_inline_surface(composer, value):
             return
         route = _tui_input_route(value)
-        composer.value = ""
-        self._hide_completions()
+        self._clear_submitted_composer(composer)
         if route is _TuiInputRoute.EMPTY:
             return
         if self._submit_special_route(route, value):
@@ -634,22 +644,48 @@ class HephaistosTui(
         if self.busy and self._submit_busy_value(route, value):
             return
         if route is _TuiInputRoute.EXTERNAL:
-            self._record_history(value)
-            self._handle_external_input(value)
+            self._submit_external_value(value)
             return
+        self._submit_chat_value(value)
+
+    def _composer_submission_value(
+        self,
+        composer: Input,
+        apply_highlighted_completion: bool,
+    ) -> str:
+        if (
+            apply_highlighted_completion
+            and self._completion_menu_visible()
+            and self.completion_candidates
+        ):
+            self._apply_highlighted_completion()
+        return composer.value.strip()
+
+    def _clear_submitted_composer(self, composer: Input) -> None:
+        composer.value = ""
+        self._hide_completions()
+
+    def _submit_external_value(self, value: str) -> None:
+        self._record_history(value)
+        self._handle_external_input(value)
+
+    def _submit_chat_value(self, value: str) -> None:
         if self.session.armory_path is None:
-            reply = record_no_armory_turn(self.session, value)
-            self._record_history(value)
-            self._append_user(value, mark_working=False)
-            self._append_assistant_reply(reply)
-            self._refresh_status()
-            self._update_info_panel()
+            self._submit_no_armory_value(value)
             return
         config_error = _config_error(self.session)
         if config_error is not None:
             self._append_error(config_error)
             return
         self._start_chat_turn(value)
+
+    def _submit_no_armory_value(self, value: str) -> None:
+        reply = record_no_armory_turn(self.session, value)
+        self._record_history(value)
+        self._append_user(value, mark_working=False)
+        self._append_assistant_reply(reply)
+        self._refresh_status()
+        self._update_info_panel()
 
     def _submit_active_inline_surface(self, composer: Input, value: str) -> bool:
         if self._armory_inline_active:
@@ -758,37 +794,27 @@ class HephaistosTui(
             return
         self._apply_highlighted_completion()
 
-    def action_cycle_study_mode(self) -> None:
+    def action_cycle_reasoning_level(self) -> None:
         if self.busy:
             return
-        current = self.session.study_state.autonomy_mode
-        if current is StudyAutonomyMode.GUIDED:
-            self.session.study_state.start_autopilot_session(
-                session_type=AutopilotSessionType.GENERAL.value,
-                session_goal="guided material review",
-                time_budget_minutes=None,
-            )
-        elif current is StudyAutonomyMode.AUTOPILOT:
-            self.session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
-            self.session.study_state.clear_autopilot_session()
-        else:
-            self.session.study_state.autonomy_mode = StudyAutonomyMode.GUIDED
-            self.session.study_state.clear_autopilot_session()
-        self.session.dirty = True
-        self._hide_completions()
-        self._refresh_status()
-        self._update_info_panel()
-        self._update_cycle_mode_notice()
 
-    def _update_cycle_mode_notice(self) -> None:
-        text = f"Mode set to {self.session.study_state.autonomy_mode.value}."
-        if self.state.transcript and self.state.transcript[-1].kind == "notice":
-            last_entry = self.state.transcript[-1]
-            if last_entry.content.startswith("Mode set to "):
-                last_entry.content = text
-                self._reflow_transcript_entries()
-                return
-        self._append_notice(text)
+        self._hide_completions()
+        prefetch_provider_model_catalogs(ProviderConfig.load())
+        levels = reasoning_levels_for_model(
+            self.session.config.model,
+            self.session.config.provider_slug or None,
+        )
+        if not levels:
+            self._replace_last_notice("Reasoning unavailable.")
+            return
+        self.session.config.reasoning_level = next_reasoning_level(
+            self.session.config.reasoning_level,
+            levels=levels,
+        )
+        self.session.dirty = True
+        self.query_one("#status", Static).update(_status_text(self.session))
+        self.query_one("#footer-hints", Static).update(_footer_hints_text(self.session))
+        self._replace_last_notice(f"Reasoning {self.session.config.reasoning_level}.")
 
     def _apply_highlighted_completion(self) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -878,13 +904,36 @@ class HephaistosTui(
         history: InputHistory,
         activity_trace_mode: str,
     ) -> bool:
+        command = self._run_managed_resend_command(value, history, activity_trace_mode)
+        if command is None:
+            return False
+
+        if command.output:
+            self.call_from_thread(self._append_notice, command.output)
+
+        if command.result.should_exit:
+            self._finish_managed_resend_command(history, should_continue=False)
+            return True
+        if not command.resend_input:
+            self._finish_managed_resend_command(history)
+            return True
+
+        self._run_resend_input(command.resend_input, history)
+        return True
+
+    def _run_managed_resend_command(
+        self,
+        value: str,
+        history: InputHistory,
+        activity_trace_mode: str,
+    ) -> _ManagedResendCommand | None:
         from hephaistos.commands import get_registry
 
         history.add(value)
         command_name, _, command_args = value.strip()[1:].partition(" ")
         cmd = get_registry().find(command_name.lower())
         if cmd is None:
-            return False
+            return None
 
         stdout = _TuiCaptureWriter()
         stderr = _TuiCaptureWriter()
@@ -903,44 +952,30 @@ class HephaistosTui(
                 output = "\n".join(part for part in (output, result.output) if part)
 
         self.state.history = history.entries
-        if output:
-            self.call_from_thread(self._append_notice, output)
+        return _ManagedResendCommand(result=result, output=output, resend_input=resend_input)
 
-        def finish(output: str = "", should_continue: bool = True) -> None:
-            self.call_from_thread(
-                self._finish_external_command,
-                self.session,
-                history.entries,
-                output,
-                should_continue,
-            )
-
-        if result.should_exit:
-            finish(should_continue=False)
-            return True
-
-        if not resend_input:
-            finish()
-            return True
-
+    def _run_resend_input(self, resend_input: str, history: InputHistory) -> None:
         history.add(resend_input)
         self.state.history = history.entries
         if self.session.armory_path is None:
             reply = record_no_armory_turn(self.session, resend_input)
             self.call_from_thread(self._append_assistant_reply, reply)
-            finish()
-            return True
+            self._finish_managed_resend_command(history)
+            return
 
         config_error = _config_error(self.session)
         if config_error is not None:
             self.call_from_thread(self._append_error, config_error)
-            finish()
-            return True
+            self._finish_managed_resend_command(history)
+            return
 
+        self._run_resend_chat_turn(resend_input)
+
+    def _run_resend_chat_turn(self, resend_input: str) -> None:
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
             if menu := overview_topic_menu(reply):
-                self.call_from_thread(self._open_study_topic_flow, menu.options, menu.prompts)
+                self.call_from_thread(self._open_material_topic_flow, menu.options, menu.prompts)
 
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)
@@ -964,7 +999,21 @@ class HephaistosTui(
             on_finish=on_finish,
             on_activity=on_activity,
         )
-        return True
+
+    def _finish_managed_resend_command(
+        self,
+        history: InputHistory,
+        *,
+        output: str = "",
+        should_continue: bool = True,
+    ) -> None:
+        self.call_from_thread(
+            self._finish_external_command,
+            self.session,
+            history.entries,
+            output,
+            should_continue,
+        )
 
     def _finish_external_command(
         self,

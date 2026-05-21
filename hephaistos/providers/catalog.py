@@ -30,6 +30,9 @@ _log = get_logger("providers.catalog")
 _CATALOG_TIMEOUT_SECONDS = 2.0
 _CATALOG_CACHE_SECONDS = 10 * 60
 _DISABLE_LIVE_CATALOG_ENV = "HEPHAISTOS_DISABLE_LIVE_MODELS"
+_MODELS_DEV_URL = "https://models.dev/api.json"
+_OPENAI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
+_DEFAULT_REASONING_EFFORTS = ("low", "medium", "high")
 
 
 @dataclass
@@ -47,6 +50,8 @@ class _CatalogCacheEntry:
 _catalog_cache: dict[str, _CatalogCacheEntry] = {}
 _catalog_refreshing: set[str] = set()
 _catalog_lock = threading.Lock()
+_models_dev_fetched_at = 0.0
+_models_dev_refreshing = False
 
 
 def hydrate_provider_models(
@@ -57,6 +62,8 @@ def hydrate_provider_models(
 ) -> None:
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
+
+    _hydrate_models_dev_metadata(allow_network=allow_network)
 
     for slug, provider in config.providers.items():
         if provider_slugs is not None and slug not in provider_slugs:
@@ -84,6 +91,8 @@ def prefetch_provider_model_catalogs(
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
+    _schedule_models_dev_refresh()
+
     for slug, provider in config.providers.items():
         if provider_slugs is not None and slug not in provider_slugs:
             continue
@@ -91,9 +100,12 @@ def prefetch_provider_model_catalogs(
 
 
 def invalidate_catalog_cache() -> None:
+    global _models_dev_fetched_at, _models_dev_refreshing  # noqa: PLW0603
     with _catalog_lock:
         _catalog_cache.clear()
         _catalog_refreshing.clear()
+        _models_dev_fetched_at = 0.0
+        _models_dev_refreshing = False
 
 
 def _live_catalog_for_provider(
@@ -147,6 +159,180 @@ def _refresh_live_catalog(slug: str, endpoint: str) -> None:
     finally:
         with _catalog_lock:
             _catalog_refreshing.discard(slug)
+
+
+def _schedule_models_dev_refresh() -> None:
+    global _models_dev_refreshing  # noqa: PLW0603
+    if _models_dev_cache_fresh():
+        return
+    with _catalog_lock:
+        if _models_dev_refreshing:
+            return
+        _models_dev_refreshing = True
+    thread = threading.Thread(
+        target=_refresh_models_dev_metadata,
+        name="hephaistos-models-dev-catalog",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _refresh_models_dev_metadata() -> None:
+    global _models_dev_refreshing  # noqa: PLW0603
+    try:
+        _hydrate_models_dev_metadata(allow_network=True)
+    finally:
+        with _catalog_lock:
+            _models_dev_refreshing = False
+
+
+def _models_dev_cache_fresh() -> bool:
+    return (
+        bool(_models_dev_fetched_at)
+        and time.time() - _models_dev_fetched_at < _CATALOG_CACHE_SECONDS
+    )
+
+
+def _hydrate_models_dev_metadata(*, allow_network: bool) -> None:
+    global _models_dev_fetched_at  # noqa: PLW0603
+    if _models_dev_cache_fresh():
+        return
+    if not allow_network:
+        return
+    try:
+        payload = _fetch_models_dev_payload()
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+        _log.debug("models.dev catalog unavailable", extra={"fields": {"error": str(exc)}})
+        return
+
+    registry = get_registry()
+    for info in _models_dev_model_infos(payload):
+        registry.register(info)
+    _models_dev_fetched_at = time.time()
+
+
+def _fetch_models_dev_payload() -> dict[str, object]:
+    request = urllib.request.Request(
+        _MODELS_DEV_URL,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "hephaistos-model-catalog",
+        },
+    )
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urllib.request.urlopen(  # nosec B310
+        request,
+        timeout=_CATALOG_TIMEOUT_SECONDS,
+        context=context,
+    ) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not is_string_mapping(payload):
+        raise ValueError("models.dev catalog response was not an object")
+    return payload
+
+
+def _models_dev_model_infos(payload: dict[str, object]) -> list[ModelInfo]:
+    return [
+        info
+        for provider_slug in ("openai", "openai-codex", "openrouter")
+        for info in _models_dev_provider_infos(payload, provider_slug)
+    ]
+
+
+def _models_dev_provider_infos(payload: dict[str, object], provider_slug: str) -> list[ModelInfo]:
+    source_slug = "openai" if provider_slug == "openai-codex" else provider_slug
+    provider_payload = payload.get(source_slug)
+    if not is_string_mapping(provider_payload):
+        return []
+    raw_models = provider_payload.get("models")
+    if not is_string_mapping(raw_models):
+        return []
+    return [
+        info
+        for raw_model in raw_models.values()
+        if (info := _models_dev_model_info(raw_model, provider_slug)) is not None
+    ]
+
+
+def _models_dev_model_info(raw_model: object, provider_slug: str) -> ModelInfo | None:
+    if not is_string_mapping(raw_model):
+        return None
+    model_id = _string_field(raw_model, "id")
+    if not model_id:
+        return None
+    context_window, max_output = _models_dev_limits(raw_model)
+    prompt_price, completion_price = _models_dev_prices(raw_model)
+    tags = _models_dev_tags(raw_model, prompt_price, completion_price)
+    return ModelInfo(
+        name=model_id,
+        provider=provider_slug,
+        display_name=_string_field(raw_model, "name") or model_id,
+        context_window=context_window or 128_000,
+        max_output=max_output or 8_192,
+        prompt_price_per_1k=prompt_price,
+        completion_price_per_1k=completion_price,
+        tags=tags,
+        reasoning_efforts=_models_dev_reasoning_efforts(provider_slug, tags),
+        input_modalities=_models_dev_modalities(raw_model),
+        supports_tools=bool(raw_model.get("tool_call")),
+    )
+
+
+def _models_dev_reasoning_efforts(
+    provider_slug: str,
+    tags: tuple[str, ...],
+) -> tuple[str, ...]:
+    if "reasoning" not in tags:
+        return ()
+    if provider_slug in {"openai", "openai-codex"}:
+        return _OPENAI_REASONING_EFFORTS
+    return _DEFAULT_REASONING_EFFORTS
+
+
+def _models_dev_limits(raw_model: dict[str, object]) -> tuple[int, int]:
+    limits = _mapping_field(raw_model, "limit") or {}
+    return _int_field(limits, "context") or _int_field(limits, "input"), _int_field(
+        limits,
+        "output",
+    )
+
+
+def _models_dev_prices(raw_model: dict[str, object]) -> tuple[float, float]:
+    cost = _mapping_field(raw_model, "cost") or {}
+    return _models_dev_price_per_1k(cost.get("input")), _models_dev_price_per_1k(
+        cost.get("output")
+    )
+
+
+def _models_dev_tags(
+    raw_model: dict[str, object],
+    prompt_price: float,
+    completion_price: float,
+) -> tuple[str, ...]:
+    tags: list[str] = []
+    if prompt_price == 0.0 and completion_price == 0.0:
+        tags.append("free")
+    if raw_model.get("reasoning") is True:
+        tags.append("reasoning")
+    if raw_model.get("tool_call") is True:
+        tags.append("tools")
+    return tuple(tags)
+
+
+def _models_dev_modalities(raw_model: dict[str, object]) -> tuple[str, ...]:
+    modalities = _mapping_field(raw_model, "modalities") or {}
+    inputs = modalities.get("input")
+    if not is_object_list(inputs):
+        return ()
+    return tuple(item for item in inputs if isinstance(item, str))
+
+
+def _models_dev_price_per_1k(value: object) -> float:
+    try:
+        price_per_million = float(value) if isinstance(value, str | int | float) else 0.0
+    except ValueError:
+        return 0.0
+    return price_per_million / 1000
 
 
 def _fetch_and_cache_live_catalog(slug: str, endpoint: str) -> LiveProviderCatalog | None:
@@ -213,22 +399,8 @@ def _openrouter_model_info(raw_model: object) -> ModelInfo | None:
     if not _is_text_output_model(raw_model):
         return None
 
-    pricing = _mapping_field(raw_model, "pricing") or {}
-    top_provider = _mapping_field(raw_model, "top_provider") or {}
-
-    prompt_price = _price_per_1k(pricing.get("prompt"))
-    completion_price = _price_per_1k(pricing.get("completion"))
-    context_window = _int_field(raw_model, "context_length") or _int_field(
-        top_provider, "context_length"
-    )
-    max_output = _int_field(top_provider, "max_completion_tokens")
-
-    tags: list[str] = []
-    if prompt_price == 0.0 and completion_price == 0.0:
-        tags.append("free")
-    supported_parameters = raw_model.get("supported_parameters")
-    if is_object_list(supported_parameters):
-        tags.extend(tag for tag in ("reasoning", "tools") if tag in supported_parameters)
+    prompt_price, completion_price = _openrouter_prices(raw_model)
+    context_window, max_output = _openrouter_limits(raw_model)
 
     return ModelInfo(
         name=model_id,
@@ -238,8 +410,35 @@ def _openrouter_model_info(raw_model: object) -> ModelInfo | None:
         max_output=max_output or 8_192,
         prompt_price_per_1k=prompt_price,
         completion_price_per_1k=completion_price,
-        tags=tuple(tags),
+        tags=_openrouter_tags(raw_model, prompt_price, completion_price),
     )
+
+
+def _openrouter_prices(raw_model: dict[str, object]) -> tuple[float, float]:
+    pricing = _mapping_field(raw_model, "pricing") or {}
+    return _price_per_1k(pricing.get("prompt")), _price_per_1k(pricing.get("completion"))
+
+
+def _openrouter_limits(raw_model: dict[str, object]) -> tuple[int, int]:
+    top_provider = _mapping_field(raw_model, "top_provider") or {}
+    context_window = _int_field(raw_model, "context_length") or _int_field(
+        top_provider, "context_length"
+    )
+    return context_window, _int_field(top_provider, "max_completion_tokens")
+
+
+def _openrouter_tags(
+    raw_model: dict[str, object],
+    prompt_price: float,
+    completion_price: float,
+) -> tuple[str, ...]:
+    tags: list[str] = []
+    if prompt_price == 0.0 and completion_price == 0.0:
+        tags.append("free")
+    supported_parameters = raw_model.get("supported_parameters")
+    if is_object_list(supported_parameters):
+        tags.extend(tag for tag in ("reasoning", "tools") if tag in supported_parameters)
+    return tuple(tags)
 
 
 def _is_text_output_model(raw_model: dict[str, object]) -> bool:

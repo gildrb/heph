@@ -21,29 +21,19 @@ from hephaistos.terminal import STYLE_DIM, print_error, print_info, print_succes
 
 
 def _session_status(session: ChatSession) -> str:
-    armory = str(session.armory_path) if session.armory_path else styled("none", STYLE_DIM)
-    title = session.title or styled("(untitled)", STYLE_DIM)
     msg_count = sum(1 for message in session.conversation.messages if message.role != "system")
     usage_summary = session.usage.summary()
-    mem_count = len(session.memory.entries) if session.memory else 0
-    key_status = (
-        "not needed (free provider)"
-        if is_keyless_endpoint(session.config.base_url)
-        else "configured"
-        if has_configured_access(session.config, refresh_oauth=False)
-        else styled("not set", STYLE_DIM)
-    )
     lines = [
-        f"  Armory:    {armory}",
+        f"  Armory:    {_session_armory_label(session)}",
         f"  Session:   {session.session_id}",
-        f"  Title:     {title}",
+        f"  Title:     {session.title or styled('(untitled)', STYLE_DIM)}",
         f"  Model:     {session.config.model}",
         f"  API:       {session.config.base_url}",
-        f"  Key:       {key_status}",
-        f"  Mode:      {'agent (tools)' if session.armory_path else 'plain chat'}",
-        f"  Tools:     {7 if session.armory_path else 0}",
+        f"  Key:       {_session_key_status(session)}",
+        f"  Runtime:   {_session_runtime_label(session)}",
+        f"  Tools:     {_session_tool_count(session)}",
         f"  Messages:  {msg_count}",
-        f"  Memory:    {mem_count} concepts",
+        f"  Memory:    {_session_memory_count(session)} concepts",
         f"  API calls: {usage_summary['api_calls']}",
         (
             f"  Tokens:    {usage_summary['total_tokens']}"
@@ -54,6 +44,30 @@ def _session_status(session: ChatSession) -> str:
         f"  Dirty:     {'yes' if session.dirty else 'no'}",
     ]
     return "\n".join(lines)
+
+
+def _session_armory_label(session: ChatSession) -> str:
+    return str(session.armory_path) if session.armory_path else styled("none", STYLE_DIM)
+
+
+def _session_key_status(session: ChatSession) -> str:
+    if is_keyless_endpoint(session.config.base_url):
+        return "not needed (free provider)"
+    if has_configured_access(session.config, refresh_oauth=False):
+        return "configured"
+    return styled("not set", STYLE_DIM)
+
+
+def _session_runtime_label(session: ChatSession) -> str:
+    return "agent (tools)" if session.armory_path else "plain chat"
+
+
+def _session_tool_count(session: ChatSession) -> int:
+    return 7 if session.armory_path else 0
+
+
+def _session_memory_count(session: ChatSession) -> int:
+    return len(session.memory.entries) if session.memory else 0
 
 
 def _autosave_before_new_chat(session: ChatSession) -> None:
