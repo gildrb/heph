@@ -9,8 +9,8 @@ from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
+from hephaistos.providers.reasoning import reasoning_levels_for_model
 from hephaistos.providers.registry import ModelInfo, get_registry
-from hephaistos.reasoning import reasoning_levels_for_model
 
 
 def _openrouter_live_catalog() -> LiveProviderCatalog:

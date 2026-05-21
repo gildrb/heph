@@ -9,7 +9,7 @@ _SECTION_RE = re.compile(r"^##\s+", re.MULTILINE)
 
 
 def _repo_readme_path() -> Path | None:
-    package_root = Path(__file__).resolve().parent
+    package_root = Path(__file__).resolve().parents[1]
     for parent in (package_root, *package_root.parents):
         candidate = parent / "README.md"
         if candidate.is_file():

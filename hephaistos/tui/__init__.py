@@ -23,7 +23,7 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.reasoning import next_reasoning_level, reasoning_levels_for_model
+from hephaistos.providers.reasoning import next_reasoning_level, reasoning_levels_for_model
 from hephaistos.terminal import Theme, current_palette
 from hephaistos.terminal import set_theme as set_theme
 from hephaistos.terminal.history import InputHistory

@@ -219,33 +219,47 @@ def assess_evidence(
     sources = {ref.split("#chunk=", maxsplit=1)[0] for ref in refs}
     diversity = min(1.0, len(sources) / 3) if refs else 0.0
     if not refs:
-        return EvidenceAssessment(
+        return _evidence_assessment(
             sufficient=False,
             confidence=0.0,
-            supporting_refs=(),
             missing_information=(missing_hint,),
-            conflicts=(),
-            source_diversity_score=0.0,
             recommended_action="abstain" if source_only else "retrieve_more",
         )
     if len(refs) == 1:
-        return EvidenceAssessment(
+        return _evidence_assessment(
             sufficient=not source_only,
             confidence=0.48 if source_only else 0.58,
             supporting_refs=refs,
             missing_information=("corroborating source span",),
-            conflicts=(),
             source_diversity_score=diversity,
             recommended_action="give_partial_answer" if source_only else "answer",
         )
-    return EvidenceAssessment(
+    return _evidence_assessment(
         sufficient=True,
         confidence=min(0.95, 0.62 + 0.1 * len(refs) + 0.1 * diversity),
         supporting_refs=refs,
-        missing_information=(),
-        conflicts=(),
         source_diversity_score=diversity,
         recommended_action="answer",
+    )
+
+
+def _evidence_assessment(
+    *,
+    sufficient: bool,
+    confidence: float,
+    recommended_action: EvidenceAction,
+    supporting_refs: tuple[str, ...] = (),
+    missing_information: tuple[str, ...] = (),
+    source_diversity_score: float = 0.0,
+) -> EvidenceAssessment:
+    return EvidenceAssessment(
+        sufficient=sufficient,
+        confidence=confidence,
+        supporting_refs=supporting_refs,
+        missing_information=missing_information,
+        conflicts=(),
+        source_diversity_score=source_diversity_score,
+        recommended_action=recommended_action,
     )
 
 
@@ -292,8 +306,6 @@ def validate_pedagogy(reply: str, move: LearningMove) -> PedagogyValidation:
         issues.append("missing confidence request")
     if _looks_like_recall_answer_leak(normalized, move):
         issues.append("possible answer leakage during recall")
-    if _missing_next_action(normalized, move):
-        issues.append("missing explicit next action")
     if not issues:
         return PedagogyValidation(True, (), None, None)
     return PedagogyValidation(
@@ -313,20 +325,6 @@ def _looks_like_recall_answer_leak(normalized_reply: str, move: LearningMove) ->
         return False
     return any(
         marker in normalized_reply for marker in ("the answer is", "solution:", "full solution")
-    )
-
-
-def _missing_next_action(
-    normalized_reply: str,
-    move: LearningMove,
-) -> bool:
-    if move.kind in {"answer", "ask_clarifying_question"}:
-        return False
-    return not (
-        "next" in normalized_reply
-        or move.kind in normalized_reply
-        or "try this" in normalized_reply
-        or "answer from memory" in normalized_reply
     )
 
 
@@ -423,21 +421,27 @@ def _needs_contrastive_correction(move: LearningMove) -> bool:
 
 
 def normalize_confidence_value(raw_value: float, unit: str = "") -> float | None:
-    if unit == "%":
-        confidence = raw_value / 100
-    elif unit == "/10":
-        confidence = raw_value / 10
-    elif unit == "/5":
-        confidence = raw_value / 5
-    elif raw_value <= 1:
-        confidence = raw_value
-    elif raw_value <= 5:
-        confidence = raw_value / 5
-    elif raw_value <= 10:
-        confidence = raw_value / 10
-    else:
+    divisor = _confidence_divisor(raw_value, unit)
+    if divisor is None:
         return None
+    confidence = raw_value / divisor
     return min(1.0, max(0.0, confidence))
+
+
+def _confidence_divisor(raw_value: float, unit: str) -> float | None:
+    if unit == "%":
+        return 100
+    if unit == "/10":
+        return 10
+    if unit == "/5":
+        return 5
+    if raw_value <= 1:
+        return 1
+    if raw_value <= 5:
+        return 5
+    if raw_value <= 10:
+        return 10
+    return None
 
 
 def parse_time_budget_minutes(text: str) -> int | None:

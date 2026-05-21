@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from hephaistos.logging import get_logger
-from hephaistos.product_context import heph_product_context
+from hephaistos.product.context import heph_product_context
 from hephaistos.study.intent import (
     is_material_source_request,
     is_new_material_topic_request,

@@ -36,12 +36,12 @@ from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.oauth import load_credentials
-from hephaistos.providers.registry import get_registry as get_provider_registry
-from hephaistos.reasoning import (
+from hephaistos.providers.reasoning import (
     DEFAULT_REASONING_LEVEL,
     normalize_reasoning_level,
     reasoning_levels_for_model,
 )
+from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
 from hephaistos.runtime.messages import message_content_text
 from hephaistos.runtime.prompt_cache import (
