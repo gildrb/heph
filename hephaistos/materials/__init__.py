@@ -358,7 +358,7 @@ def _visible_material_file(
     folder: Path,
     resolved_folder: Path,
 ) -> bool:
-    if _unsafe_material_path(file_path, resolved_folder):
+    if _unsafe_material_path(file_path, folder, resolved_folder):
         return False
     if not file_path.is_file():
         return False
@@ -416,8 +416,8 @@ def _resolve_material_folder(folder: Path) -> Path | None:
         return None
 
 
-def _unsafe_material_path(file_path: Path, resolved_folder: Path) -> bool:
-    if file_path.is_symlink():
+def _unsafe_material_path(file_path: Path, folder: Path, resolved_folder: Path) -> bool:
+    if _material_path_has_symlink(file_path, folder):
         _log.warning("skipping symlinked material", extra={"fields": {"path": str(file_path)}})
         return True
     try:
@@ -430,6 +430,19 @@ def _unsafe_material_path(file_path: Path, resolved_folder: Path) -> bool:
             extra={"fields": {"path": str(file_path)}},
         )
         return True
+    return False
+
+
+def _material_path_has_symlink(file_path: Path, folder: Path) -> bool:
+    try:
+        rel_parts = file_path.relative_to(folder).parts
+    except ValueError:
+        return True
+    current = folder
+    for part in rel_parts:
+        current /= part
+        if current.is_symlink():
+            return True
     return False
 
 

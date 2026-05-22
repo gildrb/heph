@@ -135,7 +135,7 @@ def _scrub_value(value: object) -> object:
 
 def _parse_sentry_dsn(dsn: str) -> tuple[str, str]:
     parsed = urllib.parse.urlparse(dsn)
-    if not parsed.scheme or not parsed.hostname or not parsed.username:
+    if parsed.scheme != "https" or not parsed.hostname or not parsed.username:
         raise ValueError("Invalid Sentry DSN")
     path_parts = [part for part in parsed.path.split("/") if part]
     if not path_parts:

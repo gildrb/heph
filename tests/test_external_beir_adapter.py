@@ -428,6 +428,35 @@ def test_beir_adapter_rejects_zip_path_traversal(tmp_path: Path) -> None:
     assert not output.exists()
 
 
+def test_beir_adapter_rejects_zip_symlink_member(tmp_path: Path) -> None:
+    zip_path = tmp_path / "symlink.zip"
+    link_info = zipfile.ZipInfo("fixture/corpus.jsonl")
+    link_info.create_system = 3
+    link_info.external_attr = 0o120777 << 16
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(link_info, "../outside.jsonl")
+    output = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-zip",
+            str(zip_path),
+            "--output",
+            str(output),
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert status == 2
+    assert report["status"] == "error"
+    assert report["error"]["code"] == "unsafe_archive"
+    assert not output.exists()
+
+
 def test_beir_adapter_reports_missing_referenced_document(tmp_path: Path) -> None:
     source = _beir_fixture(tmp_path)
     (source / "qrels" / "test.tsv").write_text(

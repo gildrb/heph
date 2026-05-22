@@ -133,6 +133,30 @@ def test_claim_policy_redacts_seeded_secrets_before_report_output(
     assert redaction["status"] == "passed"
 
 
+def test_claim_policy_redacts_command_invocation_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPHAISTOS_TEST_POLICY_TOKEN", "policy-command-secret")
+
+    finalized = claim_report_envelope.finalize_claim_report(
+        _minimal_claim_report(),
+        command=(
+            "uv run python -m scripts.run_external_benchmarks beir beir/fixture "
+            "--api-key=policy-command-secret --auth 'Bearer command-token'"
+        ),
+    )
+    serialized = json.dumps(finalized, ensure_ascii=False, sort_keys=True)
+    metadata = cast("dict[str, object]", finalized["metadata"])
+    envelope = cast("dict[str, object]", finalized["claim_envelope"])
+    reproducibility = cast("dict[str, object]", envelope["reproducibility"])
+    command_invocation = cast("str", metadata["command_invocation"])
+
+    assert "policy-command-secret" not in serialized
+    assert "command-token" not in serialized
+    assert "[REDACTED]" in command_invocation
+    assert reproducibility["command_invocation"] == command_invocation
+
+
 def test_claim_policy_validator_rejects_failed_redaction_status() -> None:
     finalized = claim_report_envelope.finalize_claim_report(
         _minimal_claim_report(),

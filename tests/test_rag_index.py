@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 import time
 from pathlib import Path
 
@@ -77,6 +79,21 @@ def _converted_document(source: str, content_hash: str, text: str) -> ChunkedDoc
             )
         ],
     )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not portable on Windows")
+def test_cache_signing_key_uses_private_permissions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_path = tmp_path / "config" / "rag_cache.key"
+    monkeypatch.setenv("HEPHAISTOS_RAG_CACHE_KEY_FILE", str(key_path))
+
+    key = rag_index._cache_signing_key()
+
+    assert key is not None
+    assert stat.S_IMODE(key_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
 
 class TestArmoryIndexBuild:
@@ -193,6 +210,29 @@ class TestArmoryIndexPersist:
         index = ArmoryIndex(armory)
         assert not index.load()
 
+    def test_load_rejects_signed_cache_when_large_documents_are_tampered(
+        self,
+        armory: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(
+            "HEPHAISTOS_RAG_CACHE_KEY_FILE",
+            str(tmp_path / "config" / "rag_cache.key"),
+        )
+        monkeypatch.setenv("HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+        index_file = armory / ".hephaistos" / "rag_index.json"
+        data = json.loads(index_file.read_text(encoding="utf-8"))
+        data["documents"][0]["chunks"][0]["text"] = "hidden forged theorem"
+        index_file.write_text(json.dumps(data), encoding="utf-8")
+
+        loaded = ArmoryIndex(armory)
+
+        assert not loaded.load()
+
 
 class TestArmoryIndexStaleness:
     def test_empty_index_is_stale(self, armory: Path) -> None:
@@ -218,6 +258,19 @@ class TestArmoryIndexStaleness:
         assert not index.is_stale()
 
         (armory / "materials" / "python.md").write_text("# Changed content\n")
+        assert index.is_stale()
+
+    def test_edited_file_makes_stale_above_legacy_digest_verify_limit(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        monkeypatch.setenv("HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
+
+        (armory / "materials" / "python.md").write_text("# Changed content\n")
+
         assert index.is_stale()
 
     def test_unsupported_file_does_not_make_fresh_index_stale(self, armory: Path) -> None:

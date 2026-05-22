@@ -47,6 +47,22 @@ _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 
 
+def _ensure_install_id_dir() -> None:
+    _INSTALL_ID_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _INSTALL_ID_PATH.parent.chmod(0o700)
+
+
+def _write_private_install_id(value: str) -> None:
+    fd = os.open(str(_INSTALL_ID_PATH), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except Exception:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(json.dumps({"install_id": value}) + "\n")
+
+
 @dataclass(frozen=True)
 class PrivacyReleaseConfig:
     posthog_host: str = ""
@@ -159,9 +175,11 @@ def is_official_install() -> bool:
 
 
 def install_id() -> str:
-    _INSTALL_ID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(Exception):
+        _ensure_install_id_dir()
     if _INSTALL_ID_PATH.exists():
         with contextlib.suppress(Exception):
+            _INSTALL_ID_PATH.chmod(0o600)
             raw = json.loads(_INSTALL_ID_PATH.read_text(encoding="utf-8"))
             if is_string_mapping(raw):
                 existing = str(raw.get("install_id", "")).strip()
@@ -169,7 +187,8 @@ def install_id() -> str:
                     return existing
     value = f"heph_{uuid.uuid4().hex}"
     with contextlib.suppress(Exception):
-        _INSTALL_ID_PATH.write_text(json.dumps({"install_id": value}) + "\n", encoding="utf-8")
+        _ensure_install_id_dir()
+        _write_private_install_id(value)
     return value
 
 

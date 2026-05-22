@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from typing import Final, TypeGuard
@@ -111,8 +112,15 @@ def capture(event: str, properties: Mapping[str, object] | None = None) -> None:
     sanitized_properties["$lib_version"] = str(sanitized_properties["app_version"])
 
     data = json.dumps(payload).encode("utf-8")
+    capture_url = _capture_url()
+    if not capture_url:
+        _log.debug(
+            "analytics capture skipped: invalid PostHog host",
+            extra={"fields": {"event": event}},
+        )
+        return
     request = urllib.request.Request(
-        posthog_host().rstrip("/") + "/capture/",
+        capture_url,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -124,3 +132,11 @@ def capture(event: str, properties: Mapping[str, object] | None = None) -> None:
 
 def shutdown_analytics() -> None:
     """Flush hook retained for CLI symmetry. The HTTP client is stateless."""
+
+
+def _capture_url() -> str:
+    host = posthog_host().rstrip("/")
+    parsed = urllib.parse.urlparse(host)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
+    return host + "/capture/"

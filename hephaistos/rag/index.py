@@ -49,8 +49,6 @@ _SUPPORTED_INDEX_VERSIONS = frozenset({1, 2, 3, 5, 6, 7, 8})
 IndexProgress = Callable[[str, str], None]
 _CACHE_SIGNING_KEY_FILE = "rag_cache.key"
 _CACHE_SIGNING_KEY_PATH_ENV = "HEPHAISTOS_RAG_CACHE_KEY_FILE"
-_DOCUMENT_DIGEST_VERIFY_LIMIT_ENV = "HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT"
-_DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT = 10_000
 
 
 class _IndexFileTimeoutError(TimeoutError):
@@ -75,7 +73,6 @@ class _LoadedIndexData:
     data: dict[str, object]
     version: int
     raw_documents: list[object]
-    trust_large_signed_cache: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,36 +233,37 @@ def _documents_digest(documents: object) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
-def _document_digest_verify_limit() -> int:
-    raw = os.environ.get(_DOCUMENT_DIGEST_VERIFY_LIMIT_ENV, "").strip()
-    if not raw:
-        return _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT
-
-
 def _cache_signing_key() -> bytes | None:
     raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
     key_path = (
         Path(raw_path).expanduser() if raw_path else user_config_dir() / _CACHE_SIGNING_KEY_FILE
     )
     try:
-        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        key_path.parent.chmod(0o700)
         if key_path.is_file():
+            key_path.chmod(0o600)
             raw_key = key_path.read_text(encoding="utf-8").strip()
             key = bytes.fromhex(raw_key)
             if len(key) < 32:
                 raise ValueError("rag cache signing key is too short")
             return key
         key = secrets.token_bytes(32)
-        key_path.write_text(f"{key.hex()}\n", encoding="utf-8")
-        with contextlib.suppress(OSError):
-            key_path.chmod(0o600)
+        _write_cache_signing_key(key_path, key)
         return key
     except (OSError, ValueError):
         return None
+
+
+def _write_cache_signing_key(key_path: Path, key: bytes) -> None:
+    fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except Exception:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(f"{key.hex()}\n")
 
 
 def _index_signature_payload(data: Mapping[str, object]) -> bytes:
@@ -368,14 +366,12 @@ def _load_index_data(index_path: Path) -> _LoadedIndexData | None:
     raw_documents = _index_data_documents(data)
     if raw_documents is None:
         return None
-    trust_large_signed_cache = _trust_large_signed_cache(raw_documents, version)
     if not _index_documents_signature_valid(data, raw_documents, version):
         return None
     return _LoadedIndexData(
         data=data,
         version=version,
         raw_documents=raw_documents,
-        trust_large_signed_cache=trust_large_signed_cache,
     )
 
 
@@ -403,8 +399,6 @@ def _signed_index_documents_valid(
 
 
 def _documents_digest_matches(raw_documents_digest: str, raw_documents: list[object]) -> bool:
-    if len(raw_documents) > _document_digest_verify_limit():
-        return True
     return raw_documents_digest == _documents_digest(raw_documents)
 
 
@@ -416,10 +410,6 @@ def _legacy_index_documents_valid(
     if version < 4 or not isinstance(raw_documents_digest, str):
         return True
     return raw_documents_digest == _documents_digest(raw_documents)
-
-
-def _trust_large_signed_cache(raw_documents: list[object], version: int) -> bool:
-    return version >= 8 and len(raw_documents) > _document_digest_verify_limit()
 
 
 def _parse_cached_chunk(raw_chunk: object, version: int) -> Chunk | None:
@@ -840,8 +830,7 @@ class ArmoryIndex:
 
         if not self._loaded_cache_is_usable(loaded, allow_stale=allow_stale):
             return False
-        if not loaded.trust_large_signed_cache:
-            self._rebuild_unindexable_files()
+        self._rebuild_unindexable_files()
         return True
 
     def _loaded_cache_is_usable(
@@ -852,11 +841,9 @@ class ArmoryIndex:
     ) -> bool:
         return self._cached_file_hashes_are_usable(
             allow_stale=allow_stale,
-            trust_large_signed_cache=loaded.trust_large_signed_cache,
         ) and self._cached_documents_are_usable(
             allow_stale=allow_stale,
             version=loaded.version,
-            trust_large_signed_cache=loaded.trust_large_signed_cache,
         )
 
     def _restore_loaded_index(self, loaded: _LoadedIndexData) -> None:
@@ -890,9 +877,8 @@ class ArmoryIndex:
         self,
         *,
         allow_stale: bool,
-        trust_large_signed_cache: bool,
     ) -> bool:
-        if trust_large_signed_cache or self._file_hashes_match_material_files():
+        if self._file_hashes_match_material_files():
             return True
         _log.warning(
             "rag index cache does not match material files",
@@ -908,9 +894,8 @@ class ArmoryIndex:
         *,
         allow_stale: bool,
         version: int,
-        trust_large_signed_cache: bool,
     ) -> bool:
-        if trust_large_signed_cache or self._documents_match_material_sources(
+        if self._documents_match_material_sources(
             allow_binary_cache=version >= 7,
             trust_text_cache=version >= 7,
         ):
@@ -931,8 +916,6 @@ class ArmoryIndex:
     def is_stale(self) -> bool:
         if not self._file_hashes:
             return True
-        if len(self._file_hashes) > _document_digest_verify_limit():
-            return False
         return self._source_files_changed()
 
     def _source_files_changed(self) -> bool:

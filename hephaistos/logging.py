@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar, Self, TextIO
 
-from hephaistos._types import is_string_mapping
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.terminal.palette import FORGE_THEME, ansi_fg
 
 # -- Redaction / scrubbing ---------------------------------------------------
@@ -27,8 +27,12 @@ _SENSITIVE_KEY_PATTERNS: list[_re.Pattern[str]] = [
 
 # Unanchored versions — find secrets embedded within longer text
 _SENSITIVE_TEXT_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"sk-proj-[a-zA-Z0-9\-_]{20,}"),  # OpenAI project API keys
     _re.compile(r"sk-[a-zA-Z0-9]{20,}"),  # OpenAI-style API keys
     _re.compile(r"sk-ant-[a-zA-Z0-9\-]{20,}"),  # Anthropic-style keys
+    _re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),  # AWS access keys
+    _re.compile(r"AIza[0-9A-Za-z\-_]{35}"),  # Google API keys
+    _re.compile(r"ya29\.[0-9A-Za-z\-_]+"),  # Google OAuth tokens
     _re.compile(r"Bearer\s+\S+", _re.IGNORECASE),  # Bearer tokens
     _re.compile(r"\b[a-f0-9]{32,}\b"),  # Long hex strings (potential tokens)
 ]
@@ -51,8 +55,14 @@ def _redact_dict(data: Mapping[str, object]) -> dict[str, object]:
 def _redact_value(key: str, value: object) -> object:
     if any(pattern.search(key) for pattern in _SENSITIVE_KEY_PATTERNS):
         return _REDACTED
+    return _redact_unkeyed_value(value)
+
+
+def _redact_unkeyed_value(value: object) -> object:
     if is_string_mapping(value):
         return _redact_dict(value)
+    if is_object_list(value):
+        return [_redact_unkeyed_value(item) for item in value]
     if isinstance(value, str):
         return redact_text(value)
     return value

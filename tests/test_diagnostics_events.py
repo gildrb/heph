@@ -75,6 +75,25 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "path" not in properties
 
 
+def test_capture_rejects_non_https_posthog_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[object] = []
+
+    def _fake_urlopen(request: object, timeout: int = 0) -> object:
+        del timeout
+        opened.append(request)
+        raise AssertionError("urlopen should not be called")
+
+    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_enabled", lambda: True)
+    monkeypatch.setattr("hephaistos.diagnostics.events.posthog_project_token", lambda: "phc_test")
+    monkeypatch.setattr("hephaistos.diagnostics.events.posthog_host", lambda: "http://example.com")
+    monkeypatch.setattr("hephaistos.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
+
+    capture("session_created")
+
+    assert opened == []
+
+
 def test_init_analytics_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """init_analytics() no longer eagerly warms install_id — deferred to capture()."""
     calls: list[str] = []

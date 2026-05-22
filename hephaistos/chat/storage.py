@@ -34,7 +34,20 @@ def _session_path(armory_path: Path, session_id: str) -> Path:
     return _chats_path(armory_path) / f"{session_id}.json"
 
 
+def _session_id_is_safe(session_id: str) -> bool:
+    return (
+        bool(session_id.strip())
+        and "\x00" not in session_id
+        and "/" not in session_id
+        and "\\" not in session_id
+        and ".." not in session_id
+        and not session_id.startswith(".")
+    )
+
+
 def _validate_session_path(armory_path: Path, session_id: str) -> None:
+    if not _session_id_is_safe(session_id):
+        raise ChatStorageError(f"invalid session id: {session_id}")
     chats = _chats_path(armory_path).resolve()
     target = _session_path(armory_path, session_id).resolve()
     if not target.is_relative_to(chats):

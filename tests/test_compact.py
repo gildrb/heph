@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -240,6 +242,32 @@ class TestAutoCompact:
         for line in lines:
             parsed = json.loads(line)
             assert "role" in parsed
+
+    @pytest.mark.skipif(
+        os.name == "nt", reason="POSIX permission bits are not portable on Windows"
+    )
+    def test_transcript_uses_private_permissions_and_redacts_secrets(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        messages: list[ApiMessage] = [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "user",
+                "content": "run with token=compact-secret",
+                "tool_metadata": {"api_key": "compact-secret"},
+            },
+        ]
+
+        auto_compact(messages, MagicMock(), tmp_path)
+
+        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
+        transcript_path = next(transcript_dir.glob("transcript_*.jsonl"))
+        serialized = transcript_path.read_text(encoding="utf-8")
+        assert stat.S_IMODE(transcript_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE(transcript_path.stat().st_mode) == 0o600
+        assert "compact-secret" not in serialized
+        assert "***REDACTED***" in serialized
 
     def test_returns_compressed_messages(
         self,

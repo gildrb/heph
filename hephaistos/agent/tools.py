@@ -55,10 +55,70 @@ from hephaistos.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
-    resolved = (workspace / rel_path).resolve()
-    if not resolved.is_relative_to(workspace.resolve()):
+    try:
+        resolved = (workspace / rel_path).resolve()
+        workspace_resolved = workspace.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"Path cannot be resolved: {rel_path}") from exc
+    if not resolved.is_relative_to(workspace_resolved):
         raise ValueError(f"Path escapes workspace: {rel_path}")
     return resolved
+
+
+def _ensure_workspace_parent(workspace: Path, parent: Path) -> str:
+    workspace_resolved = workspace.resolve()
+    try:
+        relative_parent = parent.relative_to(workspace_resolved)
+    except ValueError:
+        return "Error: parent directory escapes workspace"
+
+    current = workspace_resolved
+    for part in relative_parent.parts:
+        current /= part
+        if not _ensure_workspace_directory(current, workspace_resolved):
+            return "Error: parent directory escapes workspace"
+    return ""
+
+
+def _ensure_workspace_directory(path: Path, workspace: Path) -> bool:
+    try:
+        path.mkdir()
+    except FileExistsError:
+        pass
+    except (OSError, RuntimeError):
+        return False
+    if path.is_symlink() or not path.is_dir():
+        return False
+    try:
+        return path.resolve(strict=True).is_relative_to(workspace)
+    except OSError:
+        return False
+
+
+def _prepare_write_target(workspace: Path, path: str) -> Path | str:
+    try:
+        workspace_resolved = workspace.resolve()
+        target = Path(os.path.normpath(str(workspace_resolved / path)))
+        if not target.is_relative_to(workspace_resolved):
+            raise ValueError(f"Path escapes workspace: {path}")
+        if not target.resolve().is_relative_to(workspace_resolved):
+            raise ValueError(f"Path escapes workspace: {path}")
+    except (OSError, RuntimeError, ValueError) as exc:
+        return str(exc)
+    parent_error = _ensure_workspace_parent(workspace, target.parent)
+    return parent_error or target
+
+
+def _write_text_no_follow(target: Path, content: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(target), flags, 0o666)
+    try:
+        file = os.fdopen(fd, "w", encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
+    with file:
+        file.write(content)
 
 
 class ToolRegistry:
@@ -603,13 +663,11 @@ def run_write_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
+    target = _prepare_write_target(workspace, path)
+    if isinstance(target, str):
+        return target
     try:
-        target = safe_path(workspace, path)
-    except ValueError as exc:
-        return str(exc)
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        _write_text_no_follow(target, content)
         return f"Wrote {len(content)} chars to {path}"
     except OSError as exc:
         return f"Error writing file: {exc}"
@@ -627,12 +685,15 @@ def run_edit_file(
     if isinstance(read_result, str):
         return read_result
 
-    target, text = read_result
+    _target, text = read_result
     match_error = _edit_match_error(path, text.count(old_text))
     if match_error:
         return match_error
     try:
-        target.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        write_target = _prepare_write_target(workspace, path)
+        if isinstance(write_target, str):
+            return write_target
+        _write_text_no_follow(write_target, text.replace(old_text, new_text, 1))
         return f"Edited {path} (replaced 1 match)"
     except OSError as exc:
         return f"Error writing file: {exc}"
@@ -778,9 +839,18 @@ def _is_searchable_file(file_path: Path, workspace: Path) -> bool:
     rel = file_path.relative_to(workspace)
     return (
         file_path.is_file()
+        and not file_path.is_symlink()
+        and _path_resolves_within(file_path, workspace)
         and not any(part.startswith(".") for part in rel.parts)
         and file_path.suffix.lower() not in _SEARCH_SKIP_SUFFIXES
     )
+
+
+def _path_resolves_within(path: Path, workspace: Path) -> bool:
+    try:
+        return path.resolve(strict=True).is_relative_to(workspace.resolve(strict=True))
+    except (OSError, RuntimeError):
+        return False
 
 
 def _search_file(file_path: Path, workspace: Path, regex: re.Pattern[str]) -> list[str]:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from hephaistos.diagnostics.crashes import (
     _REDACTED,
+    _parse_sentry_dsn,
     _scrub_value,
     add_breadcrumb,
     capture_exception,
@@ -53,3 +56,8 @@ class TestLocalNoops:
 
     def test_capture_exception_none_returns_none(self) -> None:
         assert capture_exception(None) is None
+
+
+def test_sentry_dsn_requires_https() -> None:
+    with pytest.raises(ValueError, match="Invalid Sentry DSN"):
+        _parse_sentry_dsn("http://public@example.com/1")

@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaistos._types import is_object_list, is_string_mapping
-from hephaistos.logging import get_logger
+from hephaistos.logging import get_logger, redact_text
 from hephaistos.rag.context import estimate_tokens
 from hephaistos.runtime import (
     ApiMessage,
@@ -43,6 +45,21 @@ PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars
 TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
 _COMPACTION_CACHE_DIR: str = ".hephaistos/compaction_cache"
 _SUMMARY_PROMPT_CHAR_LIMIT = 80_000
+_REDACTED = "***REDACTED***"
+_SENSITIVE_TRANSCRIPT_KEY_MARKERS = (
+    "api_key",
+    "apikey",
+    "auth",
+    "bearer",
+    "credential",
+    "password",
+    "private_key",
+    "secret",
+    "token",
+)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|token|secret|password|credential|dsn)(\s*[:=]\s*)([^\s`|,;]+)"
+)
 
 
 def estimate_messages_tokens(messages: list[ApiMessage]) -> int:
@@ -116,13 +133,52 @@ def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT)
 
 def _write_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
     transcript_dir = workspace / TRANSCRIPTS_DIR
-    transcript_dir.mkdir(parents=True, exist_ok=True)
-    transcript_path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
-    with transcript_path.open("w", encoding="utf-8") as transcript_file:
+    transcript_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    transcript_dir.chmod(0o700)
+    transcript_path = transcript_dir / f"transcript_{time.time_ns()}.jsonl"
+    fd = os.open(str(transcript_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as transcript_file:
         transcript_file.writelines(
-            json.dumps(message, default=str, ensure_ascii=False) + "\n" for message in messages
+            json.dumps(_redacted_transcript_message(message), default=str, ensure_ascii=False)
+            + "\n"
+            for message in messages
         )
     return transcript_path
+
+
+def _redacted_transcript_message(message: ApiMessage) -> dict[str, object]:
+    return {key: _redacted_transcript_value(key, value) for key, value in message.items()}
+
+
+def _redacted_transcript_value(key: str, value: object) -> object:
+    if _transcript_key_is_sensitive(key):
+        return _REDACTED
+    if isinstance(value, str):
+        return _redacted_transcript_text(value)
+    if is_string_mapping(value):
+        return {
+            child_key: _redacted_transcript_value(child_key, child_value)
+            for child_key, child_value in value.items()
+        }
+    if is_object_list(value):
+        return [_redacted_transcript_value("", item) for item in value]
+    return value
+
+
+def _transcript_key_is_sensitive(key: str) -> bool:
+    normalized = key.casefold().replace("-", "_")
+    return any(marker in normalized for marker in _SENSITIVE_TRANSCRIPT_KEY_MARKERS)
+
+
+def _redacted_transcript_text(text: str) -> str:
+    return _SECRET_ASSIGNMENT_RE.sub(
+        _redact_secret_assignment,
+        redact_text(text),
+    )
+
+
+def _redact_secret_assignment(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{match.group(2)}{_REDACTED}"
 
 
 def _split_system_messages(

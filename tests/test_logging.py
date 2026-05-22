@@ -269,6 +269,27 @@ class TestTraceWriter:
         assert data["chunks"][0]["ref"] == "materials/notes.md#chunk=0"
         assert "async await" in data["chunks"][0]["text_excerpt"]
 
+    def test_record_rag_retrieve_redacts_nested_chunk_secrets(self, trace_dir: Path) -> None:
+        tw = TraceWriter("sess6-secret", armory_path=trace_dir)
+        tw.record_rag_retrieve(
+            query="secret",
+            top_k=1,
+            retrieved=1,
+            scores=[1.0],
+            latency_ms=1.0,
+            chunks=[
+                {
+                    "ref": "materials/secrets.md#chunk=0",
+                    "text_excerpt": "AWS key AKIAIOSFODNN7EXAMPLE should not persist",
+                }
+            ],
+        )
+        tw.close()
+
+        raw = (trace_dir / ".hephaistos" / "traces" / "sess6-secret.jsonl").read_text()
+        assert "AKIAIOSFODNN7EXAMPLE" not in raw
+        assert "***REDACTED***" in raw
+
     def test_record_session_event(self, trace_dir: Path) -> None:
         tw = TraceWriter("sess7", armory_path=trace_dir)
         tw.record_session_event("created", model="glm-5")

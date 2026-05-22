@@ -8,6 +8,8 @@ from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hephaistos.agent.tools import (
     TOOL_SCHEMAS,
     BashResult,
@@ -16,9 +18,11 @@ from hephaistos.agent.tools import (
     run_create_armory,
     run_memory,
     run_open_material,
+    run_search_files,
     run_search_materials,
     run_validate_armory,
     run_web_fetch,
+    run_write_file,
 )
 
 # ---------------------------------------------------------------------------
@@ -322,6 +326,40 @@ class TestArmoryTools:
 
         assert removed.success is True
         assert "inspect first" not in read.content
+
+
+class TestWorkspaceFileTools:
+    def test_search_files_skips_symlink_escape(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "outside-secret.txt"
+        outside.write_text("needle outside workspace\n", encoding="utf-8")
+        link = workspace / "linked-secret.txt"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        result = run_search_files("needle", workspace=workspace)
+
+        assert isinstance(result, str)
+        assert "No matches found" in result
+
+    def test_write_file_rejects_symlink_parent_escape(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = workspace / "linked-dir"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        result = run_write_file("linked-dir/secret.txt", "leak", workspace=workspace)
+
+        assert "Path escapes workspace" in result or "parent directory escapes workspace" in result
+        assert not (outside / "secret.txt").exists()
 
 
 # ---------------------------------------------------------------------------

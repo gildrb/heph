@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -88,6 +90,22 @@ def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.Monke
     assert settings.load_app_settings().activity_trace_mode == (
         settings.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
     )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not portable on Windows")
+def test_save_setting_writes_private_config_permissions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    settings.save_setting("model", "gpt-5.5")
+
+    assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(config_file.stat().st_mode) == 0o600
 
 
 def test_normalize_activity_trace_mode_rejects_invalid() -> None:

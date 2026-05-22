@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import stat
+from pathlib import Path
+
 import pytest
 
 from hephaistos.parameters import settings as settings_store
@@ -86,6 +90,22 @@ def test_env_overrides_take_precedence_over_saved_consent(
 
     assert consent.analytics_enabled() is False
     assert consent.crash_reports_enabled() is False
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not portable on Windows")
+def test_install_id_writes_private_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    install_id_path = config_dir / "install_id.json"
+    monkeypatch.setattr(consent, "_INSTALL_ID_PATH", install_id_path)
+
+    value = consent.install_id()
+
+    assert value.startswith("heph_")
+    assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(install_id_path.stat().st_mode) == 0o600
 
 
 def test_consent_notice_is_shown_once_for_official_installs(

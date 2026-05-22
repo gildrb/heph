@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,22 @@ ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 type SettingNormalizer = Callable[[object], object]
+
+
+def _ensure_private_config_dir() -> None:
+    _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _USER_CONFIG_DIR.chmod(0o700)
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except Exception:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(text)
 
 
 def user_config_dir() -> Path:
@@ -215,9 +232,9 @@ def load_raw_settings() -> dict[str, object]:
 
 
 def save_raw_settings(settings: dict[str, object]) -> None:
-    _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_private_config_dir()
     filtered = {key: settings[key] for key in sorted(settings) if key in ALLOWED_CONFIG_KEYS}
-    _USER_CONFIG_FILE.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
+    _write_private_text(_USER_CONFIG_FILE, json.dumps(filtered, indent=2) + "\n")
 
 
 def save_setting(key: str, value: object) -> None:

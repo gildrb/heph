@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -209,7 +210,10 @@ def finalize_claim_report(
     payload.pop("claim_envelope", None)
     payload.pop("claim_policy", None)
     payload.pop("deterministic_projection", None)
-    redacted_count = _redact_payload_in_place(payload, _secret_values_from_environment())
+    secret_values = _secret_values_from_environment()
+    redacted_count = _redact_payload_in_place(payload, secret_values)
+    command_invocation, command_redacted_count = _redacted_text(command, secret_values)
+    redacted_count += command_redacted_count
     metadata = _ensure_mapping(payload, "metadata")
     fixed_parameters = _mapping_or_empty(metadata.get("fixed_parameters"))
     aggregate_metrics = _mapping_or_empty(payload.get("aggregate_metrics"))
@@ -218,7 +222,7 @@ def finalize_claim_report(
     latency_scope = _latency_scope(aggregate_metrics)
     limitations = _default_limitations(fixed_parameters)
 
-    metadata["command_invocation"] = command
+    metadata["command_invocation"] = command_invocation
     metadata["git_commit"] = _string_from_mapping(_mapping_or_empty(observed["git"]), "commit")
     metadata["git_dirty"] = _mapping_or_empty(observed["git"]).get("dirty", True)
     metadata["dependency_lock_sha256"] = observed["uv_lock_sha256"]
@@ -251,7 +255,7 @@ def finalize_claim_report(
         "claim_policy": payload["claim_policy"],
         "reproducibility": {
             "git": observed["git"],
-            "command_invocation": command,
+            "command_invocation": command_invocation,
             "uv_lock_sha256": observed["uv_lock_sha256"],
             "os_python": observed["os_python"],
             "dependency_versions": observed["dependency_versions"],
@@ -417,8 +421,11 @@ def _git_state(root: Path) -> dict[str, object]:
 
 
 def _run_git(root: Path, *args: str) -> str:
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        raise RuntimeError("git executable was not found")
     result = subprocess.run(
-        ["git", "-C", str(root), *args],
+        [git_bin, "-C", str(root), *args],
         capture_output=True,
         check=False,
         text=True,
@@ -566,11 +573,11 @@ def _populate_input_hashes(metadata: dict[str, object]) -> None:
 
 
 def _input_hashes(metadata: Mapping[str, object]) -> dict[str, object]:
-    payload = {
+    payload: dict[str, object] = {
         "dataset": _string_value(metadata.get("dataset")),
     }
     for field_name in _HASH_FIELDS:
-        payload[field_name] = metadata.get(field_name, "0" * 64)
+        payload[field_name] = _hash_value(metadata.get(field_name)) or "0" * 64
     return payload
 
 

@@ -107,6 +107,16 @@ def test_session_id_cannot_escape_chats_directory(tmp_path: Path) -> None:
         save(armory, "../escape", conv)
 
 
+@pytest.mark.parametrize("session_id", ["", ".hidden", "nested/session", r"nested\\session", ".."])
+def test_session_id_rejects_unsafe_names(tmp_path: Path, session_id: str) -> None:
+    armory = _init_armory(tmp_path)
+    conv = Conversation()
+    conv.add("user", "hello")
+
+    with pytest.raises(ChatStorageError, match="invalid session id"):
+        save(armory, session_id, conv)
+
+
 def test_list_sessions_empty(tmp_path: Path) -> None:
     armory = _init_armory(tmp_path)
     sessions = list_sessions(armory)

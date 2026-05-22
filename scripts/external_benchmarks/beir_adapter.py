@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import stat
 import urllib.error
 import urllib.request
 import zipfile
@@ -248,7 +250,7 @@ def _download_and_extract(url: str, cache_dir: Path, beir_name: str) -> Path:
     zip_path = cache_dir / f"{beir_name}.zip"
     if not zip_path.exists():
         try:
-            urllib.request.urlretrieve(url, zip_path)
+            urllib.request.urlretrieve(url, zip_path)  # nosec B310
         except (OSError, urllib.error.URLError) as exc:
             raise AdapterError(
                 "download_failed",
@@ -259,19 +261,62 @@ def _download_and_extract(url: str, cache_dir: Path, beir_name: str) -> Path:
 
 
 def _safe_extract_zip(source_zip: Path, destination: Path) -> None:
+    resolved_destination = destination.resolve()
     with zipfile.ZipFile(source_zip) as archive:
         for member in archive.infolist():
-            member_path = destination / member.filename
-            resolved = member_path.resolve()
-            try:
-                resolved.relative_to(destination.resolve())
-            except ValueError as exc:
-                raise AdapterError(
-                    "unsafe_archive",
-                    f"BEIR zip contains unsafe path: {member.filename}",
-                    "Use an official BEIR dataset zip without path traversal entries.",
-                ) from exc
-        archive.extractall(destination)
+            target = _safe_zip_member_path(member, resolved_destination)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _copy_zip_member(archive, member, target)
+
+
+def _safe_zip_member_path(member: zipfile.ZipInfo, destination: Path) -> Path:
+    if _zip_member_is_symlink(member) or "\\" in member.filename:
+        raise AdapterError(
+            "unsafe_archive",
+            f"BEIR zip contains unsafe path: {member.filename}",
+            "Use an official BEIR dataset zip without symlinks or path traversal entries.",
+        )
+    member_path = destination / member.filename
+    resolved = member_path.resolve()
+    try:
+        resolved.relative_to(destination)
+    except ValueError as exc:
+        raise AdapterError(
+            "unsafe_archive",
+            f"BEIR zip contains unsafe path: {member.filename}",
+            "Use an official BEIR dataset zip without path traversal entries.",
+        ) from exc
+    return resolved
+
+
+def _zip_member_is_symlink(member: zipfile.ZipInfo) -> bool:
+    file_type = (member.external_attr >> 16) & 0o170000
+    return file_type == stat.S_IFLNK
+
+
+def _copy_zip_member(
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    target: Path,
+) -> None:
+    if target.exists() and target.is_symlink():
+        raise AdapterError(
+            "unsafe_archive",
+            f"BEIR zip targets a symlinked path: {member.filename}",
+            "Use an official BEIR dataset zip without symlinks or path traversal entries.",
+        )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(target), flags, 0o666)
+    try:
+        output = os.fdopen(fd, "wb")
+    except Exception:
+        os.close(fd)
+        raise
+    with archive.open(member) as source, output:
+        shutil.copyfileobj(source, output)
 
 
 def _load_corpus(path: Path) -> list[ExternalDocument]:
