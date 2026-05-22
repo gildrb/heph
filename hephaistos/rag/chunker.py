@@ -201,6 +201,79 @@ class ChunkedDocument:
     content_hash: str = ""
 
 
+@dataclass(slots=True)
+class _MarkdownChunkBuilder:
+    source: str
+    next_index: int
+    heading: str
+    heading_level: int
+    char_offset: int
+    chunks: list[Chunk] = field(default_factory=list)
+
+    def append(self, text: str) -> None:
+        self.chunks.append(
+            _markdown_chunk(
+                text,
+                self.source,
+                self.next_index,
+                self.char_offset,
+                self.heading,
+                self.heading_level,
+            )
+        )
+        self.next_index += 1
+        self.char_offset += len(text)
+
+    def append_oversized_section(self, text: str, chunk_size: int) -> None:
+        current = ""
+        for part in _markdown_section_parts(text):
+            part = part.strip()
+            if not part:
+                continue
+
+            current = self._append_markdown_part(current, part, chunk_size)
+
+        if current.strip():
+            self.append(current)
+
+    def _append_markdown_part(self, current: str, part: str, chunk_size: int) -> str:
+        candidate = f"{current}\n\n{part}" if current else part
+        if _markdown_candidate_overflows(candidate, current=current, chunk_size=chunk_size):
+            if current:
+                self.append(current)
+            return part
+        return candidate
+
+
+@dataclass(frozen=True, slots=True)
+class _MarkdownSection:
+    text: str
+    source: str
+    first_index: int
+    heading: str
+    heading_level: int
+    char_offset: int
+
+    def chunk(self, text: str) -> Chunk:
+        return _markdown_chunk(
+            text,
+            self.source,
+            self.first_index,
+            self.char_offset,
+            self.heading,
+            self.heading_level,
+        )
+
+    def builder(self) -> _MarkdownChunkBuilder:
+        return _MarkdownChunkBuilder(
+            source=self.source,
+            next_index=self.first_index,
+            heading=self.heading,
+            heading_level=self.heading_level,
+            char_offset=self.char_offset,
+        )
+
+
 def _is_text_file(path: Path) -> bool:
     if path.suffix.lower() in _TEXT_EXTENSIONS:
         return True
@@ -416,46 +489,65 @@ def _convert_pdf_to_text(path: Path) -> str | None:
 def _convert_pdf_with_ocr(path: Path) -> str | None:
     if not _is_pdf_file(path) or not _is_pdf_ocr_available():
         return None
-    try:
-        with tempfile.TemporaryDirectory(prefix="heph-pdf-ocr-") as temp_dir:
-            output_prefix = str(Path(temp_dir) / "page")
-            render = _run_extraction_command(
-                path,
-                [
-                    "pdftoppm",
-                    "-r",
-                    str(_PDF_OCR_DPI),
-                    "-png",
-                    str(path),
-                    output_prefix,
-                ],
-                timeout=_PDF_OCR_RENDER_TIMEOUT_SECONDS,
-                warning="pdf OCR render failed",
-            )
-            if render is None:
-                return None
-            page_paths = sorted(Path(temp_dir).glob("page-*.png"))
-            texts: list[str] = []
-            for page_path in page_paths:
-                page = _run_extraction_command(
-                    path,
-                    ["tesseract", str(page_path), "stdout", "-l", "eng"],
-                    timeout=_PDF_OCR_PAGE_TIMEOUT_SECONDS,
-                    warning="pdf OCR page failed",
-                    fields={"page": page_path.name},
-                )
-                if page is None:
-                    continue
-                texts.append(page.stdout)
-    except (OSError, subprocess.SubprocessError) as exc:
-        detail = str(exc).strip() or type(exc).__name__
-        _log.warning(
-            "pdf OCR extraction failed",
-            extra={"fields": {"path": str(path), "error": detail}},
-        )
+
+    texts = _extract_pdf_ocr_pages(path)
+    if texts is None:
         return None
+
     text = _normalize_extracted_text("\n\n".join(texts))
     return text if text.strip() else None
+
+
+def _extract_pdf_ocr_pages(path: Path) -> list[str] | None:
+    try:
+        with tempfile.TemporaryDirectory(prefix="heph-pdf-ocr-") as temp_dir:
+            page_paths = _render_pdf_pages(path, Path(temp_dir))
+            if not page_paths:
+                return None
+            return _ocr_pdf_pages(path, page_paths)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log_extraction_warning(path, "pdf OCR extraction failed", exc)
+        return None
+
+
+def _render_pdf_pages(path: Path, temp_dir: Path) -> list[Path]:
+    output_prefix = str(temp_dir / "page")
+    render = _run_extraction_command(
+        path,
+        [
+            "pdftoppm",
+            "-r",
+            str(_PDF_OCR_DPI),
+            "-png",
+            str(path),
+            output_prefix,
+        ],
+        timeout=_PDF_OCR_RENDER_TIMEOUT_SECONDS,
+        warning="pdf OCR render failed",
+    )
+    if render is None:
+        return []
+    return sorted(temp_dir.glob("page-*.png"))
+
+
+def _ocr_pdf_pages(path: Path, page_paths: Sequence[Path]) -> list[str]:
+    texts: list[str] = []
+    for page_path in page_paths:
+        page = _ocr_pdf_page(path, page_path)
+        if page is not None:
+            texts.append(page)
+    return texts
+
+
+def _ocr_pdf_page(path: Path, page_path: Path) -> str | None:
+    page = _run_extraction_command(
+        path,
+        ["tesseract", str(page_path), "stdout", "-l", "eng"],
+        timeout=_PDF_OCR_PAGE_TIMEOUT_SECONDS,
+        warning="pdf OCR page failed",
+        fields={"page": page_path.name},
+    )
+    return page.stdout if page is not None else None
 
 
 def _run_extraction_command(
@@ -477,30 +569,65 @@ def _run_extraction_command(
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        detail = str(exc).strip() or type(exc).__name__
-    else:
-        if completed.returncode == 0:
-            return completed
-        detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+        _log_extraction_warning(path, warning, exc, fields=fields)
+        return None
+    if completed.returncode == 0:
+        return completed
+
+    detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+    _log_extraction_failure(path, warning, detail, fields=fields)
+    return None
+
+
+def _log_extraction_warning(
+    path: Path,
+    warning: str,
+    exc: BaseException,
+    *,
+    fields: Mapping[str, str] | None = None,
+) -> None:
+    detail = str(exc).strip() or type(exc).__name__
+    _log_extraction_failure(path, warning, detail, fields=fields)
+
+
+def _log_extraction_failure(
+    path: Path,
+    warning: str,
+    detail: str,
+    *,
+    fields: Mapping[str, str] | None = None,
+) -> None:
     _log.warning(
         warning,
         extra={"fields": {"path": str(path), **dict(fields or {}), "error": detail}},
     )
-    return None
 
 
 def _convert_binary_to_indexable_text(path: Path) -> str | None:
-    if _is_pdf_file(path):
-        pdf_text = _convert_pdf_to_text(path)
-        if pdf_text and pdf_text.strip():
-            return pdf_text
-        ocr_text = _convert_pdf_with_ocr(path)
-        if ocr_text and ocr_text.strip():
-            return ocr_text
-    docling_text = _convert_to_markdown(path) if _is_docling_available() else None
-    if docling_text and docling_text.strip():
-        return docling_text
+    pdf_text = (
+        _first_nonempty_conversion(path, _convert_pdf_to_text, _convert_pdf_with_ocr)
+        if _is_pdf_file(path)
+        else None
+    )
+    if pdf_text is not None:
+        return pdf_text
+    if not _is_docling_available():
+        return None
+    return _nonempty_text(_convert_to_markdown(path))
+
+
+def _first_nonempty_conversion(
+    path: Path,
+    *converters: Callable[[Path], str | None],
+) -> str | None:
+    for converter in converters:
+        if text := _nonempty_text(converter(path)):
+            return text
     return None
+
+
+def _nonempty_text(text: str | None) -> str | None:
+    return text if text and text.strip() else None
 
 
 def _normalize_extracted_text(text: str) -> str:
@@ -516,26 +643,40 @@ def _normalize_extracted_text(text: str) -> str:
 
 
 def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
-    sections: list[tuple[str, int, int, int]] = []
     matches = list(_HEADING_RE.finditer(text))
 
     if not matches:
-        if text.strip():
-            sections.append(("", 0, 0, len(text)))
-        return sections
-    if matches[0].start() > 0:
-        preamble = text[: matches[0].start()]
-        if preamble.strip():
-            sections.append(("", 0, 0, matches[0].start()))
+        return _plain_text_sections(text)
 
-    for i, m in enumerate(matches):
-        level = len(m.group(1))
-        title = m.group(2).strip()
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        sections.append((title, level, start, end))
+    return [*_preamble_sections(text, matches[0]), *_heading_sections(text, matches)]
 
-    return sections
+
+def _plain_text_sections(text: str) -> list[tuple[str, int, int, int]]:
+    return [("", 0, 0, len(text))] if text.strip() else []
+
+
+def _preamble_sections(text: str, first_heading: re.Match[str]) -> list[tuple[str, int, int, int]]:
+    if first_heading.start() <= 0:
+        return []
+    preamble = text[: first_heading.start()]
+    return [("", 0, 0, first_heading.start())] if preamble.strip() else []
+
+
+def _heading_sections(
+    text: str,
+    matches: list[re.Match[str]],
+) -> list[tuple[str, int, int, int]]:
+    return [_heading_section(text, matches, index) for index in range(len(matches))]
+
+
+def _heading_section(
+    text: str,
+    matches: list[re.Match[str]],
+    index: int,
+) -> tuple[str, int, int, int]:
+    match = matches[index]
+    end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    return match.group(2).strip(), len(match.group(1)), match.start(), end
 
 
 def _markdown_chunk(
@@ -558,48 +699,31 @@ def _markdown_chunk(
 
 
 def _chunk_markdown_section(
-    text: str,
-    source: str,
-    idx_start: int,
-    heading: str,
-    heading_level: int,
-    char_offset: int,
+    section: _MarkdownSection,
     chunk_size: int,
 ) -> list[Chunk]:
-    text = text.strip()
+    text = section.text.strip()
     if not text:
         return []
 
     if len(text) <= chunk_size:
-        return [_markdown_chunk(text, source, idx_start, char_offset, heading, heading_level)]
-    parts = re.split(r"\n\n+", text)
-    chunks: list[Chunk] = []
-    current = ""
-    chunk_idx = idx_start
+        return [section.chunk(text)]
+    builder = section.builder()
+    builder.append_oversized_section(text, chunk_size)
+    return builder.chunks
 
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
 
-        candidate = f"{current}\n\n{part}" if current else part
+def _markdown_section_parts(text: str) -> list[str]:
+    return re.split(r"\n\n+", text)
 
-        if len(candidate) > chunk_size and current:
-            chunks.append(
-                _markdown_chunk(current, source, chunk_idx, char_offset, heading, heading_level)
-            )
-            chunk_idx += 1
-            char_offset += len(current)
-            current = part
-        else:
-            current = candidate
 
-    if current.strip():
-        chunks.append(
-            _markdown_chunk(current, source, chunk_idx, char_offset, heading, heading_level)
-        )
-
-    return chunks
+def _markdown_candidate_overflows(
+    candidate: str,
+    *,
+    current: str,
+    chunk_size: int,
+) -> bool:
+    return bool(current) and len(candidate) > chunk_size
 
 
 def chunk_markdown(
@@ -618,12 +742,14 @@ def chunk_markdown(
     for heading_title, heading_level, start, end in sections:
         section_text = text[start:end]
         new_chunks = _chunk_markdown_section(
-            section_text,
-            source,
-            idx,
-            heading_title,
-            heading_level,
-            start,
+            _MarkdownSection(
+                text=section_text,
+                source=source,
+                first_index=idx,
+                heading=heading_title,
+                heading_level=heading_level,
+                char_offset=start,
+            ),
             chunk_size,
         )
         chunks.extend(new_chunks)
@@ -655,35 +781,49 @@ def chunk_text(
 
     chunks: list[Chunk] = []
     pos = 0
-    idx = 0
 
     while pos < len(text):
-        end = min(pos + chunk_size, len(text))
-
-        if end < len(text):
-            boundary = _find_boundary(text, end, chunk_size // 4)
-            if boundary > pos:
-                end = boundary
-
-        chunk_text_str = text[pos:end].strip()
-        if chunk_text_str:
-            chunks.append(
-                Chunk(
-                    text=chunk_text_str,
-                    source=source,
-                    index=idx,
-                    char_start=pos,
-                    char_end=end,
-                )
-            )
-            idx += 1
-
-        advance = end - pos
-        if advance <= overlap:
+        end = _text_chunk_end(text, pos=pos, chunk_size=chunk_size)
+        chunk = _text_chunk(text, source=source, index=len(chunks), pos=pos, end=end)
+        if chunk is not None:
+            chunks.append(chunk)
+        if _text_chunk_stalled(pos=pos, end=end, overlap=overlap):
             break
         pos = end - overlap
 
     return chunks
+
+
+def _text_chunk_end(text: str, *, pos: int, chunk_size: int) -> int:
+    end = min(pos + chunk_size, len(text))
+    if end >= len(text):
+        return end
+    boundary = _find_boundary(text, end, chunk_size // 4)
+    return boundary if boundary > pos else end
+
+
+def _text_chunk(
+    text: str,
+    *,
+    source: str,
+    index: int,
+    pos: int,
+    end: int,
+) -> Chunk | None:
+    chunk_text_str = text[pos:end].strip()
+    if not chunk_text_str:
+        return None
+    return Chunk(
+        text=chunk_text_str,
+        source=source,
+        index=index,
+        char_start=pos,
+        char_end=end,
+    )
+
+
+def _text_chunk_stalled(*, pos: int, end: int, overlap: int) -> bool:
+    return end - pos <= overlap
 
 
 def _sentence_transformer_factory() -> _SentenceTransformerFactory | None:
@@ -728,24 +868,44 @@ def chunk_semantic(
     if not text or not text.strip():
         return []
 
-    model = _sentence_transformer_model()
-    if model is None:
-        return chunk_text(text, source, chunk_size, overlap)
-
-    sentences = _split_sentences(text)
-    if len(sentences) <= 1:
-        return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-    emb_lists = _semantic_sentence_embeddings(model, sentences)
-    if emb_lists is None:
-        return chunk_text(text, source, chunk_size, overlap)
-    breakpoints = _semantic_breakpoints(emb_lists, similarity_threshold)
-    chunks = _semantic_chunks_from_breakpoints(
-        sentences,
-        breakpoints,
-        source=source,
+    chunks = _try_chunk_semantic(
+        text,
+        source,
+        similarity_threshold=similarity_threshold,
         min_chunk=min_chunk,
     )
     return chunks or chunk_text(text, source, chunk_size, overlap)
+
+
+def _try_chunk_semantic(
+    text: str,
+    source: str,
+    *,
+    similarity_threshold: float,
+    min_chunk: int,
+) -> list[Chunk]:
+    model = _sentence_transformer_model()
+    if model is None:
+        return []
+
+    sentences = _split_sentences(text)
+    if len(sentences) <= 1:
+        return [_single_text_chunk(text, source)]
+
+    emb_lists = _semantic_sentence_embeddings(model, sentences)
+    if emb_lists is None:
+        return []
+
+    return _semantic_chunks_from_breakpoints(
+        sentences,
+        _semantic_breakpoints(emb_lists, similarity_threshold),
+        source=source,
+        min_chunk=min_chunk,
+    )
+
+
+def _single_text_chunk(text: str, source: str) -> Chunk:
+    return Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))
 
 
 def _semantic_sentence_embeddings(
@@ -854,35 +1014,51 @@ def chunk_file(
 
     rel = str(path.relative_to(armory_root))
     if not _is_text_file(path):
-        if not _can_convert_binary_file(path):
-            return None
-        text = _convert_binary_to_indexable_text(path)
-        if not text or not text.strip():
-            return None
-        return ChunkedDocument(
-            source=rel,
-            chunks=chunk_markdown(text, rel, chunk_size, overlap),
-            content_hash=hashlib.sha256(path.read_bytes()).hexdigest()[:16],
-        )
+        return _chunk_binary_file(path, rel, chunk_size=chunk_size, overlap=overlap)
 
-    try:
-        text = _read_indexable_text(path)
-    except (UnicodeDecodeError, OSError):
-        return None
-
-    if not text.strip():
-        return None
-    text = _normalize_extracted_text(text)
-    if not text.strip():
+    text = _read_normalized_text_file(path)
+    if text is None:
         return None
 
     chunk_fn = _resolve_strategy(strategy, path)
     chunks: list[Chunk] = chunk_fn(text, rel, chunk_size, overlap)
 
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
     return ChunkedDocument(
         source=rel,
         chunks=chunks,
-        content_hash=content_hash,
+        content_hash=_text_content_hash(text),
     )
+
+
+def _chunk_binary_file(
+    path: Path,
+    rel: str,
+    *,
+    chunk_size: int,
+    overlap: int,
+) -> ChunkedDocument | None:
+    if not _can_convert_binary_file(path):
+        return None
+    text = _nonempty_text(_convert_binary_to_indexable_text(path))
+    if text is None:
+        return None
+    return ChunkedDocument(
+        source=rel,
+        chunks=chunk_markdown(text, rel, chunk_size, overlap),
+        content_hash=hashlib.sha256(path.read_bytes()).hexdigest()[:16],
+    )
+
+
+def _read_normalized_text_file(path: Path) -> str | None:
+    try:
+        text = _read_indexable_text(path)
+    except (UnicodeDecodeError, OSError):
+        return None
+    text = _nonempty_text(text)
+    if text is None:
+        return None
+    return _nonempty_text(_normalize_extracted_text(text))
+
+
+def _text_content_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]

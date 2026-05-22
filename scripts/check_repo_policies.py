@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -185,16 +186,51 @@ HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 HARDCODED_ANSWER_KEYWORDS: Final[frozenset[str]] = frozenset({"direct_reply", "reply"})
+HARDCODED_ANSWER_TARGET_PARTS: Final[frozenset[str]] = frozenset(
+    {
+        "answer",
+        "direct_reply",
+        "guidance",
+        "message",
+        "question",
+        "reply",
+        "response",
+    }
+)
+HARDCODED_ANSWER_FUNCTION_NAME_PARTS: Final[frozenset[str]] = frozenset(
+    {
+        "answer",
+        "fallback",
+        "guidance",
+        "message",
+        "question",
+        "reply",
+        "response",
+    }
+)
+HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
+    {
+        "_all_material_disabled_reply",
+        "_empty_learning_reply",
+        "_empty_material_index_reply",
+        "_fallback_assessment_message",
+        "_generic_empty_learning_reply",
+        "_index_unavailable_reply",
+        "_missing_indexed_material_reply",
+        "_missing_source_span_message",
+        "_overview_unavailable_reply",
+        "_plain_empty_reply",
+        "empty_armory_guidance",
+        "tui_dependency_message",
+        "_unindexable_material_reply",
+    }
+)
 HARDCODED_ANSWER_MESSAGE: Final[str] = (
     "hardcoded assistant answer for non-deterministic chat is forbidden; use a "
     "model-facing prompt or an allowlisted harness fallback"
 )
-ALLOWED_HARDCODED_ANSWER_PREFIXES: Final[tuple[str, ...]] = (
-    "Practice session complete:",
-    "No searchable armory evidence",
-    "No grounded source",
-    "I could not generate",
-    "I could not produce",
+GENERATED_CACHE_MESSAGE: Final[str] = (
+    "generated Python cache files must not live inside repository source roots"
 )
 
 
@@ -220,6 +256,20 @@ def _iter_python_files() -> list[Path]:
                 continue
             files.append(path)
     return sorted(files)
+
+
+def _tracked_repo_paths() -> tuple[str, ...]:
+    try:
+        result = subprocess.run(
+            ("git", "ls-files"),
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ()
+    return tuple(line for line in result.stdout.splitlines() if line)
 
 
 def _dotted_name(node: ast.AST | None) -> str | None:
@@ -472,6 +522,11 @@ def _check_source(source: str, rel_path: str, *, filename: str | None = None) ->
     visitor.visit(tree)
 
     violations = visitor.violations
+    violations.extend(
+        _hardcoded_answer_violations(
+            _hardcoded_answer_literals(source, rel_path, filename=filename),
+        )
+    )
     for line_number, line in enumerate(source.splitlines(), start=1):
         if TYPE_IGNORE_MARKER in line:
             message = TYPE_IGNORE_POLICY_MESSAGE
@@ -587,6 +642,10 @@ def _hardcoded_answer_literals(
             literals.extend(_hardcoded_answer_literals_from_call(node, rel_path))
         elif isinstance(node, ast.Assign):
             literals.extend(_hardcoded_answer_literals_from_assignment(node, rel_path))
+        elif isinstance(node, ast.AnnAssign):
+            literals.extend(_hardcoded_answer_literals_from_annotated_assignment(node, rel_path))
+        elif isinstance(node, ast.FunctionDef):
+            literals.extend(_hardcoded_answer_literals_from_reply_function(node, rel_path))
     return literals
 
 
@@ -620,15 +679,70 @@ def _hardcoded_answer_literals_from_assignment(
     node: ast.Assign,
     rel_path: str,
 ) -> list[HardcodedAnswerLiteral]:
-    has_direct_reply_target = any(
-        isinstance(target, ast.Name) and target.id == "direct_reply" for target in node.targets
-    )
-    if not has_direct_reply_target:
+    if not any(_hardcoded_answer_target_name(target) is not None for target in node.targets):
         return []
     literal = _string_literal_value(node.value)
     if literal is None:
         return []
     return [_hardcoded_answer_literal(literal, rel_path, node.value)]
+
+
+def _hardcoded_answer_literals_from_annotated_assignment(
+    node: ast.AnnAssign,
+    rel_path: str,
+) -> list[HardcodedAnswerLiteral]:
+    if node.value is None or _hardcoded_answer_target_name(node.target) is None:
+        return []
+    literal = _string_literal_value(node.value)
+    if literal is None:
+        return []
+    return [_hardcoded_answer_literal(literal, rel_path, node.value)]
+
+
+def _hardcoded_answer_target_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        name = node.id
+    elif isinstance(node, ast.Attribute):
+        name = node.attr
+    elif isinstance(node, ast.Subscript):
+        name = _literal_subscript_key(node)
+        if name is None:
+            return None
+    else:
+        return None
+    parts = frozenset(part for part in name.strip("_").split("_") if part)
+    if name == "direct_reply" or parts & HARDCODED_ANSWER_TARGET_PARTS:
+        return name
+    return None
+
+
+def _literal_subscript_key(node: ast.Subscript) -> str | None:
+    if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+        return node.slice.value
+    return None
+
+
+def _hardcoded_answer_literals_from_reply_function(
+    node: ast.FunctionDef,
+    rel_path: str,
+) -> list[HardcodedAnswerLiteral]:
+    if not _is_guarded_reply_function(node.name):
+        return []
+    literals: list[HardcodedAnswerLiteral] = []
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Return) or child.value is None:
+            continue
+        literal = _string_literal_value(child.value)
+        if literal is not None:
+            literals.append(_hardcoded_answer_literal(literal, rel_path, child.value))
+    return literals
+
+
+def _is_guarded_reply_function(name: str) -> bool:
+    if name in HARDCODED_REPLY_FUNCTION_ALLOWLIST:
+        return False
+    parts = frozenset(part for part in name.strip("_").split("_") if part)
+    return bool(parts & HARDCODED_ANSWER_FUNCTION_NAME_PARTS)
 
 
 def _string_literal_value(node: ast.AST) -> str | None:
@@ -642,7 +756,32 @@ def _string_literal_value(node: ast.AST) -> str | None:
             else:
                 parts.append("{}")
         return "".join(parts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _string_literal_value(node.left)
+        right = _string_literal_value(node.right)
+        if left is not None and right is not None:
+            return left + right
+    if isinstance(node, ast.Call):
+        return _joined_string_literal_value(node)
     return None
+
+
+def _joined_string_literal_value(node: ast.Call) -> str | None:
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "join":
+        return None
+    separator = _string_literal_value(node.func.value)
+    if separator is None or len(node.args) != 1:
+        return None
+    values_node = node.args[0]
+    if not isinstance(values_node, ast.List | ast.Tuple):
+        return None
+    parts: list[str] = []
+    for element in values_node.elts:
+        part = _string_literal_value(element)
+        if part is None:
+            return None
+        parts.append(part)
+    return separator.join(parts)
 
 
 def _hardcoded_answer_literal(
@@ -658,13 +797,22 @@ def _hardcoded_answer_literal(
     )
 
 
-def _check_hardcoded_answers() -> list[Violation]:
-    literals: list[HardcodedAnswerLiteral] = []
-    for path in _iter_python_files():
-        rel_path = path.relative_to(REPO_ROOT).as_posix()
-        source = path.read_text(encoding="utf-8")
-        literals.extend(_hardcoded_answer_literals(source, rel_path, filename=str(path)))
-    return _hardcoded_answer_violations(literals)
+def _check_generated_caches(paths: Sequence[str] | None = None) -> list[Violation]:
+    return [
+        Violation(
+            path=path,
+            line=1,
+            column=1,
+            message=GENERATED_CACHE_MESSAGE,
+        )
+        for path in (paths if paths is not None else _tracked_repo_paths())
+        if _is_generated_python_cache_path(path)
+    ]
+
+
+def _is_generated_python_cache_path(path: str) -> bool:
+    parts = Path(path).parts
+    return "__pycache__" in parts or path.endswith((".pyc", ".pyo"))
 
 
 def _hardcoded_answer_violations(
@@ -686,7 +834,7 @@ def _hardcoded_answer_violations(
 
 
 def _is_allowed_hardcoded_answer(text: str) -> bool:
-    return any(text.startswith(prefix) for prefix in ALLOWED_HARDCODED_ANSWER_PREFIXES)
+    return not any(char.isalpha() for char in text)
 
 
 def _duplicate_prompt_rule_violations(literals: Sequence[PromptRuleLiteral]) -> list[Violation]:
@@ -723,7 +871,7 @@ def main() -> None:
     for path in _iter_python_files():
         violations.extend(_check_file(path))
     violations.extend(_check_duplicate_prompt_rules())
-    violations.extend(_check_hardcoded_answers())
+    violations.extend(_check_generated_caches())
 
     if not violations:
         print("Repo policy check passed.")

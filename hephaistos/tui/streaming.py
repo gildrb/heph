@@ -37,6 +37,8 @@ from hephaistos.runtime import (
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
+type _MaterialOperationRecorder = Callable[["_TurnActivitySummary", MaterialOperationEvent], None]
+
 _MAX_PROGRESS_TEXT = 64
 _MAX_SUMMARY_TEXT = 160
 _MAX_ACTIVITY_TEXT = 180
@@ -58,6 +60,46 @@ _ACTIVITY_NOTICE_CODES = frozenset(
         "dry_run",
     }
 )
+_MATERIAL_PROGRESS_LABELS = {
+    "index_ready": "material index ready",
+    "sample_overview": "sampling materials",
+    "open_stored_evidence": "opening recall evidence",
+    "search_index": "searching materials",
+    "read_excerpt": "reading evidence",
+    "search_result": "search complete",
+    "read_all_scope": "checking read scope",
+}
+_NOTICE_PROGRESS_LABELS = {
+    "reading": "reading materials",
+    "evidence": "checking evidence",
+    "writing": "writing response",
+    "verification": "checking citations",
+    "auto_compact": "compacting context",
+    "context_compact": "compacting context",
+    "context_warning": "checking context",
+    "tool_runtime": "checking tool result",
+}
+_IMPORTANT_NOTICE_CODES = frozenset(
+    {
+        "verification",
+        "context_warning",
+        "tool_runtime",
+        "max_turns",
+        "dry_run",
+        "auto_compact",
+        "context_compact",
+        "steering",
+    }
+)
+_COMPACT_TOOL_ARGUMENTS = {
+    "bash": ("command", "bash `{}`"),
+    "read_file": ("path", "read_file {}"),
+    "write_file": ("path", "write_file {}"),
+    "edit_file": ("path", "edit_file {}"),
+    "search_materials": ("query", "search_materials `{}`"),
+    "open_material": ("source", "open_material {}"),
+}
+_MATERIAL_OPERATION_RECORDERS: dict[str, _MaterialOperationRecorder] = {}
 
 
 def _clean_text(text: str) -> str:
@@ -94,22 +136,10 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
 
 
 def _compact_tool_call(event: ToolCallEvent) -> str:
-    if event.name == "bash":
-        command = _metadata_str(event.arguments, "command")
-        if command:
-            return f"bash `{_truncate(command, 72)}`"
-    if event.name in {"read_file", "write_file", "edit_file"}:
-        path = _metadata_str(event.arguments, "path")
-        if path:
-            return f"{event.name} {_truncate(path, 72)}"
-    if event.name == "search_materials":
-        query = _metadata_str(event.arguments, "query")
-        if query:
-            return f"search_materials `{_truncate(query, 72)}`"
-    if event.name == "open_material":
-        source = _metadata_str(event.arguments, "source")
-        if source:
-            return f"open_material {_truncate(source, 72)}"
+    if spec := _COMPACT_TOOL_ARGUMENTS.get(event.name):
+        key, template = spec
+        if value := _metadata_str(event.arguments, key):
+            return template.format(_truncate(value, 72))
     return event.name
 
 
@@ -122,17 +152,21 @@ def _tool_result_latency(event: ToolResultEvent) -> str:
 def _tool_result_activity_line(event: ToolResultEvent) -> str:
     elapsed = _tool_result_latency(event)
     if not event.success:
-        error = event.error or event.summary or "tool failed"
-        return (
-            f"{_ACTIVITY_TRACE_INDENT}! {event.name} failed{elapsed}: "
-            f"{_truncate(error, _MAX_ACTIVITY_TEXT)}"
-        )
+        return _failed_tool_result_activity_line(event, elapsed)
 
     summary = _clean_text(event.summary) or _clean_text(event.content)
     if not summary:
         return f"{_ACTIVITY_TRACE_INDENT}-> {event.name} finished{elapsed}"
     prefix = f"{event.name} finished{elapsed}: " if elapsed else ""
     return f"{_ACTIVITY_TRACE_INDENT}-> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
+
+
+def _failed_tool_result_activity_line(event: ToolResultEvent, elapsed: str) -> str:
+    error = event.error or event.summary or "tool failed"
+    return (
+        f"{_ACTIVITY_TRACE_INDENT}! {event.name} failed{elapsed}: "
+        f"{_truncate(error, _MAX_ACTIVITY_TEXT)}"
+    )
 
 
 def _activity_line(
@@ -157,27 +191,8 @@ def _progress_text(
     if isinstance(event, ToolResultEvent):
         return f"tool {event.name} {'failed' if not event.success else 'done'}"
     if isinstance(event, MaterialOperationEvent):
-        labels = {
-            "index_ready": "material index ready",
-            "sample_overview": "sampling materials",
-            "open_stored_evidence": "opening recall evidence",
-            "search_index": "searching materials",
-            "read_excerpt": "reading evidence",
-            "search_result": "search complete",
-            "read_all_scope": "checking read scope",
-        }
-        return labels.get(event.operation, "working with materials")
-    notice_labels = {
-        "reading": "reading materials",
-        "evidence": "checking evidence",
-        "writing": "writing response",
-        "verification": "checking citations",
-        "auto_compact": "compacting context",
-        "context_compact": "compacting context",
-        "context_warning": "checking context",
-        "tool_runtime": "checking tool result",
-    }
-    return notice_labels.get(event.code, _truncate(event.message, _MAX_PROGRESS_TEXT))
+        return _MATERIAL_PROGRESS_LABELS.get(event.operation, "working with materials")
+    return _NOTICE_PROGRESS_LABELS.get(event.code, _truncate(event.message, _MAX_PROGRESS_TEXT))
 
 
 @dataclass(slots=True)
@@ -202,13 +217,10 @@ class _TurnActivitySummary:
         event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
     ) -> None:
         if isinstance(event, ToolCallEvent):
-            self.tool_calls.append(_compact_tool_call(event))
+            self._record_tool_call(event)
             return
         if isinstance(event, ToolResultEvent):
-            self.tool_result_count += 1
-            if not event.success:
-                error = event.error or "tool failed"
-                self.tool_failures.append(f"{event.name}: {_truncate(error, 90)}")
+            self._record_tool_result(event)
             return
         if isinstance(event, MaterialOperationEvent):
             self._record_material_operation(event)
@@ -216,42 +228,52 @@ class _TurnActivitySummary:
         self._record_notice(event)
 
     def lines(self) -> list[str]:
-        lines = []
+        lines = self._primary_lines()
+        notices = self._summary_notices(has_primary_lines=bool(lines))
+        lines.extend(_truncate(notice, _MAX_SUMMARY_TEXT) for notice in notices[:2])
+        extra_count = len(notices) - 2
+        if extra_count > 0:
+            lines.append(f"{extra_count} more notices kept in the trace.")
+        return lines
+
+    def _record_tool_call(self, event: ToolCallEvent) -> None:
+        self.tool_calls.append(_compact_tool_call(event))
+
+    def _record_tool_result(self, event: ToolResultEvent) -> None:
+        self.tool_result_count += 1
+        if not event.success:
+            error = event.error or "tool failed"
+            self.tool_failures.append(f"{event.name}: {_truncate(error, 90)}")
+
+    def _primary_lines(self) -> list[str]:
+        lines: list[str] = []
         if material := self._material_line():
             lines.append(material)
         if tools := self._tool_line():
             lines.append(tools)
-        notices = self.important_notices or ([] if lines else self.fallback_notices)
-        lines.extend(_truncate(notice, _MAX_SUMMARY_TEXT) for notice in notices[:2])
-        if len(notices) > 2:
-            lines.append(f"{len(notices) - 2} more notices kept in the trace.")
         return lines
 
+    def _summary_notices(self, *, has_primary_lines: bool) -> list[str]:
+        if self.important_notices:
+            return self.important_notices
+        return [] if has_primary_lines else self.fallback_notices
+
     def _record_material_operation(self, event: MaterialOperationEvent) -> None:
-        metadata = event.metadata
-        if event.operation == "index_ready":
-            self.indexed_sources = _metadata_int(metadata, "indexed_sources")
-            self.indexed_chunks = _metadata_int(metadata, "indexed_chunks")
-            return
-        if event.operation == "sample_overview":
-            self.evidence_blocks = _metadata_int(metadata, "evidence_blocks")
-            self.sampled_sources = _metadata_int(metadata, "sampled_sources")
-            self.total_sources = _metadata_int(metadata, "total_sources")
-            self.searched_query = _metadata_str(metadata, "query")
-            return
-        if event.operation in {"search_index", "search_result"}:
-            self.searched_query = _metadata_str(metadata, "query")
-            self.no_material_matches = event.operation == "search_result"
-            return
-        if event.operation == "open_stored_evidence":
-            self.opened_refs.extend(_metadata_str_list(metadata, "refs"))
-            return
-        if event.operation == "read_excerpt":
-            if ref := _metadata_str(metadata, "ref"):
-                self.opened_refs.append(ref)
-            return
-        if event.operation == "read_all_scope":
-            self.read_all_scope = True
+        if recorder := _MATERIAL_OPERATION_RECORDERS.get(event.operation):
+            recorder(self, event)
+
+    def _record_index_ready(self, metadata: Mapping[str, object]) -> None:
+        self.indexed_sources = _metadata_int(metadata, "indexed_sources")
+        self.indexed_chunks = _metadata_int(metadata, "indexed_chunks")
+
+    def _record_evidence_coverage(self, metadata: Mapping[str, object]) -> None:
+        self.evidence_blocks = _metadata_int(metadata, "evidence_blocks") or self.evidence_blocks
+        self.sampled_sources = _metadata_int(metadata, "sampled_sources") or self.sampled_sources
+        self.total_sources = _metadata_int(metadata, "total_sources") or self.total_sources
+        self.searched_query = _metadata_str(metadata, "query") or self.searched_query
+
+    def _append_opened_refs(self, refs: list[str]) -> None:
+        self.opened_refs.extend(ref for ref in refs if ref not in self.opened_refs)
 
     def _record_notice(self, event: NoticeEvent) -> None:
         if event.code == "evidence":
@@ -262,16 +284,7 @@ class _TurnActivitySummary:
         clean = _clean_text(event.message)
         if not clean:
             return
-        if event.code in {
-            "verification",
-            "context_warning",
-            "tool_runtime",
-            "max_turns",
-            "dry_run",
-            "auto_compact",
-            "context_compact",
-            "steering",
-        }:
+        if event.code in _IMPORTANT_NOTICE_CODES:
             self.important_notices.append(clean)
             return
         self.fallback_notices.append(clean)
@@ -282,15 +295,8 @@ class _TurnActivitySummary:
             coverage_metadata = {
                 key: value for key, value in coverage.items() if isinstance(key, str)
             }
-            evidence_blocks = _metadata_int(coverage_metadata, "evidence_blocks")
-            sampled_sources = _metadata_int(coverage_metadata, "sampled_sources")
-            total_sources = _metadata_int(coverage_metadata, "total_sources")
-            self.evidence_blocks = evidence_blocks or self.evidence_blocks
-            self.sampled_sources = sampled_sources or self.sampled_sources
-            self.total_sources = total_sources or self.total_sources
-        refs = _metadata_str_list(metadata, "refs")
-        if refs:
-            self.opened_refs.extend(ref for ref in refs if ref not in self.opened_refs)
+            self._record_evidence_coverage(coverage_metadata)
+        self._append_opened_refs(_metadata_str_list(metadata, "refs"))
 
     def _index_phrase(self) -> str:
         if self.indexed_sources is None or self.indexed_chunks is None:
@@ -322,14 +328,18 @@ class _TurnActivitySummary:
         return f"opened {_plural(len(set(self.opened_refs)), 'evidence excerpt')}"
 
     def _material_parts(self) -> list[str]:
-        parts = [phrase for phrase in (self._index_phrase(), self._no_matches_phrase()) if phrase]
+        parts = self._base_material_parts()
         if not self.no_material_matches:
-            parts.append(
-                self._evidence_phrase() or self._opened_refs_phrase() or self._searched_fragment()
-            )
+            parts.append(self._available_material_activity())
         if self.read_all_scope:
             parts.append("sampled indexed evidence, not every file end to end")
         return [part for part in parts if part]
+
+    def _base_material_parts(self) -> list[str]:
+        return [phrase for phrase in (self._index_phrase(), self._no_matches_phrase()) if phrase]
+
+    def _available_material_activity(self) -> str:
+        return self._evidence_phrase() or self._opened_refs_phrase() or self._searched_fragment()
 
     def _material_line(self) -> str:
         parts = self._material_parts()
@@ -346,19 +356,75 @@ class _TurnActivitySummary:
     def _tool_line(self) -> str:
         if not self.tool_calls and not self.tool_failures:
             return ""
-        if len(self.tool_calls) == 1:
-            line = f"tool: {self.tool_calls[0]}"
-        else:
-            shown = ", ".join(self.tool_calls[:3])
-            if len(self.tool_calls) > 3:
-                shown += f", +{len(self.tool_calls) - 3} more"
-            line = f"tools: {len(self.tool_calls)} calls ({shown})"
+        line = self._tool_call_summary()
         if self.tool_failures:
             shown_failures = "; ".join(self.tool_failures[:2])
             line += f"; failed {shown_failures}"
         elif self.tool_result_count:
             line += "; results summarized"
         return f"{line}."
+
+    def _tool_call_summary(self) -> str:
+        if len(self.tool_calls) == 1:
+            return f"tool: {self.tool_calls[0]}"
+        shown = ", ".join(self.tool_calls[:3])
+        if len(self.tool_calls) > 3:
+            shown += f", +{len(self.tool_calls) - 3} more"
+        return f"tools: {len(self.tool_calls)} calls ({shown})"
+
+
+def _record_index_ready_operation(
+    summary: _TurnActivitySummary,
+    event: MaterialOperationEvent,
+) -> None:
+    summary._record_index_ready(event.metadata)
+
+
+def _record_sample_overview_operation(
+    summary: _TurnActivitySummary,
+    event: MaterialOperationEvent,
+) -> None:
+    summary._record_evidence_coverage(event.metadata)
+
+
+def _record_search_operation(summary: _TurnActivitySummary, event: MaterialOperationEvent) -> None:
+    summary.searched_query = _metadata_str(event.metadata, "query")
+    summary.no_material_matches = event.operation == "search_result"
+
+
+def _record_open_stored_evidence_operation(
+    summary: _TurnActivitySummary,
+    event: MaterialOperationEvent,
+) -> None:
+    summary._append_opened_refs(_metadata_str_list(event.metadata, "refs"))
+
+
+def _record_read_excerpt_operation(
+    summary: _TurnActivitySummary,
+    event: MaterialOperationEvent,
+) -> None:
+    if ref := _metadata_str(event.metadata, "ref"):
+        summary._append_opened_refs([ref])
+
+
+def _record_read_all_scope_operation(
+    summary: _TurnActivitySummary,
+    _event: MaterialOperationEvent,
+) -> None:
+    summary.read_all_scope = True
+
+
+_MATERIAL_OPERATION_RECORDERS.update(
+    {
+        "index_ready": _record_index_ready_operation,
+        "sample_overview": _record_sample_overview_operation,
+        "search_index": _record_search_operation,
+        "search_result": _record_search_operation,
+        "open_stored_evidence": _record_open_stored_evidence_operation,
+        "read_excerpt": _record_read_excerpt_operation,
+        "read_all_scope": _record_read_all_scope_operation,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,14 +479,39 @@ def _handle_activity_event(
     trace_config: _ActivityTraceConfig,
     callbacks: _TurnCallbacks,
 ) -> None:
+    _record_activity_event(event, state, trace_config)
+    _publish_activity_progress(event, trace_config, callbacks)
+    _publish_full_activity_line(event, trace_config, callbacks)
+
+
+def _record_activity_event(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
+    state: _TurnStreamState,
+    trace_config: _ActivityTraceConfig,
+) -> None:
     if trace_config.show_activity:
         state.activity.record(event)
+
+
+def _publish_activity_progress(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
+    trace_config: _ActivityTraceConfig,
+    callbacks: _TurnCallbacks,
+) -> None:
     if trace_config.show_activity and callbacks.on_progress is not None:
         callbacks.on_progress(_truncate(_progress_text(event), _MAX_PROGRESS_TEXT))
-    if trace_config.show_full_activity and callbacks.on_activity is not None:
-        line = _activity_line(event)
-        if line:
-            callbacks.on_activity(line)
+
+
+def _publish_full_activity_line(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
+    trace_config: _ActivityTraceConfig,
+    callbacks: _TurnCallbacks,
+) -> None:
+    if not trace_config.show_full_activity or callbacks.on_activity is None:
+        return
+    line = _activity_line(event)
+    if line:
+        callbacks.on_activity(line)
 
 
 def _handle_turn_event(

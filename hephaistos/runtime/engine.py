@@ -25,9 +25,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, Self, cast
+from typing import TYPE_CHECKING, NoReturn, Protocol, Self, cast
 
 from hephaistos._types import is_string_mapping
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
@@ -279,6 +279,30 @@ class _StreamCompletionRequest:
     tool_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class _OpenAIStreamAttempt:
+    stream: Stream[ChatCompletionChunk]
+    timer: Timer
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenAIStartResult:
+    attempt: _OpenAIStreamAttempt | None
+    error: Exception | None
+    should_continue: bool
+
+    @property
+    def should_stop(self) -> bool:
+        return self.error is not None and not self.should_continue
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenAICompletionAttemptResult:
+    done: bool
+    retry: bool = False
+    error: Exception | None = None
+
+
 @dataclass(slots=True)
 class _OpenAIStreamProgress:
     partial_parts: list[str] = field(default_factory=list)
@@ -324,26 +348,52 @@ def _provider_error_detail_from_body(body: dict[str, object]) -> _ProviderErrorD
     )
 
 
+def _payload_error_mapping(payload: dict[str, object]) -> dict[str, object] | None:
+    error_value = payload.get("error", payload)
+    return error_value if is_string_mapping(error_value) else None
+
+
 def _message_and_code_from_payload(payload: dict[str, object]) -> tuple[object, object]:
     error_value = payload.get("error", payload)
-    if is_string_mapping(error_value):
-        return (
-            error_value.get("message") or payload.get("message"),
-            error_value.get("code") or error_value.get("type") or payload.get("code"),
-        )
+    if error_mapping := _payload_error_mapping(payload):
+        return _message_and_code_from_error_mapping(payload, error_mapping)
     return payload.get("message") or error_value, payload.get("code")
 
 
-def _provider_error_fields(exc: Exception) -> tuple[str, str]:
-    body = _provider_error_body(exc)
-    detail = (
-        _provider_error_detail_from_body(body)
-        if body is not None
-        else _ProviderErrorDetail(message="", code="")
+def _message_and_code_from_error_mapping(
+    payload: dict[str, object],
+    error_mapping: dict[str, object],
+) -> tuple[object, object]:
+    return (
+        error_mapping.get("message") or payload.get("message"),
+        _error_mapping_code(error_mapping) or payload.get("code"),
     )
-    message = detail.message or str(getattr(exc, "message", "") or exc).strip()
-    code = detail.code or str(getattr(exc, "code", "") or "").strip()
+
+
+def _error_mapping_code(error_mapping: dict[str, object]) -> object:
+    return error_mapping.get("code") or error_mapping.get("type")
+
+
+def _provider_error_fields(exc: Exception) -> tuple[str, str]:
+    detail = _provider_error_detail(exc)
+    message = detail.message or _exception_message(exc)
+    code = detail.code or _exception_code(exc)
     return message or exc.__class__.__name__, code
+
+
+def _provider_error_detail(exc: Exception) -> _ProviderErrorDetail:
+    body = _provider_error_body(exc)
+    if body is None:
+        return _ProviderErrorDetail(message="", code="")
+    return _provider_error_detail_from_body(body)
+
+
+def _exception_message(exc: Exception) -> str:
+    return str(getattr(exc, "message", "") or exc).strip()
+
+
+def _exception_code(exc: Exception) -> str:
+    return str(getattr(exc, "code", "") or "").strip()
 
 
 def _is_account_setup_error(exc: Exception) -> bool:
@@ -412,13 +462,15 @@ def build_client(config: ChatConfig) -> OpenAI:
         raise EngineError("No model configured. Use /models to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
+    return OpenAI(api_key=_api_key_for_config(config), base_url=config.base_url)
+
+
+def _api_key_for_config(config: ChatConfig) -> str:
     if is_keyless_endpoint(config.base_url):
-        api_key = "no-key-required"
-    else:
-        api_key = config.resolved_api_key
-        if not api_key:
-            raise EngineError(missing_api_key_message(config))
-    return OpenAI(api_key=api_key, base_url=config.base_url)
+        return "no-key-required"
+    if config.resolved_api_key:
+        return config.resolved_api_key
+    raise EngineError(missing_api_key_message(config))
 
 
 def missing_api_key_message(config: ChatConfig) -> str:
@@ -465,21 +517,28 @@ class CompletionDelta:
 
 
 def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[ToolCallDelta]:
-    result: list[ToolCallDelta] = []
-    for tc in tool_calls:
-        tool_call: ToolCallDelta = {}
-        tool_call["index"] = tc.index
-        if tc.id:
-            tool_call["id"] = tc.id
-        if tc.type:
-            tool_call["type"] = str(tc.type)
-        if tc.function is not None:
-            tool_call["function"] = {
-                "name": tc.function.name or "",
-                "arguments": tc.function.arguments or "",
-            }
-        result.append(tool_call)
+    return [_normalize_tool_call(tool_call) for tool_call in tool_calls]
+
+
+def _normalize_tool_call(tool_call: ChoiceDeltaToolCall) -> ToolCallDelta:
+    result: ToolCallDelta = {"index": tool_call.index}
+    _add_optional_tool_call_fields(result, tool_call)
+    if tool_call.function is not None:
+        result["function"] = {
+            "name": tool_call.function.name or "",
+            "arguments": tool_call.function.arguments or "",
+        }
     return result
+
+
+def _add_optional_tool_call_fields(
+    result: ToolCallDelta,
+    tool_call: ChoiceDeltaToolCall,
+) -> None:
+    if tool_call.id:
+        result["id"] = tool_call.id
+    if tool_call.type:
+        result["type"] = str(tool_call.type)
 
 
 def _optional_int_value(value: object) -> int | None:
@@ -493,31 +552,39 @@ def _cached_tokens_from_usage_details(details: object) -> int | None:
 
 
 def _cached_prompt_tokens_from_usage(usage: object) -> int | None:
-    for name in ("prompt_tokens_details", "input_tokens_details"):
-        cached_tokens = _cached_tokens_from_usage_details(getattr(usage, name, None))
+    for details in _usage_detail_sources(usage):
+        cached_tokens = _cached_tokens_from_usage_details(details)
         if cached_tokens is not None:
             return cached_tokens
-    if is_string_mapping(usage):
-        for name in ("prompt_tokens_details", "input_tokens_details"):
-            cached_tokens = _cached_tokens_from_usage_details(usage.get(name))
-            if cached_tokens is not None:
-                return cached_tokens
     return None
+
+
+def _usage_detail_sources(usage: object) -> Iterator[object]:
+    names = ("prompt_tokens_details", "input_tokens_details")
+    for name in names:
+        yield getattr(usage, name, None)
+    if is_string_mapping(usage):
+        for name in names:
+            yield usage.get(name)
 
 
 def _extract_usage(chunk: object) -> UsagePayload | None:
     usage = getattr(chunk, "usage", None)
     if not usage:
         return None
-    payload: UsagePayload = {
-        "prompt_tokens": (getattr(usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": (getattr(usage, "completion_tokens", 0) or 0),
-        "total_tokens": (getattr(usage, "total_tokens", 0) or 0),
-    }
+    payload = _base_usage_payload(usage)
     cached_prompt_tokens = _cached_prompt_tokens_from_usage(usage)
     if cached_prompt_tokens is not None:
         payload["cached_prompt_tokens"] = cached_prompt_tokens
     return payload
+
+
+def _base_usage_payload(usage: object) -> UsagePayload:
+    return {
+        "prompt_tokens": (getattr(usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": (getattr(usage, "completion_tokens", 0) or 0),
+        "total_tokens": (getattr(usage, "total_tokens", 0) or 0),
+    }
 
 
 def _record_usage(
@@ -576,23 +643,39 @@ def _codex_input_item(role: str, text: str) -> dict[str, object]:
     }
 
 
+def _append_codex_message(
+    message: ApiMessage,
+    instructions: list[str],
+    inputs: list[dict[str, object]],
+) -> None:
+    role = message["role"]
+    text = message_content_text(message.get("content"))
+    if not text:
+        return
+    if role == "system":
+        instructions.append(text)
+        return
+    if role in {"user", "assistant"}:
+        inputs.append(_codex_input_item(role, text))
+        return
+    inputs.append(_codex_input_item("user", f"{role} result:\n{text}"))
+
+
+def _codex_payload_messages(
+    api_messages: list[ApiMessage],
+) -> tuple[list[str], list[dict[str, object]]]:
+    instructions: list[str] = []
+    inputs: list[dict[str, object]] = []
+    for message in api_messages:
+        _append_codex_message(message, instructions, inputs)
+    return instructions, inputs
+
+
 def _codex_payload(
     config: ChatConfig,
     api_messages: list[ApiMessage],
 ) -> dict[str, object]:
-    instructions: list[str] = []
-    inputs: list[dict[str, object]] = []
-    for message in api_messages:
-        role = message["role"]
-        text = message_content_text(message.get("content"))
-        if not text:
-            continue
-        if role == "system":
-            instructions.append(text)
-        elif role in {"user", "assistant"}:
-            inputs.append(_codex_input_item(role, text))
-        else:
-            inputs.append(_codex_input_item("user", f"{role} result:\n{text}"))
+    instructions, inputs = _codex_payload_messages(api_messages)
     payload: dict[str, object] = {
         "model": config.model,
         "instructions": "\n\n".join(instructions)
@@ -652,11 +735,8 @@ def _codex_http_error_detail(exc: urllib.error.HTTPError) -> str:
 
 
 def _codex_event_payload(raw_line: bytes) -> dict[str, object] | None:
-    line = raw_line.decode("utf-8", "replace").strip()
-    if not line.startswith("data:"):
-        return None
-    data = line.removeprefix("data:").strip()
-    if not data:
+    data = _codex_event_data(raw_line)
+    if data is None:
         return None
     if data == "[DONE]":
         return {"type": "response.done"}
@@ -667,6 +747,69 @@ def _codex_event_payload(raw_line: bytes) -> dict[str, object] | None:
     return parsed if is_string_mapping(parsed) else None
 
 
+def _codex_event_data(raw_line: bytes) -> str | None:
+    line = raw_line.decode("utf-8", "replace").strip()
+    if not line.startswith("data:"):
+        return None
+    data = line.removeprefix("data:").strip()
+    return data or None
+
+
+type _CodexEventHandler = Callable[
+    [dict[str, object], ChatConfig, _SpanProtocol, PromptCacheRequest | None],
+    CompletionDelta | None,
+]
+
+
+def _codex_done_delta(
+    _event: dict[str, object],
+    _config: ChatConfig,
+    _span: _SpanProtocol,
+    _prompt_request: PromptCacheRequest | None,
+) -> CompletionDelta | None:
+    return None
+
+
+def _codex_output_text_delta(
+    event: dict[str, object],
+    _config: ChatConfig,
+    _span: _SpanProtocol,
+    _prompt_request: PromptCacheRequest | None,
+) -> CompletionDelta | None:
+    delta = event.get("delta")
+    return CompletionDelta(content=delta) if isinstance(delta, str) and delta else None
+
+
+def _codex_completed_delta(
+    event: dict[str, object],
+    config: ChatConfig,
+    span: _SpanProtocol,
+    prompt_request: PromptCacheRequest | None,
+) -> CompletionDelta:
+    usage = _codex_usage(event)
+    if usage is None:
+        return CompletionDelta(finish_reason="stop")
+    _record_usage(usage, config.model, span, prompt_request=prompt_request)
+    return CompletionDelta(finish_reason="stop", usage=usage)
+
+
+def _codex_failed_delta(
+    event: dict[str, object],
+    _config: ChatConfig,
+    _span: _SpanProtocol,
+    _prompt_request: PromptCacheRequest | None,
+) -> CompletionDelta | None:
+    raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(event)}")
+
+
+_CODEX_EVENT_HANDLERS: dict[str, _CodexEventHandler] = {
+    "response.done": _codex_done_delta,
+    "response.output_text.delta": _codex_output_text_delta,
+    "response.completed": _codex_completed_delta,
+    "response.failed": _codex_failed_delta,
+}
+
+
 def _codex_delta_from_event(
     event: dict[str, object],
     config: ChatConfig,
@@ -675,20 +818,10 @@ def _codex_delta_from_event(
     prompt_request: PromptCacheRequest | None,
 ) -> CompletionDelta | None:
     event_type = event.get("type")
-    if event_type == "response.done":
+    handler = _CODEX_EVENT_HANDLERS.get(event_type) if isinstance(event_type, str) else None
+    if handler is None:
         return None
-    if event_type == "response.output_text.delta":
-        delta = event.get("delta")
-        return CompletionDelta(content=delta) if isinstance(delta, str) and delta else None
-    if event_type == "response.completed":
-        usage = _codex_usage(event)
-        if usage is None:
-            return CompletionDelta(finish_reason="stop")
-        _record_usage(usage, config.model, span, prompt_request=prompt_request)
-        return CompletionDelta(finish_reason="stop", usage=usage)
-    if event_type == "response.failed":
-        raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(event)}")
-    return None
+    return handler(event, config, span, prompt_request)
 
 
 def _stream_codex_backend_completion(
@@ -703,20 +836,48 @@ def _stream_codex_backend_completion(
     response = _open_codex_backend_response(config, api_messages, auth)
     with response:
         for raw_line in response:
-            if abort is not None and abort.is_set():
+            if _completion_aborted(abort):
                 return
-            event_delta = _codex_event_delta(
+            done = yield from _iter_codex_stream_step(
                 raw_line,
                 config,
                 span,
                 prompt_request=prompt_request,
             )
-            if event_delta is None:
-                continue
-            if event_delta.delta is not None:
-                yield event_delta.delta
-            if event_delta.done:
+            if done:
                 return
+
+
+def _completion_aborted(abort: threading.Event | None) -> bool:
+    return abort is not None and abort.is_set()
+
+
+def _iter_codex_stream_step(
+    raw_line: bytes,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest | None,
+) -> Generator[CompletionDelta, None, bool]:
+    step = _codex_stream_step(raw_line, config, span, prompt_request=prompt_request)
+    if step is None:
+        return False
+    if step.delta is not None:
+        yield step.delta
+    return step.done
+
+
+def _codex_stream_step(
+    raw_line: bytes,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest | None,
+) -> _CodexEventDelta | None:
+    event_delta = _codex_event_delta(raw_line, config, span, prompt_request=prompt_request)
+    if event_delta is None:
+        return None
+    return event_delta
 
 
 @dataclass(frozen=True, slots=True)
@@ -901,12 +1062,31 @@ def _choice_delta_from_chunk(
         _record_usage(usage, config.model, span, prompt_request=prompt_request)
     if _empty_choice_delta(delta, finish_reason=finish_reason, usage=usage):
         return None
+    return _completion_delta_from_choice(delta, finish_reason=finish_reason, usage=usage)
+
+
+def _completion_delta_from_choice(
+    delta: object,
+    *,
+    finish_reason: str,
+    usage: UsagePayload | None,
+) -> CompletionDelta:
     return CompletionDelta(
-        content=delta.content or None,
-        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
+        content=_choice_delta_content(delta),
+        tool_calls=_choice_delta_tool_calls(delta),
         finish_reason=finish_reason,
         usage=usage,
     )
+
+
+def _choice_delta_content(delta: object) -> str | None:
+    content = getattr(delta, "content", None)
+    return content or None if isinstance(content, str) else None
+
+
+def _choice_delta_tool_calls(delta: object) -> list[ToolCallDelta] | None:
+    tool_calls = getattr(delta, "tool_calls", None)
+    return _normalize_tool_calls(tool_calls) if tool_calls else None
 
 
 def _empty_choice_delta(
@@ -959,18 +1139,68 @@ def _handle_openai_stream_error(
     exc: Exception,
     progress: _OpenAIStreamProgress,
     *,
-    config: ChatConfig,
     attempt: int,
     retry: RetryConfig,
     span: _SpanProtocol,
     timer: Timer,
 ) -> None:
     partial_content = progress.partial_content
-    log = (
-        _log.info
-        if is_retryable_error(exc) and not progress.saw_output and attempt < retry.max_retries
-        else _log.error
+    retryable = is_retryable_error(exc)
+    can_retry = retryable and not progress.saw_output and attempt < retry.max_retries
+    _log_openai_stream_error(
+        exc,
+        partial_content=partial_content,
+        attempt=attempt,
+        retry=retry,
+        timer=timer,
+        can_retry=can_retry,
     )
+    if progress.saw_output:
+        _raise_stream_recovery_error(partial_content, exc, span=span)
+    if can_retry:
+        _record_retryable_stream_failure()
+        raise _RetryOpenAIStreamError(exc) from exc
+    _raise_openai_stream_engine_error(exc, retryable=retryable, span=span)
+
+
+def _raise_stream_recovery_error(
+    partial_content: str,
+    exc: Exception,
+    *,
+    span: _SpanProtocol,
+) -> NoReturn:
+    _mark_span_error(span, "StreamRecoveryError")
+    span.end()
+    raise StreamRecoveryError(partial_content, exc) from exc
+
+
+def _record_retryable_stream_failure() -> None:
+    _circuit_breaker.record_failure()
+
+
+def _raise_openai_stream_engine_error(
+    exc: Exception,
+    *,
+    retryable: bool,
+    span: _SpanProtocol,
+) -> NoReturn:
+    if retryable:
+        _circuit_breaker.record_failure()
+    _mark_span_error(span, type(exc).__name__)
+    span.end()
+    raise EngineError(_failure_message(exc, stream=True)) from exc
+
+
+def _log_openai_stream_error(
+    exc: Exception,
+    *,
+    partial_content: str,
+    attempt: int,
+    retry: RetryConfig,
+    timer: Timer,
+    can_retry: bool,
+) -> None:
+    log = _log.info if can_retry else _log.error
     log(
         "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
         attempt + 1,
@@ -978,17 +1208,6 @@ def _handle_openai_stream_error(
         len(partial_content),
         extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
     )
-    if progress.saw_output:
-        _mark_span_error(span, "StreamRecoveryError")
-        span.end()
-        raise StreamRecoveryError(partial_content, exc) from exc
-    if is_retryable_error(exc):
-        _circuit_breaker.record_failure()
-        if attempt < retry.max_retries:
-            raise _RetryOpenAIStreamError(exc) from exc
-    _mark_span_error(span, type(exc).__name__)
-    span.end()
-    raise EngineError(_failure_message(exc, stream=True)) from exc
 
 
 def _iter_openai_stream_deltas(
@@ -1005,11 +1224,11 @@ def _iter_openai_stream_deltas(
     progress = _OpenAIStreamProgress()
     try:
         for chunk in stream:
-            if abort is not None and abort.is_set():
+            if _completion_aborted(abort):
                 _abort_openai_stream(stream, config, span=span, timer=timer)
                 return
 
-            delta = _completion_delta_from_chunk(
+            delta = _openai_stream_delta(
                 chunk,
                 config,
                 span,
@@ -1023,12 +1242,21 @@ def _iter_openai_stream_deltas(
         _handle_openai_stream_error(
             exc,
             progress,
-            config=config,
             attempt=attempt,
             retry=retry,
             span=span,
             timer=timer,
         )
+
+
+def _openai_stream_delta(
+    chunk: ChatCompletionChunk,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest,
+) -> CompletionDelta | None:
+    return _completion_delta_from_chunk(chunk, config, span, prompt_request=prompt_request)
 
 
 def _handle_openai_request_error(
@@ -1041,20 +1269,132 @@ def _handle_openai_request_error(
     timer: Timer,
 ) -> bool:
     retryable = is_retryable_error(exc)
+    can_retry = retryable and attempt < retry.max_retries
     if retryable:
         _circuit_breaker.record_failure()
-    log = _log.info if retryable and attempt < retry.max_retries else _log.warning
+    _log_openai_request_error(exc, attempt=attempt, retry=retry, timer=timer, can_retry=can_retry)
+    if can_retry:
+        return _wait_backoff(attempt, retry, abort)
+    _mark_span_error(span, type(exc).__name__)
+    span.end()
+    raise EngineError(_failure_message(exc, stream=False)) from exc
+
+
+def _log_openai_request_error(
+    exc: Exception,
+    *,
+    attempt: int,
+    retry: RetryConfig,
+    timer: Timer,
+    can_retry: bool,
+) -> None:
+    log = _log.info if can_retry else _log.warning
     log(
         "stream_completion request failed (attempt %d/%d)",
         attempt + 1,
         retry.max_retries + 1,
         extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
     )
-    if retryable and attempt < retry.max_retries:
-        return _wait_backoff(attempt, retry, abort)
-    _mark_span_error(span, type(exc).__name__)
+
+
+def _openai_request_allowed(abort: threading.Event | None, span: _SpanProtocol) -> bool:
+    if abort is not None and abort.is_set():
+        span.end()
+        return False
+    if not _circuit_breaker.allow_request():
+        raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+    return True
+
+
+def _start_openai_stream_attempt(
+    client: OpenAI,
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    tools: Sequence[object] | None,
+    tool_choice: object | None,
+    timer: Timer,
+) -> _OpenAIStreamAttempt:
+    request_kwargs = _request_kwargs(
+        config,
+        request.api_messages,
+        tools=tools,
+        tool_choice=tool_choice,
+    )
+    with timer:
+        stream = cast(
+            "Stream[ChatCompletionChunk]",
+            client.chat.completions.create(**request_kwargs),  # ty:ignore[no-matching-overload]
+        )
+    return _OpenAIStreamAttempt(stream=stream, timer=timer)
+
+
+def _try_start_openai_stream_attempt(
+    client: OpenAI,
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    tools: Sequence[object] | None,
+    tool_choice: object | None,
+    attempt: int,
+    abort: threading.Event | None,
+    retry: RetryConfig,
+    span: _SpanProtocol,
+) -> _OpenAIStartResult:
+    timer = Timer()
+    try:
+        stream_attempt = _start_openai_stream_attempt(
+            client,
+            config,
+            request,
+            tools=tools,
+            tool_choice=tool_choice,
+            timer=timer,
+        )
+    except Exception as exc:
+        should_continue = _handle_openai_request_error(
+            exc,
+            attempt=attempt,
+            retry=retry,
+            abort=abort,
+            span=span,
+            timer=timer,
+        )
+        return _OpenAIStartResult(attempt=None, error=exc, should_continue=should_continue)
+    return _OpenAIStartResult(attempt=stream_attempt, error=None, should_continue=False)
+
+
+def _required_openai_stream_attempt(result: _OpenAIStartResult) -> _OpenAIStreamAttempt:
+    if result.attempt is None:
+        raise EngineError("LLM stream failed before provider stream was created")
+    return result.attempt
+
+
+def _retry_openai_stream(
+    retry_stream: _RetryOpenAIStreamError,
+    *,
+    attempt: int,
+    retry: RetryConfig,
+    abort: threading.Event | None,
+) -> Exception | None:
+    if _wait_backoff(attempt, retry, abort):
+        return retry_stream.cause
+    return None
+
+
+def _raise_openai_attempts_failed(
+    retry: RetryConfig,
+    last_error: Exception | None,
+    span: _SpanProtocol,
+) -> None:
+    _mark_span_error(span, "EngineError")
     span.end()
-    raise EngineError(_failure_message(exc, stream=False)) from exc
+    message = (
+        _failure_message(last_error, stream=False)
+        if last_error is not None
+        else f"LLM request failed after {retry.max_retries + 1} attempts"
+    )
+    raise EngineError(message) from last_error
 
 
 def _stream_completion_request(
@@ -1156,66 +1496,100 @@ def _iter_openai_completion_attempts(
     last_error: Exception | None = None
 
     for attempt in range(retry.max_retries + 1):
-        if abort is not None and abort.is_set():
-            span.end()
-            return
-        if not _circuit_breaker.allow_request():
-            raise EngineError("LLM provider circuit breaker is open — too many recent failures")
-
-        timer = Timer()
-        request_kwargs = _request_kwargs(
+        attempt_result = yield from _iter_openai_completion_attempt(
+            client,
             config,
-            request.api_messages,
+            request,
             tools=tools,
             tool_choice=tool_choice,
+            attempt=attempt,
+            abort=abort,
+            retry=retry,
+            span=span,
         )
-
-        try:
-            with timer:
-                stream = cast(
-                    "Stream[ChatCompletionChunk]",
-                    client.chat.completions.create(**request_kwargs),  # ty:ignore[no-matching-overload]
-                )
-        except Exception as exc:
-            last_error = exc
-            if _handle_openai_request_error(
-                exc,
-                attempt=attempt,
-                retry=retry,
-                abort=abort,
-                span=span,
-                timer=timer,
-            ):
-                continue
+        last_error = attempt_result.error or last_error
+        if attempt_result.retry:
+            continue
+        if attempt_result.done:
             return
 
-        try:
-            yield from _iter_openai_stream_deltas(
-                stream,
-                config,
-                abort=abort,
-                span=span,
-                prompt_request=request.prompt_request,
-                timer=timer,
-                attempt=attempt,
-                retry=retry,
-            )
-        except _RetryOpenAIStreamError as retry_stream:
-            last_error = retry_stream.cause
-            if not _wait_backoff(attempt, retry, abort):
-                return
-            continue
+    _raise_openai_attempts_failed(retry, last_error, span)
 
-        _finish_successful_stream_completion(config, request, timer=timer, span=span)
-        return
 
-    _mark_span_error(span, "EngineError")
-    span.end()
-    raise EngineError(
-        _failure_message(last_error, stream=False)
-        if last_error is not None
-        else f"LLM request failed after {retry.max_retries + 1} attempts"
-    ) from last_error
+def _iter_openai_completion_attempt(
+    client: OpenAI,
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    tools: Sequence[object] | None,
+    tool_choice: object | None,
+    attempt: int,
+    abort: threading.Event | None,
+    retry: RetryConfig,
+    span: _SpanProtocol,
+) -> Generator[CompletionDelta, None, _OpenAICompletionAttemptResult]:
+    if not _openai_request_allowed(abort, span):
+        return _OpenAICompletionAttemptResult(done=True)
+
+    start_result = _try_start_openai_stream_attempt(
+        client,
+        config,
+        request,
+        tools=tools,
+        tool_choice=tool_choice,
+        attempt=attempt,
+        abort=abort,
+        retry=retry,
+        span=span,
+    )
+    if start_result.should_continue:
+        return _OpenAICompletionAttemptResult(done=False, retry=True, error=start_result.error)
+    if start_result.should_stop:
+        return _OpenAICompletionAttemptResult(done=True, error=start_result.error)
+
+    stream_attempt = _required_openai_stream_attempt(start_result)
+    try:
+        yield from _iter_started_openai_stream_attempt(
+            stream_attempt,
+            config,
+            request,
+            abort=abort,
+            span=span,
+            attempt=attempt,
+            retry=retry,
+        )
+    except _RetryOpenAIStreamError as retry_stream:
+        error = _retry_openai_stream(retry_stream, attempt=attempt, retry=retry, abort=abort)
+        return _OpenAICompletionAttemptResult(
+            done=error is None,
+            retry=error is not None,
+            error=error,
+        )
+
+    _finish_successful_stream_completion(config, request, timer=stream_attempt.timer, span=span)
+    return _OpenAICompletionAttemptResult(done=True)
+
+
+def _iter_started_openai_stream_attempt(
+    stream_attempt: _OpenAIStreamAttempt,
+    config: ChatConfig,
+    request: _StreamCompletionRequest,
+    *,
+    abort: threading.Event | None,
+    span: _SpanProtocol,
+    attempt: int,
+    retry: RetryConfig,
+) -> Iterator[CompletionDelta]:
+    yield from _iter_openai_stream_deltas(
+        stream_attempt.stream,
+        config,
+        abort=abort,
+        span=span,
+        prompt_request=request.prompt_request,
+        timer=stream_attempt.timer,
+        attempt=attempt,
+        retry=retry,
+    )
 
 
 def stream_completion(

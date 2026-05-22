@@ -16,6 +16,7 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -70,6 +71,19 @@ class OAuthCredentials:
     @property
     def is_expired(self) -> bool:
         return time.time() * 1000 >= self.expires_at
+
+
+class _CredentialEntry(NamedTuple):
+    access_token: str
+    refresh_token: str
+    expires_at: float
+    account_id: str | None
+
+
+class _TokenResponse(NamedTuple):
+    access_token: str
+    refresh_token: str
+    expires_in_seconds: float
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -167,13 +181,16 @@ def _start_callback_server() -> HTTPServer | None:
 
 
 def _sanitize_callback_error(error: str) -> str:
-    without_ansi = _ANSI_ESCAPE_RE.sub("", error)
-    cleaned = "".join(
-        char if (char == "\t" or (ord(char) >= 32 and ord(char) != 127)) else " "
-        for char in without_ansi
-    )
-    collapsed = " ".join(cleaned.split())
+    collapsed = " ".join(_strip_control_chars(_ANSI_ESCAPE_RE.sub("", error)).split())
     return collapsed[:500] or "OAuth provider returned an error."
+
+
+def _strip_control_chars(value: str) -> str:
+    return "".join(char if _is_displayable_callback_char(char) else " " for char in value)
+
+
+def _is_displayable_callback_char(char: str) -> bool:
+    return char == "\t" or (ord(char) >= 32 and ord(char) != 127)
 
 
 def _wait_for_callback(server: HTTPServer) -> None:
@@ -231,24 +248,28 @@ def _parse_token_response(
     provider: str,
     old_account_id: str | None = None,
 ) -> OAuthCredentials:
-    access = token_data.get("access_token", "")
-    refresh = token_data.get("refresh_token", "")
-    expires_in = token_data.get("expires_in", 0)
-    access_token = access if isinstance(access, str) else ""
-    refresh_token = refresh if isinstance(refresh, str) else ""
-    expires_in_seconds = float(expires_in) if isinstance(expires_in, int | float) else 0.0
-
-    if not access_token or not refresh_token:
-        raise RuntimeError("Token response missing required fields.")
-
-    account_id = _extract_account_id(access_token) or old_account_id
-
+    token_response = _validated_token_response(token_data)
+    account_id = _extract_account_id(token_response.access_token) or old_account_id
     return OAuthCredentials(
         provider=provider,
+        access_token=token_response.access_token,
+        refresh_token=token_response.refresh_token,
+        expires_at=time.time() * 1000 + token_response.expires_in_seconds * 1000,
+        account_id=account_id,
+    )
+
+
+def _validated_token_response(token_data: dict[str, object]) -> _TokenResponse:
+    access_token = _string_entry_value(token_data, "access_token") or ""
+    refresh_token = _string_entry_value(token_data, "refresh_token") or ""
+    expires_in = token_data.get("expires_in", 0)
+    expires_in_seconds = float(expires_in) if isinstance(expires_in, int | float) else 0.0
+    if not access_token or not refresh_token:
+        raise RuntimeError("Token response missing required fields.")
+    return _TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_at=time.time() * 1000 + expires_in_seconds * 1000,
-        account_id=account_id,
+        expires_in_seconds=expires_in_seconds,
     )
 
 
@@ -256,52 +277,8 @@ def login_openai_codex() -> OAuthCredentials:
     """Run the OpenAI Codex OAuth login flow."""
     verifier, challenge = generate_pkce()
     state = secrets.token_hex(16)
-
-    auth_url = f"{_AUTHORIZE_URL}?" + urlencode(
-        {
-            "response_type": "code",
-            "client_id": _CLIENT_ID,
-            "redirect_uri": _REDIRECT_URI,
-            "scope": _SCOPE,
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-            "state": state,
-            "id_token_add_organizations": "true",
-            "codex_cli_simplified_flow": "true",
-            "originator": "hephaistos",
-        }
-    )
-
-    server = _start_callback_server()
-
-    if server is None:
-        print("  Could not start local callback server.")
-        print(f"  Open this URL in your browser:\n\n    {auth_url}\n")
-        redirect = input("  Paste the full redirect URL: ").strip()
-        parsed = urlparse(redirect)
-        qs = parse_qs(parsed.query)
-        code = qs.get("code", [None])[0]
-        received_state = qs.get("state", [None])[0]
-        if received_state != state:
-            raise RuntimeError("OAuth state mismatch.")
-        if not code:
-            raise RuntimeError("No authorization code received.")
-    else:
-        print("  Opening browser for OpenAI authentication...")
-        _callback_state["expected_state"] = state
-        webbrowser.open(auth_url)
-        print(f"  Waiting for callback on port {_CALLBACK_PORT}...")
-
-        _wait_for_callback(server)
-        server.server_close()
-
-        if _callback_state.get("error"):
-            raise RuntimeError(f"OAuth error: {_callback_state['error']}")
-        if _callback_state.get("received_state") != state:
-            raise RuntimeError("OAuth state mismatch.")
-        code = _callback_state.get("code")
-        if not code:
-            raise RuntimeError("No authorization code received.")
+    auth_url = _authorization_url(challenge, state)
+    code = _authorization_code(auth_url, state)
 
     print("  Exchanging authorization code for tokens...")
     token_data = _post_form(
@@ -318,6 +295,64 @@ def login_openai_codex() -> OAuthCredentials:
 
     save_credentials(creds)
     return creds
+
+
+def _authorization_url(challenge: str, state: str) -> str:
+    return f"{_AUTHORIZE_URL}?" + urlencode(
+        {
+            "response_type": "code",
+            "client_id": _CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "scope": _SCOPE,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+            "id_token_add_organizations": "true",
+            "codex_cli_simplified_flow": "true",
+            "originator": "hephaistos",
+        }
+    )
+
+
+def _authorization_code(auth_url: str, state: str) -> str:
+    server = _start_callback_server()
+    if server is None:
+        return _manual_authorization_code(auth_url, state)
+    return _callback_authorization_code(server, auth_url, state)
+
+
+def _manual_authorization_code(auth_url: str, state: str) -> str:
+    print("  Could not start local callback server.")
+    print(f"  Open this URL in your browser:\n\n    {auth_url}\n")
+    redirect = input("  Paste the full redirect URL: ").strip()
+    parsed = urlparse(redirect)
+    qs = parse_qs(parsed.query)
+    received_state = qs.get("state", [None])[0]
+    if received_state != state:
+        raise RuntimeError("OAuth state mismatch.")
+    code = qs.get("code", [None])[0]
+    if not code:
+        raise RuntimeError("No authorization code received.")
+    return code
+
+
+def _callback_authorization_code(server: HTTPServer, auth_url: str, state: str) -> str:
+    print("  Opening browser for OpenAI authentication...")
+    _callback_state["expected_state"] = state
+    webbrowser.open(auth_url)
+    print(f"  Waiting for callback on port {_CALLBACK_PORT}...")
+
+    _wait_for_callback(server)
+    server.server_close()
+
+    if _callback_state.get("error"):
+        raise RuntimeError(f"OAuth error: {_callback_state['error']}")
+    if _callback_state.get("received_state") != state:
+        raise RuntimeError("OAuth state mismatch.")
+    code = _callback_state.get("code")
+    if not code:
+        raise RuntimeError("No authorization code received.")
+    return code
 
 
 def refresh_credentials(creds: OAuthCredentials) -> OAuthCredentials:
@@ -343,12 +378,15 @@ def _load_all() -> dict[str, dict[str, object]]:
     if not _AUTH_FILE.is_file():
         return {}
     try:
-        data: object = json.loads(_AUTH_FILE.read_text(encoding="utf-8"))
-        if not is_string_mapping(data):
-            return {}
-        return {key: value for key, value in data.items() if is_string_mapping(value)}
+        return _auth_entries_from_json(json.loads(_AUTH_FILE.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def _auth_entries_from_json(data: object) -> dict[str, dict[str, object]]:
+    if not is_string_mapping(data):
+        return {}
+    return {key: value for key, value in data.items() if is_string_mapping(value)}
 
 
 def _write_all(data: dict[str, dict[str, object]]) -> None:
@@ -380,24 +418,37 @@ def _credentials_from_entry(
     provider: str,
     entry: dict[str, object] | None,
 ) -> OAuthCredentials | None:
-    if entry is None or entry.get("type") != "oauth":
-        return None
-
-    access_token = entry.get("access_token", "")
-    refresh_token = entry.get("refresh_token", "")
-    expires_at = entry.get("expires_at", 0.0)
-    account_id = entry.get("account_id")
-    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
-        return None
-    if not isinstance(expires_at, int | float):
+    credential_entry = _parse_credential_entry(entry)
+    if credential_entry is None:
         return None
     return OAuthCredentials(
         provider=provider,
+        access_token=credential_entry.access_token,
+        refresh_token=credential_entry.refresh_token,
+        expires_at=credential_entry.expires_at,
+        account_id=credential_entry.account_id,
+    )
+
+
+def _parse_credential_entry(entry: dict[str, object] | None) -> _CredentialEntry | None:
+    if entry is None or entry.get("type") != "oauth":
+        return None
+    access_token = _string_entry_value(entry, "access_token")
+    refresh_token = _string_entry_value(entry, "refresh_token")
+    expires_at = entry.get("expires_at", 0.0)
+    if access_token is None or refresh_token is None or not isinstance(expires_at, int | float):
+        return None
+    return _CredentialEntry(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_at=float(expires_at),
-        account_id=account_id if isinstance(account_id, str) else None,
+        account_id=_string_entry_value(entry, "account_id"),
     )
+
+
+def _string_entry_value(entry: dict[str, object], key: str) -> str | None:
+    value = entry.get(key)
+    return value if isinstance(value, str) else None
 
 
 def _refresh_loaded_credentials(creds: OAuthCredentials) -> OAuthCredentials | None:
@@ -422,21 +473,21 @@ def load_credentials(
     """
     cached = _creds_cache.get(provider)
     if cached is not None:
-        if not cached.is_expired:
-            return cached
-        if not refresh_expired:
-            return None
-        refreshed = _refresh_loaded_credentials(cached)
-        if refreshed is None:
-            return None
-        _creds_cache[provider] = refreshed
-        return refreshed
+        return _usable_loaded_credentials(provider, cached, refresh_expired=refresh_expired)
 
     data = _load_all()
     creds = _credentials_from_entry(provider, data.get(provider))
     if creds is None:
         return None
+    return _usable_loaded_credentials(provider, creds, refresh_expired=refresh_expired)
 
+
+def _usable_loaded_credentials(
+    provider: str,
+    creds: OAuthCredentials,
+    *,
+    refresh_expired: bool,
+) -> OAuthCredentials | None:
     if creds.is_expired:
         if not refresh_expired:
             return None
@@ -444,7 +495,6 @@ def load_credentials(
         if refreshed is None:
             return None
         creds = refreshed
-
     _creds_cache[provider] = creds
     return creds
 

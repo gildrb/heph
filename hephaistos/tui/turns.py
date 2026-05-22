@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from hephaistos.chat.session import save_session
-from hephaistos.tui.inline_flows import overview_topic_menu
 from hephaistos.tui.streaming import run_tui_turn
 
 if TYPE_CHECKING:
@@ -37,12 +36,6 @@ class _TurnHost(Protocol):
     def _append_notice(self, text: str) -> None: ...
 
     def _finish_turn(self) -> None: ...
-
-    def _open_material_topic_flow(
-        self,
-        options: list[tuple[str, str]],
-        prompts: dict[str, str] | None = None,
-    ) -> None: ...
 
     def _refresh_footer_hints(self) -> None: ...
 
@@ -95,8 +88,6 @@ class TuiTurnMixin:
         if not self._turn_is_visible(turn_key):
             return
         self._append_assistant_reply(reply)
-        if menu := overview_topic_menu(reply):
-            self._open_material_topic_flow(menu.options, menu.prompts)
 
     def _handle_turn_notice(self: _TurnHost, turn_key: str, notice: str) -> None:
         if self._turn_is_visible(turn_key):

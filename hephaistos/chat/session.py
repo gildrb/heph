@@ -113,21 +113,8 @@ class SessionError(Exception):
     pass
 
 
-_SYSTEM_PROMPT_FALLBACK = (
-    "No armory is attached.\n"
-    "Tell the user to create one: run `heph armory init <path>` or type /armory. "
-    "Say nothing else."
-)
-
 ARMORY_PLUGINS_TRUST_ENV = "HEPHAISTOS_TRUST_ARMORY_PLUGINS"
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "enabled"})
-
-
-def no_armory_guidance_reply() -> str:
-    return (
-        "No armory is attached. Open or create an armory with /armory, then add "
-        "materials so I can answer from your sources."
-    )
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -232,7 +219,7 @@ def _is_visible_plugin_file(path: Path) -> bool:
 
 
 def _build_plain_system_prompt() -> str:
-    return _SYSTEM_PROMPT_FALLBACK
+    return build_system_prompt()
 
 
 def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthIssue, ...]:

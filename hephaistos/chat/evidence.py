@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from html import unescape
 from typing import TYPE_CHECKING
@@ -50,6 +50,7 @@ _RAG_MIN_SCORE = 0.1
 _QUERY_RETRIEVAL_TOP_K = 30
 _QUERY_NEIGHBOR_RADIUS = 1
 _QUERY_NEIGHBOR_LIMIT = 8
+_PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
 _OVERVIEW_CHUNK_LIMIT = 32
 _OVERVIEW_CHUNKS_PER_DOCUMENT = 2
@@ -76,6 +77,11 @@ _DOCUMENT_SURVEY_QUERY_RE = re.compile(
     r"\b(?:problem styles?|topic areas?|topics?|tests?|constraints?|exam material|"
     r"assessment material)\b",
     re.IGNORECASE,
+)
+_OVERVIEW_CONTEXT_POLICY = (
+    "Use this overview only as deterministic corpus context. Cite retrieved evidence "
+    "for factual claims, distinguish evidence from uncertainty, and do not infer from "
+    "filenames, lecturer names, subject names, institutions, or outside knowledge."
 )
 _BROAD_MATERIAL_QUERY_RE = re.compile(
     r"\b(?:material|materials|overview|about|where should i start|what should i study)\b",
@@ -176,20 +182,29 @@ def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
 
 
 def _enabled_corpus(index: ArmoryIndex, disabled_sources: set[str]) -> _EnabledCorpus:
-    documents = [
+    documents = _enabled_documents(index, disabled_sources)
+    if not documents:
+        return _EnabledCorpus(
+            documents=[],
+            chunks=_enabled_chunks(index.all_chunks, disabled_sources),
+        )
+    return _EnabledCorpus(documents=documents, chunks=_document_chunks(documents))
+
+
+def _enabled_documents(index: ArmoryIndex, disabled_sources: set[str]) -> list[ChunkedDocument]:
+    return [
         document
         for document in index.documents
         if document.source not in disabled_sources and document.chunks
     ]
-    if not documents:
-        return _EnabledCorpus(
-            documents=[],
-            chunks=[chunk for chunk in index.all_chunks if chunk.source not in disabled_sources],
-        )
-    return _EnabledCorpus(
-        documents=documents,
-        chunks=[chunk for document in documents for chunk in document.chunks],
-    )
+
+
+def _enabled_chunks(chunks: Sequence[Chunk], disabled_sources: set[str]) -> list[Chunk]:
+    return [chunk for chunk in chunks if chunk.source not in disabled_sources]
+
+
+def _document_chunks(documents: Sequence[ChunkedDocument]) -> list[Chunk]:
+    return [chunk for document in documents for chunk in document.chunks]
 
 
 def _excerpt(text: str, *, limit: int = 240) -> str:
@@ -265,16 +280,20 @@ def _adjust_evidence_assessment(
 ) -> EvidenceAssessment:
     if assessment.sufficient or assessment.recommended_action != "retrieve_more":
         return assessment
-    if plan.action is LearningAction.ASSESS and not assessment.supporting_refs:
-        return replace(assessment, recommended_action="quiz_first")
-    if plan.action in {
-        LearningAction.PRESENT,
-        LearningAction.PRIORITY,
-    } and _needs_clarifying_query(plan.retrieval_query or ""):
-        if plan.action is LearningAction.PRESENT and not assessment.supporting_refs:
-            return assessment
+    if _should_ask_clarifying_query(plan, assessment):
         return replace(assessment, recommended_action="ask_clarifying_question")
     return assessment
+
+
+def _should_ask_clarifying_query(
+    plan: LearningTurnPlan,
+    assessment: EvidenceAssessment,
+) -> bool:
+    if plan.action not in {LearningAction.PRESENT, LearningAction.PRIORITY}:
+        return False
+    if not _needs_clarifying_query(plan.retrieval_query or ""):
+        return False
+    return plan.action is not LearningAction.PRESENT or bool(assessment.supporting_refs)
 
 
 def evidence_assessment_trace(
@@ -303,9 +322,20 @@ def retrieval_audit_metadata(
     if not query or plan.action is LearningAction.CALIBRATE:
         return {}
     config = _retrieval_audit_config(session)
-    coverage = evidence_trace_coverage(resolved.turn_evidence)
-    items = evidence_trace_items(resolved.turn_evidence)
     assessment = evidence_assessment_trace(resolved.evidence_assessment)
+    return {
+        "query_classification": query_classification_payload(query, config),
+        "retrieval_trace": _retrieval_trace(query, config, resolved, assessment),
+    }
+
+
+def _retrieval_trace(
+    query: str,
+    config: RetrievalAuditConfig,
+    resolved: ResolvedTurnPlan,
+    assessment: Mapping[str, object],
+) -> dict[str, object]:
+    coverage = evidence_trace_coverage(resolved.turn_evidence)
     trace = {
         "pass": 1,
         "query_excerpt": query_excerpt(query),
@@ -315,21 +345,20 @@ def retrieval_audit_metadata(
         "candidate_budget": config.candidate_budget,
         "retrieved_count": coverage["evidence_blocks"],
         "returned_count": coverage["evidence_blocks"],
-        "top_score": (
-            round(resolved.turn_evidence.items[0].score, 4)
-            if resolved.turn_evidence is not None and resolved.turn_evidence.items
-            else None
-        ),
+        "top_score": _top_evidence_score(resolved.turn_evidence),
         "sufficiency": _audit_status(assessment, "sufficient"),
         "stop_reason": _audit_status(assessment, "sufficient_evidence"),
-        "items": items,
+        "items": evidence_trace_items(resolved.turn_evidence),
     }
     if resolved.retrieval_latency_ms is not None:
         trace["latency_ms"] = round(resolved.retrieval_latency_ms, 1)
-    return {
-        "query_classification": query_classification_payload(query, config),
-        "retrieval_trace": trace,
-    }
+    return trace
+
+
+def _top_evidence_score(turn_evidence: TurnEvidence | None) -> float | None:
+    if turn_evidence is None or not turn_evidence.items:
+        return None
+    return round(turn_evidence.items[0].score, 4)
 
 
 def _retrieval_audit_config(session: ChatSession) -> RetrievalAuditConfig:
@@ -460,15 +489,23 @@ def _clean_topic_followup_query(value: str) -> str:
 
 def _add_topic_query(queries: list[str], seen: set[str], candidate: str) -> None:
     cleaned = _clean_topic_followup_query(candidate)
-    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(cleaned)]
-    useful = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
-    if not useful or len(useful) > 6:
+    useful = _useful_topic_words(cleaned)
+    if not _valid_topic_word_count(useful):
         return
     key = cleaned.casefold()
     if key in seen:
         return
     seen.add(key)
     queries.append(cleaned)
+
+
+def _useful_topic_words(text: str) -> list[str]:
+    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(text)]
+    return [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
+
+
+def _valid_topic_word_count(words: Sequence[str]) -> bool:
+    return 0 < len(words) <= 6
 
 
 def _retrieve_topic_followup_chunks(
@@ -528,31 +565,42 @@ def _lexical_topic_scored_chunks(
     if not variants:
         return []
 
-    scored: list[ScoredChunk] = []
-    for chunk in index.all_chunks:
-        if chunk.source in disabled_sources:
-            continue
-        haystack = f"{chunk.heading}\n{chunk.text}".casefold()
-        heading = chunk.heading.casefold()
-        match_count = 0
-        score = 0.42
-        for variant in variants:
-            count = _topic_variant_count(haystack, variant)
-            if count <= 0:
-                continue
-            match_count += count
-            score += min(0.2, count * 0.04)
-            if _topic_variant_count(heading, variant) > 0:
-                score += 0.12
-        if match_count:
-            scored.append(ScoredChunk(chunk=chunk, score=min(score, 0.95)))
+    scored = [
+        scored_chunk
+        for chunk in index.all_chunks
+        if chunk.source not in disabled_sources
+        if (scored_chunk := _lexical_topic_scored_chunk(chunk, variants)) is not None
+    ]
     scored.sort(key=lambda item: (-item.score, item.chunk.source, item.chunk.index))
     return scored[:_QUERY_RETRIEVAL_TOP_K]
 
 
+def _lexical_topic_scored_chunk(
+    chunk: Chunk,
+    variants: Sequence[str],
+) -> ScoredChunk | None:
+    haystack = f"{chunk.heading}\n{chunk.text}".casefold()
+    heading = chunk.heading.casefold()
+    score = 0.42
+    matched = False
+    for variant in variants:
+        count = _topic_variant_count(haystack, variant)
+        if count <= 0:
+            continue
+        matched = True
+        score += _topic_match_score(count, heading, variant)
+    if not matched:
+        return None
+    return ScoredChunk(chunk=chunk, score=min(score, 0.95))
+
+
+def _topic_match_score(count: int, heading: str, variant: str) -> float:
+    heading_bonus = 0.12 if _topic_variant_count(heading, variant) > 0 else 0.0
+    return min(0.2, count * 0.04) + heading_bonus
+
+
 def _topic_query_variants(topic_query: str) -> tuple[str, ...]:
-    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic_query)]
-    useful_words = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
+    useful_words = _useful_topic_words(topic_query)
     if not useful_words:
         return ()
 
@@ -566,12 +614,20 @@ def _topic_query_variants(topic_query: str) -> tuple[str, ...]:
 
 
 def _topic_word_variants(word: str) -> tuple[str, ...]:
-    variants = [word]
+    variants = [word, *_german_plural_variants(word), *_simple_suffix_variants(word)]
+    return tuple(dict.fromkeys(variants))
+
+
+def _german_plural_variants(word: str) -> tuple[str, ...]:
     if word.endswith("ungen") and len(word) > 7:
-        variants.append(word[:-2])
-    if len(word) > 5:
-        variants.extend(word[:-1] for suffix in ("n", "e", "s") if word.endswith(suffix))
-    return tuple(variants)
+        return (word[:-2],)
+    return ()
+
+
+def _simple_suffix_variants(word: str) -> tuple[str, ...]:
+    if len(word) <= 5:
+        return ()
+    return tuple(word[:-1] for suffix in ("n", "e", "s") if word.endswith(suffix))
 
 
 def _add_topic_variant(variants: list[str], seen: set[str], variant: str) -> None:
@@ -752,40 +808,77 @@ def _expand_with_neighbor_chunks(
 ) -> list[ScoredChunk]:
     if not scored:
         return scored
-    by_source = {document.source: document for document in index.documents}
+    documents = {document.source: document for document in index.documents}
     expanded: list[ScoredChunk] = []
     seen: set[tuple[str, int]] = set()
     added_neighbors = 0
     for item in scored:
-        key = (item.chunk.source, item.chunk.index)
-        if key not in seen:
-            expanded.append(item)
-            seen.add(key)
-        document = by_source.get(item.chunk.source)
-        if document is None:
-            continue
-        for neighbor in _neighbor_chunks(document, item.chunk.index):
-            neighbor_key = (neighbor.source, neighbor.index)
-            if neighbor_key in seen:
-                continue
-            expanded.append(_neighbor_scored_chunk(neighbor, item.score))
-            seen.add(neighbor_key)
-            added_neighbors += 1
-            if added_neighbors >= _QUERY_NEIGHBOR_LIMIT:
-                return expanded
+        _append_scored_item(expanded, seen, item)
+        added_neighbors += _append_neighbor_items(
+            expanded,
+            seen,
+            documents.get(item.chunk.source),
+            item,
+            remaining=_QUERY_NEIGHBOR_LIMIT - added_neighbors,
+        )
+        if added_neighbors >= _QUERY_NEIGHBOR_LIMIT:
+            return expanded
     return expanded
 
 
+def _append_scored_item(
+    scored: list[ScoredChunk],
+    seen: set[tuple[str, int]],
+    item: ScoredChunk,
+) -> bool:
+    key = (item.chunk.source, item.chunk.index)
+    if key in seen:
+        return False
+    scored.append(item)
+    seen.add(key)
+    return True
+
+
+def _append_neighbor_items(
+    scored: list[ScoredChunk],
+    seen: set[tuple[str, int]],
+    document: ChunkedDocument | None,
+    item: ScoredChunk,
+    *,
+    remaining: int,
+) -> int:
+    if document is None or remaining <= 0:
+        return 0
+    added = 0
+    for neighbor in _neighbor_chunks(document, item.chunk.index):
+        added += _append_neighbor_item(scored, seen, neighbor, item.score)
+        if added >= remaining:
+            return added
+    return added
+
+
+def _append_neighbor_item(
+    scored: list[ScoredChunk],
+    seen: set[tuple[str, int]],
+    neighbor: Chunk,
+    score: float,
+) -> int:
+    return int(_append_scored_item(scored, seen, _neighbor_scored_chunk(neighbor, score)))
+
+
 def _neighbor_chunks(document: ChunkedDocument, chunk_index: int) -> list[Chunk]:
-    neighbors: list[Chunk] = []
+    return [
+        neighbor
+        for neighbor_index in _neighbor_indexes(document, chunk_index)
+        if not _LOW_CONTENT_CHUNK_RE.search((neighbor := document.chunks[neighbor_index]).text)
+    ]
+
+
+def _neighbor_indexes(document: ChunkedDocument, chunk_index: int) -> tuple[int, ...]:
+    indexes: list[int] = []
     for offset in range(1, _QUERY_NEIGHBOR_RADIUS + 1):
-        for neighbor_index in (chunk_index - offset, chunk_index + offset):
-            if neighbor_index < 0 or neighbor_index >= len(document.chunks):
-                continue
-            neighbor = document.chunks[neighbor_index]
-            if not _LOW_CONTENT_CHUNK_RE.search(neighbor.text):
-                neighbors.append(neighbor)
-    return neighbors
+        indexes.extend((chunk_index - offset, chunk_index + offset))
+    return tuple(index for index in indexes if 0 <= index < len(document.chunks))
 
 
 def _neighbor_scored_chunk(chunk: Chunk, base_score: float) -> ScoredChunk:
@@ -797,21 +890,33 @@ def _expand_assessment_survey_chunks(
     index: ArmoryIndex,
     scored: list[ScoredChunk],
 ) -> list[ScoredChunk]:
-    if not scored or not _DOCUMENT_SURVEY_QUERY_RE.search(query):
+    if not _needs_assessment_survey_expansion(query, scored):
         return scored
     documents = {document.source: document for document in index.documents}
     expanded = list(scored)
     seen = {(item.chunk.source, item.chunk.index) for item in expanded}
-    survey_items: list[ScoredChunk] = []
-    for source in _ordered_scored_sources(scored)[:2]:
-        document = documents.get(source)
-        if document is None or not _is_past_exam_document(document):
-            continue
-        survey_items.extend(_assessment_survey_items(document, seen, limit=8))
+    survey_items = _assessment_survey_items_from_sources(documents, scored, seen)
     if not survey_items:
         return expanded
     pivot = min(3, len(expanded))
     return [*expanded[:pivot], *survey_items, *expanded[pivot:]]
+
+
+def _needs_assessment_survey_expansion(query: str, scored: Sequence[ScoredChunk]) -> bool:
+    return bool(scored) and bool(_DOCUMENT_SURVEY_QUERY_RE.search(query))
+
+
+def _assessment_survey_items_from_sources(
+    documents: Mapping[str, ChunkedDocument],
+    scored: Sequence[ScoredChunk],
+    seen: set[tuple[str, int]],
+) -> list[ScoredChunk]:
+    survey_items: list[ScoredChunk] = []
+    for source in _ordered_scored_sources(scored)[:2]:
+        document = documents.get(source)
+        if document is not None and _is_past_exam_document(document):
+            survey_items.extend(_assessment_survey_items(document, seen, limit=8))
+    return survey_items
 
 
 def _ordered_scored_sources(scored: Sequence[ScoredChunk]) -> list[str]:
@@ -884,13 +989,22 @@ def _round_robin_overview_chunks(documents: Sequence[ChunkedDocument]) -> list[S
     scored: list[ScoredChunk] = []
     chunks_by_document = [_overview_document_chunks(document) for document in documents]
     for offset in range(_OVERVIEW_CHUNKS_PER_DOCUMENT):
-        for document_chunks in chunks_by_document:
-            if offset >= len(document_chunks):
-                continue
-            scored.append(_overview_scored_chunk(document_chunks[offset]))
-            if len(scored) >= _OVERVIEW_CHUNK_LIMIT:
-                return scored
+        if _append_overview_offset(scored, chunks_by_document, offset):
+            return scored
     return scored
+
+
+def _append_overview_offset(
+    scored: list[ScoredChunk],
+    chunks_by_document: Sequence[Sequence[Chunk]],
+    offset: int,
+) -> bool:
+    for document_chunks in chunks_by_document:
+        if offset < len(document_chunks):
+            scored.append(_overview_scored_chunk(document_chunks[offset]))
+        if len(scored) >= _OVERVIEW_CHUNK_LIMIT:
+            return True
+    return False
 
 
 def _overview_document_chunks(document: ChunkedDocument) -> tuple[Chunk, ...]:
@@ -918,7 +1032,7 @@ def _compact_overview_chunk(chunk: Chunk) -> Chunk:
 
 
 def _looks_like_front_matter(text: str) -> bool:
-    lines = [line.strip(" #\t") for line in text.splitlines() if line.strip()]
+    lines = _front_matter_lines(text)
     if not lines:
         return True
     sample = "\n".join(lines[:12])
@@ -927,6 +1041,10 @@ def _looks_like_front_matter(text: str) -> bool:
     has_metadata = bool(_FRONT_MATTER_METADATA_RE.search(sample))
     has_date = bool(_FRONT_MATTER_DATE_RE.search(sample))
     return has_metadata and has_date and len(lines) <= 12
+
+
+def _front_matter_lines(text: str) -> list[str]:
+    return [line.strip(" #\t") for line in text.splitlines() if line.strip()]
 
 
 def build_overview_context(session: ChatSession) -> str:
@@ -938,46 +1056,77 @@ def build_overview_context(session: ChatSession) -> str:
         if not corpus.documents:
             return ""
 
-        role_counts: dict[str, int] = {}
-        document_lines: list[str] = []
-        for document in corpus.documents[:_OVERVIEW_DOCUMENT_LIMIT]:
-            text = " ".join(chunk.text for chunk in document.chunks)
-            role, confidence, reason = infer_material_role_from_text(document.source, text)
-            role_counts[role] = role_counts.get(role, 0) + 1
-            document_lines.append(
-                f"- {document.source}: {role} ({confidence:.2f}; {reason}; "
-                f"{len(document.chunks)} chunks)"
-            )
-        remaining = len(corpus.documents) - len(document_lines)
-        if remaining > 0:
-            document_lines.append(f"- ... {remaining} more enabled indexed document(s)")
-
+        role_counts, document_lines = _overview_document_lines(corpus.documents)
         analysis = analyze_priority(corpus.chunks, limit=8)
-        role_summary = ", ".join(f"{role}={count}" for role, count in sorted(role_counts.items()))
-        lines = [
-            "Deterministic local corpus overview from enabled indexed material:",
-            f"- indexed_documents={len(corpus.documents)}",
-            f"- chunks={len(corpus.chunks)}",
-            f"- inferred_roles={role_summary or 'none'}",
-            "Document role sample:",
-            *document_lines,
-        ]
-        if analysis.topics:
-            lines.extend(
-                [
-                    "Topic scan from enabled indexed text:",
-                    analysis.render_for_prompt(limit=8),
-                ]
-            )
-        lines.append(
-            "Use this overview only as deterministic corpus context. Cite retrieved evidence "
-            "for factual claims, distinguish evidence from uncertainty, and do not infer from "
-            "filenames, lecturer names, subject names, institutions, or outside knowledge."
-        )
-        return "\n".join(lines)
+        return _render_overview_context(corpus, role_counts, document_lines, analysis)
     except Exception:
         _log.warning("overview context build failed", exc_info=True)
         return ""
+
+
+def _overview_document_lines(
+    documents: Sequence[ChunkedDocument],
+) -> tuple[dict[str, int], list[str]]:
+    role_counts: dict[str, int] = {}
+    document_lines = [
+        _overview_document_line(document, role_counts)
+        for document in documents[:_OVERVIEW_DOCUMENT_LIMIT]
+    ]
+    remaining = len(documents) - len(document_lines)
+    if remaining > 0:
+        document_lines.append(f"- ... {remaining} more enabled indexed document(s)")
+    return role_counts, document_lines
+
+
+def _overview_document_line(
+    document: ChunkedDocument,
+    role_counts: dict[str, int],
+) -> str:
+    text = " ".join(chunk.text for chunk in document.chunks)
+    role, confidence, reason = infer_material_role_from_text(document.source, text)
+    role_counts[role] = role_counts.get(role, 0) + 1
+    return (
+        f"- {document.source}: {role} ({confidence:.2f}; {reason}; {len(document.chunks)} chunks)"
+    )
+
+
+def _render_overview_context(
+    corpus: _EnabledCorpus,
+    role_counts: Mapping[str, int],
+    document_lines: Sequence[str],
+    analysis: PriorityAnalysis,
+) -> str:
+    lines = _overview_header_lines(corpus, role_counts, document_lines)
+    if analysis.topics:
+        lines.extend(
+            (
+                "Topic scan from enabled indexed text:",
+                analysis.render_for_prompt(limit=8),
+            )
+        )
+    lines.append(_OVERVIEW_CONTEXT_POLICY)
+    return "\n".join(lines)
+
+
+def _overview_header_lines(
+    corpus: _EnabledCorpus,
+    role_counts: Mapping[str, int],
+    document_lines: Sequence[str],
+) -> list[str]:
+    return [
+        "Deterministic local corpus overview from enabled indexed material:",
+        f"- indexed_documents={len(corpus.documents)}",
+        f"- chunks={len(corpus.chunks)}",
+        f"- inferred_roles={_overview_role_summary(role_counts)}",
+        "Document role sample:",
+        *document_lines,
+    ]
+
+
+def _overview_role_summary(role_counts: Mapping[str, int]) -> str:
+    if not role_counts:
+        return "none"
+    return ", ".join(f"{role}={count}" for role, count in sorted(role_counts.items()))
 
 
 def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[ScoredChunk]:
@@ -1028,14 +1177,32 @@ def _fill_priority_topic_chunks(
 ) -> list[ScoredChunk]:
     selected = {(item.chunk.source, item.chunk.index) for item in scored}
     topic_scores = {topic.topic: topic.score for topic in analysis.topics}
-    for chunk in chunks:
-        text = chunk.text.lower()
-        matching_scores = [score for topic, score in topic_scores.items() if topic in text]
-        if matching_scores:
-            _append_unique_scored_chunk(scored, selected, chunk, max(matching_scores))
-        if len(scored) >= 10:
+    for chunk, score in _priority_topic_chunk_scores(chunks, topic_scores):
+        _append_unique_scored_chunk(scored, selected, chunk, score)
+        if _priority_topic_chunk_limit_reached(scored):
             break
     return scored
+
+
+def _priority_topic_chunk_scores(
+    chunks: Sequence[Chunk],
+    topic_scores: Mapping[str, float],
+) -> Iterator[tuple[Chunk, float]]:
+    for chunk in chunks:
+        if score := _priority_topic_score(chunk, topic_scores):
+            yield chunk, score
+
+
+def _priority_topic_chunk_limit_reached(scored: Sequence[ScoredChunk]) -> bool:
+    return len(scored) >= _PRIORITY_TOPIC_CHUNK_LIMIT
+
+
+def _priority_topic_score(chunk: Chunk, topic_scores: Mapping[str, float]) -> float | None:
+    text = chunk.text.lower()
+    scores = [score for topic, score in topic_scores.items() if topic in text]
+    if not scores:
+        return None
+    return max(scores)
 
 
 def _append_unique_scored_chunk(
@@ -1094,23 +1261,47 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
         if index is None or not refs:
             return None
 
-        by_key = {(chunk.source, chunk.index): chunk for chunk in index.all_chunks}
-        scored: list[ScoredChunk] = []
-        total = len(refs)
-        for pos, ref in enumerate(refs):
-            parsed = parse_source_ref(ref)
-            if parsed is None:
-                continue
-            chunk = by_key.get(parsed)
-            if chunk is None or chunk.source in session.disabled_source_files:
-                continue
-            scored.append(ScoredChunk(chunk=chunk, score=float(total - pos)))
+        scored = _scored_chunks_from_refs(
+            index,
+            refs,
+            disabled_sources=session.disabled_source_files,
+        )
         if not scored:
             return None
         return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
     except Exception:
         _log.warning("turn evidence rebuild from refs failed", exc_info=True)
         return None
+
+
+def _scored_chunks_from_refs(
+    index: ArmoryIndex,
+    refs: Sequence[str],
+    *,
+    disabled_sources: set[str],
+) -> list[ScoredChunk]:
+    by_key = {(chunk.source, chunk.index): chunk for chunk in index.all_chunks}
+    total = len(refs)
+    return [
+        ScoredChunk(chunk=chunk, score=float(total - pos))
+        for pos, ref in enumerate(refs)
+        if (chunk := _chunk_from_ref(by_key, ref, disabled_sources=disabled_sources)) is not None
+    ]
+
+
+def _chunk_from_ref(
+    chunks_by_key: Mapping[tuple[str, int], Chunk],
+    ref: str,
+    *,
+    disabled_sources: set[str],
+) -> Chunk | None:
+    parsed = parse_source_ref(ref)
+    if parsed is None:
+        return None
+    chunk = chunks_by_key.get(parsed)
+    if chunk is None or chunk.source in disabled_sources:
+        return None
+    return chunk
 
 
 def resolve_turn_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnEvidence | None:

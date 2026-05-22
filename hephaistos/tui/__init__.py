@@ -9,6 +9,7 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,10 +55,9 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
-from hephaistos.tui.inline_flows import TuiInlineFlowMixin, overview_topic_menu
+from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys
 from hephaistos.tui.materials import TuiMaterialsMixin
-from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
@@ -215,6 +215,14 @@ class _ManagedResendCommand:
     resend_input: str
 
 
+def _managed_resend_output(captured_output: str, command_output: str | None) -> tuple[str, str]:
+    if not command_output:
+        return captured_output, ""
+    if command_output.startswith(_RESEND_PREFIX):
+        return captured_output, command_output[len(_RESEND_PREFIX) :]
+    return "\n".join(part for part in (captured_output, command_output) if part), ""
+
+
 def _captured_command_output(
     stdout: _TuiCaptureWriter,
     stderr: _TuiCaptureWriter,
@@ -346,29 +354,41 @@ class HephTui(
     def on_mount(self) -> None:
         self.title = "Heph"
         self.sub_title = "local document harness"
+        self._initialize_layout_visibility()
+        self._replay_transcript()
+        self._focus_composer()
+        self._append_initial_cards()
+        self._schedule_transcript_reflow()
+        self._prefetch_model_catalogs()
+        self.set_interval(1.0, self._tick_session_duration)
+
+    def _initialize_layout_visibility(self) -> None:
         visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         self._set_sidebar_visible(
             visible and not self._armory_inline_active and not self._materials_inline_active
         )
         self._refresh_compact_layout_class()
+
+    def _replay_transcript(self) -> None:
         for index, entry in enumerate(self.state.transcript):
             if index > 0:
                 self._write_transcript_gap()
             self._write_transcript_entry(entry)
+
+    def _focus_composer(self) -> None:
         composer = self.query_one("#composer", Input)
         composer.select_on_focus = False
         composer.focus()
         self.set_focus(composer)
+
+    def _append_initial_cards(self) -> None:
         if self.state.history_obj is not None and not self.state.startup_card_shown:
             self.state.startup_card_shown = True
             self._append_startup_card()
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
-        self._schedule_transcript_reflow()
-        self._prefetch_model_catalogs()
-        self.set_interval(1.0, self._tick_session_duration)
 
     def _tui_session_seconds(self) -> int:
         return max(0, int(time.monotonic() - self.state.tui_started_at))
@@ -402,8 +422,7 @@ class HephTui(
             self.set_focus(composer)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
-        if self._handle_suggestions_mouse_move(event):
-            return
+        self._handle_suggestions_mouse_move(event)
 
     def on_resize(self, event: events.Resize) -> None:
         visible = event.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
@@ -447,26 +466,40 @@ class HephTui(
         )
 
     def _handle_composer_shortcut(self, event: events.Key) -> bool:
-        match event.key:
-            case "escape":
-                if not self._handle_escape_shortcut():
-                    return False
-            case "ctrl+up":
-                self._focus_message(-1)
-            case "ctrl+down":
-                self._focus_message(1)
-            case "up":
-                self._move_completion_or_history(-1)
-            case "down":
-                self._move_completion_or_history(1)
-            case "shift+tab":
-                self.action_cycle_reasoning_level()
-            case "tab":
-                self.action_complete()
-            case _:
-                return False
+        shortcut = self._composer_shortcut_handler(event.key)
+        if shortcut is None or not shortcut():
+            return False
 
         self._consume_key(event)
+        return True
+
+    def _composer_shortcut_handler(self, key: str) -> Callable[[], bool] | None:
+        movement_offsets = {
+            "ctrl+up": lambda: self._focus_message(-1),
+            "ctrl+down": lambda: self._focus_message(1),
+            "up": lambda: self._move_completion_or_history(-1),
+            "down": lambda: self._move_completion_or_history(1),
+        }
+        actions = {
+            "escape": self._handle_escape_shortcut,
+            "shift+tab": self._cycle_reasoning_shortcut,
+            "tab": self._complete_shortcut,
+        }
+        if key in movement_offsets:
+            return lambda: self._run_shortcut(movement_offsets[key])
+        return actions.get(key)
+
+    @staticmethod
+    def _run_shortcut(shortcut: Callable[[], None]) -> bool:
+        shortcut()
+        return True
+
+    def _cycle_reasoning_shortcut(self) -> bool:
+        self.action_cycle_reasoning_level()
+        return True
+
+    def _complete_shortcut(self) -> bool:
+        self.action_complete()
         return True
 
     def _handle_escape_shortcut(self) -> bool:
@@ -557,32 +590,44 @@ class HephTui(
                 event.option_index,
             )
 
-    def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> bool:
-        if getattr(getattr(event, "widget", None), "id", None) != "suggestions":
-            self._clear_suggestions_mouse_hovering()
-            return False
+    def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
-        if not suggestions.has_class("visible"):
+        option_index = self._suggestions_hover_index(event, suggestions)
+        if option_index is None:
             self._clear_suggestions_mouse_hovering(suggestions)
-            return False
-        option_index = event.style.meta.get("option")
-        if not isinstance(option_index, int):
-            self._clear_suggestions_mouse_hovering(suggestions)
-            return False
+            return
+
         self._set_suggestions_mouse_hovering(suggestions)
         if suggestions.highlighted == option_index:
-            return False
+            return
         if self._inline_flow.active:
-            if not (0 <= option_index < len(self._inline_flow.options)):
-                self._clear_suggestions_mouse_hovering(suggestions)
-                return False
             self._highlight_inline_menu_option(option_index, suggestions)
         else:
-            if not (0 <= option_index < len(self.completion_candidates)):
-                self._clear_suggestions_mouse_hovering(suggestions)
-                return False
             self._highlight_completion_option(option_index, suggestions)
-        return False
+
+    def _suggestions_hover_index(
+        self,
+        event: events.MouseMove,
+        suggestions: OptionList,
+    ) -> int | None:
+        if getattr(getattr(event, "widget", None), "id", None) != "suggestions":
+            return None
+        if not suggestions.has_class("visible"):
+            return None
+        option_index = event.style.meta.get("option")
+        if not isinstance(option_index, int):
+            return None
+        if not self._suggestions_option_in_range(option_index):
+            return None
+        return option_index
+
+    def _suggestions_option_in_range(self, option_index: int) -> bool:
+        option_count = (
+            len(self._inline_flow.options)
+            if self._inline_flow.active
+            else len(self.completion_candidates)
+        )
+        return 0 <= option_index < option_count
 
     def _set_suggestions_mouse_hovering(self, suggestions: OptionList) -> None:
         if self._suggestions_mouse_hovering:
@@ -637,16 +682,22 @@ class HephTui(
             return
         route = _tui_input_route(value)
         self._clear_submitted_composer(composer)
+        self._submit_routed_value(route, value)
+
+    def _submit_routed_value(self, route: _TuiInputRoute, value: str) -> None:
         if route is _TuiInputRoute.EMPTY:
             return
         if self._submit_special_route(route, value):
             return
-        if self.busy and self._submit_busy_value(route, value):
+        if self.busy:
+            self._submit_busy_value(route, value)
             return
-        if route is _TuiInputRoute.EXTERNAL:
-            self._submit_external_value(value)
-            return
-        self._submit_chat_value(value)
+        route_handlers = {
+            _TuiInputRoute.EXTERNAL: self._submit_external_value,
+            _TuiInputRoute.CHAT: self._submit_chat_value,
+        }
+        if handler := route_handlers.get(route):
+            handler(value)
 
     def _composer_submission_value(
         self,
@@ -670,22 +721,11 @@ class HephTui(
         self._handle_external_input(value)
 
     def _submit_chat_value(self, value: str) -> None:
-        if self.session.armory_path is None:
-            self._submit_no_armory_value(value)
-            return
         config_error = _config_error(self.session)
         if config_error is not None:
             self._append_error(config_error)
             return
         self._start_chat_turn(value)
-
-    def _submit_no_armory_value(self, value: str) -> None:
-        reply = record_no_armory_turn(self.session, value)
-        self._record_history(value)
-        self._append_user(value, mark_working=False)
-        self._append_assistant_reply(reply)
-        self._refresh_status()
-        self._update_info_panel()
 
     def _submit_active_inline_surface(self, composer: Input, value: str) -> bool:
         if self._armory_inline_active:
@@ -703,22 +743,14 @@ class HephTui(
         return False
 
     def _submit_special_route(self, route: _TuiInputRoute, value: str) -> bool:
-        if route is _TuiInputRoute.MATERIALS:
-            self._record_history(value)
-            self._open_materials_inline(value)
-            return True
-        if route is _TuiInputRoute.SESSIONS:
-            self._record_history(value)
-            self._append_user(value, mark_working=False)
-            self._handle_sessions_command(value)
-            return True
-        if route is _TuiInputRoute.NEW:
-            self._record_history(value)
-            self._handle_new()
-            return True
-        if route is _TuiInputRoute.ARMORY:
-            self._record_history(value)
-            self._handle_armory_browser(value)
+        route_handlers = {
+            _TuiInputRoute.MATERIALS: self._submit_materials_route,
+            _TuiInputRoute.SESSIONS: self._submit_sessions_route,
+            _TuiInputRoute.NEW: self._submit_new_route,
+            _TuiInputRoute.ARMORY: self._submit_armory_route,
+        }
+        if handler := route_handlers.get(route):
+            handler(value)
             return True
         if value in _INLINE_COMMANDS:
             self._record_history(value)
@@ -726,6 +758,23 @@ class HephTui(
             self._handle_inline_command(value)
             return True
         return False
+
+    def _submit_materials_route(self, value: str) -> None:
+        self._record_history(value)
+        self._open_materials_inline(value)
+
+    def _submit_sessions_route(self, value: str) -> None:
+        self._record_history(value)
+        self._append_user(value, mark_working=False)
+        self._handle_sessions_command(value)
+
+    def _submit_new_route(self, value: str) -> None:
+        self._record_history(value)
+        self._handle_new()
+
+    def _submit_armory_route(self, value: str) -> None:
+        self._record_history(value)
+        self._handle_armory_browser(value)
 
     def _submit_busy_value(self, route: _TuiInputRoute, value: str) -> bool:
         if route is _TuiInputRoute.CHAT:
@@ -943,26 +992,13 @@ class HephTui(
             self.session = result.new_session
 
         output = _captured_command_output(stdout, stderr, activity_trace_mode)
-
-        resend_input = ""
-        if result.output:
-            if result.output.startswith(_RESEND_PREFIX):
-                resend_input = result.output[len(_RESEND_PREFIX) :]
-            else:
-                output = "\n".join(part for part in (output, result.output) if part)
-
+        output, resend_input = _managed_resend_output(output, result.output)
         self.state.history = history.entries
         return _ManagedResendCommand(result=result, output=output, resend_input=resend_input)
 
     def _run_resend_input(self, resend_input: str, history: InputHistory) -> None:
         history.add(resend_input)
         self.state.history = history.entries
-        if self.session.armory_path is None:
-            reply = record_no_armory_turn(self.session, resend_input)
-            self.call_from_thread(self._append_assistant_reply, reply)
-            self._finish_managed_resend_command(history)
-            return
-
         config_error = _config_error(self.session)
         if config_error is not None:
             self.call_from_thread(self._append_error, config_error)
@@ -974,8 +1010,6 @@ class HephTui(
     def _run_resend_chat_turn(self, resend_input: str) -> None:
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
-            if menu := overview_topic_menu(reply):
-                self.call_from_thread(self._open_material_topic_flow, menu.options, menu.prompts)
 
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)

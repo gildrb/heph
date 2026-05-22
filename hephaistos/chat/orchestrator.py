@@ -97,7 +97,12 @@ from hephaistos.study import (
     validate_pedagogy,
 )
 from hephaistos.study.policy import LearningMoveKind
-from hephaistos.study.priority import PriorityTopic, PriorityWebSearcher, analyze_priority
+from hephaistos.study.priority import (
+    PriorityTopic,
+    PriorityWebSearcher,
+    PriorityWebSearchResult,
+    analyze_priority,
+)
 from hephaistos.study.schedule import (
     RecallItemState,
     RecallScheduleStore,
@@ -137,6 +142,18 @@ _TRACE_TASK_BY_ACTION = {
     LearningAction.HINT: "hint",
 }
 type _IntentPlanBuilder = Callable[[str, str, LearningPhase], LearningTurnPlan]
+_MODEL_NORMALIZED_INTENTS = (
+    "material_overview",
+    "source_qa",
+    "source_only_policy",
+    "topic_presentation",
+    "topic_drill",
+    "ready_for_recall",
+    "recall_clarification",
+    "recall_answer_attempt",
+    "chat",
+)
+_MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = 0.75
 _MODEL_NORMALIZED_PLAN_BUILDERS: dict[str, _IntentPlanBuilder] = {
     "chat": lambda user_input, _query, phase: plain_chat_plan(user_input, phase=phase),
     "source_qa": lambda user_input, query, _phase: material_source_qa_plan(
@@ -257,13 +274,13 @@ _OVERVIEW_FORBIDDEN_SHAPE = (
     "the files cover",
     "visible topics",
 )
-_OVERVIEW_STUDY_LOOP_LINE_RE = re.compile(
+_UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE = re.compile(
     r"\b(?:next\s+action|say\s+ready|source[-\s]?backed|ask\s+for\s+recall|"
     r"want\s+recall|answer\s+from\s+memory|from\s+memory|recall\s+drill)\b|"
     r"^\s*(?:then\s+)?recall[.!]?\s*$",
     re.IGNORECASE,
 )
-_INLINE_STUDY_LOOP_SUFFIX_RE = re.compile(
+_INLINE_LEARNING_FOLLOWUP_SUFFIX_RE = re.compile(
     r"(?is)^(?P<body>.+?)\s+(?:"
     r"say\s+ready(?:\s+when\s+you\s+want\s+recall)?|"
     r"next\s+action\s*:\s*.+|"
@@ -447,9 +464,7 @@ from that excerpt. Return JSON only, matching this schema:
 _LEARNING_INTENT_NORMALIZATION_SCHEMA = "\n".join(
     (
         "{",
-        '  "intent": "material_overview | source_qa | source_only_policy | '
-        "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
-        'recall_answer_attempt | chat",',
+        f'  "intent": "{" | ".join(_MODEL_NORMALIZED_INTENTS)}",',
         '  "canonical_english_request": "concise English request preserving the user\'s intent",',
         '  "confidence": 0.0',
         "}",
@@ -533,6 +548,12 @@ class _LearningAgentBuffer:
     @property
     def visible_streamed_reply(self) -> str:
         return "".join(self.visible_parts)
+
+
+@dataclass(frozen=True, slots=True)
+class _LearningAgentRequest:
+    conversation: Conversation
+    buffer_output: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -622,40 +643,64 @@ def _localized_deterministic_reply(
 
 
 def _valid_localized_deterministic_reply(localized: str, *, original: str) -> bool:
-    if not localized:
-        return False
-    if len(localized) > max(len(original) * 3, len(original) + 600):
-        return False
-    if _OVERVIEW_CITATION_ID_RE.search(localized) and not _OVERVIEW_CITATION_ID_RE.search(
-        original
-    ):
-        return False
+    return (
+        bool(localized)
+        and not _localized_reply_too_long(localized, original)
+        and not _localized_reply_adds_citations(localized, original)
+        and _localized_reply_preserves_assessment_label(localized, original)
+        and _localized_reply_preserves_literals(localized, original)
+    )
+
+
+def _localized_reply_too_long(localized: str, original: str) -> bool:
+    return len(localized) > max(len(original) * 3, len(original) + 600)
+
+
+def _localized_reply_adds_citations(localized: str, original: str) -> bool:
+    return bool(_OVERVIEW_CITATION_ID_RE.search(localized)) and not bool(
+        _OVERVIEW_CITATION_ID_RE.search(original)
+    )
+
+
+def _localized_reply_preserves_assessment_label(localized: str, original: str) -> bool:
     assessment_label = _ASSESSMENT_LABEL_RE.match(original.strip())
-    if assessment_label is not None and not localized.startswith(assessment_label.group(0)):
-        return False
-    for literal in _DETERMINISTIC_REPLY_LITERAL_RE.findall(original):
-        if literal not in localized:
-            return False
-    return True
+    return assessment_label is None or localized.startswith(assessment_label.group(0))
+
+
+def _localized_reply_preserves_literals(localized: str, original: str) -> bool:
+    literals = _DETERMINISTIC_REPLY_LITERAL_RE.findall(original)
+    return all(literal in localized for literal in literals)
 
 
 def _missing_indexed_material_reply(session: ChatSession, action: LearningAction) -> str:
-    if action not in _EVIDENCE_REQUIRED_ACTIONS or session.source_file_count <= 0:
+    if not _requires_indexed_material(session, action):
         return ""
     index = session.rag_index
     if index is None:
         return _index_unavailable_reply()
-    if index.chunk_count > 0:
-        if _has_enabled_indexed_material(session, index):
-            return ""
-        return _all_material_disabled_reply()
+    return _indexed_material_state_reply(session, index)
 
+
+def _requires_indexed_material(session: ChatSession, action: LearningAction) -> bool:
+    return action in _EVIDENCE_REQUIRED_ACTIONS and session.source_file_count > 0
+
+
+def _indexed_material_state_reply(session: ChatSession, index: ArmoryIndex) -> str:
+    if indexed_reply := _indexed_material_availability_reply(session, index):
+        return indexed_reply
     if sources := _enabled_unindexable_sources(session, index):
         materials = _material_list_label(sources)
         reasons = [index.unindexable_files[source] for source in sources]
         return _unindexable_material_reply(materials, reasons)
-
     return _empty_material_index_reply()
+
+
+def _indexed_material_availability_reply(session: ChatSession, index: ArmoryIndex) -> str:
+    if index.chunk_count <= 0:
+        return ""
+    if _has_enabled_indexed_material(session, index):
+        return ""
+    return _all_material_disabled_reply()
 
 
 def _has_enabled_indexed_material(session: ChatSession, index: ArmoryIndex) -> bool:
@@ -742,40 +787,39 @@ def _all_reasons_contain(reasons: list[str], needle: str) -> bool:
     return bool(reasons) and all(needle in reason for reason in reasons)
 
 
-def _needs_source_only_no_evidence_fallback(
-    plan: LearningTurnPlan,
-    resolved: ResolvedTurnPlan,
-) -> bool:
-    assessment = resolved.evidence_assessment
-    if assessment is not None and assessment.recommended_action == "abstain":
-        return True
-    if resolved.turn_evidence is not None:
-        return False
-    if _overview_turn(plan):
-        return False
-    if plan.action is LearningAction.SOURCE_QA:
-        return True
-    query = plan.retrieval_query or ""
-    return bool(query and _query_demands_source_only_answer(query))
-
-
 def _repair_missing_evidence_citations(
     plan: LearningTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
 ) -> str:
-    if not reply.strip() or evidence is None or not evidence.items:
+    if not _can_repair_evidence_citations(reply, evidence):
         return reply
+    assert evidence is not None
     cleaned_reply, verification = _remove_unverified_citation_refs(reply, evidence)
-    if plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
-        return cleaned_reply
-    if plan.action is LearningAction.SOURCE_QA and not any(
-        line in cleaned_reply for line in _evidence_bullet_lines(evidence)
-    ):
-        return _append_evidence_bullets(cleaned_reply, evidence)
-    if verification.has_citations:
+    if not _should_append_missing_evidence_bullets(plan, cleaned_reply, evidence, verification):
         return cleaned_reply
     return _append_evidence_bullets(cleaned_reply, evidence)
+
+
+def _can_repair_evidence_citations(reply: str, evidence: TurnEvidence | None) -> bool:
+    return bool(reply.strip() and evidence is not None and evidence.items)
+
+
+def _should_append_missing_evidence_bullets(
+    plan: LearningTurnPlan,
+    cleaned_reply: str,
+    evidence: TurnEvidence,
+    verification: VerificationResult,
+) -> bool:
+    if plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
+        return False
+    if plan.action is LearningAction.SOURCE_QA:
+        return not _reply_contains_evidence_bullet(cleaned_reply, evidence)
+    return not verification.has_citations
+
+
+def _reply_contains_evidence_bullet(reply: str, evidence: TurnEvidence) -> bool:
+    return any(line in reply for line in _evidence_bullet_lines(evidence))
 
 
 def _remove_unverified_citation_refs(
@@ -918,7 +962,7 @@ def _material_operation_events(
     plan: LearningTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> Iterator[MaterialOperationEvent]:
-    if plan.direct_reply is not None or plan.action is LearningAction.CALIBRATE:
+    if plan.action is LearningAction.CALIBRATE:
         return
     if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
         return
@@ -968,21 +1012,7 @@ def _material_operation_start_events(
 ) -> Iterator[MaterialOperationEvent]:
     indexed_sources, indexed_chunks = index_counts
     if _overview_turn(plan):
-        sampled_sources = evidence.sampled_source_count if evidence else 0
-        total_sources = evidence.total_source_count if evidence else indexed_sources
-        evidence_blocks = len(evidence.items) if evidence else 0
-        yield _material_operation_event(
-            "sample_overview",
-            (
-                f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
-                f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
-            ),
-            query=plan.retrieval_query,
-            evidence_blocks=evidence_blocks,
-            sampled_sources=sampled_sources,
-            total_sources=total_sources,
-            read_all_requested=_read_all_files_requested(plan.retrieval_query),
-        )
+        yield _overview_sampling_event(plan, evidence, indexed_sources)
         return
     if plan.use_expected_source_refs and session.learning_state.expected_source_refs:
         yield _material_operation_event(
@@ -1002,6 +1032,28 @@ def _material_operation_start_events(
             indexed_sources=indexed_sources,
             indexed_chunks=indexed_chunks,
         )
+
+
+def _overview_sampling_event(
+    plan: LearningTurnPlan,
+    evidence: TurnEvidence | None,
+    indexed_sources: int,
+) -> MaterialOperationEvent:
+    sampled_sources = evidence.sampled_source_count if evidence else 0
+    total_sources = evidence.total_source_count if evidence else indexed_sources
+    evidence_blocks = len(evidence.items) if evidence else 0
+    return _material_operation_event(
+        "sample_overview",
+        (
+            f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
+            f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
+        ),
+        query=plan.retrieval_query,
+        evidence_blocks=evidence_blocks,
+        sampled_sources=sampled_sources,
+        total_sources=total_sources,
+        read_all_requested=_read_all_files_requested(plan.retrieval_query),
+    )
 
 
 def _material_evidence_events(
@@ -1060,7 +1112,7 @@ def _read_all_scope_events(
 
 
 def _reading_notice(plan: LearningTurnPlan) -> str:
-    if plan.direct_reply is not None or plan.action is LearningAction.CALIBRATE:
+    if plan.action is LearningAction.CALIBRATE:
         return ""
     if _overview_turn(plan):
         return "Preparing the material index and reading enabled evidence for a corpus overview."
@@ -1070,8 +1122,6 @@ def _reading_notice(plan: LearningTurnPlan) -> str:
 
 
 def _writing_notice(plan: LearningTurnPlan) -> str:
-    if plan.direct_reply is not None:
-        return ""
     if plan.action is LearningAction.CALIBRATE:
         return ""
     if _overview_turn(plan):
@@ -1087,7 +1137,7 @@ def _user_visible_reply(plan: LearningTurnPlan, reply: str) -> str:
     cleaned = _strip_tool_call_markup(reply).strip()
     cleaned = _strip_leading_control_json(cleaned)
     if _overview_turn(plan) or plan.action is LearningAction.SOURCE_QA:
-        cleaned = _strip_practice_loop_footer(cleaned)
+        cleaned = _strip_unsolicited_learning_followup(cleaned)
     cleaned = _strip_unsolicited_chat_menu(plan, cleaned)
     if plan.action is LearningAction.CALIBRATE:
         return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
@@ -1133,27 +1183,37 @@ def _prompt_user_text(prompt: str) -> str:
     return ""
 
 
-def _strip_practice_loop_footer(reply: str) -> str:
+def _strip_unsolicited_learning_followup(reply: str) -> str:
     if not reply.strip():
         return reply
-    lines = reply.splitlines()
+    truncated = _strip_learning_followup_lines(reply.splitlines())
+    if truncated is not None:
+        return truncated
+    return _strip_inline_learning_followup_suffix(reply)
+
+
+def _strip_learning_followup_lines(lines: list[str]) -> str | None:
     seen_content = False
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
-        if seen_content and _line_looks_like_practice_loop_footer(stripped):
+        if seen_content and _line_looks_like_unsolicited_learning_followup(stripped):
             return "\n".join(lines[:index]).rstrip()
-        if _OVERVIEW_CITATION_ID_RE.search(stripped) or len(re.findall(r"\b\w+\b", stripped)) >= 4:
+        if _line_has_substantive_answer_content(stripped):
             seen_content = True
-    return _strip_inline_practice_loop_suffix(reply)
+    return None
 
 
-def _strip_inline_practice_loop_suffix(reply: str) -> str:
+def _line_has_substantive_answer_content(line: str) -> bool:
+    return bool(_OVERVIEW_CITATION_ID_RE.search(line)) or len(re.findall(r"\b\w+\b", line)) >= 4
+
+
+def _strip_inline_learning_followup_suffix(reply: str) -> str:
     cleaned_lines: list[str] = []
     changed = False
     for line in reply.splitlines():
-        match = _INLINE_STUDY_LOOP_SUFFIX_RE.match(line.rstrip())
+        match = _INLINE_LEARNING_FOLLOWUP_SUFFIX_RE.match(line.rstrip())
         if match is None:
             cleaned_lines.append(line)
             continue
@@ -1168,10 +1228,10 @@ def _strip_inline_practice_loop_suffix(reply: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
-def _line_looks_like_practice_loop_footer(line: str) -> bool:
+def _line_looks_like_unsolicited_learning_followup(line: str) -> bool:
     if _OVERVIEW_CITATION_ID_RE.search(line):
         return False
-    if _OVERVIEW_STUDY_LOOP_LINE_RE.search(line):
+    if _UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE.search(line):
         return True
     words = re.findall(r"\b[\w'-]+\b", line)
     return len(words) <= 10 and bool(re.search(r"\brecall\b[.!]?$", line, re.IGNORECASE))
@@ -1221,79 +1281,6 @@ def _read_all_scope_sample_text(evidence: TurnEvidence | None) -> str:
     if sampled_sources:
         return _count_label(sampled_sources, "indexed source")
     return "the available indexed evidence"
-
-
-def _insufficient_evidence_reply(
-    plan: LearningTurnPlan,
-    resolved: ResolvedTurnPlan,
-) -> str:
-    assessment = resolved.evidence_assessment
-    if assessment is None or assessment.sufficient or plan.action is LearningAction.CALIBRATE:
-        return ""
-    missing = ", ".join(assessment.missing_information) or "supporting source evidence"
-    has_evidence = bool(resolved.turn_evidence and resolved.turn_evidence.items)
-    if assessment.recommended_action == "abstain":
-        return _source_qa_fallback_reply(plan, resolved.turn_evidence) or (
-            "I do not have enough source evidence to answer that reliably. "
-            f"Missing: {missing}. Please narrow the source-grounded target."
-        )
-    if _needs_overview_guidance(plan, assessment, has_evidence=has_evidence):
-        return (
-            "I could not find indexed evidence for that broad material request. "
-            "Start with a material overview first so you can pick one source-backed topic "
-            "to review."
-        )
-    if _needs_source_qa_narrowing(plan, assessment, has_evidence=has_evidence):
-        return (
-            "I do not have enough indexed evidence for a reliable answer yet. "
-            f"Missing: {missing}. "
-            "Please narrow the question to one concept, theorem, or exercise so I can retrieve "
-            "a tighter evidence set."
-        )
-    return _insufficient_evidence_action_reply(assessment.recommended_action, missing)
-
-
-def _insufficient_evidence_action_reply(recommended_action: str, missing: str) -> str:
-    if recommended_action == "ask_clarifying_question":
-        return (
-            "Before I answer from sources, I need one clarification: "
-            f"which exact concept or item should I target? Missing: {missing}."
-        )
-    if recommended_action == "quiz_first":
-        return (
-            "Evidence is thin for a direct answer, so I will test your current understanding "
-            "first: answer one focused recall question from memory and include confidence 0-100%."
-        )
-    return ""
-
-
-def _needs_overview_guidance(
-    plan: LearningTurnPlan,
-    assessment: EvidenceAssessment,
-    *,
-    has_evidence: bool,
-) -> bool:
-    return (
-        assessment.recommended_action == "retrieve_more"
-        and plan.action is LearningAction.PRESENT
-        and not assessment.supporting_refs
-        and not has_evidence
-        and plan.retrieval_query is not None
-        and _is_overview_query(plan.retrieval_query)
-    )
-
-
-def _needs_source_qa_narrowing(
-    plan: LearningTurnPlan,
-    assessment: EvidenceAssessment,
-    *,
-    has_evidence: bool,
-) -> bool:
-    return (
-        assessment.recommended_action == "retrieve_more"
-        and not has_evidence
-        and plan.action is LearningAction.SOURCE_QA
-    )
 
 
 def _run_bounded_internal_repairs(
@@ -1364,6 +1351,18 @@ def _learner_assessment_trace(
         "hint_level_used": assessment.hint_level_used,
         "next_action": assessment.next_action,
     }
+
+
+def _learning_move_kind(plan: LearningTurnPlan) -> LearningMoveKind:
+    return plan.learning_move.kind if plan.learning_move is not None else "assess"
+
+
+def _positive_hint_level(state: LearningState) -> int | None:
+    return state.hint_level if state.hint_level > 0 else None
+
+
+def _exam_importance(state: LearningState) -> float:
+    return 1.0 if state.expected_source_refs else 0.0
 
 
 def _pedagogy_validation_trace(plan: LearningTurnPlan | None, reply: str) -> dict[str, object]:
@@ -1462,20 +1461,9 @@ def _postprocess_learning_reply(
 def _deterministic_learning_reply(
     session: ChatSession,
     plan: LearningTurnPlan,
-    resolved: ResolvedTurnPlan,
 ) -> _DeterministicLearningReply | None:
     if missing_reply := _missing_indexed_material_reply(session, plan.action):
         return _DeterministicLearningReply(missing_reply)
-    if plan.direct_reply is not None:
-        return _DeterministicLearningReply(plan.direct_reply)
-    if _needs_source_only_no_evidence_fallback(plan, resolved):
-        return _DeterministicLearningReply(_source_qa_fallback_reply(plan, None))
-    if evidence_reply := _insufficient_evidence_reply(plan, resolved):
-        return _DeterministicLearningReply(
-            evidence_reply,
-            source_refs=_evidence_refs(resolved.turn_evidence),
-            internal_passes=1,
-        )
     return None
 
 
@@ -1494,7 +1482,7 @@ def _empty_learning_reply(
     user_input: str,
     config: ChatConfig,
 ) -> str:
-    fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
+    fallback_reply = _source_qa_evidence_reply(plan, resolved.turn_evidence)
     if fallback_reply:
         should_localize = True
     else:
@@ -1615,20 +1603,38 @@ def _recall_item_topics(items: list[RecallItemState]) -> tuple[str, ...]:
 def _learning_policy_interventions(
     store: RecallScheduleStore,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    successful_interventions, failed_interventions = _stored_learning_interventions(store)
+    _extend_policy_stat_interventions(
+        store,
+        successful_interventions=successful_interventions,
+        failed_interventions=failed_interventions,
+    )
+    return (
+        tuple(dict.fromkeys(successful_interventions)),
+        tuple(dict.fromkeys(failed_interventions)),
+    )
+
+
+def _stored_learning_interventions(store: RecallScheduleStore) -> tuple[list[str], list[str]]:
     successful_interventions: list[str] = []
     failed_interventions: list[str] = []
     for item in store.item_list:
         successful_interventions.extend(item.successful_interventions or [])
         failed_interventions.extend(item.failed_interventions or [])
+    return successful_interventions, failed_interventions
+
+
+def _extend_policy_stat_interventions(
+    store: RecallScheduleStore,
+    *,
+    successful_interventions: list[str],
+    failed_interventions: list[str],
+) -> None:
     for move_type, stats in store.policy_stats.items():
         if stats.success_rate >= 0.6 and stats.uses >= 2:
             successful_interventions.append(move_type)
         elif stats.uses >= 2:
             failed_interventions.append(move_type)
-    return (
-        tuple(dict.fromkeys(successful_interventions)),
-        tuple(dict.fromkeys(failed_interventions)),
-    )
 
 
 def _matching_recall_item(
@@ -1643,22 +1649,24 @@ def _matching_recall_item(
     return None
 
 
-def _source_qa_fallback_reply(plan: LearningTurnPlan, evidence: TurnEvidence | None) -> str:
-    query = plan.retrieval_query or ""
-    if plan.action is not LearningAction.SOURCE_QA and not _query_demands_source_only_answer(
-        query
-    ):
+def _source_qa_evidence_reply(plan: LearningTurnPlan, evidence: TurnEvidence | None) -> str:
+    if not _can_answer_source_qa_from_evidence(plan, evidence):
         return ""
-    if evidence is None or not evidence.items:
-        return (
-            "The enabled armory sources do not contain an answer to that question. "
-            "Enable the relevant material with /materials or add a more specific source."
-        )
-
+    query = plan.retrieval_query or ""
+    assert evidence is not None
     if exact_phrase := _source_qa_exact_phrase(query, evidence):
         return exact_phrase
-
     return "\n".join(_evidence_bullet_lines(evidence, limit=4))
+
+
+def _can_answer_source_qa_from_evidence(
+    plan: LearningTurnPlan,
+    evidence: TurnEvidence | None,
+) -> bool:
+    if evidence is None or not evidence.items:
+        return False
+    query = plan.retrieval_query or ""
+    return plan.action is LearningAction.SOURCE_QA or _query_demands_source_only_answer(query)
 
 
 def _source_qa_exact_phrase(query: str, evidence: TurnEvidence) -> str:
@@ -1685,19 +1693,29 @@ def _append_evidence_assessment_prompt(
     prompt: str,
     resolved: ResolvedTurnPlan,
 ) -> str:
+    if not _needs_evidence_assessment_prompt(prompt, resolved):
+        return prompt
+    assessment = resolved.evidence_assessment
+    if assessment is None:
+        return prompt
+    return f"{prompt}\n\n{_evidence_assessment_prompt_line(assessment)}"
+
+
+def _needs_evidence_assessment_prompt(prompt: str, resolved: ResolvedTurnPlan) -> bool:
     plan = resolved.learning_plan
     assessment = resolved.evidence_assessment
     if not prompt or plan is None or assessment is None:
-        return prompt
-    if plan.action is LearningAction.CHAT:
-        return prompt
-    if plan.action is LearningAction.CALIBRATE or assessment.sufficient:
-        return prompt
+        return False
+    return plan.action not in {LearningAction.CHAT, LearningAction.CALIBRATE} and not (
+        assessment.sufficient
+    )
+
+
+def _evidence_assessment_prompt_line(assessment: EvidenceAssessment) -> str:
     missing = ", ".join(assessment.missing_information) or "missing supporting evidence"
     refs = ", ".join(assessment.supporting_refs) or "none"
     action = assessment.recommended_action.replace("_", " ")
     return (
-        f"{prompt}\n\n"
         "Evidence gate: "
         f"partial/insufficient ({assessment.confidence:.0%}); action={action}; "
         f"refs={refs}; missing={missing}. "
@@ -1810,24 +1828,40 @@ def _overview_model_fallback_reply(
     user_input: str,
     config: ChatConfig | None,
 ) -> str:
-    if config is None or not config.base_url or not config.model:
+    usable_config = _overview_fallback_config(config)
+    if usable_config is None:
         return ""
     conversation = Conversation()
     conversation.add("system", _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT)
     conversation.add("user", _overview_topic_normalization_context(evidence, user_input))
-    model_text = _stream_one_shot_model_text(config, conversation)
+    reply = _clean_overview_model_reply(_stream_one_shot_model_text(usable_config, conversation))
+    if not _valid_overview_model_reply(reply, evidence):
+        return ""
+    return _append_read_all_scope_disclosure(plan, reply, evidence)
+
+
+def _overview_fallback_config(config: ChatConfig | None) -> ChatConfig | None:
+    if config is None or not config.base_url or not config.model:
+        return None
+    return config
+
+
+def _clean_overview_model_reply(model_text: str) -> str:
     if not model_text:
         return ""
     reply = _strip_tool_call_markup(model_text).strip()
-    reply = _strip_practice_loop_footer(reply)
+    return _strip_unsolicited_learning_followup(reply)
+
+
+def _valid_overview_model_reply(reply: str, evidence: TurnEvidence) -> bool:
     if not reply:
-        return ""
+        return False
     verification = verify_citations(reply, evidence)
-    if not verification.has_citations or not verification.all_verified:
-        return ""
-    if _overview_answer_has_bad_shape(reply, evidence):
-        return ""
-    return _append_read_all_scope_disclosure(plan, reply, evidence)
+    return (
+        verification.has_citations
+        and verification.all_verified
+        and not _overview_answer_has_bad_shape(reply, evidence)
+    )
 
 
 def _stream_one_shot_model_text(config: ChatConfig, conversation: Conversation) -> str:
@@ -1864,6 +1898,22 @@ def _learning_agent_output_from_buffer(
         raw_reply=raw_reply,
         visible_reply=visible_reply,
         completion_event=buffer.completion_event,
+    )
+
+
+def _learning_agent_request(
+    plan: LearningTurnPlan,
+    original_learning_state: LearningState,
+    user_input: str,
+    session: ChatSession,
+) -> _LearningAgentRequest:
+    conversation = (
+        _isolated_recall_conversation(plan, original_learning_state, user_input)
+        or session.conversation
+    )
+    return _LearningAgentRequest(
+        conversation=conversation,
+        buffer_output=_should_buffer_learning_output(plan),
     )
 
 
@@ -1911,13 +1961,7 @@ def _can_model_normalize_intent(
     plan: LearningTurnPlan,
     user_input: str,
 ) -> bool:
-    return bool(
-        config is not None
-        and config.base_url
-        and config.model
-        and plan.direct_reply is None
-        and user_input.strip()
-    )
+    return bool(config is not None and config.base_url and config.model and user_input.strip())
 
 
 def _should_normalize_active_recall_intent(
@@ -1965,18 +2009,7 @@ def _normalized_learning_intent_from_payload(
     if not isinstance(raw_intent, str):
         return None
     intent = re.sub(r"[^a-z0-9]+", "_", raw_intent.strip().casefold()).strip("_")
-    supported_intents = {
-        "material_overview",
-        "source_qa",
-        "source_only_policy",
-        "topic_presentation",
-        "topic_drill",
-        "ready_for_recall",
-        "recall_clarification",
-        "recall_answer_attempt",
-        "chat",
-    }
-    if intent not in supported_intents:
+    if intent not in _MODEL_NORMALIZED_INTENTS:
         return None
     raw_request = payload.get("canonical_english_request")
     canonical_request = raw_request.strip() if isinstance(raw_request, str) else ""
@@ -2009,20 +2042,48 @@ def _model_normalized_learning_plan(
     user_input: str,
     config: ChatConfig | None,
 ) -> LearningTurnPlan:
-    if not _should_model_normalize_learning_intent(plan, state, user_input, config):
-        return plan
-    normalized = _model_normalized_learning_intent(user_input, config=config)
-    if normalized is None or normalized.confidence < 0.75:
+    normalized = _accepted_normalized_learning_intent(plan, state, user_input, config)
+    if normalized is None:
         return plan
     canonical_query = normalized.canonical_english_request or user_input
-    recall_plan = _model_normalized_recall_plan(normalized.intent, plan, state, user_input)
+    return _learning_plan_from_normalized_intent(
+        normalized.intent,
+        plan,
+        state,
+        user_input,
+        canonical_query,
+    )
+
+
+def _accepted_normalized_learning_intent(
+    plan: LearningTurnPlan,
+    state: LearningState,
+    user_input: str,
+    config: ChatConfig | None,
+) -> _NormalizedLearningIntent | None:
+    if not _should_model_normalize_learning_intent(plan, state, user_input, config):
+        return None
+    normalized = _model_normalized_learning_intent(user_input, config=config)
+    if normalized is None or normalized.confidence < _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD:
+        return None
+    return normalized
+
+
+def _learning_plan_from_normalized_intent(
+    intent: str,
+    plan: LearningTurnPlan,
+    state: LearningState,
+    user_input: str,
+    canonical_query: str,
+) -> LearningTurnPlan:
+    recall_plan = _model_normalized_recall_plan(intent, plan, state, user_input)
     if recall_plan is not None:
         return recall_plan
-    if normalized.intent == "source_only_policy":
+    if intent == "source_only_policy":
         return _source_only_policy_plan(user_input, state.phase)
-    if builder := _MODEL_NORMALIZED_PLAN_BUILDERS.get(normalized.intent):
+    if builder := _MODEL_NORMALIZED_PLAN_BUILDERS.get(intent):
         return builder(user_input, canonical_query, state.phase)
-    return _model_normalized_overview_plan(normalized.intent, plan, user_input, canonical_query)
+    return _model_normalized_overview_plan(intent, plan, user_input, canonical_query)
 
 
 def _model_normalized_recall_plan(
@@ -2032,14 +2093,29 @@ def _model_normalized_recall_plan(
     user_input: str,
 ) -> LearningTurnPlan | None:
     if intent == "ready_for_recall":
-        if state.phase is LearningPhase.WAITING_FOR_READY and state.current_item:
-            return plan_turn(state, "ready")
-        return plan
+        return _normalized_ready_for_recall_plan(plan, state)
     if intent == "recall_clarification":
-        if state.phase is LearningPhase.RECALL and state.current_item:
-            return recall_clarification_plan(user_input, current_item=state.current_item)
-        return plan
+        return _normalized_recall_clarification_plan(plan, state, user_input)
     return None
+
+
+def _normalized_ready_for_recall_plan(
+    plan: LearningTurnPlan,
+    state: LearningState,
+) -> LearningTurnPlan:
+    if state.phase is LearningPhase.WAITING_FOR_READY and state.current_item:
+        return plan_turn(state, "ready")
+    return plan
+
+
+def _normalized_recall_clarification_plan(
+    plan: LearningTurnPlan,
+    state: LearningState,
+    user_input: str,
+) -> LearningTurnPlan:
+    if state.phase is LearningPhase.RECALL and state.current_item:
+        return recall_clarification_plan(user_input, current_item=state.current_item)
+    return plan
 
 
 def _source_only_policy_plan(user_input: str, phase: LearningPhase) -> LearningTurnPlan:
@@ -2158,33 +2234,100 @@ def _overview_topic_items(
 ) -> list[str]:
     topic_clues = _overview_heading_topics(evidence)
     seen = {_normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0]) for topic in topic_clues}
-
     analysis = analyze_priority((item.chunk for item in evidence.items), limit=16)
-    evidence_id_by_source = {item.source: item.evidence_id for item in evidence.items}
-    subject_hint = _overview_subject_hint(evidence)
-    web_checked = 0
-    for topic in analysis.topics:
-        evidence_id = _first_topic_evidence_id(topic, evidence_id_by_source)
-        label = _overview_priority_topic_label(topic)
-        normalized_topic = _normalize_overview_topic(label)
-        if not _include_overview_priority_topic(
-            topic,
-            label,
+    topic_clues.extend(
+        _overview_analysis_topic_items(
+            analysis.topics,
             evidence,
-            evidence_id=evidence_id,
-            normalized_topic=normalized_topic,
-            seen=seen,
-        ):
-            continue
-        if web_searcher is not None and web_checked < _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT:
-            web_checked += 1
-            if not _overview_topic_web_supported(label, subject_hint, web_searcher):
+            seen,
+            web_searcher=web_searcher,
+        )
+    )
+    return topic_clues[:_OVERVIEW_TOPIC_LIMIT]
+
+
+def _overview_analysis_topic_items(
+    topics: Sequence[PriorityTopic],
+    evidence: TurnEvidence,
+    seen: set[str],
+    *,
+    web_searcher: PriorityWebSearcher | None,
+) -> list[str]:
+    selector = _OverviewAnalysisTopicSelector(
+        evidence=evidence,
+        seen=seen,
+        web_searcher=web_searcher,
+    )
+    return list(selector.items(topics, limit=_OVERVIEW_TOPIC_LIMIT))
+
+
+@dataclass(slots=True)
+class _OverviewAnalysisTopicSelector:
+    evidence: TurnEvidence
+    seen: set[str]
+    web_searcher: PriorityWebSearcher | None
+    web_checked: int = 0
+    subject_hint: str = field(init=False)
+    evidence_id_by_source: dict[str, str] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.subject_hint = _overview_subject_hint(self.evidence)
+        self.evidence_id_by_source = {
+            item.source: item.evidence_id for item in self.evidence.items
+        }
+
+    def items(self, topics: Sequence[PriorityTopic], *, limit: int) -> Iterator[str]:
+        selected = 0
+        for topic in topics:
+            item = self.item(topic)
+            if item is None:
                 continue
-        seen.add(normalized_topic)
-        topic_clues.append(f"{label} [{evidence_id}]")
-        if len(topic_clues) >= _OVERVIEW_TOPIC_LIMIT:
-            break
-    return topic_clues
+            yield item
+            selected += 1
+            if selected >= limit:
+                return
+
+    def item(self, topic: PriorityTopic) -> str | None:
+        candidate = _overview_analysis_topic_candidate(
+            topic,
+            self.evidence,
+            self.evidence_id_by_source,
+            self.seen,
+        )
+        if candidate is None:
+            return None
+        label, evidence_id, normalized_topic = candidate
+        if not self._web_supported(label):
+            return None
+        self.seen.add(normalized_topic)
+        return f"{label} [{evidence_id}]"
+
+    def _web_supported(self, label: str) -> bool:
+        if self.web_searcher is None or self.web_checked >= _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT:
+            return True
+        self.web_checked += 1
+        return _overview_topic_web_supported(label, self.subject_hint, self.web_searcher)
+
+
+def _overview_analysis_topic_candidate(
+    topic: PriorityTopic,
+    evidence: TurnEvidence,
+    evidence_id_by_source: Mapping[str, str],
+    seen: set[str],
+) -> tuple[str, str, str] | None:
+    evidence_id = _first_topic_evidence_id(topic, evidence_id_by_source)
+    label = _overview_priority_topic_label(topic)
+    normalized_topic = _normalize_overview_topic(label)
+    if not _include_overview_priority_topic(
+        topic,
+        label,
+        evidence,
+        evidence_id=evidence_id,
+        normalized_topic=normalized_topic,
+        seen=seen,
+    ):
+        return None
+    return label, evidence_id, normalized_topic
 
 
 def _first_topic_evidence_id(
@@ -2254,16 +2397,24 @@ def _overview_topic_web_supported(
     if not results:
         return True
 
-    topic_words = [word for word in re.findall(r"[\w+-]+", topic.casefold()) if len(word) > 2]
+    topic_words = _overview_topic_words(topic)
     if not topic_words:
         return False
-    for result in results[:3]:
-        haystack = f"{result.title} {result.snippet}".casefold()
-        if not all(word in haystack for word in topic_words):
-            continue
-        if _OVERVIEW_WEB_EDUCATION_RE.search(haystack):
-            return True
-    return False
+    return any(_overview_web_result_supports_topic(result, topic_words) for result in results[:3])
+
+
+def _overview_topic_words(topic: str) -> tuple[str, ...]:
+    return tuple(word for word in re.findall(r"[\w+-]+", topic.casefold()) if len(word) > 2)
+
+
+def _overview_web_result_supports_topic(
+    result: PriorityWebSearchResult,
+    topic_words: Sequence[str],
+) -> bool:
+    haystack = f"{result.title} {result.snippet}".casefold()
+    return all(word in haystack for word in topic_words) and bool(
+        _OVERVIEW_WEB_EDUCATION_RE.search(haystack)
+    )
 
 
 def _split_overview_citation(text: str) -> tuple[str, str]:
@@ -2279,22 +2430,34 @@ def _overview_heading_topics(evidence: TurnEvidence, *, limit: int = 8) -> list[
     topic_clues: list[str] = []
     seen: set[str] = set()
     for item in evidence.items:
-        candidates = [item.chunk.heading, *_overview_markdown_headings(item.content)]
-        for candidate in candidates:
-            topic = _clean_overview_line(candidate)
-            normalized_topic = _normalize_overview_topic(topic)
-            if not normalized_topic or normalized_topic in seen:
+        for topic in _overview_heading_candidates(item):
+            if not _valid_heading_overview_topic(topic, seen):
                 continue
-            if not _overview_topic_is_useful(topic):
-                continue
-            if _OVERVIEW_METADATA_LINE_RE.search(topic) or _OVERVIEW_DATE_LINE_RE.search(topic):
-                continue
-            seen.add(normalized_topic)
+            seen.add(_normalize_overview_topic(topic))
             topic_clues.append(f"{topic} [{item.evidence_id}]")
             break
         if len(topic_clues) >= min(limit, _OVERVIEW_TOPIC_LIMIT):
             break
     return topic_clues
+
+
+def _overview_heading_candidates(item: EvidenceChunk) -> tuple[str, ...]:
+    candidates = (item.chunk.heading, *_overview_markdown_headings(item.content))
+    return tuple(topic for candidate in candidates if (topic := _clean_overview_line(candidate)))
+
+
+def _valid_heading_overview_topic(topic: str, seen: set[str]) -> bool:
+    normalized_topic = _normalize_overview_topic(topic)
+    return (
+        bool(normalized_topic)
+        and normalized_topic not in seen
+        and _overview_topic_is_useful(topic)
+        and not _overview_heading_looks_like_metadata(topic)
+    )
+
+
+def _overview_heading_looks_like_metadata(topic: str) -> bool:
+    return bool(_OVERVIEW_METADATA_LINE_RE.search(topic) or _OVERVIEW_DATE_LINE_RE.search(topic))
 
 
 def _overview_markdown_headings(text: str) -> list[str]:
@@ -2326,17 +2489,7 @@ def _overview_topic_source_role(sources: tuple[str, ...], evidence: TurnEvidence
 
 def _overview_topic_is_useful(topic: str) -> bool:
     normalized = " ".join(topic.casefold().split())
-    if len(normalized) < 4:
-        return False
-    if normalized == "table" or normalized in _OVERVIEW_GENERIC_TOPIC_LABELS:
-        return False
-    if _OVERVIEW_COURSE_TITLE_RE.search(topic):
-        return False
-    if _OVERVIEW_TOPIC_FRAGMENT_RE.search(topic):
-        return False
-    if _OVERVIEW_FORMULA_RE.search(topic):
-        return False
-    if re.search(r"[.:;!?]|->|:=|=>", topic):
+    if _overview_topic_text_is_invalid(topic, normalized):
         return False
     words = normalized.split()
     if any(word in _OVERVIEW_TOPIC_STOPWORDS for word in words):
@@ -2344,30 +2497,79 @@ def _overview_topic_is_useful(topic: str) -> bool:
     return len(words) <= 5
 
 
+def _overview_topic_text_is_invalid(topic: str, normalized: str) -> bool:
+    return any(
+        (
+            _overview_topic_is_too_short_or_generic(normalized),
+            _OVERVIEW_COURSE_TITLE_RE.search(topic) is not None,
+            _OVERVIEW_TOPIC_FRAGMENT_RE.search(topic) is not None,
+            _OVERVIEW_FORMULA_RE.search(topic) is not None,
+            _overview_topic_has_sentence_punctuation(topic),
+        )
+    )
+
+
+def _overview_topic_is_too_short_or_generic(normalized: str) -> bool:
+    return (
+        len(normalized) < 4
+        or normalized == "table"
+        or normalized in _OVERVIEW_GENERIC_TOPIC_LABELS
+    )
+
+
+def _overview_topic_has_sentence_punctuation(topic: str) -> bool:
+    return re.search(r"[.:;!?]|->|:=|=>", topic) is not None
+
+
 def _overview_topic_looks_like_metadata(topic: str, evidence: TurnEvidence) -> bool:
     normalized_topic = " ".join(topic.casefold().split())
     if not normalized_topic:
         return True
     for item in evidence.items:
-        lines = [line.strip() for line in item.content.splitlines() if line.strip()]
-        for line_index, line in enumerate(lines[:10]):
-            normalized_line = " ".join(line.casefold().split()).strip("# ")
-            if normalized_line != normalized_topic:
-                continue
-            neighboring = " ".join(lines[max(0, line_index - 2) : line_index + 3])
-            if _OVERVIEW_METADATA_LINE_RE.search(neighboring):
-                return True
-            if _OVERVIEW_DATE_LINE_RE.search(neighboring) and _looks_like_name_line(line):
+        lines = _overview_content_lines(item.content)
+        for line_index, line in _overview_metadata_window_lines(lines):
+            if _line_matches_overview_topic(line, normalized_topic) and _metadata_window_matches(
+                lines,
+                line_index,
+                line,
+            ):
                 return True
     return False
 
 
+def _overview_content_lines(content: str) -> list[str]:
+    return [line.strip() for line in content.splitlines() if line.strip()]
+
+
+def _overview_metadata_window_lines(lines: Sequence[str]) -> tuple[tuple[int, str], ...]:
+    return tuple(enumerate(lines[:10]))
+
+
+def _line_matches_overview_topic(line: str, normalized_topic: str) -> bool:
+    return " ".join(line.casefold().split()).strip("# ") == normalized_topic
+
+
+def _metadata_window_matches(lines: Sequence[str], line_index: int, line: str) -> bool:
+    neighboring = " ".join(lines[max(0, line_index - 2) : line_index + 3])
+    if _OVERVIEW_METADATA_LINE_RE.search(neighboring):
+        return True
+    return bool(_OVERVIEW_DATE_LINE_RE.search(neighboring) and _looks_like_name_line(line))
+
+
 def _looks_like_name_line(line: str) -> bool:
-    words = [word.strip(".,;:()[]{}") for word in line.split()]
-    letter_words = [word for word in words if any(char.isalpha() for char in word)]
+    letter_words = _letter_words(line)
     if not 2 <= len(letter_words) <= 4:
         return False
-    return all(word[:1].isupper() and not word.isupper() for word in letter_words)
+    return all(_looks_like_name_word(word) for word in letter_words)
+
+
+def _letter_words(line: str) -> list[str]:
+    words = [word.strip(".,;:()[]{}") for word in line.split()]
+    return [word for word in words if any(char.isalpha() for char in word)]
+
+
+def _looks_like_name_word(word: str) -> bool:
+    return word[:1].isupper() and not word.isupper()
 
 
 def _needs_overview_fallback(
@@ -2387,23 +2589,39 @@ def _overview_answer_has_bad_shape(
     raw_reply: str,
     evidence: TurnEvidence | None = None,
 ) -> bool:
-    if _OVERVIEW_CITATION_RANGE_RE.search(raw_reply):
-        return True
-    if _overview_answer_has_bad_required_language(raw_reply):
-        return True
-    if _overview_answer_is_date_or_document_organized(raw_reply):
+    if _overview_answer_has_invalid_structure(raw_reply):
         return True
     citation_ids = _overview_citation_ids(raw_reply)
-    if _overview_answer_is_too_thin(raw_reply, citation_ids):
-        return True
-    if evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence):
-        return True
-    if not _overview_has_enough_cited_bullets(raw_reply):
+    if _overview_answer_has_weak_evidence_shape(raw_reply, citation_ids, evidence):
         return True
     topic_labels = _overview_reply_topic_labels(raw_reply)
-    if len(topic_labels) > _OVERVIEW_TOPIC_LIMIT:
-        return True
-    return any(not _overview_topic_is_useful(label) for label in topic_labels)
+    return _overview_answer_has_bad_topic_labels(topic_labels)
+
+
+def _overview_answer_has_invalid_structure(raw_reply: str) -> bool:
+    return (
+        _OVERVIEW_CITATION_RANGE_RE.search(raw_reply) is not None
+        or _overview_answer_has_bad_required_language(raw_reply)
+        or _overview_answer_is_date_or_document_organized(raw_reply)
+    )
+
+
+def _overview_answer_has_weak_evidence_shape(
+    raw_reply: str,
+    citation_ids: tuple[str, ...],
+    evidence: TurnEvidence | None,
+) -> bool:
+    return (
+        _overview_answer_is_too_thin(raw_reply, citation_ids)
+        or (evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence))
+        or not _overview_has_enough_cited_bullets(raw_reply)
+    )
+
+
+def _overview_answer_has_bad_topic_labels(topic_labels: Sequence[str]) -> bool:
+    return len(topic_labels) > _OVERVIEW_TOPIC_LIMIT or any(
+        not _overview_topic_is_useful(label) for label in topic_labels
+    )
 
 
 def _overview_answer_has_bad_required_language(raw_reply: str) -> bool:
@@ -2456,6 +2674,17 @@ def _overview_answer_is_date_or_document_organized(raw_reply: str) -> bool:
 
 def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
     labels: list[str] = []
+    for stripped in _overview_topic_section_lines(raw_reply):
+        match = _OVERVIEW_REPLY_TOPIC_LINE_RE.match(stripped)
+        if match is None:
+            if labels:
+                break
+            continue
+        labels.append(match.group("label").strip())
+    return tuple(labels)
+
+
+def _overview_topic_section_lines(raw_reply: str) -> Iterator[str]:
     in_topics = False
     for line in raw_reply.splitlines():
         stripped = line.strip()
@@ -2466,13 +2695,7 @@ def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
             continue
         if not stripped or stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
             break
-        match = _OVERVIEW_REPLY_TOPIC_LINE_RE.match(stripped)
-        if match is None:
-            if labels:
-                break
-            continue
-        labels.append(match.group("label").strip())
-    return tuple(labels)
+        yield stripped
 
 
 @dataclass(slots=True)
@@ -2520,16 +2743,6 @@ class TurnOrchestrator:
                     )
                 else:
                     session.last_turn_evidence = None
-                    plain_plan = plan_turn(original_learning_state, user_input)
-                    if plain_plan.direct_reply is not None:
-                        final_reply = self._apply_deterministic_reply(
-                            original_learning_state,
-                            plain_plan,
-                            plain_plan.direct_reply,
-                            user_input=user_input,
-                        )
-                        yield from _final_reply_events(final_reply)
-                        return
                     yield from self._iter_plain_events(user_input=user_input, abort=abort)
 
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
@@ -2659,14 +2872,10 @@ class TurnOrchestrator:
         plan = resolved.learning_plan
         assert plan is not None
         buffer = _LearningAgentBuffer()
-        agent_conversation = (
-            _isolated_recall_conversation(plan, original_learning_state, user_input)
-            or session.conversation
-        )
-        buffer_output = _should_buffer_learning_output(plan)
+        request = _learning_agent_request(plan, original_learning_state, user_input, session)
         for event in iter_agent_events(
             session.config,
-            agent_conversation,
+            request.conversation,
             session.armory_path,
             abort=abort,
             retry=self.retry,
@@ -2677,18 +2886,32 @@ class TurnOrchestrator:
             tool_schemas=None if plan.allow_tools else [],
             registry=session.tool_registry,
         ):
-            if isinstance(event, AssistantDeltaEvent):
-                buffer.add_delta(event.delta, visible=not buffer_output)
-                if not buffer_output:
-                    yield event
-            elif isinstance(event, TurnCompleteEvent):
-                buffer.completion_event = event
-            else:
-                yield event
+            yield from self._record_learning_agent_event(
+                event,
+                buffer,
+                buffer_output=request.buffer_output,
+            )
 
         if buffer.visible_parts:
             self.last_reply = buffer.visible_streamed_reply
         return _learning_agent_output_from_buffer(plan, buffer)
+
+    def _record_learning_agent_event(
+        self,
+        event: TurnEvent,
+        buffer: _LearningAgentBuffer,
+        *,
+        buffer_output: bool,
+    ) -> Iterator[TurnEvent]:
+        if isinstance(event, AssistantDeltaEvent):
+            buffer.add_delta(event.delta, visible=not buffer_output)
+            if not buffer_output:
+                yield event
+            return
+        if isinstance(event, TurnCompleteEvent):
+            buffer.completion_event = event
+            return
+        yield event
 
     def _iter_empty_learning_reply_events(
         self,
@@ -2731,14 +2954,19 @@ class TurnOrchestrator:
     def _persist_final_learning_reply(self, raw_reply: str, final_reply: str) -> None:
         if not final_reply:
             return
-        if (
-            not self.session.conversation.messages
-            or self.session.conversation.messages[-1].role != "assistant"
-        ):
+        if self._should_append_final_learning_reply():
             self._append_assistant_message(final_reply)
             return
-        if raw_reply == final_reply:
-            return
+        if raw_reply != final_reply:
+            self._replace_last_assistant_message(final_reply)
+
+    def _should_append_final_learning_reply(self) -> bool:
+        return (
+            not self.session.conversation.messages
+            or self.session.conversation.messages[-1].role != "assistant"
+        )
+
+    def _replace_last_assistant_message(self, final_reply: str) -> None:
         for message in reversed(self.session.conversation.messages):
             if message.role == "assistant":
                 message.content = final_reply
@@ -2752,10 +2980,12 @@ class TurnOrchestrator:
     ) -> Iterator[AssistantDeltaEvent]:
         if final_reply and (_should_buffer_learning_output(plan) or not streamed_reply):
             yield AssistantDeltaEvent(final_reply)
-        elif final_reply != streamed_reply:
-            suffix = final_reply.removeprefix(streamed_reply)
-            if suffix:
-                yield AssistantDeltaEvent(suffix)
+            return
+        if final_reply == streamed_reply:
+            return
+        suffix = final_reply.removeprefix(streamed_reply)
+        if suffix:
+            yield AssistantDeltaEvent(suffix)
 
     def _iter_learning_events(
         self,
@@ -2770,17 +3000,13 @@ class TurnOrchestrator:
         plan = resolved.learning_plan
         assert plan is not None
 
-        if deterministic_reply := _deterministic_learning_reply(session, plan, resolved):
-            if deterministic_reply.internal_passes is not None:
-                self.last_internal_passes = deterministic_reply.internal_passes
-            final_reply = self._apply_deterministic_reply(
+        if deterministic_reply := _deterministic_learning_reply(session, plan):
+            yield from self._iter_deterministic_learning_reply_events(
+                deterministic_reply,
                 original_learning_state,
                 plan,
-                deterministic_reply.reply,
                 user_input=user_input,
-                source_refs=deterministic_reply.source_refs,
             )
-            yield from _final_reply_events(final_reply)
             return
 
         if notice := _writing_notice(plan):
@@ -2792,6 +3018,43 @@ class TurnOrchestrator:
             user_input=user_input,
             abort=abort,
         )
+        yield from self._iter_agent_learning_reply_events(
+            agent_output,
+            resolved,
+            original_learning_state,
+            user_input=user_input,
+        )
+
+    def _iter_deterministic_learning_reply_events(
+        self,
+        deterministic_reply: _DeterministicLearningReply,
+        original_learning_state: LearningState,
+        plan: LearningTurnPlan,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]:
+        if deterministic_reply.internal_passes is not None:
+            self.last_internal_passes = deterministic_reply.internal_passes
+        final_reply = self._apply_deterministic_reply(
+            original_learning_state,
+            plan,
+            deterministic_reply.reply,
+            user_input=user_input,
+            source_refs=deterministic_reply.source_refs,
+        )
+        yield from _final_reply_events(final_reply)
+
+    def _iter_agent_learning_reply_events(
+        self,
+        agent_output: _LearningAgentOutput,
+        resolved: ResolvedTurnPlan,
+        original_learning_state: LearningState,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]:
+        session = self.session
+        plan = resolved.learning_plan
+        assert plan is not None
         streamed_reply = agent_output.streamed_reply
         raw_reply = agent_output.raw_reply
         visible_reply = agent_output.visible_reply
@@ -2856,12 +3119,9 @@ class TurnOrchestrator:
             user_input=user_input,
             config=self.session.config,
         )
-        result_plan = plan
-        if plan.direct_reply == reply and localized_reply != reply:
-            result_plan = replace(plan, direct_reply=localized_reply)
         return self._apply_learning_reply(
             original_learning_state,
-            result_plan,
+            plan,
             localized_reply,
             source_refs=source_refs or [],
         )
@@ -2897,40 +3157,83 @@ class TurnOrchestrator:
         plan: LearningTurnPlan,
         source_refs: list[str],
     ) -> None:
-        session = self.session
-        if session.armory_path is None or plan.action is not LearningAction.ASSESS:
+        if not self._should_record_learning_review(plan):
             return
-        if session.learning_state.last_recall_rating.value == "none":
+        armory_path = self.session.armory_path
+        if armory_path is None:
             return
-        store = load_recall_schedule(session.armory_path)
+        store = load_recall_schedule(armory_path)
         previous = _matching_recall_item(
             store.item_list,
             item=original_learning_state.current_item,
             retrieval_query=original_learning_state.retrieval_query,
         )
-        intervention: LearningMoveKind = (
-            plan.learning_move.kind if plan.learning_move is not None else "assess"
-        )
-        state = store.record_review(
+        intervention = _learning_move_kind(plan)
+        reviewed_state = self._record_learning_review(
+            store,
             original_learning_state.current_item,
             concept=original_learning_state.retrieval_query,
             retrieval_query=original_learning_state.retrieval_query,
             source_refs=source_refs or original_learning_state.expected_source_refs,
-            rating=session.learning_state.last_recall_rating,
-            elapsed_seconds=session.learning_state.last_recall_seconds,
-            confidence=session.learning_state.last_confidence,
-            hint_level_needed=(
-                original_learning_state.hint_level
-                if original_learning_state.hint_level > 0
-                else None
-            ),
-            error_type=session.learning_state.last_feedback_type.value,
+            hint_level_needed=_positive_hint_level(original_learning_state),
             intervention=intervention,
-            exam_importance=1.0 if original_learning_state.expected_source_refs else 0.0,
+            exam_importance=_exam_importance(original_learning_state),
         )
+        self._record_learning_policy_outcome(
+            store,
+            original_learning_state=original_learning_state,
+            previous=previous,
+            state=reviewed_state,
+            intervention=intervention,
+        )
+        save_recall_schedule(store)
+
+    def _should_record_learning_review(self, plan: LearningTurnPlan) -> bool:
+        return (
+            self.session.armory_path is not None
+            and plan.action is LearningAction.ASSESS
+            and self.session.learning_state.last_recall_rating.value != "none"
+        )
+
+    def _record_learning_review(
+        self,
+        store: RecallScheduleStore,
+        item: str,
+        *,
+        concept: str,
+        retrieval_query: str,
+        source_refs: list[str],
+        hint_level_needed: int | None,
+        intervention: LearningMoveKind,
+        exam_importance: float,
+    ) -> RecallItemState:
+        state = self.session.learning_state
+        return store.record_review(
+            item,
+            concept=concept,
+            retrieval_query=retrieval_query,
+            source_refs=source_refs,
+            rating=state.last_recall_rating,
+            elapsed_seconds=state.last_recall_seconds,
+            confidence=state.last_confidence,
+            hint_level_needed=hint_level_needed,
+            error_type=state.last_feedback_type.value,
+            intervention=intervention,
+            exam_importance=exam_importance,
+        )
+
+    def _record_learning_policy_outcome(
+        self,
+        store: RecallScheduleStore,
+        *,
+        original_learning_state: LearningState,
+        previous: RecallItemState | None,
+        state: RecallItemState,
+        intervention: LearningMoveKind,
+    ) -> None:
         outcome = _policy_outcome_from_review(
             original_learning_state,
-            session.learning_state,
+            self.session.learning_state,
             state,
             previous,
             intervention,
@@ -2943,7 +3246,7 @@ class TurnOrchestrator:
             time_cost_seconds=outcome.time_cost_seconds,
             frustration_signal=outcome.frustration_signal,
         )
-        session.trace.record_session_event(
+        self.session.trace.record_session_event(
             "policy_outcome",
             move_type=outcome.move_type,
             topic=outcome.topic,
@@ -2954,7 +3257,6 @@ class TurnOrchestrator:
             frustration_signal=outcome.frustration_signal,
             score=round(outcome.score, 3),
         )
-        save_recall_schedule(store)
 
     def _resolve_timed_turn_plan(self, plan: LearningTurnPlan) -> ResolvedTurnPlan:
         session = self.session
@@ -3016,18 +3318,59 @@ class TurnOrchestrator:
         *,
         latency_ms: float,
     ) -> str:
-        session = self.session
         visible_evidence = _visible_turn_evidence(resolved)
-        calibrating = (
+        notice = self._verification_notice(resolved, visible_evidence)
+        self._mark_session_dirty()
+        self._record_successful_reply(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+            notice=notice,
+        )
+        self._schedule_memory_extraction(user_input, visible_evidence)
+        self._save_usage_if_armory_session()
+        return notice
+
+    def _verification_notice(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+    ) -> str:
+        if (
             resolved.learning_plan is not None
             and resolved.learning_plan.action is LearningAction.CALIBRATE
+        ):
+            return ""
+        return verify_response(self.last_reply, visible_evidence)
+
+    def _mark_session_dirty(self) -> None:
+        if not self.session.title:
+            self.session.title = derive_title(self.session.conversation)
+        self.session.dirty = True
+
+    def _record_successful_reply(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+        *,
+        latency_ms: float,
+        notice: str,
+    ) -> None:
+        self._log_successful_reply(visible_evidence, latency_ms=latency_ms)
+        self._trace_successful_reply(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+            notice=notice,
         )
-        notice = "" if calibrating else verify_response(self.last_reply, visible_evidence)
 
-        if not session.title:
-            session.title = derive_title(session.conversation)
-        session.dirty = True
-
+    def _log_successful_reply(
+        self,
+        visible_evidence: TurnEvidence | None,
+        *,
+        latency_ms: float,
+    ) -> None:
+        session = self.session
         _log.info(
             "reply complete",
             extra={
@@ -3041,6 +3384,16 @@ class TurnOrchestrator:
                 }
             },
         )
+
+    def _trace_successful_reply(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+        *,
+        latency_ms: float,
+        notice: str,
+    ) -> None:
+        session = self.session
         session.trace.record_session_event(
             "reply",
             latency_ms=round(latency_ms, 1),
@@ -3071,20 +3424,28 @@ class TurnOrchestrator:
             verification_notice=notice,
         )
 
-        if not session.config.is_feature_enabled("disable_memory_extraction"):
-            schedule_memory_extraction(
-                config=session.config,
-                memory=session.memory,
-                user_input=user_input,
-                reply=self.last_reply,
-                evidence=", ".join(_evidence_refs(visible_evidence)),
-            )
+    def _schedule_memory_extraction(
+        self,
+        user_input: str,
+        visible_evidence: TurnEvidence | None,
+    ) -> None:
+        session = self.session
+        if session.config.is_feature_enabled("disable_memory_extraction"):
+            return
+        schedule_memory_extraction(
+            config=session.config,
+            memory=session.memory,
+            user_input=user_input,
+            reply=self.last_reply,
+            evidence=", ".join(_evidence_refs(visible_evidence)),
+        )
 
-        if session.armory_path is not None:
-            with contextlib.suppress(Exception):
-                save_usage(session.armory_path, session.session_id, session.usage)
-
-        return notice
+    def _save_usage_if_armory_session(self) -> None:
+        session = self.session
+        if session.armory_path is None:
+            return
+        with contextlib.suppress(Exception):
+            save_usage(session.armory_path, session.session_id, session.usage)
 
 
 def _turn_complete_from_result(

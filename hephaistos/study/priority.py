@@ -15,11 +15,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, Self
+from typing import NoReturn, Protocol, Self
 
 from hephaistos._types import is_string_mapping, parse_json_object_fragment
 from hephaistos.materials import infer_material_role_from_text, material_display_name
@@ -160,6 +160,7 @@ _LATEX_ENGINE_NAMES = ("latexmk", "lualatex", "xelatex", "pdflatex", "tectonic")
 _LATEX_COMPILE_TIMEOUT_SECONDS = 30
 _LATEX_MATH_COMMAND_RE = re.compile(r"\\([A-Za-z]+|.)")
 _LATEX_MATH_UNSAFE_CHAR_RE = re.compile(r"[%#&~]")
+_LATEX_MATH_DELIMITERS = (("$", "$"), (r"\(", r"\)"), (r"\[", r"\]"))
 _ALLOWED_LATEX_MATH_COMMANDS = frozenset(
     {
         "alpha",
@@ -614,14 +615,16 @@ class PriorityVerificationReport:
 
     @property
     def passed(self) -> bool:
-        return (
-            self.extraction_ok
-            and self.priority_ok
-            and self.source_support_ok
-            and self.latex_ok
-            and self.pdf_ok
-            and self.anti_regression_ok
-            and self.practice_ok
+        return all(
+            (
+                self.extraction_ok,
+                self.priority_ok,
+                self.source_support_ok,
+                self.latex_ok,
+                self.pdf_ok,
+                self.anti_regression_ok,
+                self.practice_ok,
+            )
         )
 
 
@@ -652,6 +655,15 @@ class _PriorityReportArtifacts:
     sheet: PriorityCheatSheet
     tex_text: str
     model_payload: dict[str, object] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _CheatSheetTopicSections:
+    definitions: list[str]
+    formulas: list[str]
+    procedures: list[str]
+    exam_tasks: list[str]
+    pitfalls: list[str]
 
 
 class PriorityPdfError(RuntimeError):
@@ -1132,21 +1144,28 @@ def _web_prerequisites_for(
         search_results = tuple(web_searcher(f"{topic} prerequisites"))
     except (OSError, TimeoutError, ValueError, urllib.error.URLError):
         return ()
+    for prerequisite in _iter_web_prerequisites(topic, search_results, seen):
+        results.append(prerequisite)
+        if len(results) >= 3:
+            return tuple(results)
+    return tuple(results)
+
+
+def _iter_web_prerequisites(
+    topic: str,
+    search_results: Sequence[PriorityWebSearchResult],
+    seen: set[str],
+) -> Iterator[PriorityWebPrerequisite]:
     for result in search_results[:_WEB_PREREQ_RESULTS]:
         for term in _prerequisite_terms_from_web_result(topic, result):
             if term in seen:
                 continue
             seen.add(term)
-            results.append(
-                PriorityWebPrerequisite(
-                    term=term,
-                    source_title=result.title,
-                    source_url=result.url,
-                )
+            yield PriorityWebPrerequisite(
+                term=term,
+                source_title=result.title,
+                source_url=result.url,
             )
-            if len(results) >= 3:
-                return tuple(results)
-    return tuple(results)
 
 
 def _prerequisite_terms_from_web_result(
@@ -1165,22 +1184,45 @@ def _prerequisite_terms_from_web_result(
 
 def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Iterator[str]:
     seen: set[str] = set()
-    for phrase_match in _TOPIC_PHRASE_RE.finditer(text):
-        useful = [
-            word for word in _useful_topic_words(phrase_match.group(0)) if word not in topic_words
-        ]
-        if not useful:
-            continue
-        term = " ".join(useful[:3])
-        if term not in seen:
-            seen.add(term)
-            yield term
-    for word_match in _TOKEN_RE.finditer(text):
-        term = word_match.group(0).lower()
-        if term in _STOPWORDS or term in topic_words or term in seen:
-            continue
-        seen.add(term)
-        yield term
+    yield from _claim_web_prerequisite_terms(
+        (
+            _web_prerequisite_phrase_term(match.group(0), topic_words)
+            for match in _TOPIC_PHRASE_RE.finditer(text)
+        ),
+        seen,
+    )
+    yield from _claim_web_prerequisite_terms(
+        (
+            _web_prerequisite_word_term(match.group(0), topic_words)
+            for match in _TOKEN_RE.finditer(text)
+        ),
+        seen,
+    )
+
+
+def _claim_web_prerequisite_terms(candidates: Iterable[str], seen: set[str]) -> Iterator[str]:
+    for candidate in candidates:
+        if candidate and _claim_candidate(candidate, seen):
+            yield candidate
+
+
+def _web_prerequisite_phrase_term(text: str, topic_words: set[str]) -> str:
+    useful = [word for word in _useful_topic_words(text) if word not in topic_words]
+    return " ".join(useful[:3]) if useful else ""
+
+
+def _web_prerequisite_word_term(word: str, topic_words: set[str]) -> str:
+    term = word.lower()
+    if term in _STOPWORDS or term in topic_words:
+        return ""
+    return term
+
+
+def _claim_candidate(candidate: str, seen: set[str]) -> bool:
+    if not candidate or candidate in seen:
+        return False
+    seen.add(candidate)
+    return True
 
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
@@ -1190,11 +1232,7 @@ def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     yield from _prompt_topic_candidates(topic_text)
     for phrase_match in _TOPIC_PHRASE_RE.finditer(topic_text):
         phrase = phrase_match.group(0)
-        parts = [
-            part.strip()
-            for part in _PROMPT_TOPIC_SPLIT_RE.split(phrase)
-            if part.strip() and part.strip() != phrase
-        ]
+        parts = _split_topic_parts(phrase)
         if parts:
             for part in parts:
                 yield from _topic_part_candidates(part)
@@ -1246,51 +1284,80 @@ def _heading_word_candidates(cleaned: str) -> Iterator[str]:
 def _prompt_topic_candidates(text: str) -> Iterator[str]:
     for prompt_match in _PROMPT_TOPIC_RE.finditer(text):
         for part in _PROMPT_TOPIC_SPLIT_RE.split(prompt_match.group("tail")):
-            useful = _useful_topic_words(part)
-            if len(useful) >= 2:
-                if len(useful[0]) >= 5:
-                    yield useful[0]
-                if len(useful) > 2:
-                    yield " ".join(useful[:2])
-                yield " ".join(useful[:3])
-            elif len(useful) == 1 and len(useful[0]) >= 5:
-                yield useful[0]
+            yield from _prompt_part_topic_candidates(part)
+
+
+def _prompt_part_topic_candidates(part: str) -> Iterator[str]:
+    useful = _useful_topic_words(part)
+    if len(useful) == 1:
+        yield from _single_prompt_topic_candidate(useful[0])
+        return
+    if len(useful) < 2:
+        return
+    if len(useful[0]) >= 5:
+        yield useful[0]
+    if len(useful) > 2:
+        yield " ".join(useful[:2])
+    yield " ".join(useful[:3])
+
+
+def _single_prompt_topic_candidate(word: str) -> Iterator[str]:
+    if len(word) >= 5:
+        yield word
 
 
 def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
     if len(words) < 2:
         return
-    first_token_match = _WORD_SPLIT_RE.search(phrase)
-    if (
-        first_token_match is not None
-        and first_token_match.group(0)[:1].isupper()
-        and first_token_match.group(0).lower() == words[0]
-        and len(words[0]) >= 5
-        and not _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(words[1])
-    ):
+    if _should_emit_leading_content_word(phrase, words):
         yield words[0]
     for size in (2, 3):
         for start in range(len(words) - size + 1):
             yield " ".join(words[start : start + size])
 
 
+def _should_emit_leading_content_word(phrase: str, words: list[str]) -> bool:
+    first_token_match = _WORD_SPLIT_RE.search(phrase)
+    return (
+        first_token_match is not None
+        and first_token_match.group(0)[:1].isupper()
+        and first_token_match.group(0).lower() == words[0]
+        and len(words[0]) >= 5
+        and not _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(words[1])
+    )
+
+
 def _definition_head_candidates(text: str) -> Iterator[str]:
     seen: set[str] = set()
     for line in text.splitlines():
-        if not line.strip():
-            continue
         for term in _definition_terms_from_line(line):
-            if not term or term in seen:
+            if not _record_definition_candidate(term, seen):
                 continue
-            seen.add(term)
             yield term
 
 
+def _record_definition_candidate(term: str, seen: set[str]) -> bool:
+    if not term or term in seen:
+        return False
+    seen.add(term)
+    return True
+
+
 def _definition_terms_from_line(line: str) -> Iterator[str]:
+    if not line.strip():
+        return
+    yield from _definition_prefix_terms(line)
+    yield from _definition_pattern_terms(line)
+
+
+def _definition_prefix_terms(line: str) -> Iterator[str]:
     for match in _DEFINITION_VERB_RE.finditer(line):
         prefix = line[: match.start()].strip(" .:-;")
         if prefix:
             yield _definition_term_candidate(prefix)
+
+
+def _definition_pattern_terms(line: str) -> Iterator[str]:
     for pattern in (_DEFINITION_SUBJECT_RE, _DEFINED_OBJECT_RE):
         for match in pattern.finditer(line):
             yield _definition_term_candidate(match.group("term"))
@@ -1300,18 +1367,26 @@ def _definition_term_candidate(raw: str) -> str:
     words = [word.lower() for word in _WORD_SPLIT_RE.findall(raw)]
     kept: list[str] = []
     for word in words:
-        if word in _DEFINITION_TERM_STOPWORDS:
-            if kept:
-                break
+        if _definition_word_stops_empty_candidate(word, kept):
             continue
-        if word in _STOPWORDS:
-            if kept:
-                break
-            continue
+        if _definition_word_stops_completed_candidate(word, kept):
+            break
         kept.append(word)
         if len(kept) >= 3:
             break
     return " ".join(kept)
+
+
+def _definition_word_stops_empty_candidate(word: str, kept: list[str]) -> bool:
+    return not kept and _definition_word_stops_candidate(word)
+
+
+def _definition_word_stops_completed_candidate(word: str, kept: list[str]) -> bool:
+    return bool(kept) and _definition_word_stops_candidate(word)
+
+
+def _definition_word_stops_candidate(word: str) -> bool:
+    return word in _DEFINITION_TERM_STOPWORDS or word in _STOPWORDS
 
 
 def _useful_topic_words(text: str) -> list[str]:
@@ -1323,17 +1398,18 @@ def _useful_topic_words(text: str) -> list[str]:
 
 
 def _topic_candidate_text(raw: str) -> str:
-    lines: list[str] = []
-    for line in raw.splitlines():
-        if not line.strip():
-            continue
-        kept_units = [
-            unit.strip()
-            for unit in re.split(r"(?<=[.!?])\s+", line)
-            if unit.strip() and not _is_boilerplate_line(unit)
-        ]
-        lines.extend(kept_units)
-    return "\n".join(lines)
+    return "\n".join(
+        unit for line in raw.splitlines() for unit in _topic_candidate_line_units(line)
+    )
+
+
+def _topic_candidate_line_units(line: str) -> Iterator[str]:
+    if not line.strip():
+        return
+    for unit in re.split(r"(?<=[.!?])\s+", line):
+        cleaned = unit.strip()
+        if cleaned and not _is_boilerplate_line(cleaned):
+            yield cleaned
 
 
 def _is_boilerplate_line(line: str) -> bool:
@@ -1374,33 +1450,48 @@ def _invalid_topic_phrase(candidate: str) -> bool:
 
 
 def _invalid_topic_words(words: list[str]) -> bool:
+    return any(_invalid_topic_word(word) for word in words) or _single_word_topic_too_short(words)
+
+
+def _invalid_topic_word(word: str) -> bool:
     return (
-        any(word in _STOPWORDS for word in words)
-        or any(_SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) for word in words)
-        or any(len(word) <= 1 for word in words)
-        or (len(words) == 1 and len(words[0]) < 4)
+        word in _STOPWORDS
+        or len(word) <= 1
+        or _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) is not None
     )
 
 
+def _single_word_topic_too_short(words: Sequence[str]) -> bool:
+    return len(words) == 1 and len(words[0]) < 4
+
+
 def _covered_by_preferred_topic(topic: PriorityTopic, topics: list[PriorityTopic]) -> bool:
-    for candidate in topics:
-        if candidate.topic == topic.topic:
-            continue
-        if (
-            topic.exam_hits,
-            topic.exam_marks,
-            topic.material_hits,
-            topic.sources,
-        ) != (
-            candidate.exam_hits,
-            candidate.exam_marks,
-            candidate.material_hits,
-            candidate.sources,
-        ):
-            continue
-        if _topic_is_preferred(candidate.topic, topic.topic):
-            return True
-    return False
+    return any(
+        _candidate_covers_topic(candidate, topic)
+        for candidate in topics
+        if candidate.topic != topic.topic
+    )
+
+
+def _candidate_covers_topic(candidate: PriorityTopic, topic: PriorityTopic) -> bool:
+    return _topic_signals_match(candidate, topic) and _topic_is_preferred(
+        candidate.topic,
+        topic.topic,
+    )
+
+
+def _topic_signals_match(candidate: PriorityTopic, topic: PriorityTopic) -> bool:
+    return (
+        topic.exam_hits,
+        topic.exam_marks,
+        topic.material_hits,
+        topic.sources,
+    ) == (
+        candidate.exam_hits,
+        candidate.exam_marks,
+        candidate.material_hits,
+        candidate.sources,
+    )
 
 
 def _topic_is_preferred(candidate: str, current: str) -> bool:
@@ -1408,11 +1499,19 @@ def _topic_is_preferred(candidate: str, current: str) -> bool:
     current_words = set(current.split())
     if candidate_words.isdisjoint(current_words):
         return False
-    if len(candidate_words) >= 2 and candidate_words < current_words:
+    if _multiword_subset(candidate_words, current_words):
         return True
-    if len(current_words) >= 2 and current_words < candidate_words:
+    if _multiword_subset(current_words, candidate_words):
         return False
-    return len(current_words) == 1 and current_words < candidate_words
+    return _single_word_subset(current_words, candidate_words)
+
+
+def _multiword_subset(left: set[str], right: set[str]) -> bool:
+    return len(left) >= 2 and left < right
+
+
+def _single_word_subset(left: set[str], right: set[str]) -> bool:
+    return len(left) == 1 and left < right
 
 
 def _explicit_prerequisites(text: str) -> list[str]:
@@ -1427,21 +1526,42 @@ def _explicit_prerequisites(text: str) -> list[str]:
 
 def _dependency_prerequisites(text: str, terms: set[str]) -> dict[str, Counter[str]]:
     hints: dict[str, Counter[str]] = {}
-    markers = ("depends on", "requires", "builds on", "needs")
-    for sentence_match in _SENTENCE_RE.finditer(text):
-        sentence = sentence_match.group(0)
-        lowered = sentence.lower()
-        positions = [lowered.find(marker) for marker in markers if marker in lowered]
-        if not positions:
-            continue
-        marker = min(positions)
-        before, after = lowered[:marker], lowered[marker:]
-        sentence_terms = {term for term in terms if term in before}
-        if not sentence_terms:
-            continue
-        for term in sentence_terms:
-            hints.setdefault(term, Counter()).update(_prerequisite_tokens(after))
+    for term, prerequisites in _iter_dependency_prerequisite_hints(text, terms):
+        hints.setdefault(term, Counter()).update(prerequisites)
     return hints
+
+
+def _iter_dependency_prerequisite_hints(
+    text: str,
+    terms: set[str],
+) -> Iterator[tuple[str, list[str]]]:
+    for sentence_match in _SENTENCE_RE.finditer(text):
+        yield from _dependency_prerequisite_hints_for_sentence(sentence_match.group(0), terms)
+
+
+def _dependency_prerequisite_hints_for_sentence(
+    sentence: str,
+    terms: set[str],
+) -> Iterator[tuple[str, list[str]]]:
+    dependency = _dependency_sentence_parts(sentence)
+    if dependency is None:
+        return
+    before, after = dependency
+    for term in (term for term in terms if term in before):
+        yield term, _prerequisite_tokens(after)
+
+
+def _dependency_sentence_parts(sentence: str) -> tuple[str, str] | None:
+    lowered = sentence.lower()
+    positions = [
+        lowered.find(marker)
+        for marker in ("depends on", "requires", "builds on", "needs")
+        if marker in lowered
+    ]
+    if not positions:
+        return None
+    marker = min(positions)
+    return lowered[:marker], lowered[marker:]
 
 
 def _prerequisite_tokens(text: str) -> list[str]:
@@ -1476,16 +1596,30 @@ def _split_exam_subquestions(section: str) -> Iterator[str]:
     if not matches:
         yield section
         return
-    prefix = section[: matches[0].start()].strip()
-    question_mark = _mark_weight(prefix)
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
-        subquestion = section[match.start() : end].strip()
-        if not subquestion:
-            continue
-        if question_mark and not _mark_weight(subquestion):
-            subquestion = f"{subquestion} [{question_mark} marks]"
-        yield subquestion
+    question_mark = _mark_weight(_exam_question_prefix(section, matches))
+    for index, _match in enumerate(matches):
+        if subquestion := _exam_subquestion(section, matches, index, question_mark):
+            yield subquestion
+
+
+def _exam_question_prefix(section: str, matches: Sequence[re.Match[str]]) -> str:
+    return section[: matches[0].start()].strip()
+
+
+def _exam_subquestion(
+    section: str,
+    matches: Sequence[re.Match[str]],
+    index: int,
+    question_mark: int,
+) -> str:
+    match = matches[index]
+    end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+    subquestion = section[match.start() : end].strip()
+    if not subquestion:
+        return ""
+    if question_mark and not _mark_weight(subquestion):
+        return f"{subquestion} [{question_mark} marks]"
+    return subquestion
 
 
 def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:
@@ -1529,18 +1663,31 @@ def _clean_evidence_excerpt(text: str, *, heading: str = "") -> str:
     cleaned_lines = []
     previous_line = ""
     for raw_line in text.splitlines():
-        line = _HEADING_PREFIX_RE.sub("", raw_line.strip())
-        line = _WHITESPACE_RE.sub(" ", line).strip()
+        line = _clean_evidence_line(raw_line)
         if not line or line == previous_line:
             continue
-        if previous_line and line.lower().startswith(f"{previous_line.lower()} "):
-            line = line[len(previous_line) :].strip()
+        line = _dedupe_evidence_line_prefix(line, previous_line)
         cleaned_lines.append(line)
         previous_line = line
     cleaned = _WHITESPACE_RE.sub(" ", " ".join(cleaned_lines)).strip()
+    return _strip_evidence_heading_prefix(cleaned, heading)
+
+
+def _clean_evidence_line(raw_line: str) -> str:
+    line = _HEADING_PREFIX_RE.sub("", raw_line.strip())
+    return _WHITESPACE_RE.sub(" ", line).strip()
+
+
+def _dedupe_evidence_line_prefix(line: str, previous_line: str) -> str:
+    if previous_line and line.lower().startswith(f"{previous_line.lower()} "):
+        return line[len(previous_line) :].strip()
+    return line
+
+
+def _strip_evidence_heading_prefix(cleaned: str, heading: str) -> str:
     heading_text = _HEADING_PREFIX_RE.sub("", heading.strip())
     if heading_text and cleaned.lower().startswith(f"{heading_text.lower()} "):
-        cleaned = cleaned[len(heading_text) :].strip()
+        return cleaned[len(heading_text) :].strip()
     return cleaned
 
 
@@ -1550,21 +1697,19 @@ def _prerequisites_for(
     exam_counts: Counter[str],
 ) -> tuple[str, ...]:
     hints = prerequisite_hints.get(term)
-    if hints:
-        candidates = [
-            (peer, count)
-            for peer, count in hints.items()
-            if (
-                " " not in peer
-                and peer not in exam_counts
-                and term not in peer
-                and peer not in term
-            )
-        ]
-        candidates.sort(key=lambda item: (-item[1], item[0]))
-        if candidates:
-            return tuple(peer for peer, _count in candidates[:3])
-    return ()
+    if not hints:
+        return ()
+    candidates = [
+        (peer, count)
+        for peer, count in hints.items()
+        if _valid_prerequisite_peer(peer, term, exam_counts)
+    ]
+    candidates.sort(key=lambda item: (-item[1], item[0]))
+    return tuple(peer for peer, _count in candidates[:3])
+
+
+def _valid_prerequisite_peer(peer: str, term: str, exam_counts: Counter[str]) -> bool:
+    return " " not in peer and peer not in exam_counts and term not in peer and peer not in term
 
 
 _PRIORITY_SCHEMA = """
@@ -1802,15 +1947,8 @@ def _model_priority_payload(
         return None
     model_name = config.model or "configured model"
     context_chunks = _representative_chunks(analysis)
-    for index, chunk in enumerate(context_chunks, start=1):
-        _emit_progress(
-            progress,
-            f"Read model context {index}/{len(context_chunks)}: "
-            f"{_priority_chunk_progress_label(chunk)}.",
-        )
-    conversation = Conversation()
-    conversation.add("system", f"{_PRIORITY_SYSTEM_PROMPT}\n{_PRIORITY_SCHEMA}")
-    conversation.add("user", _priority_model_context(analysis, focus=focus, chunks=context_chunks))
+    _emit_model_context_progress(context_chunks, progress)
+    conversation = _priority_model_conversation(analysis, focus=focus, chunks=context_chunks)
     _emit_progress(
         progress,
         f"Ran model synthesis {model_name} with {len(context_chunks)} evidence excerpt(s).",
@@ -1823,6 +1961,13 @@ def _model_priority_payload(
     )
     if raw_payload is None:
         return None
+    return _parse_model_priority_payload(raw_payload, progress)
+
+
+def _parse_model_priority_payload(
+    raw_payload: str,
+    progress: PriorityProgressReporter | None,
+) -> dict[str, object] | None:
     parsed = parse_json_object_fragment(raw_payload)
     if parsed is None:
         _emit_progress(
@@ -1832,6 +1977,30 @@ def _model_priority_payload(
         return None
     _emit_progress(progress, "Parsed model JSON priority payload.")
     return parsed
+
+
+def _emit_model_context_progress(
+    context_chunks: Sequence[PriorityChunk],
+    progress: PriorityProgressReporter | None,
+) -> None:
+    for index, chunk in enumerate(context_chunks, start=1):
+        _emit_progress(
+            progress,
+            f"Read model context {index}/{len(context_chunks)}: "
+            f"{_priority_chunk_progress_label(chunk)}.",
+        )
+
+
+def _priority_model_conversation(
+    analysis: PriorityAnalysis,
+    *,
+    focus: str,
+    chunks: Sequence[PriorityChunk],
+) -> Conversation:
+    conversation = Conversation()
+    conversation.add("system", f"{_PRIORITY_SYSTEM_PROMPT}\n{_PRIORITY_SCHEMA}")
+    conversation.add("user", _priority_model_context(analysis, focus=focus, chunks=chunks))
+    return conversation
 
 
 def _priority_chunk_progress_label(chunk: PriorityChunk) -> str:
@@ -1868,22 +2037,15 @@ def _read_model_priority_response(
                 parts.append(delta.content)
                 chunk_count += 1
                 char_count += len(delta.content)
-                now = time.perf_counter()
-                if chunk_count == 1:
-                    heartbeat.stop()
-                    _emit_progress(
-                        progress,
-                        f"Read first model delta from {model_name} "
-                        f"in {_format_elapsed_since(started_at)}.",
-                    )
-                    last_progress_at = now
-                elif now - last_progress_at >= _MODEL_STREAM_PROGRESS_SECONDS:
-                    _emit_progress(
-                        progress,
-                        f"Read {char_count} model character(s) from {model_name} "
-                        f"across {chunk_count} delta(s) in {_format_elapsed_since(started_at)}.",
-                    )
-                    last_progress_at = now
+                last_progress_at = _emit_model_stream_progress(
+                    heartbeat,
+                    model_name,
+                    started_at=started_at,
+                    last_progress_at=last_progress_at,
+                    chunk_count=chunk_count,
+                    char_count=char_count,
+                    progress=progress,
+                )
     except EngineError:
         _emit_progress(
             progress,
@@ -1900,6 +2062,34 @@ def _read_model_priority_response(
     return raw_payload
 
 
+def _emit_model_stream_progress(
+    heartbeat: _ProgressHeartbeat,
+    model_name: str,
+    *,
+    started_at: float,
+    last_progress_at: float,
+    chunk_count: int,
+    char_count: int,
+    progress: PriorityProgressReporter | None,
+) -> float:
+    now = time.perf_counter()
+    if chunk_count == 1:
+        heartbeat.stop()
+        _emit_progress(
+            progress,
+            f"Read first model delta from {model_name} in {_format_elapsed_since(started_at)}.",
+        )
+        return now
+    if now - last_progress_at < _MODEL_STREAM_PROGRESS_SECONDS:
+        return last_progress_at
+    _emit_progress(
+        progress,
+        f"Read {char_count} model character(s) from {model_name} "
+        f"across {chunk_count} delta(s) in {_format_elapsed_since(started_at)}.",
+    )
+    return now
+
+
 def _can_use_model(config: ChatConfig) -> bool:
     if not config.base_url or not config.model:
         return False
@@ -1913,31 +2103,35 @@ def _priority_model_context(
     chunks: Iterable[PriorityChunk] | None = None,
 ) -> str:
     context_chunks = tuple(chunks) if chunks is not None else _representative_chunks(analysis)
-    evidence_lines = []
-    for idx, chunk in enumerate(context_chunks, start=1):
-        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-        compact_text = _WHITESPACE_RE.sub(" ", chunk.text).strip()
-        if len(compact_text) > 900:
-            compact_text = f"{compact_text[:899]}…"
-        evidence_lines.append(
-            "\n".join(
-                (
-                    f"Evidence {idx}",
-                    f"Source: {chunk.source}",
-                    f"Role: {role}",
-                    f"Heading: {chunk.heading or 'none'}",
-                    f"Text: {compact_text}",
-                )
-            )
-        )
     focus_line = f"User focus: {focus}\n" if focus else ""
     return "\n\n".join(
         (
             focus_line + analysis.render_for_prompt(limit=10),
             "Indexed excerpts to analyze:",
-            "\n\n".join(evidence_lines),
+            "\n\n".join(_priority_model_evidence_lines(context_chunks)),
         )
     )
+
+
+def _priority_model_evidence_lines(chunks: Iterable[PriorityChunk]) -> Iterator[str]:
+    for idx, chunk in enumerate(chunks, start=1):
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
+        yield "\n".join(
+            (
+                f"Evidence {idx}",
+                f"Source: {chunk.source}",
+                f"Role: {role}",
+                f"Heading: {chunk.heading or 'none'}",
+                f"Text: {_compact_model_evidence_text(chunk.text)}",
+            )
+        )
+
+
+def _compact_model_evidence_text(text: str) -> str:
+    compact_text = _WHITESPACE_RE.sub(" ", text).strip()
+    if len(compact_text) > 900:
+        return f"{compact_text[:899]}…"
+    return compact_text
 
 
 def _representative_chunks(
@@ -2072,7 +2266,7 @@ def _compile_priority_report_pdf(
     progress: PriorityProgressReporter | None,
 ) -> Path | None:
     if compiler is None:
-        tex_path = _save_priority_draft(
+        _raise_missing_priority_pdf_engine(
             analysis,
             sheet,
             tex_text,
@@ -2080,33 +2274,15 @@ def _compile_priority_report_pdf(
             sidecar_path=sidecar_path,
             progress=progress,
         )
-        _emit_progress(progress, f"No LaTeX engine found; saved draft to {tex_path}.")
-        raise PriorityPdfError(
-            "No LaTeX PDF engine found. Install latexmk, lualatex, xelatex, pdflatex, "
-            f"or tectonic; LaTeX draft saved to {tex_path}."
-        )
 
     with tempfile.TemporaryDirectory(prefix="heph-priority-") as temp_dir_name:
         temp_tex_path = Path(temp_dir_name) / path.with_suffix(".tex").name
         _write_text_artifact(temp_tex_path, tex_text, progress=progress, label="temporary LaTeX")
         try:
-            compile_started_at = time.perf_counter()
-            if isinstance(compiler, ExternalLatexCompiler):
-                compiler.compile(temp_tex_path, path, progress=progress)
-            else:
-                _emit_progress(
-                    progress,
-                    f"Ran {compiler.__class__.__name__}.compile({temp_tex_path}, {path}).",
-                )
-                compiler.compile(temp_tex_path, path)
-            _emit_progress(
-                progress,
-                f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
-            )
-            if path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
-                _emit_progress(progress, f"Wrote PDF {path} ({path.stat().st_size} bytes).")
+            _run_priority_pdf_compiler(compiler, temp_tex_path, path, progress=progress)
         except (OSError, subprocess.CalledProcessError, PriorityPdfError) as exc:
-            tex_path = _save_priority_draft(
+            _raise_priority_pdf_compile_failed(
+                exc,
                 analysis,
                 sheet,
                 tex_text,
@@ -2114,12 +2290,89 @@ def _compile_priority_report_pdf(
                 sidecar_path=sidecar_path,
                 progress=progress,
             )
-            raise PriorityPdfError(
-                f"Priority PDF compile failed; LaTeX draft saved to {tex_path}."
-            ) from exc
 
     if not keep_tex:
         return None
+    return _save_priority_tex_source(path, tex_text, progress=progress)
+
+
+def _raise_missing_priority_pdf_engine(
+    analysis: PriorityAnalysis,
+    sheet: PriorityCheatSheet,
+    tex_text: str,
+    *,
+    path: Path,
+    sidecar_path: Path,
+    progress: PriorityProgressReporter | None,
+) -> NoReturn:
+    tex_path = _save_priority_draft(
+        analysis,
+        sheet,
+        tex_text,
+        path=path,
+        sidecar_path=sidecar_path,
+        progress=progress,
+    )
+    _emit_progress(progress, f"No LaTeX engine found; saved draft to {tex_path}.")
+    raise PriorityPdfError(
+        "No LaTeX PDF engine found. Install latexmk, lualatex, xelatex, pdflatex, "
+        f"or tectonic; LaTeX draft saved to {tex_path}."
+    )
+
+
+def _run_priority_pdf_compiler(
+    compiler: PriorityPdfCompiler,
+    temp_tex_path: Path,
+    path: Path,
+    *,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    compile_started_at = time.perf_counter()
+    if isinstance(compiler, ExternalLatexCompiler):
+        compiler.compile(temp_tex_path, path, progress=progress)
+    else:
+        _emit_progress(
+            progress,
+            f"Ran {compiler.__class__.__name__}.compile({temp_tex_path}, {path}).",
+        )
+        compiler.compile(temp_tex_path, path)
+    _emit_progress(
+        progress,
+        f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
+    )
+    if path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
+        _emit_progress(progress, f"Wrote PDF {path} ({path.stat().st_size} bytes).")
+
+
+def _raise_priority_pdf_compile_failed(
+    exc: Exception,
+    analysis: PriorityAnalysis,
+    sheet: PriorityCheatSheet,
+    tex_text: str,
+    *,
+    path: Path,
+    sidecar_path: Path,
+    progress: PriorityProgressReporter | None,
+) -> NoReturn:
+    tex_path = _save_priority_draft(
+        analysis,
+        sheet,
+        tex_text,
+        path=path,
+        sidecar_path=sidecar_path,
+        progress=progress,
+    )
+    raise PriorityPdfError(
+        f"Priority PDF compile failed; LaTeX draft saved to {tex_path}."
+    ) from exc
+
+
+def _save_priority_tex_source(
+    path: Path,
+    tex_text: str,
+    *,
+    progress: PriorityProgressReporter | None,
+) -> Path:
     tex_path = path.with_suffix(".tex")
     _write_text_artifact(tex_path, tex_text, progress=progress, label="LaTeX source")
     return tex_path
@@ -2221,17 +2474,28 @@ def _priority_verification_checks(
     return _PriorityVerificationChecks(
         extraction_ok=bool(analysis.chunks),
         priority_ok=_verify_priority_order(analysis),
-        source_support_ok=all(topic.source_ids or topic.uncertainty for topic in sheet.topics),
+        source_support_ok=_verify_sheet_source_support(sheet),
         latex_ok=_verify_latex_text(tex_text),
-        pdf_ok=pdf_path is not None and pdf_path.is_file() and pdf_path.stat().st_size > 0,
-        anti_regression_ok=(
-            "HEPHAISTOS PRIORITY" not in tex_text and not _FORBIDDEN_REPORT_RE.search(tex_text)
-        ),
-        practice_ok=(
-            bool(analysis.topics)
-            and not _RAW_METRIC_RE.search(analysis.render_for_prompt(limit=8))
-        ),
+        pdf_ok=_verify_pdf_artifact(pdf_path),
+        anti_regression_ok=_verify_report_text_has_no_forbidden_patterns(tex_text),
+        practice_ok=_verify_priority_prompt_context(analysis),
     )
+
+
+def _verify_sheet_source_support(sheet: PriorityCheatSheet) -> bool:
+    return all(topic.source_ids or topic.uncertainty for topic in sheet.topics)
+
+
+def _verify_pdf_artifact(pdf_path: Path | None) -> bool:
+    return pdf_path is not None and pdf_path.is_file() and pdf_path.stat().st_size > 0
+
+
+def _verify_report_text_has_no_forbidden_patterns(tex_text: str) -> bool:
+    return "HEPHAISTOS PRIORITY" not in tex_text and not _FORBIDDEN_REPORT_RE.search(tex_text)
+
+
+def _verify_priority_prompt_context(analysis: PriorityAnalysis) -> bool:
+    return bool(analysis.topics) and not _RAW_METRIC_RE.search(analysis.render_for_prompt(limit=8))
 
 
 def _priority_verification_issues(checks: _PriorityVerificationChecks) -> Iterator[str]:
@@ -2306,8 +2570,34 @@ def _cheat_sheet_topic(
     *,
     model_payload: dict[str, object] | None,
 ) -> PriorityCheatSheetTopic:
-    payload = _topic_model_payload(topic, model_payload)
     source_labels = tuple(source_ids[source] for source in topic.sources if source in source_ids)
+    sections = _cheat_sheet_topic_sections(topic, analysis, model_payload=model_payload)
+    return PriorityCheatSheetTopic(
+        title=topic.topic,
+        tier=priority_tier(topic),
+        source_ids=source_labels,
+        prerequisites=_topic_prerequisites(topic),
+        definitions=tuple(sections.definitions[:3]),
+        formulas=tuple(sections.formulas[:4]),
+        procedures=tuple(sections.procedures[:3]),
+        exam_tasks=tuple(sections.exam_tasks[:4]),
+        pitfalls=tuple(sections.pitfalls[:3]),
+        uncertainty=_topic_uncertainty(
+            topic,
+            definitions=sections.definitions,
+            formulas=sections.formulas,
+            procedures=sections.procedures,
+        ),
+    )
+
+
+def _cheat_sheet_topic_sections(
+    topic: PriorityTopic,
+    analysis: PriorityAnalysis,
+    *,
+    model_payload: dict[str, object] | None,
+) -> _CheatSheetTopicSections:
+    payload = _topic_model_payload(topic, model_payload)
     evidence_sentences = _topic_sentences(topic)
     definitions = _payload_string_list(payload, "definitions") or _select_by_keywords(
         evidence_sentences,
@@ -2324,22 +2614,12 @@ def _cheat_sheet_topic(
         evidence_sentences,
         ("not ", "except", "avoid", "pitfall", "common mistake", "confuse", "but "),
     )
-    return PriorityCheatSheetTopic(
-        title=topic.topic,
-        tier=priority_tier(topic),
-        source_ids=source_labels,
-        prerequisites=_topic_prerequisites(topic),
-        definitions=tuple(definitions[:3]),
-        formulas=tuple(formulas[:4]),
-        procedures=tuple(procedures[:3]),
-        exam_tasks=tuple(exam_tasks[:4]),
-        pitfalls=tuple(pitfalls[:3]),
-        uncertainty=_topic_uncertainty(
-            topic,
-            definitions=definitions,
-            formulas=formulas,
-            procedures=procedures,
-        ),
+    return _CheatSheetTopicSections(
+        definitions=definitions,
+        formulas=formulas,
+        procedures=procedures,
+        exam_tasks=exam_tasks,
+        pitfalls=pitfalls,
     )
 
 
@@ -2352,11 +2632,17 @@ def _topic_model_payload(
         return None
     topic_name = topic.topic.lower()
     for raw_topic in raw_topics:
-        if not is_string_mapping(raw_topic):
-            continue
-        raw_name = raw_topic.get("name")
-        if isinstance(raw_name, str) and raw_name.strip().lower() == topic_name:
-            return dict(raw_topic)
+        if matched_topic := _payload_topic_entry(raw_topic, topic_name):
+            return matched_topic
+    return None
+
+
+def _payload_topic_entry(raw_topic: object, topic_name: str) -> dict[str, object] | None:
+    if not is_string_mapping(raw_topic):
+        return None
+    raw_name = raw_topic.get("name")
+    if isinstance(raw_name, str) and raw_name.strip().lower() == topic_name:
+        return dict(raw_topic)
     return None
 
 
@@ -2381,18 +2667,19 @@ def _analysis_uncertainties(
     analysis: PriorityAnalysis,
     topics: tuple[PriorityCheatSheetTopic, ...],
 ) -> tuple[str, ...]:
-    uncertainties: list[str] = []
     if not analysis.past_exam_sources:
-        uncertainties.append(
-            "No past exams were identified; ranking falls back to material coverage."
-        )
-    if not analysis.exam_questions and analysis.past_exam_sources:
-        uncertainties.append("Past exams were found, but question extraction was incomplete.")
+        return ("No past exams were identified; ranking falls back to material coverage.",)
+    return tuple(_analysis_uncertainty_items(analysis, topics))
+
+
+def _analysis_uncertainty_items(
+    analysis: PriorityAnalysis,
+    topics: tuple[PriorityCheatSheetTopic, ...],
+) -> Iterator[str]:
+    if not analysis.exam_questions:
+        yield "Past exams were found, but question extraction was incomplete."
     if any(topic.uncertainty for topic in topics):
-        uncertainties.append(
-            "Some topics lack enough local factual support for full cheat-sheet blocks."
-        )
-    return tuple(uncertainties)
+        yield "Some topics lack enough local factual support for full cheat-sheet blocks."
 
 
 def _topic_sentences(topic: PriorityTopic) -> list[str]:
@@ -2414,26 +2701,35 @@ def _select_by_keywords(
     *,
     fallback: bool = False,
 ) -> list[str]:
-    selected = [
-        sentence
-        for sentence in sentences
-        if any(keyword in sentence.lower() for keyword in keywords)
-    ]
+    selected = [sentence for sentence in sentences if _sentence_has_keyword(sentence, keywords)]
     if selected or not fallback:
         return selected
     return sentences[:2]
 
 
+def _sentence_has_keyword(sentence: str, keywords: tuple[str, ...]) -> bool:
+    lowered = sentence.lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
 def _select_formula_lines(topic: PriorityTopic) -> list[str]:
     lines: list[str] = []
     for evidence in topic.evidence:
-        for unit in re.split(r"(?<=[.!?])\s+|\n", evidence.excerpt):
-            stripped = _WHITESPACE_RE.sub(" ", unit).strip()
-            if not stripped:
-                continue
-            if "$" in stripped or "\\" in stripped or re.search(r"[=∑∫√≤≥→]", stripped):
-                lines.append(stripped)
+        lines.extend(
+            line
+            for unit in re.split(r"(?<=[.!?])\s+|\n", evidence.excerpt)
+            if (line := _formula_line(unit))
+        )
     return lines
+
+
+def _formula_line(text: str) -> str:
+    line = _WHITESPACE_RE.sub(" ", text).strip()
+    return line if line and _looks_like_formula_line(line) else ""
+
+
+def _looks_like_formula_line(line: str) -> bool:
+    return "$" in line or "\\" in line or re.search(r"[=∑∫√≤≥→]", line) is not None
 
 
 def _exam_tasks_for_topic(
@@ -2461,15 +2757,34 @@ def _topic_prerequisites(topic: PriorityTopic) -> tuple[str, ...]:
 
 
 def priority_tier(topic: PriorityTopic) -> str:
-    if topic.exam_marks >= 12 or topic.exam_hits >= 3:
-        return "Exam core"
-    if topic.exam_marks >= 6 or topic.exam_hits >= 2:
-        return "High-yield"
-    if topic.exam_hits:
-        return "Foundation"
-    if topic.supporting_material_coverage >= 2 or topic.material_hits >= 3:
-        return "Prerequisite"
+    for predicate, tier in _PRIORITY_TIER_RULES:
+        if predicate(topic):
+            return tier
     return "Supporting"
+
+
+def _exam_core_topic(topic: PriorityTopic) -> bool:
+    return topic.exam_marks >= 12 or topic.exam_hits >= 3
+
+
+def _high_yield_topic(topic: PriorityTopic) -> bool:
+    return topic.exam_marks >= 6 or topic.exam_hits >= 2
+
+
+def _foundation_topic(topic: PriorityTopic) -> bool:
+    return bool(topic.exam_hits)
+
+
+def _prerequisite_topic(topic: PriorityTopic) -> bool:
+    return topic.supporting_material_coverage >= 2 or topic.material_hits >= 3
+
+
+_PRIORITY_TIER_RULES: tuple[tuple[Callable[[PriorityTopic], bool], str], ...] = (
+    (_exam_core_topic, "Exam core"),
+    (_high_yield_topic, "High-yield"),
+    (_foundation_topic, "Foundation"),
+    (_prerequisite_topic, "Prerequisite"),
+)
 
 
 def _latex_header(sheet: PriorityCheatSheet) -> str:
@@ -2597,10 +2912,9 @@ def _latex_mixed_text(value: str) -> str:
 
 
 def _looks_like_latex_math(value: str) -> bool:
-    return (
-        (value.startswith("$") and value.endswith("$"))
-        or (value.startswith(r"\(") and value.endswith(r"\)"))
-        or (value.startswith(r"\[") and value.endswith(r"\]"))
+    return any(
+        value.startswith(open_delimiter) and value.endswith(close_delimiter)
+        for open_delimiter, close_delimiter in _LATEX_MATH_DELIMITERS
     )
 
 
@@ -2610,23 +2924,22 @@ def _is_safe_latex_math(value: str) -> bool:
     content = _latex_math_content(value)
     if not content or _LATEX_MATH_UNSAFE_CHAR_RE.search(content):
         return False
-    for match in _LATEX_MATH_COMMAND_RE.finditer(content):
-        command = match.group(1)
-        if command.isalpha():
-            if command not in _ALLOWED_LATEX_MATH_COMMANDS:
-                return False
-        elif command not in _ALLOWED_LATEX_MATH_SYMBOL_COMMANDS:
-            return False
-    return True
+    return all(
+        _allowed_latex_math_command(match) for match in _LATEX_MATH_COMMAND_RE.finditer(content)
+    )
+
+
+def _allowed_latex_math_command(match: re.Match[str]) -> bool:
+    command = match.group(1)
+    if command.isalpha():
+        return command in _ALLOWED_LATEX_MATH_COMMANDS
+    return command in _ALLOWED_LATEX_MATH_SYMBOL_COMMANDS
 
 
 def _latex_math_content(value: str) -> str:
-    if value.startswith("$") and value.endswith("$"):
-        return value[1:-1]
-    if value.startswith(r"\(") and value.endswith(r"\)"):
-        return value[2:-2]
-    if value.startswith(r"\[") and value.endswith(r"\]"):
-        return value[2:-2]
+    for open_delimiter, close_delimiter in _LATEX_MATH_DELIMITERS:
+        if value.startswith(open_delimiter) and value.endswith(close_delimiter):
+            return value[len(open_delimiter) : -len(close_delimiter)]
     return value
 
 
@@ -2655,9 +2968,15 @@ def _truncate(value: str, max_chars: int) -> str:
 
 
 def _payload_string_list(payload: dict[str, object] | None, key: str) -> list[str]:
-    if payload is None:
-        return []
-    value = payload.get(key)
+    value = _payload_list_value(payload, key)
     if not isinstance(value, list):
         return []
-    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    return [item for item in (_payload_string_item(item) for item in value) if item]
+
+
+def _payload_list_value(payload: dict[str, object] | None, key: str) -> object:
+    return payload.get(key) if payload is not None else None
+
+
+def _payload_string_item(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""

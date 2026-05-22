@@ -28,7 +28,7 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -104,6 +104,12 @@ class ToolRegistry:
         if self._schemas_cache is not None and self._schemas_cache_key == cache_key:
             return list(self._schemas_cache)
 
+        result = self._visible_schemas()
+        self._schemas_cache = result
+        self._schemas_cache_key = cache_key
+        return list(result)
+
+    def _visible_schemas(self) -> list[ToolSchema]:
         seen: set[str] = set()
         result: list[ToolSchema] = []
         for spec in self._tools.values():
@@ -115,9 +121,7 @@ class ToolRegistry:
                 if name not in seen:
                     seen.add(name)
                     result.append(schema)
-        self._schemas_cache = result
-        self._schemas_cache_key = cache_key
-        return list(result)
+        return result
 
     @property
     def specs(self) -> list[ToolSpec]:
@@ -357,16 +361,32 @@ class BashResult:
     duration_seconds: float
 
     def to_display(self) -> str:
-        parts: list[str] = []
-        if self.stdout:
-            parts.append(self.stdout)
-        if self.stderr:
-            parts.append(f"--- stderr ---\n{self.stderr}")
-        if self.timed_out:
-            parts.append(f"[timed out after {self.duration_seconds:.1f}s]")
-        elif self.exit_code != 0:
-            parts.append(f"[exit code {self.exit_code}]")
-        return "\n".join(parts) if parts else "(no output)"
+        return _bash_result_display(self)
+
+
+def _bash_result_display(result: BashResult) -> str:
+    parts = _bash_result_output_parts(result)
+    status = _bash_result_status(result)
+    if status:
+        parts.append(status)
+    return "\n".join(parts) if parts else "(no output)"
+
+
+def _bash_result_output_parts(result: BashResult) -> list[str]:
+    parts: list[str] = []
+    if result.stdout:
+        parts.append(result.stdout)
+    if result.stderr:
+        parts.append(f"--- stderr ---\n{result.stderr}")
+    return parts
+
+
+def _bash_result_status(result: BashResult) -> str:
+    if result.timed_out:
+        return f"[timed out after {result.duration_seconds:.1f}s]"
+    if result.exit_code != 0:
+        return f"[exit code {result.exit_code}]"
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,27 +395,40 @@ class FileReadResult:
     error: bool = False
 
 
-def _rtk_command_prefix(command: str) -> list[str] | None:
-    stripped = command.strip()
-    if not stripped or stripped.startswith("rtk "):
-        return None
-    if len(stripped) < _rtk_min_command_chars():
-        return None
-    if any(char in stripped for char in _RTK_SHELL_META_CHARS):
-        return None
+@dataclass(frozen=True, slots=True)
+class SearchFilesResult:
+    file_count: int
+    matches: list[str]
 
+
+def _rtk_command_prefix(command: str) -> list[str] | None:
+    argv = _rtk_candidate_argv(command)
+    if argv is None:
+        return None
+    rtk_path = shutil.which("rtk")
+    if rtk_path is None:
+        return None
+    return [rtk_path, *_rtk_option_args(), *argv]
+
+
+def _rtk_candidate_argv(command: str) -> list[str] | None:
+    stripped = command.strip()
+    if not _rtk_can_wrap_command(stripped):
+        return None
     try:
         argv = shlex.split(stripped)
     except ValueError:
         return None
-    if not argv:
-        return None
+    return argv or None
 
-    rtk_path = shutil.which("rtk")
-    if rtk_path is None:
-        return None
 
-    return [rtk_path, *_rtk_option_args(), *argv]
+def _rtk_can_wrap_command(stripped_command: str) -> bool:
+    return (
+        bool(stripped_command)
+        and not stripped_command.startswith("rtk ")
+        and len(stripped_command) >= _rtk_min_command_chars()
+        and not any(char in stripped_command for char in _RTK_SHELL_META_CHARS)
+    )
 
 
 def _rtk_min_command_chars() -> int:
@@ -590,6 +623,22 @@ def run_edit_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
+    read_result = _edit_file_text(workspace, path)
+    if isinstance(read_result, str):
+        return read_result
+
+    target, text = read_result
+    match_error = _edit_match_error(path, text.count(old_text))
+    if match_error:
+        return match_error
+    try:
+        target.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        return f"Edited {path} (replaced 1 match)"
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+
+def _edit_file_text(workspace: Path, path: str) -> tuple[Path, str] | str:
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -597,22 +646,17 @@ def run_edit_file(
     if not target.is_file():
         return f"File not found: {path}"
     try:
-        text = target.read_text(encoding="utf-8")
+        return target, target.read_text(encoding="utf-8")
     except OSError as exc:
         return f"Error reading file: {exc}"
 
-    count = text.count(old_text)
+
+def _edit_match_error(path: str, count: int) -> str:
     if count == 0:
         return f"Text not found in {path}"
     if count > 1:
         return f"Found {count} matches in {path}; please provide more context to make it unique."
-
-    updated = text.replace(old_text, new_text, 1)
-    try:
-        target.write_text(updated, encoding="utf-8")
-        return f"Edited {path} (replaced 1 match)"
-    except OSError as exc:
-        return f"Error writing file: {exc}"
+    return ""
 
 
 def run_list_files(
@@ -622,18 +666,29 @@ def run_list_files(
     pattern: str = "*",
     **_kwargs: object,
 ) -> str:
+    target = _list_files_target(workspace, path)
+    if isinstance(target, str):
+        return target
+
+    lines = list(_iter_list_file_lines(target, workspace, pattern))
+    return "\n".join(lines) if lines else "(no files found)"
+
+
+def _list_files_target(workspace: Path, path: str) -> Path | str:
     try:
         target = safe_path(workspace, path or ".")
     except ValueError as exc:
         return str(exc)
     if not target.is_dir():
         return f"Not a directory: {path or '.'}"
+    return target
 
-    lines = [_list_file_line(file_path, workspace) for file_path in sorted(target.rglob(pattern))]
-    lines = [line for line in lines if line]
-    if not lines:
-        return "(no files found)"
-    return "\n".join(lines)
+
+def _iter_list_file_lines(target: Path, workspace: Path, pattern: str) -> Iterator[str]:
+    for file_path in sorted(target.rglob(pattern)):
+        line = _list_file_line(file_path, workspace)
+        if line:
+            yield line
 
 
 def _list_file_line(file_path: Path, workspace: Path) -> str:
@@ -777,26 +832,30 @@ def _target_search_dir(workspace: Path, path: str) -> Path | str:
     return target
 
 
+def _iter_searchable_files(target: Path, workspace: Path) -> Iterator[Path]:
+    for file_path in sorted(target.rglob("*")):
+        if _is_searchable_file(file_path, workspace):
+            yield file_path
+
+
 def _search_target_files(
     target: Path,
     *,
     workspace: Path,
     regex: re.Pattern[str],
     abort: threading.Event | None,
-) -> ToolResult | tuple[int, list[str]]:
+) -> ToolResult | SearchFilesResult:
     matches: list[str] = []
     file_count = 0
-    for file_path in sorted(target.rglob("*")):
+    for file_path in _iter_searchable_files(target, workspace):
         if abort is not None and abort.is_set():
             return _cancelled_search_result(file_count, matches)
-        if not _is_searchable_file(file_path, workspace):
-            continue
 
         matches.extend(_search_file(file_path, workspace, regex))
         file_count += 1
         if len(matches) >= _MAX_SEARCH_RESULTS:
-            return file_count, matches[:_MAX_SEARCH_RESULTS]
-    return file_count, matches
+            return SearchFilesResult(file_count, matches[:_MAX_SEARCH_RESULTS])
+    return SearchFilesResult(file_count, matches)
 
 
 def run_search_files(
@@ -818,8 +877,7 @@ def run_search_files(
     search_result = _search_target_files(target, workspace=workspace, regex=regex, abort=abort)
     if isinstance(search_result, ToolResult):
         return search_result
-    file_count, matches = search_result
-    return _format_search_results(pattern, file_count, matches)
+    return _format_search_results(pattern, search_result.file_count, search_result.matches)
 
 
 def _format_memory_entry(entry: MemoryEntry) -> str:

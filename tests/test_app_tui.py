@@ -32,8 +32,6 @@ from hephaistos.tui.inline_flows import (
     _inline_menu_option_text,
     _model_choice_from_label,
     _model_choice_label,
-    overview_topic_menu,
-    overview_topic_options,
 )
 from hephaistos.tui.transparent import Region as _Region
 from hephaistos.tui.transparent import style_without_black_background
@@ -51,14 +49,6 @@ class _SelectionWidgetType(Protocol):
 
 def _allow_select(widget_cls: type) -> bool:
     return cast("_SelectionWidgetType", widget_cls).ALLOW_SELECT
-
-
-class _RichSpanLike(Protocol):
-    style: object
-
-
-class _RichPromptLike(Protocol):
-    spans: list[_RichSpanLike]
 
 
 class _SelectableClass(Protocol):
@@ -852,6 +842,8 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
         tui._TuiRuntimeState(),
         tui.current_palette(),
     )
+    app.session.config.base_url = ""
+    app.session.config.model = ""
     typed_app = cast("TextualApp[None]", app)
 
     async def check_transcript_backgrounds() -> None:
@@ -2154,392 +2146,6 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
     asyncio.run(check_settings_menu())
 
 
-def test_overview_topic_reply_opens_arrow_key_material_flow(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    typed_app = cast("TextualApp[None]", app)
-    submitted: list[str] = []
-
-    async def check_topic_flow() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            app._append_assistant_reply(
-                "These are the topics I found in the material:\n"
-                "- Enzyme Kinetics [E1]\n"
-                "- Protein Folding [E2]\n\n"
-                "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
-                "Recommended options:\n"
-                "- Start with an explanation of Enzyme Kinetics [E1].\n"
-                "- Practice one exam-style or exercise question on Protein Folding [E2].\n"
-                "- Turn the selected topic into a quick recall drill."
-            )
-            app._open_material_topic_flow(
-                [
-                    ("Enzyme Kinetics", "enzyme reaction rates"),
-                    ("Protein Folding", "how proteins take shape"),
-                ]
-            )
-            await pilot.pause()
-
-            assert app._inline_flow.name == "material_topic"
-            assert app._inline_flow.step == "topic"
-            assert app._inline_flow.options[-1] == (
-                "Ask something else",
-                "custom armory prompt",
-            )
-            suggestions = cast(
-                "TextualOptionList",
-                app.query_one("#suggestions", tui.OptionList),
-            )  # ty:ignore[redundant-cast]
-            assert suggestions.has_class("visible")
-            assert suggestions.has_class("inline-menu")
-            palette = tui.current_palette()
-
-            def option_styles(index: int) -> list[str]:
-                prompt = cast("_RichPromptLike", suggestions.get_option_at_index(index).prompt)
-                return [str(span.style) for span in prompt.spans]
-
-            first_styles = option_styles(0)
-            second_styles = option_styles(1)
-            assert any(
-                palette.brand_primary in style and "bold" in style for style in first_styles
-            )
-            assert not any(palette.brand_primary in style for style in second_styles)
-
-            await pilot.press("down")
-            await pilot.pause()
-            first_styles = option_styles(0)
-            second_styles = option_styles(1)
-            assert not any(palette.brand_primary in style for style in first_styles)
-            assert any(
-                palette.brand_primary in style and "bold" in style for style in second_styles
-            )
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app._inline_flow.step == "action"
-            assert app._inline_flow.slug == "Protein Folding"
-            action_labels = [label for label, _description in app._inline_flow.options]
-            assert action_labels == ["Explain it", "Practice it", "Recall drill"]
-
-            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert submitted == [
-                "Give me one source-grounded practice question about Protein Folding. "
-                "Answer in the same language as the selected topic when that language is clear."
-            ]
-            assert app._inline_flow.active is False
-
-    asyncio.run(check_topic_flow())
-
-
-def test_overview_recommended_option_submits_direct_prompt(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    submitted: list[str] = []
-    typed_app = cast("TextualApp[None]", app)
-
-    async def check_recommendation_flow() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_material_topic_flow(
-                [
-                    ("Signal Entropy", "uncertainty in signals"),
-                    ("Compare Signal Entropy and Carrier Waves", "recommended"),
-                ],
-                {
-                    "Compare Signal Entropy and Carrier Waves": (
-                        "Compare Signal Entropy and Carrier Waves, "
-                        "grounded in the evidence for these topics."
-                    )
-                },
-            )
-            await pilot.pause()
-
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert submitted == [
-                "Compare Signal Entropy and Carrier Waves, "
-                "grounded in the evidence for these topics."
-            ]
-            assert app._inline_flow.active is False
-
-    asyncio.run(check_recommendation_flow())
-
-
-def test_material_topic_menu_custom_prompt_submits_user_text(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    submitted: list[str] = []
-    typed_app = cast("TextualApp[None]", app)
-
-    async def check_custom_prompt_flow() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_material_topic_flow(
-                [
-                    ("Signal Entropy", "uncertainty in signals"),
-                    ("Carrier Waves", "signals carrying information"),
-                ]
-            )
-            await pilot.pause()
-
-            assert app._inline_flow.options[-1] == (
-                "Ask something else",
-                "custom armory prompt",
-            )
-
-            await pilot.press("down")
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app._inline_flow.name == "material_topic"
-            assert app._inline_flow.step == "custom_prompt"
-
-            composer = app.query_one("#composer", tui.Input)
-            composer.value = "Compare entropy with noise"
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert submitted == ["Compare entropy with noise"]
-            assert app._inline_flow.active is False
-
-    asyncio.run(check_custom_prompt_flow())
-
-
-def test_inline_material_menu_ignores_stale_completion_candidates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    typed_app = cast("TextualApp[None]", app)
-    submitted: list[str] = []
-
-    async def check_stale_completion_state() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
-            app._open_material_topic_flow(
-                [
-                    ("Enzyme Kinetics", "enzyme reaction rates"),
-                    ("Protein Folding", "how proteins take shape"),
-                ]
-            )
-            app.completion_candidates = [
-                tui.CompletionCandidate("models ", "stale slash completion", 0)
-            ]
-            await pilot.pause()
-
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app._inline_flow.step == "action"
-            assert app._inline_flow.slug == "Protein Folding"
-
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert submitted == [
-                "Give me one source-grounded practice question about Protein Folding. "
-                "Answer in the same language as the selected topic when that language is clear."
-            ]
-            assert app._inline_flow.active is False
-
-    asyncio.run(check_stale_completion_state())
-
-
-def test_overview_topic_options_parse_only_actual_topic_section() -> None:
-    reply = (
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Matrix multiplication [E1].\n"
-        "- Eigenvalues [E2].\n\n"
-        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
-        "Recommended options:\n"
-        "- Start with an explanation of Matrix multiplication [E1]."
-    )
-
-    assert overview_topic_options(reply) == [
-        ("Matrix multiplication", "combining matrices"),
-        ("Eigenvalues", "matrix scaling factors"),
-        ("Explain Matrix multiplication", "recommended"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-
-
-def test_overview_topic_options_accepts_shell_menu_hint() -> None:
-    reply = (
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Signal entropy [E1].\n"
-        "- Carrier waves [E2].\n"
-        "Use the menu to choose one cited topic for review."
-    )
-
-    assert overview_topic_options(reply) == [
-        ("Signal entropy", "uncertainty in signals"),
-        ("Carrier waves", "signals carrying information"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-
-
-def test_overview_topic_menu_ignores_recommendations_without_overview_context() -> None:
-    reply = (
-        "Recommended options:\n"
-        "- Use /login to connect an account\n"
-        "- Run /settings to adjust the app"
-    )
-
-    assert overview_topic_menu(reply) is None
-    assert overview_topic_options(reply) == []
-
-
-def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> None:
-    reply = (
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Graph algorithms [E1].\n"
-        "- Recurrence relations [E2].\n\n"
-        "Recommended options:\n"
-        "- Start with an explanation of Graph algorithms [E1]."
-    )
-
-    menu = overview_topic_menu(reply)
-
-    assert menu is not None
-    assert menu.options == [
-        ("Graph algorithms", "network problem solving"),
-        ("Recurrence relations", "recursive sequence rules"),
-        ("Explain Graph algorithms", "recommended"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-
-
-def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
-    reply = (
-        "Recommendation: ask a contrastive question next, such as "
-        '"Which topic is different between sequences and series?" This is beneficial '
-        "because it separates closely related ideas.\n\n"
-        "These are the topics I found in the material:\n"
-        "- Sequences [E1]\n\n"
-        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter."
-    )
-
-    menu = overview_topic_menu(reply)
-
-    assert menu is not None
-    assert menu.options == [
-        ("Sequences", "ordered value patterns"),
-        ("Ask a contrastive question", "recommended"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-    assert menu.prompts == {
-        "Ask a contrastive question": "Which topic is different between sequences and series?"
-    }
-
-
-def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> None:
-    reply = (
-        "These are the topics I found in the material:\n"
-        "- Signal Entropy [E11]\n"
-        "- Carrier Waves [E13]\n\n"
-        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
-        "Recommended options:\n"
-        "- Start with an explanation of Signal Entropy [E11].\n"
-        "- Practice one exam-style or exercise question on Carrier Waves [E13].\n"
-        "- Compare Signal Entropy and Carrier Waves so you can separate the ideas [E13]."
-    )
-
-    menu = overview_topic_menu(reply)
-
-    assert menu is not None
-    assert menu.options == [
-        ("Signal Entropy", "uncertainty in signals"),
-        ("Carrier Waves", "signals carrying information"),
-        ("Explain Signal Entropy", "recommended"),
-        ("Practice Carrier Waves", "recommended"),
-        ("Compare Signal Entropy and Carrier Waves", "recommended"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-    assert menu.prompts["Explain Signal Entropy"] == (
-        "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic. "
-        "Answer in the same language as the selected topic when that language is clear."
-    )
-    assert menu.prompts["Practice Carrier Waves"] == (
-        "Give me one source-grounded practice question about Carrier Waves. "
-        "Answer in the same language as the selected topic when that language is clear."
-    )
-    assert menu.prompts["Compare Signal Entropy and Carrier Waves"] == (
-        "Compare Signal Entropy and Carrier Waves, grounded in the evidence for these topics. "
-        "Answer in the same language as the selected topic when that language is clear."
-    )
-
-
-def test_overview_topic_options_uses_specific_fallback_descriptions() -> None:
-    reply = (
-        "These are the topics I found in the material:\n"
-        "- Byzantine Consensus [E1].\n"
-        "Use the menu to choose one cited topic for review."
-    )
-
-    assert overview_topic_options(reply) == [
-        ("Byzantine Consensus", "what Byzantine Consensus means"),
-        ("Ask something else", "custom armory prompt"),
-    ]
-
-
-def test_overview_topic_options_limits_to_seven_topics() -> None:
-    topics = "\n".join(f"- Topic {index} [E1]" for index in range(1, 9))
-    reply = (
-        "These are the topics I found in the material:\n"
-        f"{topics}\n\n"
-        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter."
-    )
-
-    assert [label for label, _description in overview_topic_options(reply)] == [
-        "Topic 1",
-        "Topic 2",
-        "Topic 3",
-        "Topic 4",
-        "Topic 5",
-        "Topic 6",
-        "Ask something else",
-    ]
-
-
 def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
@@ -2944,7 +2550,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     asyncio.run(check_armory_menu())
 
 
-def test_plain_tui_no_armory_question_uses_local_guardrail() -> None:
+def test_plain_tui_no_armory_question_requires_model_configuration() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -2953,9 +2559,11 @@ def test_plain_tui_no_armory_question_uses_local_guardrail() -> None:
         tui._TuiRuntimeState(),
         tui.current_palette(),
     )
+    app.session.config.base_url = ""
+    app.session.config.model = ""
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_guardrail() -> None:
+    async def check_model_configuration() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             composer = app.query_one("#composer", tui.Input)
             composer.value = "What is 2+2?"
@@ -2963,9 +2571,11 @@ def test_plain_tui_no_armory_question_uses_local_guardrail() -> None:
             await pilot.pause()
 
             assert app.busy is False
-            assert any("No armory is attached" in entry.content for entry in app.state.transcript)
+            assert any(
+                "No model source configured" in entry.content for entry in app.state.transcript
+            )
 
-    asyncio.run(check_guardrail())
+    asyncio.run(check_model_configuration())
 
 
 def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:

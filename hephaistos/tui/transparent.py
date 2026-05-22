@@ -46,18 +46,26 @@ def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
         raise RuntimeError("Rich is not available")
     if style is None:
         return _RichStyle()
+    if not _has_black_background(style):
+        return style
+    return _style_without_background(style)
+
+
+def _has_black_background(style: _RichStyle) -> bool:
     bgcolor = style.bgcolor
-    triplet = bgcolor.triplet if bgcolor is not None else None
-    is_standard_black = (
-        bgcolor is not None
-        and bgcolor.name == RICH_BLACK_COLOR_NAME
-        and bgcolor.number == BLACK_RGB[0]
-    )
+    if bgcolor is None:
+        return False
+    triplet = bgcolor.triplet
+    is_standard_black = bgcolor.name == RICH_BLACK_COLOR_NAME and bgcolor.number == BLACK_RGB[0]
     is_truecolor_black = (
         triplet is not None and (triplet.red, triplet.green, triplet.blue) == BLACK_RGB
     )
-    if not is_standard_black and not is_truecolor_black:
-        return style
+    return is_standard_black or is_truecolor_black
+
+
+def _style_without_background(style: _RichStyle) -> _RichStyle:
+    if _RichStyle is None:
+        raise RuntimeError("Rich is not available")
     return _RichStyle(
         color=style.color,
         bold=style.bold,
@@ -82,15 +90,26 @@ def transparent_strip(strip: Strip, cell_length: int) -> Strip:
     """Drop synthetic black backgrounds and pad short rows with transparent cells."""
     if Segment is None or _RichStyle is None:
         raise RuntimeError("Rich / Textual is not available")
-    changed = False
-    segments: list[Segment] = []
-    for segment in strip:
-        new_style = style_without_black_background(segment.style)
-        changed = changed or new_style is not segment.style
-        segments.append(segment._replace(style=new_style))
+    segments, changed = _transparent_segments(strip)
+    transparent_padding = _RichStyle()
     if not changed:
-        return strip.extend_cell_length(cell_length, _RichStyle())
-    return Strip(segments, strip.cell_length).extend_cell_length(cell_length, _RichStyle())
+        return strip.extend_cell_length(cell_length, transparent_padding)
+    return Strip(segments, strip.cell_length).extend_cell_length(cell_length, transparent_padding)
+
+
+def _transparent_segments(strip: Strip) -> tuple[list[Segment], bool]:
+    segments: list[Segment] = []
+    changed = False
+    for segment in strip:
+        new_segment, segment_changed = _transparent_segment(segment)
+        segments.append(new_segment)
+        changed = changed or segment_changed
+    return segments, changed
+
+
+def _transparent_segment(segment: Segment) -> tuple[Segment, bool]:
+    new_style = style_without_black_background(segment.style)
+    return segment._replace(style=new_style), new_style is not segment.style
 
 
 def style_with_offset(style: _RichStyle | None, x: int, y: int) -> _RichStyle:
@@ -170,6 +189,13 @@ class SelectableTextRange:
         return self.start >= self.end
 
 
+@dataclass(frozen=True, slots=True)
+class SelectableTextPart:
+    text: str
+    start: int
+    selected: bool = False
+
+
 def _selectable_text_range(text: str) -> SelectableTextRange:
     return SelectableTextRange(
         start=len(text) - len(text.lstrip(" ")),
@@ -220,11 +246,12 @@ def _append_selectable_part(
     segments.append(Segment(text, part_style, segment_control))
 
 
-def _append_unselected_selectable_text(
+def _append_selectable_text_parts(
     segments: list[Segment],
     *,
     text: str,
     selectable_range: SelectableTextRange,
+    selected_range: SelectableTextRange | None,
     line_y: int,
     segment_x: int,
     segment_style: _RichStyle | None,
@@ -233,68 +260,51 @@ def _append_unselected_selectable_text(
     selection_style: _RichStyle | None,
     selection_effect: _RichStyle,
 ) -> None:
-    _append_selectable_part(
-        segments,
-        text=text[: selectable_range.start],
-        part_start=0,
-        line_y=line_y,
-        segment_x=segment_x,
-        base_style=segment_style,
-        segment_control=segment_control,
-        selected=False,
-        palette=palette,
-        selection_style=selection_style,
-        selection_effect=selection_effect,
-    )
-    _append_selectable_part(
-        segments,
-        text=text[selectable_range.start : selectable_range.end],
-        part_start=selectable_range.start,
-        line_y=line_y,
-        segment_x=segment_x,
-        base_style=segment_style,
-        segment_control=segment_control,
-        selected=False,
-        palette=palette,
-        selection_style=selection_style,
-        selection_effect=selection_effect,
-    )
-
-
-def _append_selected_selectable_text(
-    segments: list[Segment],
-    *,
-    text: str,
-    selectable_range: SelectableTextRange,
-    selected_range: SelectableTextRange,
-    line_y: int,
-    segment_x: int,
-    segment_style: _RichStyle | None,
-    segment_control: SegmentControl,
-    palette: Theme,
-    selection_style: _RichStyle | None,
-    selection_effect: _RichStyle,
-) -> None:
-    pieces = (
-        (text[: selectable_range.start], 0, False),
-        (text[selectable_range.start : selected_range.start], selectable_range.start, False),
-        (text[selected_range.start : selected_range.end], selected_range.start, True),
-        (text[selected_range.end : selectable_range.end], selected_range.end, False),
-    )
-    for part_text, part_start, selected in pieces:
+    for part in _selectable_text_parts(text, selectable_range, selected_range):
         _append_selectable_part(
             segments,
-            text=part_text,
-            part_start=part_start,
+            text=part.text,
+            part_start=part.start,
             line_y=line_y,
             segment_x=segment_x,
             base_style=segment_style,
             segment_control=segment_control,
-            selected=selected,
+            selected=part.selected,
             palette=palette,
             selection_style=selection_style,
             selection_effect=selection_effect,
         )
+
+
+def _selectable_text_parts(
+    text: str,
+    selectable_range: SelectableTextRange,
+    selected_range: SelectableTextRange | None,
+) -> tuple[SelectableTextPart, ...]:
+    if selected_range is None or selected_range.empty:
+        return (
+            SelectableTextPart(text[: selectable_range.start], 0),
+            SelectableTextPart(
+                text[selectable_range.start : selectable_range.end],
+                selectable_range.start,
+            ),
+        )
+    return (
+        SelectableTextPart(text[: selectable_range.start], 0),
+        SelectableTextPart(
+            text[selectable_range.start : selected_range.start],
+            selectable_range.start,
+        ),
+        SelectableTextPart(
+            text[selected_range.start : selected_range.end],
+            selected_range.start,
+            selected=True,
+        ),
+        SelectableTextPart(
+            text[selected_range.end : selectable_range.end],
+            selected_range.end,
+        ),
+    )
 
 
 def selectable_text_strip(
@@ -322,56 +332,62 @@ def selectable_text_strip(
     char_x = x_offset
     segments: list[Segment] = []
     for segment in strip:
-        text = segment.text
-        if segment.control or not text:
-            segments.append(segment)
-            continue
-
-        selectable_range = _selectable_text_range(text)
-        if selectable_range.empty:
-            segments.append(segment)
-            char_x += len(text)
-            continue
-
-        selected_range = _selected_text_range(
-            selectable_range=selectable_range,
-            selected_span=selected_span,
-            segment_x=char_x,
+        segments.extend(
+            _selectable_segment_parts(
+                segment,
+                line_y=line_y,
+                segment_x=char_x,
+                selected_span=selected_span,
+                palette=palette,
+                selection_style=selection_style,
+                selection_effect=selection_effect,
+            )
         )
-        if selected_range.empty:
-            _append_unselected_selectable_text(
-                segments,
-                text=text,
-                selectable_range=selectable_range,
-                line_y=line_y,
-                segment_x=char_x,
-                segment_style=segment.style,
-                segment_control=segment.control,
-                palette=palette,
-                selection_style=selection_style,
-                selection_effect=selection_effect,
-            )
-        else:
-            _append_selected_selectable_text(
-                segments,
-                text=text,
-                selectable_range=selectable_range,
-                selected_range=selected_range,
-                line_y=line_y,
-                segment_x=char_x,
-                segment_style=segment.style,
-                segment_control=segment.control,
-                palette=palette,
-                selection_style=selection_style,
-                selection_effect=selection_effect,
-            )
-
-        trailing_text = text[selectable_range.end :]
-        if trailing_text:
-            segments.append(Segment(trailing_text, segment.style, segment.control))
-        char_x += len(text)
+        char_x += len(segment.text)
 
     return transparent_strip(Strip(segments, strip.cell_length), strip.cell_length)
+
+
+def _selectable_segment_parts(
+    segment: Segment,
+    *,
+    line_y: int,
+    segment_x: int,
+    selected_span: tuple[int, int] | None,
+    palette: Theme,
+    selection_style: _RichStyle | None,
+    selection_effect: _RichStyle,
+) -> tuple[Segment, ...]:
+    text = segment.text
+    if segment.control or not text:
+        return (segment,)
+
+    selectable_range = _selectable_text_range(text)
+    if selectable_range.empty:
+        return (segment,)
+
+    segments: list[Segment] = []
+    selected_range = _selected_text_range(
+        selectable_range=selectable_range,
+        selected_span=selected_span,
+        segment_x=segment_x,
+    )
+    _append_selectable_text_parts(
+        segments,
+        text=text,
+        selectable_range=selectable_range,
+        selected_range=selected_range,
+        line_y=line_y,
+        segment_x=segment_x,
+        segment_style=segment.style,
+        segment_control=segment.control,
+        palette=palette,
+        selection_style=selection_style,
+        selection_effect=selection_effect,
+    )
+    if trailing_text := text[selectable_range.end :]:
+        segments.append(Segment(trailing_text, segment.style, segment.control))
+    return tuple(segments)
 
 
 def make_blank_background_cls(base_cls: type) -> type:

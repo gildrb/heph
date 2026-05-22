@@ -82,6 +82,8 @@ class _TranscriptHost(Protocol):
 
     def _reflow_transcript_entries(self) -> None: ...
 
+    def _reflowable_transcript_log(self) -> RichLog | None: ...
+
     def _write_transcript_gap(self) -> None: ...
 
     def _write_transcript_entry(self, entry: TuiTranscriptEntry) -> None: ...
@@ -109,6 +111,16 @@ class _TranscriptHost(Protocol):
         style: _RichStyle,
     ) -> None: ...
 
+    def _write_panel_vertical_padding(self, log: RichLog, blank: object) -> None: ...
+
+    def _write_wrapped_panel_line(
+        self,
+        log: RichLog,
+        line: str,
+        content_width: int,
+        style: _RichStyle,
+    ) -> None: ...
+
     def _append_entry(self, content: str, kind: str = "plain") -> None: ...
 
     def _replace_last_notice(self, text: str) -> None: ...
@@ -124,6 +136,8 @@ class _TranscriptHost(Protocol):
     def _refresh_footer_hints(self) -> None: ...
 
     def _update_info_panel(self) -> None: ...
+
+    def _update_focused_info_panel(self, panel: Static) -> bool: ...
 
     def _update_armory_preview(self) -> None: ...
 
@@ -159,18 +173,31 @@ class _EvidenceMarkdown:
             if segment.control:
                 yield segment
                 continue
-            text = segment.text
-            if line_start and not in_sources_footer and is_evidence_sources_line(text):
+            if self._starts_sources_footer(segment, line_start, in_sources_footer):
                 in_sources_footer = True
-            if in_sources_footer:
-                yield Segment(
-                    text,
-                    _combined_segment_style(segment.style, self._metadata_style),
-                    segment.control,
-                )
-            else:
-                yield from self._style_citation_segments(segment)
-            line_start = text.endswith("\n") if "\n" in text else False
+            yield from self._styled_segments(segment, in_sources_footer)
+            line_start = _next_line_starts(segment.text)
+
+    @staticmethod
+    def _starts_sources_footer(
+        segment: Segment,
+        line_start: bool,
+        in_sources_footer: bool,
+    ) -> bool:
+        return line_start and not in_sources_footer and is_evidence_sources_line(segment.text)
+
+    def _styled_segments(self, segment: Segment, in_sources_footer: bool) -> RenderResult:
+        if in_sources_footer:
+            yield self._metadata_segment(segment)
+            return
+        yield from self._style_citation_segments(segment)
+
+    def _metadata_segment(self, segment: Segment) -> Segment:
+        return Segment(
+            segment.text,
+            _combined_segment_style(segment.style, self._metadata_style),
+            segment.control,
+        )
 
     def _style_citation_segments(self, segment: Segment) -> RenderResult:
         text = segment.text
@@ -188,6 +215,10 @@ class _EvidenceMarkdown:
             yield Segment(text[last_end:], segment.style, segment.control)
 
 
+def _next_line_starts(text: str) -> bool:
+    return text.endswith("\n") if "\n" in text else False
+
+
 def _evidence_metadata_style() -> _RichStyle:
     return _RichStyle.parse(f"dim {current_palette().text_muted}")
 
@@ -200,6 +231,133 @@ def _reply_renderable(entry: TuiTranscriptEntry) -> RenderableType:
     if Padding is None:
         return renderable
     return Padding(renderable, (0, _REPLY_TRANSCRIPT_HORIZONTAL_PADDING))
+
+
+def _transcript_line_renderable(
+    line: str,
+    *,
+    style: _RichStyle | None = None,
+    ansi: bool = False,
+) -> object:
+    if _RichText is None:
+        return line
+    if ansi:
+        renderable = _RichText.from_ansi(line)
+        if style is not None:
+            renderable.stylize(style)
+        return renderable
+    if style is not None:
+        return _RichText.styled(line, style)
+    return line
+
+
+def _panel_width(log: RichLog) -> int:
+    return max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
+
+
+def _panel_content_width(log: RichLog) -> int:
+    return max(1, _panel_width(log) - (_USER_TRANSCRIPT_HORIZONTAL_PADDING * 2))
+
+
+def _panel_blank_line(log: RichLog, style: _RichStyle) -> _RichText:
+    return _RichText.styled(" " * _panel_width(log), style)
+
+
+def _wrap_panel_line(
+    console: Console,
+    line: str,
+    width: int,
+    style: _RichStyle,
+) -> list[_RichText]:
+    renderable = _RichText.styled(line, style)
+    wrapped = list(renderable.wrap(console, width=width))
+    return wrapped or [_RichText.styled("", style)]
+
+
+def _pad_panel_content_line(line: _RichText, width: int, style: _RichStyle) -> None:
+    if line.cell_len >= width:
+        return
+    style_start = len(line.plain)
+    line.pad_right(width - line.cell_len)
+    line.stylize(style, style_start, len(line.plain))
+
+
+def _panel_line(wrapped_line: _RichText, width: int, style: _RichStyle) -> _RichText:
+    _pad_panel_content_line(wrapped_line, width, style)
+    panel_line = _RichText.styled(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style)
+    panel_line.append_text(wrapped_line)
+    panel_line.append(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style=style)
+    return panel_line
+
+
+def _focusable_transcript_entries(
+    entries: Sequence[TuiTranscriptEntry],
+) -> list[TuiTranscriptEntry]:
+    return [entry for entry in entries if entry.kind in ("user", "markdown", "plain")]
+
+
+type _EntryWriter = Callable[[_TranscriptHost, RichLog, TuiTranscriptEntry], None]
+
+
+def _write_markdown_entry(
+    host: _TranscriptHost,
+    log: RichLog,
+    entry: TuiTranscriptEntry,
+) -> None:
+    host._write_transcript_renderable(log, _reply_renderable(entry))
+
+
+def _write_user_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
+    palette = current_palette()
+    host._write_padded_panel_lines(
+        log,
+        entry.content,
+        style=_RichStyle(color=palette.text_primary, bgcolor=palette.bg_raised, bold=True),
+    )
+
+
+def _write_startup_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
+    palette = current_palette()
+    host._write_transcript_lines(
+        log,
+        entry.content,
+        style=_RichStyle(color=palette.text_muted),
+    )
+
+
+def _write_ansi_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
+    host._write_transcript_lines(log, entry.content, ansi=_RichText is not None)
+
+
+def _write_muted_ansi_entry(
+    host: _TranscriptHost,
+    log: RichLog,
+    entry: TuiTranscriptEntry,
+) -> None:
+    if _RichText is None:
+        host._write_transcript_lines(log, entry.content)
+        return
+    palette = current_palette()
+    host._write_transcript_lines(
+        log,
+        entry.content,
+        style=_RichStyle(color=palette.text_muted),
+        ansi=True,
+    )
+
+
+def _write_plain_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
+    host._write_transcript_lines(log, entry.content)
+
+
+_ENTRY_WRITERS: dict[str, _EntryWriter] = {
+    "markdown": _write_markdown_entry,
+    "user": _write_user_entry,
+    "startup": _write_startup_entry,
+    "ansi": _write_ansi_entry,
+    "notice": _write_muted_ansi_entry,
+    "activity": _write_muted_ansi_entry,
+}
 
 
 class TuiTranscriptMixin:
@@ -228,19 +386,25 @@ class TuiTranscriptMixin:
         self._reflow_transcript_entries()
 
     def _reflow_transcript_entries(self: _TranscriptHost) -> None:
-        try:
-            log = self.query_one("#transcript", RichLog)
-        except NoMatches:
-            return
-        if log.has_class("hidden-for-armory"):
-            return
-        if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+        log = self._reflowable_transcript_log()
+        if log is None:
             return
         log.clear()
         for index, entry in enumerate(self.state.transcript):
             if index > 0:
                 self._write_transcript_gap()
             self._write_transcript_entry(entry)
+
+    def _reflowable_transcript_log(self: _TranscriptHost) -> RichLog | None:
+        try:
+            log = self.query_one("#transcript", RichLog)
+        except NoMatches:
+            return None
+        if log.has_class("hidden-for-armory"):
+            return None
+        if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+            return None
+        return log
 
     def _write_transcript_renderable(
         self: _TranscriptHost, log: RichLog, renderable: object
@@ -283,16 +447,7 @@ class TuiTranscriptMixin:
     ) -> None:
         lines = text.splitlines() or [""]
         for line in lines:
-            if _RichText is None:
-                renderable = line
-            elif ansi:
-                renderable = _RichText.from_ansi(line)
-                if style is not None:
-                    renderable.stylize(style)
-            elif style is not None:
-                renderable = _RichText.styled(line, style)
-            else:
-                renderable = line
+            renderable = _transcript_line_renderable(line, style=style, ansi=ansi)
             self._write_transcript_renderable(log, renderable)
 
     def _write_padded_panel_lines(
@@ -305,65 +460,32 @@ class TuiTranscriptMixin:
         if _RichText is None or log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
             self._write_transcript_lines(log, text, style=style)
             return
-        width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
-        content_width = max(1, width - (_USER_TRANSCRIPT_HORIZONTAL_PADDING * 2))
-        console = self.console
-        blank = _RichText.styled(" " * width, style)
-        for _ in range(_USER_TRANSCRIPT_VERTICAL_PADDING):
-            self._write_transcript_renderable(log, blank.copy())
+        content_width = _panel_content_width(log)
+        blank = _panel_blank_line(log, style)
+        self._write_panel_vertical_padding(log, blank)
         for line in text.splitlines() or [""]:
-            renderable = _RichText.styled(line, style)
-            wrapped = renderable.wrap(console, width=content_width) or [
-                _RichText.styled("", style)
-            ]
-            for wrapped_line in wrapped:
-                if wrapped_line.cell_len < content_width:
-                    style_start = len(wrapped_line.plain)
-                    wrapped_line.pad_right(content_width - wrapped_line.cell_len)
-                    wrapped_line.stylize(style, style_start, len(wrapped_line.plain))
-                panel_line = _RichText.styled(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style)
-                panel_line.append_text(wrapped_line)
-                panel_line.append(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style=style)
-                self._write_transcript_renderable(log, panel_line)
+            self._write_wrapped_panel_line(log, line, content_width, style)
+        self._write_panel_vertical_padding(log, blank)
+
+    def _write_panel_vertical_padding(self: _TranscriptHost, log: RichLog, blank: object) -> None:
         for _ in range(_USER_TRANSCRIPT_VERTICAL_PADDING):
-            self._write_transcript_renderable(log, blank.copy())
+            copy = getattr(blank, "copy", None)
+            self._write_transcript_renderable(log, copy() if callable(copy) else blank)
+
+    def _write_wrapped_panel_line(
+        self: _TranscriptHost,
+        log: RichLog,
+        line: str,
+        content_width: int,
+        style: _RichStyle,
+    ) -> None:
+        for wrapped_line in _wrap_panel_line(self.console, line, content_width, style):
+            self._write_transcript_renderable(log, _panel_line(wrapped_line, content_width, style))
 
     def _write_transcript_entry(self: _TranscriptHost, entry: TuiTranscriptEntry) -> None:
         log = self.query_one("#transcript", RichLog)
-        if entry.kind == "markdown":
-            self._write_transcript_renderable(log, _reply_renderable(entry))
-        elif entry.kind == "user":
-            p = current_palette()
-            self._write_padded_panel_lines(
-                log,
-                entry.content,
-                style=_RichStyle(color=p.text_primary, bgcolor=p.bg_raised, bold=True),
-            )
-        elif entry.kind == "startup":
-            p = current_palette()
-            self._write_transcript_lines(
-                log,
-                entry.content,
-                style=_RichStyle(color=p.text_muted),
-            )
-        elif entry.kind == "ansi":
-            if _RichText is None:
-                self._write_transcript_lines(log, entry.content)
-                return
-            self._write_transcript_lines(log, entry.content, ansi=True)
-        elif entry.kind in {"notice", "activity"}:
-            if _RichText is None:
-                self._write_transcript_lines(log, entry.content)
-                return
-            p = current_palette()
-            self._write_transcript_lines(
-                log,
-                entry.content,
-                style=_RichStyle(color=p.text_muted),
-                ansi=True,
-            )
-        else:
-            self._write_transcript_lines(log, entry.content)
+        writer = _ENTRY_WRITERS.get(entry.kind, _write_plain_entry)
+        writer(self, log, entry)
 
     def _write_transcript_gap(self: _TranscriptHost) -> None:
         log = self.query_one("#transcript", RichLog)
@@ -450,7 +572,7 @@ class TuiTranscriptMixin:
 
     def _focus_message(self: _TranscriptHost, direction: int) -> None:
         """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
-        entries = [e for e in self.state.transcript if e.kind in ("user", "markdown", "plain")]
+        entries = _focusable_transcript_entries(self.state.transcript)
         if not entries:
             return
         if self._focused_msg_index is None:
@@ -476,16 +598,8 @@ class TuiTranscriptMixin:
         if self._materials_inline_active:
             self._update_materials_sidebar()
             return
-        if self._focused_msg_index is not None:
-            entries = [e for e in self.state.transcript if e.kind in ("user", "markdown", "plain")]
-            if self._focused_msg_index < len(entries):
-                panel.update(
-                    sys.modules["hephaistos.tui"]._info_panel_message_text(
-                        entries[self._focused_msg_index],
-                        self.session,
-                    )
-                )
-                return
+        if self._update_focused_info_panel(panel):
+            return
         tui_module = sys.modules["hephaistos.tui"]
         panel.update(
             tui_module._info_panel_default_text(
@@ -493,3 +607,17 @@ class TuiTranscriptMixin:
                 session_seconds=self._tui_session_seconds(),
             )
         )
+
+    def _update_focused_info_panel(self: _TranscriptHost, panel: Static) -> bool:
+        if self._focused_msg_index is None:
+            return False
+        entries = _focusable_transcript_entries(self.state.transcript)
+        if self._focused_msg_index >= len(entries):
+            return False
+        panel.update(
+            sys.modules["hephaistos.tui"]._info_panel_message_text(
+                entries[self._focused_msg_index],
+                self.session,
+            )
+        )
+        return True

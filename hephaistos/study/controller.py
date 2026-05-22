@@ -55,6 +55,13 @@ _NO_ENGLISH_RECALL_RULE = (
 )
 _NO_ASSESS_USER_RULE = "- Do not assess the user.\n"
 _STORED_MATERIAL_CONTEXT_RULE = "- Use only the stored material context for this item.\n"
+_CITE_EVIDENCE_STEP_RULE = "- Cite evidence IDs whenever you state a factual step or value.\n"
+_CITE_EVIDENCE_CLAIMS_RULE = "- Cite evidence IDs for claims grounded in source material.\n"
+_KEEP_ONE_SHORT_SENTENCE_RULE = "- Keep it to one short sentence.\n"
+_KEEP_ONE_OR_TWO_SHORT_SENTENCES_RULE = "- Keep it to one or two short sentences.\n"
+_FORBIDDEN_RECALL_QUESTION_TYPES_HEADER = (
+    "- FORBIDDEN question types (these never test knowledge):\n"
+)
 _NO_UNSOLICITED_LEARNING_MENU_RULE = (
     "- Do not offer menus, next steps, drills, study plans, readiness prompts, or ask what "
     "the user wants next unless the user asks for that."
@@ -134,7 +141,7 @@ _RECALL_SHORT_ANSWER_RE = re.compile(
 _HEPH_SELF_RE = re.compile(
     r"\b(?:"
     r"heph|hephaistos|this\s+(?:tool|app|cli)|yourself|your\s+commands?|"
-    r"armory|armories|model\s+picker|/practice|"
+    r"armory|armories|model\s+picker|"
     r"login|privacy|diagnostics|settings"
     r")\b",
     re.IGNORECASE,
@@ -271,7 +278,6 @@ class LearningTurnPlan:
     use_expected_source_refs: bool = False
     allow_tools: bool = True
     buffer_response: bool = False
-    direct_reply: str | None = None
     stated_confidence: float | None = None
     learning_move: LearningMove | None = None
 
@@ -285,7 +291,6 @@ def _turn_plan(
     use_expected_source_refs: bool = False,
     allow_tools: bool = False,
     buffer_response: bool = False,
-    direct_reply: str | None = None,
     stated_confidence: float | None = None,
     learning_move: LearningMove | None = None,
 ) -> LearningTurnPlan:
@@ -297,7 +302,6 @@ def _turn_plan(
         use_expected_source_refs=use_expected_source_refs,
         allow_tools=allow_tools,
         buffer_response=buffer_response,
-        direct_reply=direct_reply,
         stated_confidence=stated_confidence,
         learning_move=learning_move,
     )
@@ -352,13 +356,17 @@ def _is_reveal_request(text: str) -> bool:
 
 def _is_recall_clarification_request(text: str) -> bool:
     normalized = _normalize(text)
-    return bool(
-        is_source_only_policy(normalized)
-        or _RECALL_CLARIFICATION_RE.search(normalized)
-        or _RECALL_REPROMPT_RE.search(normalized)
-        or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
-        or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
-        or _is_recall_question_clarification(normalized)
+    return any(_recall_clarification_checks(normalized))
+
+
+def _recall_clarification_checks(text: str) -> tuple[bool, ...]:
+    return (
+        is_source_only_policy(text),
+        _RECALL_CLARIFICATION_RE.search(text) is not None,
+        _RECALL_REPROMPT_RE.search(text) is not None,
+        _RECALL_SHORT_REPROMPT_RE.fullmatch(text) is not None,
+        _RECALL_LANGUAGE_ONLY_RE.fullmatch(text) is not None,
+        _is_recall_question_clarification(text),
     )
 
 
@@ -379,8 +387,7 @@ def _looks_like_recall_answer(text: str) -> bool:
 def _is_heph_self_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(
-        "/practice" in normalized.casefold()
-        or _HEPH_PRONOUN_SELF_REQUEST_RE.search(normalized)
+        _HEPH_PRONOUN_SELF_REQUEST_RE.search(normalized)
         or (_HEPH_SELF_RE.search(normalized) and _HEPH_SELF_INTENT_RE.search(normalized))
     )
 
@@ -409,6 +416,10 @@ def _material_request_plan(
     if drill_query := material_drill_query(user_input):
         return material_topic_drill_plan(user_input, retrieval_query=drill_query)
     query = _derive_presentation_query(user_input, state)
+    return _material_query_plan(query)
+
+
+def _material_query_plan(query: str) -> LearningTurnPlan | None:
     if _is_overview_request(query):
         return material_overview_plan(query)
     if is_material_source_request(query):
@@ -418,6 +429,18 @@ def _material_request_plan(
     return None
 
 
+def _prompt_frame(execute_line: str, *context_lines: str, rules: tuple[str, ...]) -> str:
+    return f"{execute_line}\n{_prompt_lines(context_lines)}Rules:\n{_prompt_lines(rules)}".rstrip()
+
+
+def _prompt_lines(lines: tuple[str, ...]) -> str:
+    return "".join(_prompt_line(line) for line in lines if line)
+
+
+def _prompt_line(line: str) -> str:
+    return line if line.endswith("\n") else f"{line}\n"
+
+
 def _calibration_prompt(*, user_request: str | None = None) -> str:
     request_line = ""
     if user_request:
@@ -425,58 +448,59 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
             "User request (language/topic signal; rules below override it): "
             f"{_normalize(user_request)}\n"
         )
-    return (
-        "Execute CALIBRATE.\n"
-        f"{request_line}"
-        "Rules:\n"
-        "- Use the retrieved material to ask exactly one diagnostic recall question.\n"
-        "- The question must be grounded in at least one retrieved source span, "
-        "past-exam pattern, rubric point, or mark-scheme point.\n"
-        "- The question must test understanding of a concept, procedure, or "
-        "relationship from the material — not surface-level document metadata.\n"
-        "Question quality contract:\n"
-        f"{_ACTIVE_RECALL_QUESTION_CONTRACT}\n"
-        "- FORBIDDEN question types (these never test knowledge):\n"
-        "  * Titles of documents, chapters, sections, or slides.\n"
-        "  * Author names, dates, or institutional affiliations.\n"
-        "  * Page numbers, section numbers, or slide numbers.\n"
-        "  * File names, folder names, or file paths.\n"
-        "  * Headings or subheadings as standalone answers.\n"
-        "- Instead, ask about definitions, cause-effect relationships, key steps "
-        "in a procedure, comparisons between concepts, or applications of a "
-        "principle.\n"
-        "- Prefer an introductory, concrete item a first-time user can attempt.\n"
-        "- If the user asked for an easy question, make it genuinely easy and "
-        "prerequisite-level.\n"
-        "- If the user asked for an exam-style or timed question, include one "
-        "reasonable time limit and require them to reason their answer from memory.\n"
-        "- Do not present the solution or method.\n"
-        "- Do not include evidence IDs, citations, source labels, or answer-location hints "
-        "in the question.\n"
-        "- Internally preserve the source grounding for later assessment; never invent "
-        "unsupported questions from general model knowledge.\n"
-        "- End with one short learner-facing instruction in the user's language asking "
-        "them to answer from memory, or ask for an easier question or material review.\n"
-        f"{_NO_ENGLISH_CLOSING_RULE}"
-        "- If no retrieved source material is available, ask which material or topic "
-        "to start with."
+    return _prompt_frame(
+        "Execute CALIBRATE.",
+        request_line,
+        rules=(
+            "- Use the retrieved material to ask exactly one diagnostic recall question.",
+            "- The question must be grounded in at least one retrieved source span, "
+            "past-exam pattern, rubric point, or mark-scheme point.",
+            "- The question must test understanding of a concept, procedure, or "
+            "relationship from the material — not surface-level document metadata.",
+            "Question quality contract:",
+            _ACTIVE_RECALL_QUESTION_CONTRACT,
+            _FORBIDDEN_RECALL_QUESTION_TYPES_HEADER,
+            "  * Titles of documents, chapters, sections, or slides.",
+            "  * Author names, dates, or institutional affiliations.",
+            "  * Page numbers, section numbers, or slide numbers.",
+            "  * File names, folder names, or file paths.",
+            "  * Headings or subheadings as standalone answers.",
+            "- Instead, ask about definitions, cause-effect relationships, key steps "
+            "in a procedure, comparisons between concepts, or applications of a principle.",
+            "- Prefer an introductory, concrete item a first-time user can attempt.",
+            "- If the user asked for an easy question, make it genuinely easy and "
+            "prerequisite-level.",
+            "- If the user asked for an exam-style or timed question, include one reasonable "
+            "time limit and require them to reason their answer from memory.",
+            "- Do not present the solution or method.",
+            "- Do not include evidence IDs, citations, source labels, or answer-location hints "
+            "in the question.",
+            "- Internally preserve the source grounding for later assessment; never invent "
+            "unsupported questions from general model knowledge.",
+            "- End with one short learner-facing instruction in the user's language asking "
+            "them to answer from memory, or ask for an easier question or material review.",
+            _NO_ENGLISH_CLOSING_RULE,
+            "- If no retrieved source material is available, ask which material or topic "
+            "to start with.",
+        ),
     )
 
 
 def _priority_prompt(user_request: str = "") -> str:
     request_line = f"User request: {user_request}\n" if user_request else ""
-    return (
-        "Execute PRIORITY.\n"
-        f"{request_line}"
-        "Rules:\n"
-        f"{_SAME_LANGUAGE_USER_RULE}"
-        "- Analyze the retrieved materials and past exams only.\n"
-        "- Identify the highest-priority topics by recurrence, exam weighting signals, "
-        "and prerequisite value.\n"
-        "- Separate direct evidence from inference. Cite evidence IDs for direct claims.\n"
-        "- Include missing prerequisites the user should review first.\n"
-        "- If the retrieved evidence is too thin to infer priorities, say so and list "
-        "what materials are needed."
+    return _prompt_frame(
+        "Execute PRIORITY.",
+        request_line,
+        rules=(
+            _SAME_LANGUAGE_USER_RULE,
+            "- Analyze the retrieved materials and past exams only.",
+            "- Identify the highest-priority topics by recurrence, exam weighting signals, "
+            "and prerequisite value.",
+            "- Separate direct evidence from inference. Cite evidence IDs for direct claims.",
+            "- Include missing prerequisites the user should review first.",
+            "- If the retrieved evidence is too thin to infer priorities, say so and list "
+            "what materials are needed.",
+        ),
     )
 
 
@@ -486,19 +510,6 @@ def _priority_plan(user_input: str, *, phase: LearningPhase) -> LearningTurnPlan
         _priority_prompt(user_input),
         phase=phase,
         retrieval_query=_PRIORITY_RETRIEVAL_QUERY,
-    )
-
-
-def _direct_reply_plan(
-    reply: str,
-    *,
-    phase: LearningPhase,
-) -> LearningTurnPlan:
-    return _turn_plan(
-        LearningAction.CHAT,
-        "",
-        phase=phase,
-        direct_reply=reply,
     )
 
 
@@ -577,42 +588,45 @@ def _present_prompt(item: str, *, user_request: str | None = None) -> str:
     request_line = ""
     if user_request and _normalize(user_request) != _normalize(item):
         request_line = f"User request: {user_request}\n"
-    return (
-        "Execute the PRESENT phase.\n"
-        f"Current item: {item}\n"
-        f"{request_line}"
-        "Rules:\n"
-        f"{_SAME_LANGUAGE_REQUEST_RULE}"
-        "- Use only the retrieved material for this item.\n"
-        "- Present the complete solution or method once, concisely.\n"
-        "- Cite evidence IDs whenever you state a factual step or value.\n"
-        f"{_NO_UNSOLICITED_LEARNING_MENU_RULE}\n"
-        "- If no retrieved source material is available, say no searchable armory "
-        "evidence was found for this item. Do not answer from outside knowledge. "
-        "Ask for a more specific material-backed prompt or for the material to be indexed.\n"
-        "- Do not switch into assessment or extra tutoring."
+    return _prompt_frame(
+        "Execute the PRESENT phase.",
+        f"Current item: {item}",
+        request_line,
+        rules=(
+            _SAME_LANGUAGE_REQUEST_RULE,
+            "- Use only the retrieved material for this item.",
+            "- Present the complete solution or method once, concisely.",
+            _CITE_EVIDENCE_STEP_RULE,
+            _NO_UNSOLICITED_LEARNING_MENU_RULE,
+            "- If no retrieved source material is available, say no searchable armory "
+            "evidence was found for this item. Do not answer from outside knowledge. "
+            "Ask for a more specific material-backed prompt or for the material to be indexed.",
+            "- Do not switch into assessment or extra tutoring.",
+        ),
     )
 
 
 def _overview_prompt(query: str) -> str:
-    return (
-        "Execute MATERIAL_OVERVIEW.\n"
-        f"User request: {query}\n"
-        "Rules:\n"
-        f"{_SAME_LANGUAGE_REQUEST_RULE}"
-        "- Give the big picture first: domain, document types, major topic clusters, "
-        "and how the topics relate.\n"
-        "- Use only cited retrieved evidence. Do not infer from filenames, dates, "
-        "semester labels, lecturers, institutions, language, or outside knowledge.\n"
-        "- Avoid course administration metadata and do not explain retrieval sampling mechanics.\n"
-        "- Synthesize in your own words. Do not paste long source excerpts; quote only "
-        "short exact wording when useful.\n"
-        "- Use at least two concise cited bullets when evidence supports them, and cite "
-        "evidence IDs for every factual claim.\n"
-        "- If evidence is thin, state only the supported subject and document roles; "
-        "do not add a generic sampling or completeness disclaimer.\n"
-        "- Do not end with readiness, drill, next-step, evidence-grounding-block, "
-        "sample-scope, non-exhaustive list, or completeness caveats."
+    return _prompt_frame(
+        "Execute MATERIAL_OVERVIEW.",
+        f"User request: {query}",
+        rules=(
+            _SAME_LANGUAGE_REQUEST_RULE,
+            "- Give the big picture first: domain, document types, major topic clusters, "
+            "and how the topics relate.",
+            "- Use only cited retrieved evidence. Do not infer from filenames, dates, "
+            "semester labels, lecturers, institutions, language, or outside knowledge.",
+            "- Avoid course administration metadata and do not explain retrieval sampling "
+            "mechanics.",
+            "- Synthesize in your own words. Do not paste long source excerpts; quote only "
+            "short exact wording when useful.",
+            "- Use at least two concise cited bullets when evidence supports them, and cite "
+            "evidence IDs for every factual claim.",
+            "- If evidence is thin, state only the supported subject and document roles; "
+            "do not add a generic sampling or completeness disclaimer.",
+            "- Do not end with readiness, drill, next-step, evidence-grounding-block, "
+            "sample-scope, non-exhaustive list, or completeness caveats.",
+        ),
     )
 
 
@@ -707,17 +721,18 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
     request_line = ""
     if user_request and _normalize(user_request) != _normalize(query):
         request_line = f"User request: {user_request}\n"
-    return (
-        "Execute SOURCE_QA.\n"
-        f"User question: {query}\n"
-        f"{request_line}"
-        "Rules:\n"
-        f"{_SAME_LANGUAGE_REQUEST_RULE}"
-        "- Answer the user's question directly using only the retrieved source material.\n"
-        "- If the user asks for an exact phrase, quote only the exact phrase plus citations.\n"
-        "- Cite evidence IDs for claims grounded in source material.\n"
-        "- If no retrieved source material answers the question, say that the armory sources "
-        "do not contain the answer and ask for more specific material."
+    return _prompt_frame(
+        "Execute SOURCE_QA.",
+        f"User question: {query}",
+        request_line,
+        rules=(
+            _SAME_LANGUAGE_REQUEST_RULE,
+            "- Answer the user's question directly using only the retrieved source material.",
+            "- If the user asks for an exact phrase, quote only the exact phrase plus citations.",
+            _CITE_EVIDENCE_CLAIMS_RULE,
+            "- If no retrieved source material answers the question, say that the armory sources "
+            "do not contain the answer and ask for more specific material.",
+        ),
     )
 
 
@@ -752,7 +767,7 @@ def _plain_chat_prompt(query: str, *, terminal_context: bool = False) -> str:
                 "context when provided by the system prompt or turn prompt.",
             )
         )
-    return f"Execute CHAT.\nUser request: {query}\nRules:\n{''.join(rules)}"
+    return _prompt_frame("Execute CHAT.", f"User request: {query}", rules=tuple(rules))
 
 
 def _heph_self_prompt(query: str) -> str:
@@ -762,130 +777,138 @@ def _heph_self_prompt(query: str) -> str:
         if docs_context
         else "Current Heph documentation excerpt: unavailable.\n"
     )
-    return (
-        "Execute HEPH_HELP.\n"
-        f"User request: {query}\n"
-        f"{context_block}"
-        "Rules:\n"
-        f"{_SAME_LANGUAGE_USER_RULE}"
-        "- Answer from the Heph documentation excerpt above, not from armory material.\n"
-        "- Do not treat the user message as a recall attempt, even during an active drill.\n"
-        "- Do not grade the learner, require confidence, or reveal any active recall answer.\n"
-        "- Do not use armory material, citations, retrieved evidence, or tool output.\n"
-        "- If the excerpt does not answer the request, say what is missing and point to /help.\n"
-        "- Keep the answer concise and practical."
+    return _prompt_frame(
+        "Execute HEPH_HELP.",
+        f"User request: {query}",
+        context_block,
+        rules=(
+            _SAME_LANGUAGE_USER_RULE,
+            "- Answer from the Heph documentation excerpt above, not from armory material.",
+            "- Do not treat the user message as a recall attempt, even during an active drill.",
+            "- Do not grade the learner, require confidence, or reveal any active recall answer.",
+            "- Do not use armory material, citations, retrieved evidence, or tool output.",
+            "- If the excerpt does not answer the request, say what is missing and point to "
+            "/help.",
+            "- Keep the answer concise and practical.",
+        ),
     )
 
 
 def _practice_calibration_prompt(query: str, state: LearningState) -> str:
     goal = state.session_goal or "material review"
     session_type = state.practice_session_type or "general"
-    return (
-        "Execute PRACTICE_CALIBRATION.\n"
-        f"Practice type: {session_type}\n"
-        f"Practice goal: {goal}\n"
-        f"User request: {query}\n"
-        "Rules:\n"
-        "- Do not print planning labels.\n"
-        "- Start directly with the learner-facing task.\n"
-        "- Use the retrieved source material to ask exactly one diagnostic recall, "
-        "prediction, application, or comparison question.\n"
-        "- Ground the question in at least one retrieved source span, past-exam pattern, "
-        "rubric point, or mark-scheme point.\n"
-        "- The question must test understanding, not document metadata.\n"
-        "Question quality contract:\n"
-        f"{_ACTIVE_RECALL_QUESTION_CONTRACT}\n"
-        "- FORBIDDEN question types (these never test knowledge):\n"
-        "  * Titles of documents, chapters, sections, or slides.\n"
-        "  * Author names, dates, or institutional affiliations.\n"
-        "  * Page numbers, section numbers, or slide numbers.\n"
-        "  * File names, folder names, or file paths.\n"
-        "  * Headings or subheadings as standalone answers.\n"
-        "- Internally preserve source grounding and never invent unsupported questions.\n"
-        "- Do not reveal the answer, method, answer key, source IDs, or citations.\n"
-        "- Require the learner to answer from memory and include confidence from 0-100%.\n"
-        "- If source material is unavailable or too thin, ask the smallest necessary "
-        "clarifying question instead of inventing a task.\n"
-        "- End with one short learner-facing instruction in the user's language asking them "
-        "to answer from memory and give confidence from 0-100%.\n"
-        "- Do not hard-code an English closing instruction when the user wrote in another "
-        "language."
+    return _prompt_frame(
+        "Execute PRACTICE_CALIBRATION.",
+        f"Practice type: {session_type}",
+        f"Practice goal: {goal}",
+        f"User request: {query}",
+        rules=(
+            "- Do not print planning labels.",
+            "- Start directly with the learner-facing task.",
+            "- Use the retrieved source material to ask exactly one diagnostic recall, "
+            "prediction, application, or comparison question.",
+            "- Ground the question in at least one retrieved source span, past-exam pattern, "
+            "rubric point, or mark-scheme point.",
+            "- The question must test understanding, not document metadata.",
+            "Question quality contract:",
+            _ACTIVE_RECALL_QUESTION_CONTRACT,
+            _FORBIDDEN_RECALL_QUESTION_TYPES_HEADER,
+            "  * Titles of documents, chapters, sections, or slides.",
+            "  * Author names, dates, or institutional affiliations.",
+            "  * Page numbers, section numbers, or slide numbers.",
+            "  * File names, folder names, or file paths.",
+            "  * Headings or subheadings as standalone answers.",
+            "- Internally preserve source grounding and never invent unsupported questions.",
+            "- Do not reveal the answer, method, answer key, source IDs, or citations.",
+            "- Require the learner to answer from memory and include confidence from 0-100%.",
+            "- If source material is unavailable or too thin, ask the smallest necessary "
+            "clarifying question instead of inventing a task.",
+            "- End with one short learner-facing instruction in the user's language asking them "
+            "to answer from memory and give confidence from 0-100%.",
+            _NO_ENGLISH_CLOSING_RULE,
+        ),
     )
 
 
 def _source_followup_prompt(item: str, user_input: str) -> str:
-    return (
-        "Execute SOURCE_FOLLOWUP.\n"
-        f"Current material focus: {item}\n"
-        f"User follow-up: {user_input}\n"
-        "Rules:\n"
-        "- Answer in the same language as the user's follow-up when clear.\n"
-        "- Treat the follow-up as a real question or reaction about the cited material, not as a "
-        "readiness signal and not as a recall attempt.\n"
-        "- Use the stored or retrieved material evidence before answering.\n"
-        "- If the follow-up is an acknowledgement such as 'interesting', explain one "
-        "specific reason grounded in the material for why it is interesting or important.\n"
-        "- If the follow-up asks why, answer the why-question directly from the evidence.\n"
-        f"{_NO_UNSOLICITED_LEARNING_MENU_RULE}\n"
-        "- Cite evidence IDs for claims grounded in source material.\n"
-        f"{_NO_ASSESS_USER_RULE}"
+    return _prompt_frame(
+        "Execute SOURCE_FOLLOWUP.",
+        f"Current material focus: {item}",
+        f"User follow-up: {user_input}",
+        rules=(
+            "- Answer in the same language as the user's follow-up when clear.",
+            "- Treat the follow-up as a real question or reaction about the cited material, "
+            "not as a readiness signal and not as a recall attempt.",
+            "- Use the stored or retrieved material evidence before answering.",
+            "- If the follow-up is an acknowledgement such as 'interesting', explain one "
+            "specific reason grounded in the material for why it is interesting or important.",
+            "- If the follow-up asks why, answer the why-question directly from the evidence.",
+            _NO_UNSOLICITED_LEARNING_MENU_RULE,
+            _CITE_EVIDENCE_CLAIMS_RULE,
+            _NO_ASSESS_USER_RULE,
+        ),
     )
 
 
 def _waiting_prompt() -> str:
-    return (
-        "Execute WAITING_FOR_READY.\n"
-        "Rules:\n"
-        "- Do not reveal any more of the solution.\n"
-        "- Tell the user, in their language when clear, to signal when they are ready "
-        "for recall.\n"
-        f"{_NO_ENGLISH_READY_RULE}"
-        "- Keep it to one short sentence."
+    return _prompt_frame(
+        "Execute WAITING_FOR_READY.",
+        rules=(
+            "- Do not reveal any more of the solution.",
+            "- Tell the user, in their language when clear, to signal when they are ready "
+            "for recall.",
+            _NO_ENGLISH_READY_RULE,
+            _KEEP_ONE_SHORT_SENTENCE_RULE,
+        ),
     )
 
 
 def _recall_prompt(item: str) -> str:
-    return (
-        "Execute RECALL.\n"
-        f"Current item: {item}\n"
-        "Rules:\n"
-        "- Do not answer the item.\n"
-        "- Tell the user to reproduce the solution from memory now.\n"
-        f"{_SAME_LANGUAGE_ITEM_RULE}"
-        f"{_NO_ENGLISH_RECALL_RULE}"
-        "- Keep it to one short sentence."
+    return _prompt_frame(
+        "Execute RECALL.",
+        f"Current item: {item}",
+        rules=(
+            "- Do not answer the item.",
+            "- Tell the user to reproduce the solution from memory now.",
+            _SAME_LANGUAGE_ITEM_RULE,
+            _NO_ENGLISH_RECALL_RULE,
+            _KEEP_ONE_SHORT_SENTENCE_RULE,
+        ),
     )
 
 
 def _recall_clarification_prompt(item: str, request: str) -> str:
-    return (
-        "Execute RECALL_CLARIFICATION.\n"
-        f"Current item: {item}\n"
-        f"User request: {request}\n"
-        "Rules:\n"
-        "- The user is asking what to answer, not attempting the answer.\n"
-        "- If the user asks to repeat, rephrase, translate, or use a language, honor "
-        "that request for the prompt only.\n"
-        "- Restate what they should recall from memory without revealing the solution.\n"
-        f"{_NO_ASSESS_USER_RULE}"
-        "- Do not include answer content, grading, scores, or correctness labels.\n"
-        "- Answer in the same language as the user's clarification request when clear.\n"
-        "- Do not hard-code an English recall sentence when the user asked in another language.\n"
-        "- Keep it to one or two short sentences."
+    return _prompt_frame(
+        "Execute RECALL_CLARIFICATION.",
+        f"Current item: {item}",
+        f"User request: {request}",
+        rules=(
+            "- The user is asking what to answer, not attempting the answer.",
+            "- If the user asks to repeat, rephrase, translate, or use a language, honor "
+            "that request for the prompt only.",
+            "- Restate what they should recall from memory without revealing the solution.",
+            _NO_ASSESS_USER_RULE,
+            "- Do not include answer content, grading, scores, or correctness labels.",
+            "- Answer in the same language as the user's clarification request when clear.",
+            "- Do not hard-code an English recall sentence when the user asked in another "
+            "language.",
+            _KEEP_ONE_OR_TWO_SHORT_SENTENCES_RULE,
+        ),
     )
 
 
 def _refusal_prompt(item: str) -> str:
-    return (
-        "Execute REFUSE_REVEAL.\n"
-        f"Current item: {item}\n"
-        "Rules:\n"
-        "- Do not reveal new solution content.\n"
-        "- Briefly refuse and tell the user to attempt recall first.\n"
-        f"{_SAME_LANGUAGE_ITEM_RULE}"
-        "- Do not hard-code an English refusal when the learning exchange is in another "
-        "language.\n"
-        "- Keep it to one or two short sentences."
+    return _prompt_frame(
+        "Execute REFUSE_REVEAL.",
+        f"Current item: {item}",
+        rules=(
+            "- Do not reveal new solution content.",
+            "- Briefly refuse and tell the user to attempt recall first.",
+            _SAME_LANGUAGE_ITEM_RULE,
+            "- Do not hard-code an English refusal when the learning exchange is in another "
+            "language.",
+            _KEEP_ONE_OR_TWO_SHORT_SENTENCES_RULE,
+        ),
     )
 
 
@@ -903,89 +926,94 @@ def _hint_prompt(item: str, hint_level: int) -> str:
         if bounded_level < 5
         else "- This is the final ladder level; do not state the final answer directly."
     )
-    return (
-        "Execute HINT.\n"
-        f"Current item: {item}\n"
-        f"Hint level: {bounded_level}\n"
-        "Rules:\n"
-        f"{_STORED_MATERIAL_CONTEXT_RULE}"
-        f"{level_instruction}\n"
-        f"{leakage_rule}\n"
-        "- If no grounded material context is available, say no grounded hint is available.\n"
-        f"{_SAME_LANGUAGE_ITEM_RULE}"
-        "- Do not hard-code an English hint when the learning exchange is in another language.\n"
-        "- Keep it to one short sentence."
+    return _prompt_frame(
+        "Execute HINT.",
+        f"Current item: {item}",
+        f"Hint level: {bounded_level}",
+        rules=(
+            _STORED_MATERIAL_CONTEXT_RULE,
+            level_instruction,
+            leakage_rule,
+            "- If no grounded material context is available, say no grounded hint is available.",
+            _SAME_LANGUAGE_ITEM_RULE,
+            "- Do not hard-code an English hint when the learning exchange is in another "
+            "language.",
+            _KEEP_ONE_SHORT_SENTENCE_RULE,
+        ),
     )
 
 
 def _practice_scaffold_prompt(item: str) -> str:
-    return (
-        "Execute PRACTICE_SCAFFOLD.\n"
-        f"Previous item: {item}\n"
-        "Rules:\n"
-        "- The learner signaled that they are not ready or not sure.\n"
-        "- Do not grade the learner and do not mark the attempt wrong.\n"
-        f"{_STORED_MATERIAL_CONTEXT_RULE}"
-        "- Give the smallest useful scaffold: a sentence starter, one partial setup, "
-        "or a 1-3 blank fill-the-gaps prompt.\n"
-        "- Keep the full answer hidden; reveal only enough structure for the learner "
-        "to make a real next attempt.\n"
-        "- Ground the scaffold in a retrieved source span, past-exam pattern, rubric "
-        "point, or mark-scheme point.\n"
-        "- Ask exactly one easier action the learner can complete now.\n"
-        "- End with one short learner-facing instruction in the user's language asking "
-        "them to fill the gap or continue the starter, then give confidence from 0-100%.\n"
-        f"{_NO_ENGLISH_CLOSING_RULE}"
-        "- If no grounded material context is available, say no grounded scaffold is "
-        "available and ask which subtopic to review first."
+    return _prompt_frame(
+        "Execute PRACTICE_SCAFFOLD.",
+        f"Previous item: {item}",
+        rules=(
+            "- The learner signaled that they are not ready or not sure.",
+            "- Do not grade the learner and do not mark the attempt wrong.",
+            _STORED_MATERIAL_CONTEXT_RULE,
+            "- Give the smallest useful scaffold: a sentence starter, one partial setup, "
+            "or a 1-3 blank fill-the-gaps prompt.",
+            "- Keep the full answer hidden; reveal only enough structure for the learner "
+            "to make a real next attempt.",
+            "- Ground the scaffold in a retrieved source span, past-exam pattern, rubric "
+            "point, or mark-scheme point.",
+            "- Ask exactly one easier action the learner can complete now.",
+            "- End with one short learner-facing instruction in the user's language asking "
+            "them to fill the gap or continue the starter, then give confidence from 0-100%.",
+            _NO_ENGLISH_CLOSING_RULE,
+            "- If no grounded material context is available, say no grounded scaffold is "
+            "available and ask which subtopic to review first.",
+        ),
     )
 
 
 def _review_prompt(item: str) -> str:
-    return (
-        "Execute REVIEW.\n"
-        f"Current item: {item}\n"
-        "Rules:\n"
-        "- The user needs to look at the material before attempting recall.\n"
-        f"{_STORED_MATERIAL_CONTEXT_RULE}"
-        "- Present the minimum cited-material explanation needed to restart.\n"
-        "- Cite evidence IDs whenever you state a factual step or value.\n"
-        f"{_NO_UNSOLICITED_LEARNING_MENU_RULE}\n"
-        "- If no grounded material context is available, say no grounded review is available."
+    return _prompt_frame(
+        "Execute REVIEW.",
+        f"Current item: {item}",
+        rules=(
+            "- The user needs to look at the material before attempting recall.",
+            _STORED_MATERIAL_CONTEXT_RULE,
+            "- Present the minimum cited-material explanation needed to restart.",
+            _CITE_EVIDENCE_STEP_RULE,
+            _NO_UNSOLICITED_LEARNING_MENU_RULE,
+            "- If no grounded material context is available, say no grounded review is available.",
+        ),
     )
 
 
 def _assess_prompt(item: str, attempt_count: int) -> str:
-    return (
-        "Execute ASSESS.\n"
-        f"Current item: {item}\n"
-        f"Attempt number: {attempt_count + 1}\n"
-        "Rules:\n"
-        "- Evaluate the user's attempt against the retrieved material only.\n"
-        "- Treat retrieved material, rubrics, mark schemes, and past-exam patterns as "
-        "the source of truth. General model knowledge may only clarify wording; it "
-        "must not add expected points or override the material.\n"
-        "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.\n"
-        "- After the label, use this compact structure when evidence is available:\n"
-        "  Score: <earned>/<available or expected points>.\n"
-        "  Got: <material-supported points the user included>.\n"
-        "  Missing: <rubric or material-supported points still needed>.\n"
-        "  Misconception: <incorrect idea and why the source contradicts it, or none>.\n"
-        "  Correction: <minimal cited correction with evidence IDs>.\n"
-        "  Try again: <one next retrieval prompt>.\n"
-        "  Confidence: <whether the user's confidence seems calibrated, if stated>.\n"
-        "- CORRECT: keep the structure brief and do not restate a full solution.\n"
-        "- PARTIAL: identify missing required points without revealing unrelated "
-        "extra material.\n"
-        "- WRONG: correct the misconception or first wrong step immediately, then give "
-        "one focused retrieval prompt. Do not let the user continue with a false idea.\n"
-        "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
-        "corrections whenever IDs are available.\n"
-        "- If the uploaded material does not contain enough evidence to assess "
-        "confidently, say so clearly and default to PARTIAL:.\n"
-        "- Be factual and direct. No praise. No generic encouragement.\n"
-        "- If material evidence is missing, default to PARTIAL: "
-        "and say grounded assessment is unavailable."
+    return _prompt_frame(
+        "Execute ASSESS.",
+        f"Current item: {item}",
+        f"Attempt number: {attempt_count + 1}",
+        rules=(
+            "- Evaluate the user's attempt against the retrieved material only.",
+            "- Treat retrieved material, rubrics, mark schemes, and past-exam patterns as "
+            "the source of truth. General model knowledge may only clarify wording; it "
+            "must not add expected points or override the material.",
+            "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.",
+            "- After the label, use this compact structure when evidence is available:",
+            "  Score: <earned>/<available or expected points>.",
+            "  Got: <material-supported points the user included>.",
+            "  Missing: <rubric or material-supported points still needed>.",
+            "  Misconception: <incorrect idea and why the source contradicts it, or none>.",
+            "  Correction: <minimal cited correction with evidence IDs>.",
+            "  Try again: <one next retrieval prompt>.",
+            "  Confidence: <whether the user's confidence seems calibrated, if stated>.",
+            "- CORRECT: keep the structure brief and do not restate a full solution.",
+            "- PARTIAL: identify missing required points without revealing unrelated "
+            "extra material.",
+            "- WRONG: correct the misconception or first wrong step immediately, then give "
+            "one focused retrieval prompt. Do not let the user continue with a false idea.",
+            "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
+            "corrections whenever IDs are available.",
+            "- If the uploaded material does not contain enough evidence to assess "
+            "confidently, say so clearly and default to PARTIAL:.",
+            "- Be factual and direct. No praise. No generic encouragement.",
+            "- If material evidence is missing, default to PARTIAL: and say grounded "
+            "assessment is unavailable.",
+        ),
     )
 
 
@@ -1089,8 +1117,17 @@ def _practice_stop_plan(
     )
     if not reason:
         return None
-    reply = f"Practice session complete: {reason}."
-    return _direct_reply_plan(reply, phase=state.phase)
+    return _chat_prompt_plan(_practice_stop_prompt(reason), phase=state.phase)
+
+
+def _practice_stop_prompt(reason: str) -> str:
+    return _prompt_frame(
+        "Practice session boundary.",
+        rules=(
+            f"- Tell the user the current practice session is complete because: {reason}.",
+            "- Be brief and do not offer a menu or next step.",
+        ),
+    )
 
 
 def _practice_stop_reason(
@@ -1306,13 +1343,19 @@ def _plan_turn_base(
         return _present_query_plan(state, user_input)
 
     source_query = state.retrieval_query or state.current_item
+    return _plan_turn_with_current_item(state, user_input, text, source_query)
 
+
+def _plan_turn_with_current_item(
+    state: LearningState,
+    user_input: str,
+    text: str,
+    source_query: str,
+) -> LearningTurnPlan:
     if state.phase == LearningPhase.WAITING_FOR_READY:
         return _plan_waiting_for_ready_turn(state, user_input, text, source_query)
-
     if state.phase == LearningPhase.RECALL:
         return _plan_recall_turn(state, user_input, text, source_query)
-
     return _present_query_plan(state, user_input)
 
 
@@ -1502,10 +1545,10 @@ def _recall_assessment_plan(
 
 def _fallback_assessment_message(feedback: LearningFeedbackType) -> str:
     if feedback is LearningFeedbackType.CORRECT:
-        return "Correct. Move to the next item."
+        return "I could not parse the assessment output as CORRECT."
     if feedback is LearningFeedbackType.WRONG:
-        return "Start again from the first step only."
-    return "Your attempt is incomplete. Try again from memory."
+        return "I could not parse the assessment output as WRONG."
+    return "I could not parse the assessment output as PARTIAL."
 
 
 def _parse_assessment_reply(reply: str) -> tuple[LearningFeedbackType, str]:
@@ -1617,8 +1660,7 @@ def apply_turn_result(
 ) -> tuple[LearningState, str]:
     current_time = now or datetime.now(UTC)
     next_state = state.clone()
-    if state.practice_started_at is not None and plan.action is not LearningAction.CHAT:
-        next_state.practice_turns = state.practice_turns + 1
+    _increment_practice_turn_count(state, next_state, plan)
 
     if plan.action is LearningAction.ASSESS:
         return _apply_assess_result(next_state, state, plan, reply, source_refs, current_time)
@@ -1632,6 +1674,15 @@ def apply_turn_result(
     ):
         return result
     return next_state, reply
+
+
+def _increment_practice_turn_count(
+    state: LearningState,
+    next_state: LearningState,
+    plan: LearningTurnPlan,
+) -> None:
+    if state.practice_started_at is not None and plan.action is not LearningAction.CHAT:
+        next_state.practice_turns = state.practice_turns + 1
 
 
 def _apply_non_assess_result(
@@ -1657,18 +1708,33 @@ def _apply_simple_turn_result(
     current_time: datetime,
 ) -> TurnResult | None:
     if plan.action is LearningAction.CHAT:
-        next_state.last_feedback_type = LearningFeedbackType.NONE
-        return next_state, plan.direct_reply or reply
+        return _apply_chat_result(next_state, reply)
     if plan.action is LearningAction.PRIORITY:
-        next_state.phase = LearningPhase.PRESENTING
-        next_state.last_feedback_type = LearningFeedbackType.NONE
-        return next_state, reply
+        return _apply_priority_result(next_state, reply)
     if plan.action is LearningAction.SOURCE_QA:
-        _clear_recall_target(next_state, feedback=LearningFeedbackType.NONE, reset_hint=False)
-        return next_state, reply
+        return _apply_source_qa_result(next_state, reply)
     if plan.action is LearningAction.CALIBRATE:
         return _apply_calibrate_result(next_state, plan, reply, source_refs, current_time)
     return None
+
+
+def _apply_chat_result(
+    next_state: LearningState,
+    reply: str,
+) -> TurnResult:
+    next_state.last_feedback_type = LearningFeedbackType.NONE
+    return next_state, reply
+
+
+def _apply_priority_result(next_state: LearningState, reply: str) -> TurnResult:
+    next_state.phase = LearningPhase.PRESENTING
+    next_state.last_feedback_type = LearningFeedbackType.NONE
+    return next_state, reply
+
+
+def _apply_source_qa_result(next_state: LearningState, reply: str) -> TurnResult:
+    _clear_recall_target(next_state, feedback=LearningFeedbackType.NONE, reset_hint=False)
+    return next_state, reply
 
 
 _SOURCED_STEP_ACTIONS = frozenset(
@@ -1745,29 +1811,58 @@ def _apply_recall_control_result(
     current_time: datetime,
 ) -> tuple[LearningState, str] | None:
     if plan.action is LearningAction.PROMPT_RECALL:
-        next_state.phase = LearningPhase.RECALL
-        next_state.last_feedback_type = LearningFeedbackType.READY
-        next_state.recall_started_at = current_time
-        next_state.last_recall_seconds = None
-        next_state.last_recall_rating = RecallRating.NONE
-        next_state.hint_level = 0
-        return next_state, reply
+        return _apply_prompt_recall_result(next_state, reply, current_time)
     if plan.action is LearningAction.WAIT_READY_REMINDER:
-        next_state.phase = LearningPhase.WAITING_FOR_READY
-        next_state.last_feedback_type = LearningFeedbackType.WAITING
-        return next_state, reply
+        return _apply_wait_ready_reminder_result(next_state, reply)
     if plan.action is LearningAction.REFUSE_REVEAL:
-        next_state.phase = state.phase
-        next_state.last_feedback_type = LearningFeedbackType.REFUSED
-        return next_state, reply
+        return _apply_refuse_reveal_result(state, next_state, reply)
     if plan.action is LearningAction.HINT:
-        next_state.phase = LearningPhase.RECALL
-        next_state.last_feedback_type = LearningFeedbackType.HINT
-        next_state.hint_level = min(5, state.hint_level + 1)
-        if source_refs:
-            next_state.expected_source_refs = list(source_refs)
-        return next_state, reply
+        return _apply_hint_result(state, next_state, reply, source_refs)
     return None
+
+
+def _apply_prompt_recall_result(
+    next_state: LearningState,
+    reply: str,
+    current_time: datetime,
+) -> TurnResult:
+    next_state.phase = LearningPhase.RECALL
+    next_state.last_feedback_type = LearningFeedbackType.READY
+    next_state.recall_started_at = current_time
+    next_state.last_recall_seconds = None
+    next_state.last_recall_rating = RecallRating.NONE
+    next_state.hint_level = 0
+    return next_state, reply
+
+
+def _apply_wait_ready_reminder_result(next_state: LearningState, reply: str) -> TurnResult:
+    next_state.phase = LearningPhase.WAITING_FOR_READY
+    next_state.last_feedback_type = LearningFeedbackType.WAITING
+    return next_state, reply
+
+
+def _apply_refuse_reveal_result(
+    state: LearningState,
+    next_state: LearningState,
+    reply: str,
+) -> TurnResult:
+    next_state.phase = state.phase
+    next_state.last_feedback_type = LearningFeedbackType.REFUSED
+    return next_state, reply
+
+
+def _apply_hint_result(
+    state: LearningState,
+    next_state: LearningState,
+    reply: str,
+    source_refs: list[str],
+) -> TurnResult:
+    next_state.phase = LearningPhase.RECALL
+    next_state.last_feedback_type = LearningFeedbackType.HINT
+    next_state.hint_level = min(5, state.hint_level + 1)
+    if source_refs:
+        next_state.expected_source_refs = list(source_refs)
+    return next_state, reply
 
 
 def _apply_calibrate_result(
@@ -1778,15 +1873,13 @@ def _apply_calibrate_result(
     current_time: datetime,
 ) -> tuple[LearningState, str]:
     if source_refs:
-        current_item = _normalize(reply)
-        _enter_sourced_step(
+        _enter_recall_from_reply(
             next_state,
-            phase=LearningPhase.RECALL,
-            current_item=current_item,
-            retrieval_query=plan.retrieval_query or current_item,
+            reply=reply,
+            retrieval_query=plan.retrieval_query,
             source_refs=source_refs,
             feedback=LearningFeedbackType.CALIBRATING,
-            recall_started_at=current_time,
+            current_time=current_time,
             hint_level=0,
         )
     else:
@@ -1811,19 +1904,29 @@ def _apply_present_result(
             _set_insufficient_evidence_stop_reason(next_state)
         return next_state, reply
     if source_refs:
-        _enter_sourced_step(
-            next_state,
-            phase=LearningPhase.WAITING_FOR_READY,
-            current_item=plan.retrieval_query or state.current_item,
-            retrieval_query=next_retrieval_query,
-            source_refs=source_refs,
-            feedback=LearningFeedbackType.PRESENTED,
-            recall_started_at=None,
-            hint_level=0,
-        )
+        _enter_presented_step(next_state, state, plan, source_refs, next_retrieval_query)
     else:
         _mark_insufficient_evidence(next_state)
     return next_state, reply
+
+
+def _enter_presented_step(
+    next_state: LearningState,
+    state: LearningState,
+    plan: LearningTurnPlan,
+    source_refs: list[str],
+    next_retrieval_query: str,
+) -> None:
+    _enter_sourced_step(
+        next_state,
+        phase=LearningPhase.WAITING_FOR_READY,
+        current_item=plan.retrieval_query or state.current_item,
+        retrieval_query=next_retrieval_query,
+        source_refs=source_refs,
+        feedback=LearningFeedbackType.PRESENTED,
+        recall_started_at=None,
+        hint_level=0,
+    )
 
 
 def _apply_simplify_result(
@@ -1835,19 +1938,41 @@ def _apply_simplify_result(
     current_time: datetime,
 ) -> tuple[LearningState, str]:
     if source_refs:
-        _enter_sourced_step(
+        _enter_recall_from_reply(
             next_state,
-            phase=LearningPhase.RECALL,
-            current_item=_normalize(reply),
+            reply=reply,
             retrieval_query=next_retrieval_query,
             source_refs=source_refs,
             feedback=LearningFeedbackType.EASIER,
-            recall_started_at=current_time,
+            current_time=current_time,
             hint_level=min(5, state.hint_level + 1),
         )
     else:
         _mark_insufficient_evidence(next_state, phase=LearningPhase.RECALL)
     return next_state, reply
+
+
+def _enter_recall_from_reply(
+    state: LearningState,
+    *,
+    reply: str,
+    retrieval_query: str | None,
+    source_refs: list[str],
+    feedback: LearningFeedbackType,
+    current_time: datetime,
+    hint_level: int,
+) -> None:
+    current_item = _normalize(reply)
+    _enter_sourced_step(
+        state,
+        phase=LearningPhase.RECALL,
+        current_item=current_item,
+        retrieval_query=retrieval_query or current_item,
+        source_refs=source_refs,
+        feedback=feedback,
+        recall_started_at=current_time,
+        hint_level=hint_level,
+    )
 
 
 def _apply_review_result(

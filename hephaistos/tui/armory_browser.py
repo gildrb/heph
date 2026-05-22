@@ -16,11 +16,13 @@ environments where Textual is not installed.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
 from hephaistos.armory.search import (
     MAX_RECENT_ARMORIES,
+    KnownArmory,
     load_known_armory_entries,
     load_recent_armory_entries,
 )
@@ -114,39 +116,62 @@ def _is_within_armory_home(path: Path) -> bool:
     return True
 
 
-def _creation_parent_error(path: Path) -> str | None:
-    armory_home = default_armory_home()
+def _resolved_armory_home_child(path: Path) -> Path | None:
+    resolved = path.expanduser().resolve(strict=False)
+    return resolved if _is_within_armory_home(resolved) else None
 
+
+def _existing_armory_home_dir(path: Path) -> Path | None:
+    resolved = _resolved_armory_home_child(path)
+    if resolved is None or not resolved.exists() or not resolved.is_dir():
+        return None
+    return resolved
+
+
+def _creation_parent_error(path: Path) -> str | None:
     if not _is_within_armory_home(path):
         return (
-            f"Armories can only be created in the armories directory ({armory_home}). "
+            f"Armories can only be created in the armories directory ({default_armory_home()}). "
             f"Current location: {path}"
         )
 
     if path.exists():
-        if not path.is_dir():
-            return f"Cannot create an armory here because this is not a folder: {path}"
-        if not _is_writable_directory(path):
-            return f"Cannot create an armory in a read-only folder: {path}"
-        return None
-    parent = path.parent
-    if parent == path or not _is_writable_directory(parent):
+        return _existing_creation_target_error(path)
+    if not _has_writable_parent(path):
         return f"Cannot create an armory here because this folder is not writable: {path}"
     return None
 
 
+def _existing_creation_target_error(path: Path) -> str | None:
+    if not path.is_dir():
+        return f"Cannot create an armory here because this is not a folder: {path}"
+    if not _is_writable_directory(path):
+        return f"Cannot create an armory in a read-only folder: {path}"
+    return None
+
+
+def _has_writable_parent(path: Path) -> bool:
+    return path.parent != path and _is_writable_directory(path.parent)
+
+
 def new_armory_path(parent: Path, name: str) -> tuple[Path | None, str | None]:
     candidate = Path(name)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        return None, "Armory name must stay inside the selected folder."
-    if len(candidate.parts) != 1:
-        return None, "Armory name must be a single folder name."
-    if not candidate.name:
-        return None, "Armory name is required."
+    if error := _new_armory_name_error(candidate):
+        return None, error
     path = parent / candidate.name
     if path.exists():
         return None, f"A folder named '{candidate.name}' already exists. Choose another name."
     return path, None
+
+
+def _new_armory_name_error(candidate: Path) -> str:
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return "Armory name must stay inside the selected folder."
+    if len(candidate.parts) != 1:
+        return "Armory name must be a single folder name."
+    if not candidate.name:
+        return "Armory name is required."
+    return ""
 
 
 def _default_start_path(start: Path | None) -> Path:
@@ -189,9 +214,8 @@ class _DirEntry:
 
 
 def _place_entries() -> list[_DirEntry]:
-    armory_home = default_armory_home()
     candidates = (
-        ("armories", armory_home),
+        ("armories", default_armory_home()),
         ("cwd", Path.cwd()),
         ("desktop", Path.home() / "Desktop"),
         ("documents", Path.home() / "Documents"),
@@ -200,10 +224,8 @@ def _place_entries() -> list[_DirEntry]:
     entries: list[_DirEntry] = []
     seen: set[Path] = set()
     for label, path in candidates:
-        resolved = path.expanduser().resolve(strict=False)
-        if not _is_within_armory_home(resolved):
-            continue
-        if resolved in seen or not resolved.exists() or not resolved.is_dir():
+        resolved = _existing_armory_home_dir(path)
+        if resolved is None or resolved in seen:
             continue
         seen.add(resolved)
         entries.append(_DirEntry(f"{label}  {resolved}", path=resolved, is_place=True))
@@ -219,37 +241,45 @@ def _recent_entries() -> list[_DirEntry]:
     for known in recent:
         if len(entries) >= MAX_RECENT_ARMORIES:
             break
-        if not known.valid:
-            continue
-        if not _is_within_armory_home(known.path):
-            continue
-        entries.append(
-            _DirEntry(
-                f"{_RECENT_PREFIX}{known.path.name}{_ARMORY_BADGE}",
-                path=known.path,
-                is_recent=True,
-            )
-        )
+        if entry := _recent_entry(known):
+            entries.append(entry)
     return entries
+
+
+def _recent_entry(known: KnownArmory) -> _DirEntry | None:
+    path = _resolved_armory_home_child(known.path)
+    if not known.valid or path is None:
+        return None
+    return _DirEntry(
+        f"{_RECENT_PREFIX}{path.name}{_ARMORY_BADGE}",
+        path=path,
+        is_recent=True,
+    )
 
 
 def _available_armory_entries() -> list[_DirEntry]:
     armories = discover_available_armories()
-    child_entries = [
-        _DirEntry(f"{_DIR_PREFIX}{path.name}{_ARMORY_BADGE}", path=path)
-        for path in armories
-        if _is_within_armory_home(path)
-    ]
+    child_entries = _discovered_armory_entries(armories)
     if child_entries:
         return child_entries
-    current = default_armory_home()
-    children = _list_entries(current)
+    return _armory_home_child_entries()
+
+
+def _discovered_armory_entries(armories: list[Path]) -> list[_DirEntry]:
+    return [
+        _DirEntry(f"{_DIR_PREFIX}{path.name}{_ARMORY_BADGE}", path=path)
+        for raw_path in armories
+        if (path := _resolved_armory_home_child(raw_path)) is not None
+    ]
+
+
+def _armory_home_child_entries() -> list[_DirEntry]:
     return [
         _DirEntry(
             f"{_DIR_PREFIX}{child.name}{_ARMORY_BADGE if _is_armory(child) else ''}",
             path=child,
         )
-        for child in children
+        for child in _list_entries(default_armory_home())
         if _is_within_armory_home(child)
     ]
 
@@ -262,36 +292,58 @@ def build_entries(
 ) -> list[_DirEntry]:
     place_entries = _place_entries() if show_places and not filter_query.strip() else []
     recent_entries = _recent_entries()
-    entries: list[_DirEntry] = []
     child_entries = _available_armory_entries()
 
     if filter_query.strip():
-        searchable = [*recent_entries, *child_entries]
-        matches = ranked_matches(
-            filter_query,
-            searchable,
-            key=lambda e: e.label.strip(),
-            limit=50,
-            min_score=30.0,
-        )
-        return [m.value for m in matches]
+        return _filtered_entries(filter_query, [*recent_entries, *child_entries])
 
+    return _sectioned_entries(
+        place_entries,
+        recent_entries,
+        child_entries,
+        allow_create=allow_create,
+    )
+
+
+def _filtered_entries(filter_query: str, entries: list[_DirEntry]) -> list[_DirEntry]:
+    matches = ranked_matches(
+        filter_query,
+        entries,
+        key=lambda entry: entry.label.strip(),
+        limit=50,
+        min_score=30.0,
+    )
+    return [match.value for match in matches]
+
+
+def _sectioned_entries(
+    place_entries: list[_DirEntry],
+    recent_entries: list[_DirEntry],
+    child_entries: list[_DirEntry],
+    *,
+    allow_create: bool,
+) -> list[_DirEntry]:
+    entries: list[_DirEntry] = []
     entries.extend(place_entries)
     if entries:
         entries.append(_DirEntry(""))
-    entries.append(_DirEntry(_RECENT_HEADING, is_section=True))
-    entries.extend(recent_entries)
-    if not recent_entries:
-        entries.append(_DirEntry(_EMPTY_RECENT_LABEL, is_section=True))
+    entries.extend(_entry_section(_RECENT_HEADING, recent_entries, _EMPTY_RECENT_LABEL))
     if entries:
         entries.append(_DirEntry(""))
     if allow_create:
         entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
-    entries.append(_DirEntry(_ALL_HEADING, is_section=True))
-    entries.extend(child_entries)
-    if not child_entries:
-        entries.append(_DirEntry(_EMPTY_ALL_LABEL, is_section=True))
+    entries.extend(_entry_section(_ALL_HEADING, child_entries, _EMPTY_ALL_LABEL))
     return entries
+
+
+def _entry_section(
+    heading: str,
+    entries: list[_DirEntry],
+    empty_label: str,
+) -> list[_DirEntry]:
+    if entries:
+        return [_DirEntry(heading, is_section=True), *entries]
+    return [_DirEntry(heading, is_section=True), _DirEntry(empty_label, is_section=True)]
 
 
 def armory_detail(path: Path) -> str:
@@ -313,6 +365,49 @@ def armory_detail(path: Path) -> str:
         "Internal state: .hephaistos/\n\n"
         f"{path}"
     )
+
+
+def _entry_preview(entry: _DirEntry | None) -> str:
+    if entry is None:
+        return "No selection"
+    preview = _entry_preview_renderer(entry)
+    return preview(entry) if preview is not None else ""
+
+
+def _entry_preview_renderer(entry: _DirEntry) -> Callable[[_DirEntry], str] | None:
+    if not entry.label:
+        return None
+    if entry.is_place:
+        return _place_entry_preview
+    if entry.is_create:
+        return _new_armory_entry_preview
+    if entry.path is not None:
+        return _armory_entry_preview
+    return None
+
+
+def _place_entry_preview(entry: _DirEntry) -> str:
+    return f"Place\n\nJump to:\n{entry.path}"
+
+
+def _new_armory_entry_preview(_entry: _DirEntry) -> str:
+    return (
+        "New armory\n\n"
+        "What document set are you working on?\n"
+        "Type the name to create an armory.\n\n"
+        "Armories are saved locally in ~/.armories/\n"
+        "Add documents to ~/.armories/<name>/materials/"
+    )
+
+
+def _armory_entry_preview(entry: _DirEntry) -> str:
+    if entry.path is None:
+        return ""
+    return armory_detail(entry.path)
+
+
+def _selectable_entry(entry: _DirEntry) -> bool:
+    return entry.path is not None or entry.is_create
 
 
 # ---------------------------------------------------------------------------
@@ -567,33 +662,11 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _update_preview(self) -> None:
         preview = self.query_one("#armory-preview", Static)
-        entry = self._highlighted_entry()
-        if entry is None:
-            preview.update("No selection")
-            return
-        if not entry.label:
-            preview.update("")
-            return
-        if entry.is_place:
-            preview.update(f"Place\n\nJump to:\n{entry.path}")
-            return
-        if entry.is_create:
-            preview.update(
-                "New armory\n\n"
-                "What document set are you working on?\n"
-                "Type the name to create an armory.\n\n"
-                "Armories are saved locally in ~/.armories/\n"
-                "Add documents to ~/.armories/<name>/materials/"
-            )
-            return
-        if entry.path is None:
-            preview.update("")
-            return
-        preview.update(armory_detail(entry.path))
+        preview.update(_entry_preview(self._highlighted_entry()))
 
     def _first_selectable_index(self) -> int | None:
         for index, entry in enumerate(self._entries):
-            if entry.path is not None or entry.is_create:
+            if _selectable_entry(entry):
                 return index
         return None
 
@@ -617,14 +690,18 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             return
         if entry.is_create:
             self._start_new_armory()
-        elif entry.path is not None:
-            if not _is_within_armory_home(entry.path):
-                self._set_error(f"Cannot navigate outside armory home: {entry.path}")
-                return
-            if not entry.path.exists():
-                self._set_error(f"Missing armory: {entry.path}")
-                return
-            self.dismiss(entry.path)
+            return
+        if entry.path is not None:
+            self._open_entry_path(entry.path)
+
+    def _open_entry_path(self, path: Path) -> None:
+        if not _is_within_armory_home(path):
+            self._set_error(f"Cannot navigate outside armory home: {path}")
+            return
+        if not path.exists():
+            self._set_error(f"Missing armory: {path}")
+            return
+        self.dismiss(path)
 
     def _move_highlight(self, offset: int) -> None:
         if not self._entries:
@@ -633,13 +710,16 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         current = ol.highlighted
         if current is None:
             current = -1 if offset > 0 else 0
+        if (index := self._next_selectable_index(current, offset)) is not None:
+            ol.highlighted = index
+        self._update_preview()
+
+    def _next_selectable_index(self, current: int, offset: int) -> int | None:
         for step in range(1, len(self._entries) + 1):
             index = (current + (offset * step)) % len(self._entries)
-            entry = self._entries[index]
-            if entry.path is not None or entry.is_create:
-                ol.highlighted = index
-                break
-        self._update_preview()
+            if _selectable_entry(self._entries[index]):
+                return index
+        return None
 
     # -----------------------------------------------------------------------
     # Actions (bound keys)
@@ -706,18 +786,27 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         if event.input.id != "armory-new-input":
             return
         event.stop()
-        name = event.value.strip()
+        self._submit_new_armory(event.value)
+
+    def _submit_new_armory(self, value: str) -> None:
+        name = value.strip()
         if not name:
             self._stop_new_armory()
             return
-        parent_error = _creation_parent_error(self._current)
-        if parent_error is not None:
+        if armory_path := self._validated_new_armory_path(name):
+            self._create_new_armory(armory_path)
+
+    def _validated_new_armory_path(self, name: str) -> Path | None:
+        if parent_error := _creation_parent_error(self._current):
             self._set_error(parent_error)
-            return
+            return None
         armory_path, name_error = new_armory_path(self._current, name)
         if name_error is not None or armory_path is None:
             self._set_error(name_error or "Invalid armory name.")
-            return
+            return None
+        return armory_path
+
+    def _create_new_armory(self, armory_path: Path) -> None:
         try:
             initialize(armory_path)
         except (ArmoryError, OSError) as exc:
@@ -763,48 +852,36 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     # -----------------------------------------------------------------------
 
     def on_key(self, event: events.Key) -> None:
-        # When creating, only intercept escape; let the Input handle the rest.
+        if self._handle_active_input_key(event):
+            return
+        if callback := self._key_callback(event.key):
+            self._handled_key(event, callback)
+
+    def _key_callback(self, key: str) -> Callable[[], None] | None:
+        if key in ("up", "k"):
+            return lambda: self._move_highlight(-1)
+        if key in ("down", "j"):
+            return lambda: self._move_highlight(1)
+        return {
+            "n": self.action_new_armory,
+            "/": self.action_start_filter,
+            "escape": self.action_cancel,
+            "q": self.action_cancel,
+        }.get(key)
+
+    def _handle_active_input_key(self, event: events.Key) -> bool:
         if self._creating:
             if event.key == "escape":
-                self._stop_new_armory()
-                event.prevent_default()
-                event.stop()
-            return
-
-        # When filtering, only intercept escape.
+                self._handled_key(event, self._stop_new_armory)
+            return True
         if self._filtering:
             if event.key == "escape":
-                self._stop_filter()
-                event.prevent_default()
-                event.stop()
-            return
+                self._handled_key(event, self._stop_filter)
+            return True
+        return False
 
-        if event.key in ("up", "k"):
-            self._move_highlight(-1)
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key in ("down", "j"):
-            self._move_highlight(1)
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key == "n":
-            self.action_new_armory()
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key == "/":
-            self.action_start_filter()
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key in ("escape", "q"):
-            self.action_cancel()
-            event.prevent_default()
-            event.stop()
-            return
+    @staticmethod
+    def _handled_key(event: events.Key, callback: Callable[[], None]) -> None:
+        callback()
+        event.prevent_default()
+        event.stop()

@@ -68,7 +68,7 @@ def check_tool_available(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
-def validate_commands(commands: list[str], strict: bool = False) -> list[str]:
+def validate_commands(commands: list[str]) -> list[str]:
     """Return list of validation error messages."""
     errors = [
         f"Required tool not found: {tool}"
@@ -130,7 +130,7 @@ def main() -> None:
     for cmd in commands:
         print(f"  {cmd}")
 
-    errors = validate_commands(commands, strict=args.strict)
+    errors = validate_commands(commands)
 
     if errors:
         print(f"\n{len(errors)} validation error(s):")

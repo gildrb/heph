@@ -3,9 +3,8 @@ from __future__ import annotations
 import contextlib
 import inspect
 import os
-import re
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from hephaistos.chat import storage as chat_storage
@@ -77,32 +76,9 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_LABELS.items()}
-_OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
-_OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
-_OVERVIEW_TOPIC_PROMPT = "Choose a topic to explore next. In the menu, use ↑/↓"
-_OVERVIEW_RECOMMENDATION_LINE_RE = re.compile(r"^- (?P<label>.+?)\.?$")
-_OVERVIEW_RECOMMENDATION_HEADING_RE = re.compile(
-    r"^Recommended options:?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_OVERVIEW_STANDALONE_RECOMMENDATION_RE = re.compile(
-    r"^Recommendation:\s*(?P<label>.+?)\.?$",
-    re.IGNORECASE | re.MULTILINE,
-)
-_OVERVIEW_MENU_HINT_RE = re.compile(
-    r"\b(?:(?:choose|pick|select)\b.{0,100}\b(?:menu|enter|arrows?|↑/↓)|"
-    r"(?:menu|enter|arrows?|↑/↓)\b.{0,100}\b(?:choose|pick|select))\b",
-    re.IGNORECASE,
-)
-_OVERVIEW_QUOTED_QUESTION_RE = re.compile(r"[\"“](?P<question>[^\"”]{8,180}\?)[\"”]")
-_OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
-_OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
-_LANGUAGE_PRESERVING_TOPIC_PROMPT = (
-    " Answer in the same language as the selected topic when that language is clear."
-)
-_CUSTOM_MATERIAL_PROMPT_LABEL = "Ask something else"
-_CUSTOM_MATERIAL_PROMPT_DESCRIPTION = "custom armory prompt"
-_CUSTOM_MATERIAL_PROMPT_PLACEHOLDER = "What would you like to learn or ask?"
+_SESSION_LIST_COMMANDS = {"list", "recent"}
+_SESSION_BROWSE_COMMANDS = {"", "browse", "menu"}
+_SESSION_LATEST_COMMANDS = {"resume", "last", "latest"}
 
 
 @dataclass(frozen=True)
@@ -111,31 +87,6 @@ class _LogoutTarget:
     kind: str
     label: str
     description: str
-
-
-@dataclass(frozen=True)
-class OverviewTopicMenu:
-    options: list[tuple[str, str]]
-    prompts: dict[str, str]
-
-
-@dataclass(frozen=True)
-class _OverviewRecommendation:
-    label: str
-    prompt: str
-
-
-@dataclass(slots=True)
-class _OverviewMenuParseState:
-    topics: list[tuple[str, str]] = field(default_factory=list)
-    recommendation_options: list[tuple[str, str]] = field(default_factory=list)
-    prompts: dict[str, str] = field(default_factory=dict)
-    in_topics: bool = False
-    in_recommendations: bool = False
-
-    def add_recommendation(self, option: tuple[str, str], prompt: str) -> None:
-        self.recommendation_options.append(option)
-        self.prompts[option[0]] = prompt
 
 
 class _StyleObject(Protocol):
@@ -221,6 +172,12 @@ class _InlineFlowHost(Protocol):
 
     def _handle_sessions_command(self, value: str) -> None: ...
 
+    def _handle_known_sessions_subcommand(
+        self,
+        sessions: list[chat_storage.SessionRecord],
+        subcommand: str,
+    ) -> bool: ...
+
     def _session_records(self) -> list[chat_storage.SessionRecord] | None: ...
 
     def _show_session_records(self, sessions: list[chat_storage.SessionRecord]) -> None: ...
@@ -234,6 +191,8 @@ class _InlineFlowHost(Protocol):
     ) -> bool: ...
 
     def _submit_inline_chat_value(self, value: str) -> None: ...
+
+    def _replace_transcript_with_resumed_session(self, resumed: ChatSession) -> None: ...
 
     def on_input_submitted(self, event: Input.Submitted) -> None: ...
 
@@ -300,11 +259,17 @@ class _InlineFlowHost(Protocol):
 
     def _handle_inline_escape(self) -> None: ...
 
+    def _move_inline_flow_selection(self, key: str) -> bool: ...
+
+    def _inline_text_handler(self) -> Callable[[str], None] | None: ...
+
+    def _custom_login_text_handler(self, step: str) -> Callable[[str], None] | None: ...
+
+    def _store_custom_endpoint(self, value: str) -> None: ...
+
+    def _store_custom_model(self, value: str) -> None: ...
+
     def _handle_inline_menu_choice(self, label: str) -> None: ...
-
-    def _handle_material_topic_choice(self, label: str) -> None: ...
-
-    def _open_material_topic_action_menu(self, label: str) -> None: ...
 
     def _handle_settings_choice(self, label: str) -> None: ...
 
@@ -325,8 +290,6 @@ class _InlineFlowHost(Protocol):
     def _prompt_inline_text(self, name: str, step: str, placeholder: str) -> None: ...
 
     def _handle_inline_text(self, value: str) -> None: ...
-
-    def _handle_custom_login_text(self, value: str, step: str) -> bool: ...
 
     def _store_custom_provider(self, key: str) -> None: ...
 
@@ -361,17 +324,70 @@ def _inline_menu_option_text(
     return text
 
 
+def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
+    return {
+        "Privacy & Diagnostics": host._open_privacy_flow,
+        "Appearance": host._open_appearance_flow,
+        "Activity trace": host._open_activity_trace_flow,
+        "Vocabulary practice": host._open_vocabulary_flow,
+        "Login": host._open_login_flow,
+        "Logout": host._open_logout_flow,
+    }
+
+
+def _settings_step_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
+    return {
+        "privacy": host._handle_privacy_choice,
+        "appearance": host._handle_appearance_choice,
+        "activity_trace": host._handle_activity_trace_choice,
+        "vocabulary": host._handle_vocabulary_choice,
+    }
+
+
+def _login_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
+    return {
+        "OpenAI Codex": lambda: _start_openai_oauth_login(host),
+        "OpenAI API": lambda: host._prompt_inline_text("login", "openai_key", "OpenAI API key"),
+        "OpenRouter": lambda: host._prompt_inline_text(
+            "login",
+            "openrouter_key",
+            "OpenRouter API key",
+        ),
+        "Z.AI": lambda: host._prompt_inline_text("login", "zai_key", "Z.AI API key"),
+        "Custom endpoint": lambda: host._prompt_inline_text(
+            "login",
+            "custom_endpoint",
+            "OpenAI-compatible base URL",
+        ),
+    }
+
+
+def _start_openai_oauth_login(host: _InlineFlowHost) -> None:
+    host._close_inline_flow("Opening browser login for OpenAI Codex...")
+    host.run_worker(host._login_openai_worker, thread=True)
+
+
+def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
+    return {
+        "settings": host._handle_settings_choice,
+        "models": host._perform_model_switch,
+        "logout": host._perform_logout,
+        "sessions": host._perform_session_resume,
+    }
+
+
 class TuiInlineFlowMixin:
     def _handle_inline_command(self: _InlineFlowHost, value: str) -> None:
-        if value == "/login":
-            self._open_login_flow()
-        elif value == "/logout":
-            self._open_logout_flow()
-        elif value == "/settings":
-            self._open_settings_flow()
-        elif value == "/models":
-            self._open_models_flow()
-        elif value == "/sessions" or value.startswith("/sessions "):
+        command = value.split(maxsplit=1)[0]
+        actions = {
+            "/login": self._open_login_flow,
+            "/logout": self._open_logout_flow,
+            "/settings": self._open_settings_flow,
+            "/models": self._open_models_flow,
+        }
+        if action := actions.get(command):
+            action()
+        elif command == "/sessions":
             self._handle_sessions_command(value)
 
     def _submit_inline_chat_value(self: _InlineFlowHost, value: str) -> None:
@@ -628,25 +644,17 @@ class TuiInlineFlowMixin:
         active = pc.get_active()
         current_model = self.session.config.model
         duplicate_models = _duplicate_model_names(choices)
-        options: list[tuple[str, str]] = []
-        for slug, model, display_name, is_free in choices:
-            is_current = active is not None and active.slug == slug and model == current_model
-            desc = f"via {display_name}"
-            if is_free:
-                desc += "  free"
-            if is_current:
-                desc += "  current"
-            options.append(
-                (
-                    _model_choice_label(
-                        model,
-                        display_name,
-                        duplicate=model in duplicate_models,
-                    ),
-                    desc,
-                )
+        active_slug = active.slug if active is not None else None
+        return [
+            _model_flow_option(
+                model=model,
+                display_name=display_name,
+                is_free=is_free,
+                is_duplicate=model in duplicate_models,
+                is_current=active_slug == slug and model == current_model,
             )
-        return options
+            for slug, model, display_name, is_free in choices
+        ]
 
     def _open_models_flow(self: _InlineFlowHost) -> None:
         pc = ProviderConfig.load()
@@ -721,18 +729,33 @@ class TuiInlineFlowMixin:
         if not sessions:
             self._append_notice("No saved chats found.")
             return
-        if subcommand in {"list", "recent"}:
-            self._show_session_records(sessions)
-            return
-        if subcommand in {"", "browse", "menu"}:
-            self._open_session_menu(sessions)
-            return
-        if subcommand in {"resume", "last", "latest"}:
-            self._perform_session_resume(sessions[0]["session_id"])
+        if self._handle_known_sessions_subcommand(sessions, subcommand):
             return
         if self._resume_matching_session(sessions, subcommand):
             return
         self._append_error("Usage: /sessions [list|recent|browse|resume]")
+
+    def _handle_known_sessions_subcommand(
+        self: _InlineFlowHost,
+        sessions: list[chat_storage.SessionRecord],
+        subcommand: str,
+    ) -> bool:
+        actions: dict[str, Callable[[], None]] = {}
+        for commands, action in (
+            (_SESSION_LIST_COMMANDS, lambda: self._show_session_records(sessions)),
+            (_SESSION_BROWSE_COMMANDS, lambda: self._open_session_menu(sessions)),
+            (
+                _SESSION_LATEST_COMMANDS,
+                lambda: self._perform_session_resume(sessions[0]["session_id"]),
+            ),
+        ):
+            for command in commands:
+                actions[command] = action
+        action = actions.get(subcommand)
+        if action is None:
+            return False
+        action()
+        return True
 
     def _session_records(self: _InlineFlowHost) -> list[chat_storage.SessionRecord] | None:
         if self.session.armory_path is None:
@@ -802,13 +825,17 @@ class TuiInlineFlowMixin:
         if event.key == "escape":
             self._handle_inline_escape()
             return _consume_inline_key(event)
-        if event.key == "up" and self._inline_flow.options:
-            self._move_completion(-1)
-            return _consume_inline_key(event)
-        if event.key == "down" and self._inline_flow.options:
-            self._move_completion(1)
+        if self._move_inline_flow_selection(event.key):
             return _consume_inline_key(event)
         return False
+
+    def _move_inline_flow_selection(self: _InlineFlowHost, key: str) -> bool:
+        offsets = {"up": -1, "down": 1}
+        offset = offsets.get(key)
+        if offset is None or not self._inline_flow.options:
+            return False
+        self._move_completion(offset)
+        return True
 
     def _handle_inline_escape(self: _InlineFlowHost) -> None:
         composer = self.query_one("#composer", Input)
@@ -838,103 +865,21 @@ class TuiInlineFlowMixin:
         composer.value = ""
 
     def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
-        if self._inline_flow.name == "material_topic":
-            self._handle_material_topic_choice(label)
-            return
-        if self._inline_flow.name == "settings":
-            self._handle_settings_choice(label)
-            return
-        if self._inline_flow.name == "models":
-            self._perform_model_switch(label)
-            return
-        if self._inline_flow.name == "logout":
-            self._perform_logout(label)
-            return
-        if self._inline_flow.name == "sessions":
-            self._perform_session_resume(label)
-            return
-        self._handle_login_choice(label)
-
-    def _handle_material_topic_choice(self: _InlineFlowHost, label: str) -> None:
-        if self._inline_flow.step == "topic":
-            if prompt := self._inline_flow.prompts.get(label):
-                self._close_inline_flow(f"selected: {label}")
-                self._submit_inline_chat_value(prompt)
-                return
-            if label == _CUSTOM_MATERIAL_PROMPT_LABEL:
-                self._prompt_inline_text(
-                    "material_topic",
-                    "custom_prompt",
-                    _CUSTOM_MATERIAL_PROMPT_PLACEHOLDER,
-                )
-                return
-            self._open_material_topic_action_menu(label)
-            return
-        if self._inline_flow.step == "action":
-            topic = self._inline_flow.slug
-            self._close_inline_flow(f"selected: {topic}")
-            self._submit_inline_chat_value(_material_topic_action_prompt(topic, label))
-
-    def _open_material_topic_action_menu(self: _InlineFlowHost, label: str) -> None:
-        self._open_inline_menu(
-            name="material_topic",
-            step="action",
-            title=f"Topic {label}",
-            options=[
-                ("Explain it", "build intuition from the selected topic"),
-                ("Practice it", "try one source-grounded exercise"),
-                ("Recall drill", "answer from memory, then get feedback"),
-            ],
-        )
-        self._inline_flow.slug = label
+        action = _inline_menu_actions(self).get(self._inline_flow.name, self._handle_login_choice)
+        action(label)
 
     def _handle_settings_choice(self: _InlineFlowHost, label: str) -> None:
         if self._inline_flow.step == "menu":
-            action = {
-                "Privacy & Diagnostics": self._open_privacy_flow,
-                "Appearance": self._open_appearance_flow,
-                "Activity trace": self._open_activity_trace_flow,
-                "Vocabulary practice": self._open_vocabulary_flow,
-                "Login": self._open_login_flow,
-                "Logout": self._open_logout_flow,
-            }.get(label)
+            action = _settings_menu_actions(self).get(label)
             if action is not None:
                 action()
             return
-        if self._inline_flow.step == "privacy":
-            self._handle_privacy_choice(label)
-        elif self._inline_flow.step == "appearance":
-            self._handle_appearance_choice(label)
-        elif self._inline_flow.step == "activity_trace":
-            self._handle_activity_trace_choice(label)
-        elif self._inline_flow.step == "vocabulary":
-            self._handle_vocabulary_choice(label)
+        if action := _settings_step_actions(self).get(self._inline_flow.step):
+            action(label)
 
     def _handle_login_choice(self: _InlineFlowHost, label: str) -> None:
-        if label == "OpenAI Codex":
-            self._close_inline_flow("Opening browser login for OpenAI Codex...")
-            self.run_worker(self._login_openai_worker, thread=True)
-        elif label == "OpenAI API":
-            self._prompt_inline_text("login", "openai_key", "OpenAI API key")
-        elif label == "OpenRouter":
-            self._prompt_inline_text("login", "openrouter_key", "OpenRouter API key")
-        elif label == "Z.AI":
-            self._prompt_inline_text("login", "zai_key", "Z.AI API key")
-        elif label == "Custom endpoint":
-            self._prompt_inline_text("login", "custom_endpoint", "OpenAI-compatible base URL")
-
-    def _open_material_topic_flow(
-        self: _InlineFlowHost,
-        options: list[tuple[str, str]],
-        prompts: dict[str, str] | None = None,
-    ) -> None:
-        self._open_inline_menu(
-            name="material_topic",
-            step="topic",
-            title="Choose a topic to explore",
-            options=_material_topic_menu_options(options),
-            prompts=prompts,
-        )
+        if action := _login_menu_actions(self).get(label):
+            action()
 
     def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
         settings = load_app_settings()
@@ -1002,6 +947,15 @@ class TuiInlineFlowMixin:
             self._close_inline_flow(f"error: {exc}")
             return
         self.session = resumed
+        self._replace_transcript_with_resumed_session(resumed)
+        self._close_inline_flow(f"resumed session {resumed.session_id}")
+        self._sync_busy_to_current_session()
+        self._update_info_panel()
+
+    def _replace_transcript_with_resumed_session(
+        self: _InlineFlowHost,
+        resumed: ChatSession,
+    ) -> None:
         self.state.transcript.clear()
         self.query_one("#transcript", RichLog).clear()
         for message in resumed.conversation.messages:
@@ -1009,9 +963,6 @@ class TuiInlineFlowMixin:
                 self._append_entry(message.content, "user")
             elif message.role == "assistant":
                 self._append_entry(message.content, "markdown")
-        self._close_inline_flow(f"resumed session {resumed.session_id}")
-        self._sync_busy_to_current_session()
-        self._update_info_panel()
 
     def _prompt_inline_text(self: _InlineFlowHost, name: str, step: str, placeholder: str) -> None:
         self._inline_flow.name = name
@@ -1030,34 +981,40 @@ class TuiInlineFlowMixin:
         if not value:
             self._append_error("Value is required.")
             return
-        step = self._inline_flow.step
-        provider_slug = {
-            "openai_key": "openai",
-            "openrouter_key": "openrouter",
-            "zai_key": "zai",
-        }.get(step)
-        if provider_slug is not None:
-            self._store_provider_key(provider_slug, value)
-            return
-        if self._handle_custom_login_text(value, step):
-            return
-        if self._inline_flow.name == "material_topic" and step == "custom_prompt":
-            self._close_inline_flow("selected: custom prompt")
-            self._submit_inline_chat_value(value)
+        handler = self._inline_text_handler()
+        if handler is not None:
+            handler(value)
 
-    def _handle_custom_login_text(self: _InlineFlowHost, value: str, step: str) -> bool:
-        if step == "custom_endpoint":
-            self._inline_flow.endpoint = value.rstrip("/")
-            self._prompt_inline_text("login", "custom_model", "Model name")
-            return True
-        if step == "custom_model":
-            self._inline_flow.model = value
-            self._prompt_inline_text("login", "custom_key", "API key")
-            return True
-        if step == "custom_key":
-            self._store_custom_provider(value)
-            return True
-        return False
+    def _inline_text_handler(self: _InlineFlowHost) -> Callable[[str], None] | None:
+        provider_handlers = {
+            "openai_key": lambda value: self._store_provider_key("openai", value),
+            "openrouter_key": lambda value: self._store_provider_key("openrouter", value),
+            "zai_key": lambda value: self._store_provider_key("zai", value),
+        }
+        if handler := provider_handlers.get(self._inline_flow.step):
+            return handler
+        if handler := self._custom_login_text_handler(self._inline_flow.step):
+            return handler
+        return None
+
+    def _custom_login_text_handler(
+        self: _InlineFlowHost,
+        step: str,
+    ) -> Callable[[str], None] | None:
+        handlers = {
+            "custom_endpoint": self._store_custom_endpoint,
+            "custom_model": self._store_custom_model,
+            "custom_key": self._store_custom_provider,
+        }
+        return handlers.get(step)
+
+    def _store_custom_endpoint(self: _InlineFlowHost, value: str) -> None:
+        self._inline_flow.endpoint = value.rstrip("/")
+        self._prompt_inline_text("login", "custom_model", "Model name")
+
+    def _store_custom_model(self: _InlineFlowHost, value: str) -> None:
+        self._inline_flow.model = value
+        self._prompt_inline_text("login", "custom_key", "API key")
 
     def _store_custom_provider(self: _InlineFlowHost, key: str) -> None:
         pc = ProviderConfig.load()
@@ -1162,11 +1119,11 @@ def _filtered_inline_options(
         limit=len(options),
         min_score=45.0,
     )
-    result: list[tuple[str, str]] = []
-    for option in [*direct, *(match.value for match in fuzzy)]:
-        if option not in result:
-            result.append(option)
-    return result
+    return _dedupe_inline_options([*direct, *(match.value for match in fuzzy)])
+
+
+def _dedupe_inline_options(options: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    return list(dict.fromkeys(options))
 
 
 def _consume_inline_key(event: events.Key) -> bool:
@@ -1294,268 +1251,6 @@ def _clear_logout_target(target: _LogoutTarget) -> None:
         clear_key(target.slug)
 
 
-def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
-    if not _overview_reply_has_menu_context(reply):
-        return None
-    state = _OverviewMenuParseState()
-    for line in reply.splitlines():
-        if _parse_overview_menu_line(line.strip(), state):
-            break
-    if not state.topics and not state.recommendation_options:
-        return None
-    option_limit = 6
-    topic_limit = max(0, option_limit - len(state.recommendation_options))
-    options = [
-        *state.topics[:topic_limit],
-        *state.recommendation_options[:option_limit],
-    ]
-    return OverviewTopicMenu(options=_material_topic_menu_options(options), prompts=state.prompts)
-
-
-def _parse_overview_menu_line(stripped: str, state: _OverviewMenuParseState) -> bool:
-    if _starts_overview_topic_section(stripped):
-        state.in_topics = True
-        state.in_recommendations = False
-        return False
-    if _OVERVIEW_RECOMMENDATION_HEADING_RE.match(stripped):
-        state.in_topics = False
-        state.in_recommendations = True
-        return False
-    if _record_standalone_recommendation(stripped, state):
-        return False
-    if not stripped:
-        _close_empty_overview_section(state)
-        return False
-    if state.in_recommendations:
-        _record_section_recommendation(stripped, state)
-        return False
-    if not state.in_topics:
-        return False
-    return _record_topic_line(stripped, state)
-
-
-def _starts_overview_topic_section(stripped: str) -> bool:
-    return stripped.startswith(_OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":"))
-
-
-def _close_empty_overview_section(state: _OverviewMenuParseState) -> None:
-    if state.in_topics and state.topics:
-        state.in_topics = False
-    elif state.in_recommendations and state.recommendation_options:
-        state.in_recommendations = False
-
-
-def _record_standalone_recommendation(
-    stripped: str,
-    state: _OverviewMenuParseState,
-) -> bool:
-    recommendation = _overview_recommendation_match_option(
-        _OVERVIEW_STANDALONE_RECOMMENDATION_RE,
-        stripped,
-    )
-    if recommendation is None:
-        return False
-    option, prompt = recommendation
-    state.add_recommendation(option, prompt)
-    state.in_topics = False
-    return True
-
-
-def _record_section_recommendation(stripped: str, state: _OverviewMenuParseState) -> None:
-    recommendation = _overview_recommendation_match_option(
-        _OVERVIEW_RECOMMENDATION_LINE_RE,
-        stripped,
-    )
-    if recommendation is None:
-        return
-    option, prompt = recommendation
-    state.add_recommendation(option, prompt)
-
-
-def _record_topic_line(stripped: str, state: _OverviewMenuParseState) -> bool:
-    match = _OVERVIEW_TOPIC_LINE_RE.match(stripped)
-    if match is None:
-        return bool(state.topics)
-    label = match.group("label").strip()
-    if label:
-        state.topics.append((label, _overview_topic_description(label)))
-    return False
-
-
-def _overview_reply_has_menu_context(reply: str) -> bool:
-    if _OVERVIEW_TOPIC_PROMPT in reply:
-        return True
-    topic_heading = _OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":").casefold()
-    if topic_heading not in reply.casefold():
-        return False
-    return (
-        _OVERVIEW_MENU_HINT_RE.search(reply) is not None
-        or _OVERVIEW_RECOMMENDATION_HEADING_RE.search(reply) is not None
-    )
-
-
-def overview_topic_options(reply: str) -> list[tuple[str, str]]:
-    menu = overview_topic_menu(reply)
-    return menu.options if menu is not None else []
-
-
-def _material_topic_menu_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    content_options = [option for option in options if option[0] != _CUSTOM_MATERIAL_PROMPT_LABEL][
-        :6
-    ]
-    return [
-        *content_options,
-        (_CUSTOM_MATERIAL_PROMPT_LABEL, _CUSTOM_MATERIAL_PROMPT_DESCRIPTION),
-    ]
-
-
-def _material_topic_action_prompt(topic: str, label: str) -> str:
-    suffix = _LANGUAGE_PRESERVING_TOPIC_PROMPT
-    if label == "Explain it":
-        return (
-            f"Teach me {topic} in simple terms, grounded in the evidence for this topic.{suffix}"
-        )
-    if label == "Practice it":
-        return f"Give me one source-grounded practice question about {topic}.{suffix}"
-    return f"Start a quick recall drill about {topic}.{suffix}"
-
-
-def _overview_topic_description(topic: str) -> str:
-    words = _strip_overview_citations(topic).strip(" .")
-    if not words:
-        return "key ideas"
-    normalized = " ".join(words.split())
-    lowered = normalized.casefold()
-    descriptions_by_topic = {
-        "carrier waves": "signals carrying information",
-        "eigenvalues": "matrix scaling factors",
-        "enzyme kinetics": "enzyme reaction rates",
-        "graph algorithms": "network problem solving",
-        "matrix multiplication": "combining matrices",
-        "protein folding": "how proteins take shape",
-        "recurrence relations": "recursive sequence rules",
-        "sequences": "ordered value patterns",
-        "signal entropy": "uncertainty in signals",
-    }
-    if description := descriptions_by_topic.get(lowered):
-        return description
-    if " and " in lowered:
-        return "relationship between ideas"
-    if lowered.endswith(" kinetics"):
-        return "rates of change"
-    if lowered.endswith(" entropy"):
-        return "uncertainty measure"
-    if lowered.endswith(" algorithms"):
-        return "problem-solving methods"
-    if lowered.endswith(" waves"):
-        return "wave behavior"
-    return _trim_inline_option_label(f"what {normalized} means", limit=34)
-
-
-def _overview_recommendation_match_option(
-    pattern: re.Pattern[str],
-    line: str,
-) -> tuple[tuple[str, str], str] | None:
-    match = pattern.match(line)
-    if match is None:
-        return None
-    recommendation = match.group("label").strip()
-    if not recommendation:
-        return None
-    parsed = _parse_overview_recommendation(recommendation)
-    return (
-        (parsed.label, "recommended"),
-        parsed.prompt,
-    )
-
-
-def _parse_overview_recommendation(recommendation: str) -> _OverviewRecommendation:
-    question = _OVERVIEW_QUOTED_QUESTION_RE.search(recommendation)
-    quoted_prompt = question.group("question").strip() if question is not None else ""
-    clean = _strip_overview_citations(recommendation).rstrip(".")
-    for parser in (
-        _parse_explanation_recommendation,
-        _parse_practice_recommendation,
-        _parse_compare_recommendation,
-    ):
-        if parsed := parser(clean):
-            return parsed
-    if parsed := _parse_named_recommendation(clean, quoted_prompt):
-        return parsed
-    return _OverviewRecommendation(
-        _trim_inline_option_label(clean),
-        quoted_prompt or f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
-    )
-
-
-def _parse_explanation_recommendation(clean: str) -> _OverviewRecommendation | None:
-    explanation = re.fullmatch(r"Start with an? explanation of (?P<topic>.+)", clean)
-    if explanation is None:
-        return None
-    topic = explanation.group("topic").strip()
-    return _OverviewRecommendation(
-        f"Explain {topic}",
-        f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
-        f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
-    )
-
-
-def _parse_practice_recommendation(clean: str) -> _OverviewRecommendation | None:
-    practice = re.fullmatch(
-        r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
-        clean,
-    )
-    if practice is None:
-        return None
-    topic = practice.group("topic").strip()
-    return _OverviewRecommendation(
-        f"Practice {topic}",
-        f"Give me one source-grounded practice question about {topic}."
-        f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
-    )
-
-
-def _parse_compare_recommendation(clean: str) -> _OverviewRecommendation | None:
-    compare = re.fullmatch(
-        r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
-        clean,
-    )
-    if compare is None:
-        return None
-    left = compare.group("left").strip()
-    right = compare.group("right").strip()
-    return _OverviewRecommendation(
-        f"Compare {left} and {right}",
-        f"Compare {left} and {right}, grounded in the evidence for these topics."
-        f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
-    )
-
-
-def _parse_named_recommendation(
-    clean: str,
-    quoted_prompt: str,
-) -> _OverviewRecommendation | None:
-    if "contrastive question" in clean.casefold():
-        prompt = quoted_prompt or f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
-        return _OverviewRecommendation("Ask a contrastive question", prompt)
-    if clean.startswith("Make a short review order"):
-        return _OverviewRecommendation(
-            "Make a review order",
-            f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
-        )
-    return None
-
-
-def _strip_overview_citations(text: str) -> str:
-    return " ".join(_OVERVIEW_CITATION_RE.sub("", text).split())
-
-
-def _trim_inline_option_label(label: str, *, limit: int = 52) -> str:
-    if len(label) <= limit:
-        return label
-    return label[: limit - 1].rstrip(" ,;:.") + "…"
-
-
 def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str]:
     seen: set[str] = set()
     duplicates: set[str] = set()
@@ -1564,6 +1259,19 @@ def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str
             duplicates.add(model)
         seen.add(model)
     return duplicates
+
+
+def _model_flow_option(
+    *,
+    model: str,
+    display_name: str,
+    is_free: bool,
+    is_duplicate: bool,
+    is_current: bool,
+) -> tuple[str, str]:
+    description_tags = ["free" if is_free else "", "current" if is_current else ""]
+    description = "  ".join(["via " + display_name, *(tag for tag in description_tags if tag)])
+    return _model_choice_label(model, display_name, duplicate=is_duplicate), description
 
 
 def _model_choice_label(model: str, display_name: str, *, duplicate: bool) -> str:
@@ -1576,11 +1284,7 @@ def _model_choice_from_label(
     label: str,
     choices: list[tuple[str, str, str, bool]],
 ) -> tuple[str, str, str, bool] | None:
-    model = label.strip()
-    provider: str | None = None
-    if model.endswith("]") and " [" in model:
-        model, bracketed_provider = model.rsplit(" [", 1)
-        provider = bracketed_provider[:-1]
+    model, provider = _parse_model_choice_label(label)
     for choice in choices:
         _slug, choice_model, display_name, _is_free = choice
         if choice_model != model:
@@ -1589,3 +1293,11 @@ def _model_choice_from_label(
             continue
         return choice
     return None
+
+
+def _parse_model_choice_label(label: str) -> tuple[str, str | None]:
+    model = label.strip()
+    if model.endswith("]") and " [" in model:
+        model, bracketed_provider = model.rsplit(" [", 1)
+        return model, bracketed_provider[:-1]
+    return model, None

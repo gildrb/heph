@@ -317,7 +317,7 @@ def _optional_latency(metrics: Mapping[str, object]) -> float | None:
         return direct_latency
     latency = metrics.get("latency")
     if isinstance(latency, dict):
-        return _number_or_none(latency.get("mean_ms"))
+        return _number_or_none(cast("dict[str, object]", latency).get("mean_ms"))
     return None
 
 
@@ -402,7 +402,7 @@ def _benchmark_query_count(
             return rag_count
     native_suite_report = benchmark.get("native_suite_report")
     if isinstance(native_suite_report, dict):
-        native_rag = native_suite_report.get("rag")
+        native_rag = cast("dict[str, object]", native_suite_report).get("rag")
         if isinstance(native_rag, dict):
             native_count = _query_count_from_mapping(cast("dict[str, object]", native_rag))
             if native_count is not None:
@@ -540,7 +540,7 @@ def generate_markdown(
             secrets,
         )
     )
-    lines.extend(_claim_language_policy(reports, secrets))
+    lines.extend(_claim_language_policy(reports))
     lines.extend(_interpretation(reports, secrets))
     lines.extend(_recommendations(reports, secrets))
     summary = "\n".join(lines).rstrip() + "\n"
@@ -1053,10 +1053,7 @@ def _run_disclosure(reports: Sequence[LoadedReport], secrets: tuple[str, ...]) -
     return lines
 
 
-def _claim_language_policy(
-    reports: Sequence[LoadedReport],
-    secrets: tuple[str, ...],
-) -> list[str]:
+def _claim_language_policy(reports: Sequence[LoadedReport]) -> list[str]:
     report_count = len(reports)
     return [
         "## Claim Language Policy",

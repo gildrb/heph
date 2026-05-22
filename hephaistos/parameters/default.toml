@@ -1,4 +1,4 @@
-# Default parameters for Hephaistos.
+# Default parameters for Heph.
 # Model access, model selection, and global app preferences are configured via
 # /login, /logout, /models, /settings, or environment variables — not here.
 

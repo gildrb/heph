@@ -43,7 +43,6 @@ def test_plain_chat_plan_is_non_material_specific() -> None:
     assert plan.action is LearningAction.CHAT
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
-    assert plan.direct_reply is None
     assert "Execute CHAT" in plan.prompt
     assert "same language as the user's request" in plan.prompt
     assert "que puedes hacer?" in plan.prompt
@@ -107,8 +106,7 @@ def test_practice_time_budget_returns_completion_reply() -> None:
     plan = plan_turn(state, "next")
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is not None
-    assert "time budget reached" in plan.direct_reply
+    assert "time budget reached" in plan.prompt
 
 
 def test_practice_review_stops_when_due_cards_complete() -> None:
@@ -120,8 +118,7 @@ def test_practice_review_stops_when_due_cards_complete() -> None:
     plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is not None
-    assert "due cards completed" in plan.direct_reply
+    assert "due cards completed" in plan.prompt
 
 
 def test_practice_stops_when_mastery_target_reached() -> None:
@@ -132,8 +129,7 @@ def test_practice_stops_when_mastery_target_reached() -> None:
     plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is not None
-    assert "mastery target reached" in plan.direct_reply
+    assert "mastery target reached" in plan.prompt
 
 
 def test_learning_intent_attaches_policy() -> None:
@@ -175,7 +171,6 @@ def test_light_chat_goes_to_model_without_tools(message: str) -> None:
     plan = plan_turn(state, message)
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is None
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "Execute CHAT" in plan.prompt
@@ -190,7 +185,6 @@ def test_armory_harness_light_chat_disables_tools_with_canned_replies(message: s
     plan = plan_turn(state, message, allow_direct_chat=False)
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is None
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "Execute CHAT" in plan.prompt
@@ -646,7 +640,6 @@ def test_standalone_source_policy_without_active_item_acknowledges(message: str)
     plan = plan_turn(state, message)
 
     assert plan.action is LearningAction.CHAT
-    assert plan.direct_reply is None
     assert "source-only preference" in plan.prompt
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
@@ -968,7 +961,6 @@ def test_initial_casual_message_goes_to_prompt_not_static_reply(message: str) ->
     assert plan.phase is LearningPhase.PRESENTING
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
-    assert plan.direct_reply is None
     assert "Execute CHAT" in plan.prompt or "Execute HEPH_HELP" in plan.prompt
 
 
@@ -1420,7 +1412,6 @@ def test_recall_reprompt_language_request_is_not_assessed(user_request: str) -> 
     [
         "what can Heph do?",
         "how do I switch models in Heph?",
-        "can you explain /practice?",
         "what can you do?",
         "how can you help?",
     ],
@@ -1844,7 +1835,7 @@ def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
     plan = plan_turn(state, "attempt")
     next_state, cleaned = apply_turn_result(state, plan, "WRONG:", [])
 
-    assert cleaned == "WRONG: Start again from the first step only."
+    assert cleaned == "WRONG: I could not parse the assessment output as WRONG."
     assert next_state.phase is LearningPhase.RECALL
     assert next_state.last_feedback_type is LearningFeedbackType.WRONG
     assert next_state.attempt_count == 1

@@ -23,6 +23,13 @@ class TuiInputRoute(Enum):
     CHAT = "chat"
 
 
+_INLINE_ROUTES = {
+    "materials": TuiInputRoute.MATERIALS,
+    "sessions": TuiInputRoute.SESSIONS,
+    "armory": TuiInputRoute.ARMORY,
+}
+
+
 def pending_input_requires_terminal(value: str) -> bool:
     stripped = value.strip()
     if not stripped.startswith("/"):
@@ -49,14 +56,10 @@ def tui_input_route(value: str) -> TuiInputRoute:
     stripped = value.strip()
     if not stripped:
         return TuiInputRoute.EMPTY
-    if stripped == "/materials" or stripped.startswith("/materials "):
-        return TuiInputRoute.MATERIALS
-    if stripped == "/sessions" or stripped.startswith("/sessions "):
-        return TuiInputRoute.SESSIONS
-    if stripped == "/new":
+    if not stripped.startswith("/"):
+        return TuiInputRoute.CHAT
+
+    command = stripped[1:].partition(" ")[0].lower()
+    if command == "new" and stripped == "/new":
         return TuiInputRoute.NEW
-    if is_armory_command(stripped):
-        return TuiInputRoute.ARMORY
-    if stripped.startswith("/"):
-        return TuiInputRoute.EXTERNAL
-    return TuiInputRoute.CHAT
+    return _INLINE_ROUTES.get(command, TuiInputRoute.EXTERNAL)

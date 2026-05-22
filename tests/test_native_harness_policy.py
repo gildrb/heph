@@ -260,6 +260,55 @@ def test_repo_policy_allows_allowlisted_runtime_dynamic_product_imports() -> Non
     assert violations == []
 
 
+def test_repo_policy_rejects_literal_reply_assignment_without_reply_function_name() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "def route() -> str:",
+                '    direct_reply = "Before I answer from sources, I need one clarification."',
+                "    return direct_reply",
+            )
+        ),
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "hardcoded assistant answer" in rendered
+
+
+def test_repo_policy_rejects_literal_reply_attribute_assignment() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "def route(plan: object) -> None:",
+                '    plan.reply = "If you want, I can give you a study plan next."',
+            )
+        ),
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "hardcoded assistant answer" in rendered
+
+
+def test_repo_policy_rejects_literal_response_subscript_assignment() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "def route(payload: dict[str, str]) -> None:",
+                '    payload["response"] = "Tell the user to choose one option from the menu."',
+            )
+        ),
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "hardcoded assistant answer" in rendered
+
+
 def test_repo_policy_allows_allowlisted_aliased_runtime_dynamic_product_imports() -> None:
     violations = check_repo_policies._check_source(
         "\n".join(
@@ -331,19 +380,106 @@ def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
     assert "hardcoded assistant answer" in rendered
 
 
-def test_repo_policy_allows_harness_fallback_answers() -> None:
-    violations = check_repo_policies._hardcoded_answer_violations(
-        [
-            check_repo_policies.HardcodedAnswerLiteral(
-                text="No searchable armory evidence was found.",
-                path="hephaistos/study/controller.py",
-                line=12,
-                column=8,
-            )
-        ]
+def test_repo_policy_rejects_literal_returns_from_reply_functions() -> None:
+    source = """
+def _clarifying_question_reply(missing: str) -> str:
+    return "Before I answer from sources, I need one clarification."
+"""
+
+    violations = check_repo_policies._hardcoded_answer_literals(
+        source,
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(
+        violation.render()
+        for violation in check_repo_policies._hardcoded_answer_violations(violations)
+    )
+
+    assert "hardcoded assistant answer" in rendered
+
+
+def test_repo_policy_rejects_literal_returns_from_answerish_helpers() -> None:
+    source = """
+def _clarifying_question(missing: str) -> str:
+    return "Before I answer from sources, I need one clarification."
+
+def _product_answer() -> str:
+    return "Heph can help with local documents."
+"""
+
+    violations = check_repo_policies._hardcoded_answer_literals(
+        source,
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(
+        violation.render()
+        for violation in check_repo_policies._hardcoded_answer_violations(violations)
+    )
+
+    assert rendered.count("hardcoded assistant answer") == 2
+
+
+def test_repo_policy_rejects_composed_literal_returns_from_answerish_helpers() -> None:
+    source = """
+def _product_answer() -> str:
+    return "Heph can " + "help with local documents."
+
+def _source_response() -> str:
+    return "\\n".join(["I found this in your material.", "Here is the answer."])
+"""
+
+    violations = check_repo_policies._hardcoded_answer_literals(
+        source,
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(
+        violation.render()
+        for violation in check_repo_policies._hardcoded_answer_violations(violations)
+    )
+
+    assert rendered.count("hardcoded assistant answer") == 2
+
+
+def test_repo_policy_rejects_harness_like_prefixes_outside_allowlisted_helpers() -> None:
+    source = """
+def _product_answer() -> str:
+    return "I could not generate a response. Please try again."
+"""
+
+    violations = check_repo_policies._hardcoded_answer_literals(
+        source,
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(
+        violation.render()
+        for violation in check_repo_policies._hardcoded_answer_violations(violations)
+    )
+
+    assert "hardcoded assistant answer" in rendered
+
+
+def test_repo_policy_allows_harness_fallback_answers_in_allowlisted_helpers() -> None:
+    source = """
+def _plain_empty_reply(user_input: str, config: object) -> str:
+    return "I could not generate a response. Please try again."
+"""
+
+    violations = check_repo_policies._hardcoded_answer_literals(
+        source,
+        "hephaistos/chat/orchestrator.py",
     )
 
     assert violations == []
+
+
+def test_repo_policy_rejects_tracked_generated_python_caches() -> None:
+    violations = check_repo_policies._check_generated_caches(
+        ("hephaistos/__pycache__/removed_module.cpython-313.pyc",)
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "generated Python cache files" in rendered
+    assert "removed_module.cpython-313.pyc" in rendered
 
 
 def test_current_product_runtime_has_no_benchmark_only_import_or_artifact_coupling() -> None:

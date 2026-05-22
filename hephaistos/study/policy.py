@@ -45,7 +45,6 @@ type EvidenceAction = Literal[
     "ask_clarifying_question",
     "abstain",
     "give_partial_answer",
-    "quiz_first",
 ]
 type LearningStrategy = Callable[[LearningPolicyInput, PracticeSessionType], LearningMove | None]
 

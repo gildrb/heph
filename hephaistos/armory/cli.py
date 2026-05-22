@@ -99,7 +99,7 @@ def register(
         description=(
             "Create armories named after modules. "
             "Armories can only be created in the armories directory (~/.armories). "
-            "Shortcut: `heph armory algorithms` creates ~/.armories/algorithms."
+            "Shortcut: `heph armory course-notes` creates ~/.armories/course-notes."
         ),
     )
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)
@@ -107,7 +107,7 @@ def register(
     init = armory_sub.add_parser("init", help="Create a new named armory folder.")
     init.add_argument(
         "path",
-        help="Folder name (armory will be created in ~/.armories/), e.g. gdp or swt.",
+        help="Folder name (armory will be created in ~/.armories/), e.g. course-notes.",
     )
     init.set_defaults(handler=_cmd_armory_init, post_init=post_init)
 

@@ -229,6 +229,15 @@ class TestGetHistoryPath:
         path = get_history_path(session)
         assert path == Path.home() / ".cache" / "hephaistos" / "plain-history"
 
+    def test_plain_session_uses_shared_system_prompt(self) -> None:
+        config = ChatConfig(base_url="https://api.example.com", model="test-model")
+        session = create_plain_session(config)
+        system_prompt = session.conversation.messages[0].content
+
+        assert system_prompt.startswith("You are running inside Heph.")
+        assert "## Guidelines" in system_prompt
+        assert "Say nothing else" not in system_prompt
+
     def test_armory_session_returns_armory_history_path(self, initialized_armory: Path) -> None:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_session(config, initialized_armory)

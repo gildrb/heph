@@ -64,11 +64,39 @@ class _SourceFileState:
     content_hash: str
 
 
+@dataclass(slots=True)
+class _IndexBuildStats:
+    reused: int = 0
+    rebuilt: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _LoadedIndexData:
+    data: dict[str, object]
+    version: int
+    raw_documents: list[object]
+    trust_large_signed_cache: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _MaterialSourceMatch:
+    path: Path
+    content_hash: str
+
+
 def _file_hash(path: Path) -> str | None:
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
         return None
+
+
+def _read_json_mapping(path: Path) -> dict[str, object] | None:
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if is_string_mapping(data) else None
 
 
 def _unindexable_reason(path: Path) -> str:
@@ -137,6 +165,42 @@ def _chunk_file_with_timeout(
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous_handler)
     return document, timed_out
+
+
+def _can_reuse_previous_document(
+    previous: ArmoryIndex,
+    previous_document: ChunkedDocument | None,
+    *,
+    strategy: ChunkStrategy,
+    rel: str,
+    content_hash: str | None,
+) -> bool:
+    return (
+        previous.strategy == strategy
+        and content_hash is not None
+        and previous._file_hashes.get(rel) == content_hash
+        and previous_document is not None
+    )
+
+
+def _report_index_progress(
+    progress: IndexProgress | None,
+    event: str,
+    message: str,
+) -> None:
+    if progress is not None:
+        progress(event, message)
+
+
+def _unindexable_index_reason(
+    file_path: Path,
+    *,
+    timed_out: bool,
+    timeout_seconds: int,
+) -> str:
+    if timed_out:
+        return f"document conversion timed out after {timeout_seconds} second(s)"
+    return _unindexable_reason(file_path)
 
 
 def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | None:
@@ -294,6 +358,27 @@ def _index_data_documents(data: Mapping[str, object]) -> list[object] | None:
     return raw_documents if is_object_list(raw_documents) else None
 
 
+def _load_index_data(index_path: Path) -> _LoadedIndexData | None:
+    data = _read_index_data(index_path)
+    if data is None:
+        return None
+    version = _index_data_version(data)
+    if version is None:
+        return None
+    raw_documents = _index_data_documents(data)
+    if raw_documents is None:
+        return None
+    trust_large_signed_cache = _trust_large_signed_cache(raw_documents, version)
+    if not _index_documents_signature_valid(data, raw_documents, version):
+        return None
+    return _LoadedIndexData(
+        data=data,
+        version=version,
+        raw_documents=raw_documents,
+        trust_large_signed_cache=trust_large_signed_cache,
+    )
+
+
 def _index_documents_signature_valid(
     data: Mapping[str, object],
     raw_documents: list[object],
@@ -301,20 +386,36 @@ def _index_documents_signature_valid(
 ) -> bool:
     raw_documents_digest = data.get("documents_digest")
     if version >= 7:
-        if not isinstance(raw_documents_digest, str):
-            return False
-        if len(
-            raw_documents
-        ) <= _document_digest_verify_limit() and raw_documents_digest != _documents_digest(
-            raw_documents
-        ):
-            return False
-        return _index_signature_matches(data)
-    return not (
-        version >= 4
-        and isinstance(raw_documents_digest, str)
-        and raw_documents_digest != _documents_digest(raw_documents)
+        return _signed_index_documents_valid(data, raw_documents_digest, raw_documents)
+    return _legacy_index_documents_valid(raw_documents_digest, raw_documents, version)
+
+
+def _signed_index_documents_valid(
+    data: Mapping[str, object],
+    raw_documents_digest: object,
+    raw_documents: list[object],
+) -> bool:
+    return (
+        isinstance(raw_documents_digest, str)
+        and _documents_digest_matches(raw_documents_digest, raw_documents)
+        and _index_signature_matches(data)
     )
+
+
+def _documents_digest_matches(raw_documents_digest: str, raw_documents: list[object]) -> bool:
+    if len(raw_documents) > _document_digest_verify_limit():
+        return True
+    return raw_documents_digest == _documents_digest(raw_documents)
+
+
+def _legacy_index_documents_valid(
+    raw_documents_digest: object,
+    raw_documents: list[object],
+    version: int,
+) -> bool:
+    if version < 4 or not isinstance(raw_documents_digest, str):
+        return True
+    return raw_documents_digest == _documents_digest(raw_documents)
 
 
 def _trust_large_signed_cache(raw_documents: list[object], version: int) -> bool:
@@ -443,19 +544,12 @@ class ArmoryIndex:
         embed_path = self._embedding_cache_path(model_name, cache_key)
         if not embed_path.is_file():
             return None
-        try:
-            data: object = json.loads(embed_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return None
-        if not is_string_mapping(data):
-            return None
-        if data.get("content_hash") != self.content_hash:
-            return None
-        if data.get("model_name") != model_name:
-            return None
-        if data.get("cache_key", model_name) != (cache_key or model_name):
-            return None
-        if data.get("chunk_count") != len(self.all_chunks):
+        data = _read_json_mapping(embed_path)
+        if data is None or not self._embedding_cache_matches(
+            data,
+            model_name=model_name,
+            cache_key=cache_key,
+        ):
             return None
         raw_embeddings = data.get("embeddings")
         typed = _coerce_embedding_rows(raw_embeddings)
@@ -466,6 +560,20 @@ class ArmoryIndex:
             extra={"fields": {"path": str(embed_path), "chunks": len(typed)}},
         )
         return typed
+
+    def _embedding_cache_matches(
+        self,
+        data: Mapping[str, object],
+        *,
+        model_name: str,
+        cache_key: str | None,
+    ) -> bool:
+        return (
+            data.get("content_hash") == self.content_hash
+            and data.get("model_name") == model_name
+            and data.get("cache_key", model_name) == (cache_key or model_name)
+            and data.get("chunk_count") == len(self.all_chunks)
+        )
 
     def save_retriever_state(self, retriever_type: str, state: dict[str, object]) -> Path | None:
         state_path = self._retriever_state_path(retriever_type)
@@ -489,15 +597,8 @@ class ArmoryIndex:
         state_path = self._retriever_state_path(retriever_type)
         if not state_path.is_file():
             return None
-        try:
-            data: object = json.loads(state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return None
-        if not is_string_mapping(data):
-            return None
-        if data.get("content_hash") != self.content_hash:
-            return None
-        if data.get("retriever_type") != retriever_type:
+        data = _read_json_mapping(state_path)
+        if data is None or not self._retriever_state_cache_matches(data, retriever_type):
             return None
         raw_state = data.get("state")
         if not is_string_mapping(raw_state):
@@ -507,6 +608,16 @@ class ArmoryIndex:
             extra={"fields": {"path": str(state_path), "type": retriever_type}},
         )
         return raw_state
+
+    def _retriever_state_cache_matches(
+        self,
+        data: Mapping[str, object],
+        retriever_type: str,
+    ) -> bool:
+        return (
+            data.get("content_hash") == self.content_hash
+            and data.get("retriever_type") == retriever_type
+        )
 
     @property
     def chunk_count(self) -> int:
@@ -542,8 +653,7 @@ class ArmoryIndex:
         previous_documents = {document.source: document for document in previous.documents}
         self._reset_build_state()
         timer = Timer()
-        reused = 0
-        rebuilt = 0
+        stats = _IndexBuildStats()
         with timer:
             for file_path in self._iter_source_files():
                 rel = str(file_path.relative_to(self.armory_path))
@@ -551,22 +661,16 @@ class ArmoryIndex:
                 if content_hash is not None:
                     self._file_hashes[rel] = content_hash
                 previous_document = previous_documents.get(rel)
-                if (
-                    previous.strategy == self.strategy
-                    and content_hash is not None
-                    and previous._file_hashes.get(rel) == content_hash
-                    and previous_document is not None
+                if self._reuse_previous_document(
+                    previous,
+                    previous_document,
+                    rel=rel,
+                    content_hash=content_hash,
+                    progress=progress,
                 ):
-                    self.documents.append(previous_document)
-                    reused += 1
-                    if progress is not None:
-                        progress("reading", rel)
-                        progress(
-                            "indexed",
-                            f"{rel} ({len(previous_document.chunks)} chunks, reused)",
-                        )
+                    stats.reused += 1
                     continue
-                rebuilt += self._index_source_file(
+                stats.rebuilt += self._index_source_file(
                     file_path,
                     content_hash=content_hash,
                     progress=progress,
@@ -579,12 +683,36 @@ class ArmoryIndex:
                     "strategy": self.strategy.value,
                     "documents": len(self.documents),
                     "chunks": self.chunk_count,
-                    "reused_files": reused,
-                    "rebuilt_files": rebuilt,
+                    "reused_files": stats.reused,
+                    "rebuilt_files": stats.rebuilt,
                     "latency_ms": timer.ms,
                 }
             },
         )
+
+    def _reuse_previous_document(
+        self,
+        previous: ArmoryIndex,
+        previous_document: ChunkedDocument | None,
+        *,
+        rel: str,
+        content_hash: str | None,
+        progress: IndexProgress | None,
+    ) -> bool:
+        if not _can_reuse_previous_document(
+            previous,
+            previous_document,
+            strategy=self.strategy,
+            rel=rel,
+            content_hash=content_hash,
+        ):
+            return False
+        assert previous_document is not None
+        self.documents.append(previous_document)
+        if progress is not None:
+            progress("reading", rel)
+            progress("indexed", f"{rel} ({len(previous_document.chunks)} chunks, reused)")
+        return True
 
     def _reset_build_state(self) -> None:
         self.documents = []
@@ -601,12 +729,9 @@ class ArmoryIndex:
         progress: IndexProgress | None = None,
     ) -> int:
         rel = str(file_path.relative_to(self.armory_path))
-        if progress is not None:
-            progress("reading", rel)
-        if content_hash is None:
-            content_hash = _file_hash(file_path)
-        if content_hash is not None:
-            self._file_hashes[rel] = content_hash
+        _report_index_progress(progress, "reading", rel)
+        self._record_source_file_hash(rel, file_path, content_hash)
+
         timeout_seconds = _file_timeout_seconds()
         doc, timed_out = _chunk_file_with_timeout(
             file_path,
@@ -615,19 +740,54 @@ class ArmoryIndex:
             timeout_seconds=timeout_seconds,
         )
         if doc is not None and doc.chunks:
-            self.documents.append(doc)
-            if progress is not None:
-                progress("indexed", f"{rel} ({len(doc.chunks)} chunks)")
-        elif not _is_text_file(file_path):
-            reason = (
-                f"document conversion timed out after {timeout_seconds} second(s)"
-                if timed_out
-                else _unindexable_reason(file_path)
+            self._add_indexed_document(rel, doc, progress)
+        else:
+            self._record_unindexable_source(
+                file_path,
+                rel=rel,
+                timed_out=timed_out,
+                timeout_seconds=timeout_seconds,
+                progress=progress,
             )
-            self.unindexable_files[rel] = reason
-            if progress is not None:
-                progress("skipped", f"{rel}: {reason}")
         return 1
+
+    def _record_source_file_hash(
+        self,
+        rel: str,
+        file_path: Path,
+        content_hash: str | None,
+    ) -> None:
+        content_hash = content_hash if content_hash is not None else _file_hash(file_path)
+        if content_hash is not None:
+            self._file_hashes[rel] = content_hash
+
+    def _add_indexed_document(
+        self,
+        rel: str,
+        document: ChunkedDocument,
+        progress: IndexProgress | None,
+    ) -> None:
+        self.documents.append(document)
+        _report_index_progress(progress, "indexed", f"{rel} ({len(document.chunks)} chunks)")
+
+    def _record_unindexable_source(
+        self,
+        file_path: Path,
+        *,
+        rel: str,
+        timed_out: bool,
+        timeout_seconds: int,
+        progress: IndexProgress | None,
+    ) -> None:
+        if _is_text_file(file_path):
+            return
+        reason = _unindexable_index_reason(
+            file_path,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
+        )
+        self.unindexable_files[rel] = reason
+        _report_index_progress(progress, "skipped", f"{rel}: {reason}")
 
     def save(self) -> Path:
         index_path = self.armory_path / ".hephaistos" / _INDEX_FILE
@@ -672,40 +832,37 @@ class ArmoryIndex:
         if not index_path.is_file():
             return False
 
-        data = _read_index_data(index_path)
-        if data is None:
+        loaded = _load_index_data(index_path)
+        if loaded is None:
             return False
-
-        version = _index_data_version(data)
-        if version is None:
-            return False
-
         self._reset_build_state()
-        self._restore_cached_strategy(data, version)
-        self._restore_cached_file_hashes(data)
+        self._restore_loaded_index(loaded)
 
-        raw_documents = _index_data_documents(data)
-        if raw_documents is None:
+        if not self._loaded_cache_is_usable(loaded, allow_stale=allow_stale):
             return False
-        trust_large_signed_cache = _trust_large_signed_cache(raw_documents, version)
-        if not _index_documents_signature_valid(data, raw_documents, version):
-            return False
-        self._restore_cached_documents(raw_documents, version)
-
-        if not self._cached_file_hashes_are_usable(
-            allow_stale=allow_stale,
-            trust_large_signed_cache=trust_large_signed_cache,
-        ):
-            return False
-        if not self._cached_documents_are_usable(
-            allow_stale=allow_stale,
-            version=version,
-            trust_large_signed_cache=trust_large_signed_cache,
-        ):
-            return False
-        if not trust_large_signed_cache:
+        if not loaded.trust_large_signed_cache:
             self._rebuild_unindexable_files()
         return True
+
+    def _loaded_cache_is_usable(
+        self,
+        loaded: _LoadedIndexData,
+        *,
+        allow_stale: bool,
+    ) -> bool:
+        return self._cached_file_hashes_are_usable(
+            allow_stale=allow_stale,
+            trust_large_signed_cache=loaded.trust_large_signed_cache,
+        ) and self._cached_documents_are_usable(
+            allow_stale=allow_stale,
+            version=loaded.version,
+            trust_large_signed_cache=loaded.trust_large_signed_cache,
+        )
+
+    def _restore_loaded_index(self, loaded: _LoadedIndexData) -> None:
+        self._restore_cached_strategy(loaded.data, loaded.version)
+        self._restore_cached_file_hashes(loaded.data)
+        self._restore_cached_documents(loaded.raw_documents, loaded.version)
 
     def _restore_cached_strategy(self, data: Mapping[str, object], version: int) -> None:
         if version < 2 or "strategy" not in data:
@@ -776,14 +933,16 @@ class ArmoryIndex:
             return True
         if len(self._file_hashes) > _document_digest_verify_limit():
             return False
+        return self._source_files_changed()
 
+    def _source_files_changed(self) -> bool:
         indexed_sources = {doc.source for doc in self.documents}
         source_count = 0
+
         for file_path in self._iter_source_files():
             source_count += 1
             if self._source_file_makes_index_stale(file_path, indexed_sources):
                 return True
-
         return len(self._file_hashes) != source_count
 
     def _iter_source_files(self) -> Iterator[Path]:
@@ -814,6 +973,13 @@ class ArmoryIndex:
             return True
         if source_state.content_hash != self._file_hashes.get(source_state.rel):
             return True
+        return self._convertible_binary_missing_from_index(source_state, indexed_sources)
+
+    def _convertible_binary_missing_from_index(
+        self,
+        source_state: _SourceFileState,
+        indexed_sources: set[str],
+    ) -> bool:
         return (
             _can_convert_binary_file(source_state.path)
             and _is_docling_file(source_state.path)
@@ -842,26 +1008,45 @@ class ArmoryIndex:
         allow_binary_cache: bool,
         trust_text_cache: bool,
     ) -> bool:
-        if not document.source:
+        source_match = self._material_source_match(document)
+        if source_match is None:
             return False
-        source_path = self.armory_path / document.source
-        resolved_path = _resolved_path_within_materials(source_path, self.armory_path)
-        if resolved_path is None or not resolved_path.is_file():
-            return False
-        material_hash = _file_hash(resolved_path)
-        if material_hash is None or self._file_hashes.get(document.source) != material_hash:
-            return False
-        if _is_text_file(resolved_path):
+        if _is_text_file(source_match.path):
             return self._text_document_matches_source(
                 document,
-                resolved_path,
+                source_match.path,
                 trust_text_cache=trust_text_cache,
             )
         return self._binary_document_matches_source(
             document,
-            material_hash,
+            source_match.content_hash,
             allow_binary_cache=allow_binary_cache,
         )
+
+    def _material_source_match(
+        self,
+        document: ChunkedDocument,
+    ) -> _MaterialSourceMatch | None:
+        resolved_path = self._resolved_document_source_path(document)
+        if resolved_path is None or not resolved_path.is_file():
+            return None
+        material_hash = _file_hash(resolved_path)
+        if material_hash is None or not self._document_hash_matches_cache(document, material_hash):
+            return None
+        return _MaterialSourceMatch(path=resolved_path, content_hash=material_hash)
+
+    def _resolved_document_source_path(self, document: ChunkedDocument) -> Path | None:
+        if not document.source:
+            return None
+        source_path = self.armory_path / document.source
+        return _resolved_path_within_materials(source_path, self.armory_path)
+
+    def _document_hash_matches_cache(
+        self,
+        document: ChunkedDocument,
+        material_hash: str,
+    ) -> bool:
+        return self._file_hashes.get(document.source) == material_hash
 
     def _text_document_matches_source(
         self,
@@ -872,17 +1057,12 @@ class ArmoryIndex:
     ) -> bool:
         if trust_text_cache:
             return True
-        try:
-            source_text = _normalize_extracted_text(resolved_path.read_text(encoding="utf-8"))
-        except (UnicodeDecodeError, OSError):
+        source_text = _read_normalized_source_text(resolved_path)
+        if source_text is None:
             return False
-        text_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-        if document.content_hash and document.content_hash != text_hash:
+        if not _document_text_hash_matches(document, source_text):
             return False
-        return all(
-            chunk.source == document.source and _normalized_text_contains(source_text, chunk.text)
-            for chunk in document.chunks
-        )
+        return _document_chunks_match_source_text(document, source_text)
 
     @staticmethod
     def _binary_document_matches_source(
@@ -912,6 +1092,25 @@ class ArmoryIndex:
             rel = str(file_path.relative_to(self.armory_path))
             if rel not in indexed_sources and not _is_text_file(file_path):
                 self.unindexable_files[rel] = _unindexable_reason(file_path)
+
+
+def _read_normalized_source_text(path: Path) -> str | None:
+    try:
+        return _normalize_extracted_text(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def _document_text_hash_matches(document: ChunkedDocument, source_text: str) -> bool:
+    text_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
+    return not document.content_hash or document.content_hash == text_hash
+
+
+def _document_chunks_match_source_text(document: ChunkedDocument, source_text: str) -> bool:
+    return all(
+        chunk.source == document.source and _normalized_text_contains(source_text, chunk.text)
+        for chunk in document.chunks
+    )
 
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:
@@ -970,7 +1169,7 @@ def load_or_build(
 ) -> ArmoryIndex:
     index = ArmoryIndex(armory_path, strategy=strategy)
     loaded = index.load(allow_stale=True)
-    if loaded and index.strategy == strategy and not index.is_stale():
+    if _can_use_loaded_index(index, loaded=loaded, strategy=strategy):
         if progress is not None:
             index_path = armory_path / ".hephaistos" / _INDEX_FILE
             progress("loaded", f"{index_path} ({index.chunk_count} chunks)")
@@ -998,3 +1197,12 @@ def load_or_build(
         progress=progress,
         previous=index if loaded else None,
     )
+
+
+def _can_use_loaded_index(
+    index: ArmoryIndex,
+    *,
+    loaded: bool,
+    strategy: ChunkStrategy,
+) -> bool:
+    return loaded and index.strategy == strategy and not index.is_stale()

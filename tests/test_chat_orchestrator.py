@@ -37,7 +37,6 @@ from hephaistos.chat.orchestrator import (
     TurnOrchestrator,
     _evidence_notice,
     _evidence_notice_metadata,
-    _insufficient_evidence_reply,
     _learning_practice_context,
     _localize_deterministic_reply,
     _model_normalized_learning_plan,
@@ -417,12 +416,12 @@ def test_deterministic_fallback_localization_rejects_added_citations(
     )
 
     reply = _localize_deterministic_reply(
-        "The enabled armory sources do not contain an answer.",
+        "No grounded source answer was produced.",
         user_input="was steht dazu in den quellen?",
         config=config,
     )
 
-    assert reply == "The enabled armory sources do not contain an answer."
+    assert reply == "No grounded source answer was produced."
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -701,7 +700,6 @@ def test_model_normalized_learning_plan_handles_standalone_source_only_policy(
     assert normalized_plan.action is LearningAction.CHAT
     assert normalized_plan.retrieval_query is None
     assert normalized_plan.allow_tools is False
-    assert normalized_plan.direct_reply is None
     assert "Execute CHAT" in normalized_plan.prompt
     assert "Do not offer menus" in normalized_plan.prompt
 
@@ -1864,27 +1862,7 @@ def test_assess_turn_evidence_keeps_empty_present_query_retrievable() -> None:
     assert assessment.recommended_action == "retrieve_more"
 
 
-def test_empty_present_retrieve_more_falls_back_to_overview_guidance() -> None:
-    plan = _make_learning_plan(
-        action=LearningAction.PRESENT,
-        retrieval_query="Do some math",
-    )
-    assessment = assess_turn_evidence(plan, None)
-    resolved = ResolvedTurnPlan(
-        learning_plan=plan,
-        turn_evidence=None,
-        evidence_assessment=assessment,
-    )
-
-    reply = _insufficient_evidence_reply(plan, resolved)
-
-    assert reply
-    assert "need one clarification" not in reply.casefold()
-    assert "material overview" in reply.casefold()
-    assert "pick one source-backed topic" in reply.casefold()
-
-
-def test_assess_turn_evidence_routes_assess_without_evidence_to_quiz_first() -> None:
+def test_assess_turn_evidence_keeps_assess_without_evidence_on_retrieval_path() -> None:
     plan = _make_learning_plan(
         action=LearningAction.ASSESS,
         retrieval_query="grade this recall answer against the source",
@@ -1893,7 +1871,7 @@ def test_assess_turn_evidence_routes_assess_without_evidence_to_quiz_first() -> 
     assessment = assess_turn_evidence(plan, None)
 
     assert assessment.sufficient is False
-    assert assessment.recommended_action == "quiz_first"
+    assert assessment.recommended_action == "retrieve_more"
 
 
 def test_evidence_assessment_trace_is_json_friendly() -> None:
@@ -1983,7 +1961,7 @@ class TestTurnOrchestratorPlain:
         assert mock_stream.call_count == 1
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
-    def test_plain_direct_reply_localizes_when_model_configured(
+    def test_plain_chat_uses_model_when_configured(
         self,
         mock_stream: MagicMock,
     ) -> None:
@@ -1991,8 +1969,8 @@ class TestTurnOrchestratorPlain:
             [
                 CompletionDelta(
                     content=(
-                        "Hey. Ich kann quellenbasiertes Lernen mit /exam, /priority "
-                        "oder /practice on starten."
+                        "Ich kann quellenbasierte Fragen beantworten, /exam starten "
+                        "oder mit /priority Schwerpunkte finden."
                     )
                 )
             ]
@@ -2006,12 +1984,13 @@ class TestTurnOrchestratorPlain:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert deltas == [
-            "Hey. Ich kann quellenbasiertes Lernen mit /exam, /priority oder /practice on starten."
+            "Ich kann quellenbasierte Fragen beantworten, /exam starten oder mit /priority "
+            "Schwerpunkte finden."
         ]
         assert session.conversation.messages[-1].content == deltas[0]
         assert "/exam" in deltas[0]
         assert "/priority" in deltas[0]
-        assert "/practice" in deltas[0]
+        assert "/practice" not in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_yields_deltas(self, mock_stream: MagicMock) -> None:
@@ -2366,7 +2345,6 @@ class TestTurnOrchestratorLearning:
         ]
         assert "Verstanden" not in deltas[0]
         assert resolved_plan.action is LearningAction.CHAT
-        assert resolved_plan.direct_reply is None
         assert resolved_plan.allow_tools is False
         assert session.learning_state.last_feedback_type is LearningFeedbackType.NONE
         mock_iter_agent.assert_called_once()
@@ -2426,7 +2404,6 @@ class TestTurnOrchestratorLearning:
         ]
         assert "Verstanden" not in deltas[0]
         assert resolved_plan.action is LearningAction.CHAT
-        assert resolved_plan.direct_reply is None
         assert session.learning_state.phase is LearningPhase.RECALL
         assert session.learning_state.attempt_count == 2
         assert session.learning_state.last_feedback_type is LearningFeedbackType.NONE
@@ -4008,7 +3985,7 @@ class TestTurnOrchestratorLearning:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_source_qa_without_evidence_uses_source_specific_fallback(
+    def test_source_qa_without_evidence_uses_model_with_evidence_gate(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -4020,29 +3997,26 @@ class TestTurnOrchestratorLearning:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = None
-        mock_iter_agent.return_value = iter([])
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("model abstention")])
 
         session = _make_armory_session()
         orch = TurnOrchestrator(session)
         events = list(orch.iter_events("Using the source files, what is the sentinel phrase?"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert "enabled armory sources do not contain an answer" in deltas[0]
-        assert "/materials" in deltas[0]
-        assert "prompt" not in deltas[0]
-        mock_iter_agent.assert_not_called()
+        assert deltas == ["model abstention"]
+        prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "Evidence gate:" in prompt
+        assert "action=abstain" in prompt
 
-    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_source_qa_without_evidence_localizes_deterministic_fallback(
+    def test_source_qa_without_evidence_does_not_localize_static_fallback(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
-        mock_stream: MagicMock,
     ) -> None:
         plan = _make_learning_plan(
             action=LearningAction.SOURCE_QA,
@@ -4050,18 +4024,7 @@ class TestTurnOrchestratorLearning:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = None
-        mock_iter_agent.return_value = iter([])
-        mock_stream.return_value = iter(
-            [
-                CompletionDelta(
-                    content=(
-                        "Die aktivierten Armory-Quellen enthalten keine Antwort auf diese "
-                        "Frage. Aktiviere das relevante Material mit /materials oder gib eine "
-                        "spezifischere Quelle an."
-                    )
-                )
-            ]
-        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("model abstention")])
 
         session = _make_armory_session()
         session.config.base_url = "https://local.test/v1"
@@ -4070,70 +4033,13 @@ class TestTurnOrchestratorLearning:
         events = list(orch.iter_events("was steht dazu in den quellen?"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert deltas[0].startswith("Die aktivierten Armory-Quellen")
-        assert "/materials" in deltas[0]
-        assert "enabled armory sources" not in deltas[0]
-        assert (
-            "Rewrite an internal English fallback"
-            in mock_stream.call_args.args[1].messages[0].content
-        )
-        mock_iter_agent.assert_not_called()
-
-    @patch("hephaistos.chat.orchestrator.stream_completion")
-    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
-    @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_direct_reply_localizes_without_losing_commands(
-        self,
-        mock_plan_turn: MagicMock,
-        mock_resolve_evidence: MagicMock,
-        mock_stream: MagicMock,
-    ) -> None:
-        direct_reply = (
-            "Use Heph to study your own materials: ask a source-grounded question, "
-            "run /exam for active recall, run /priority for a plan, or /practice on "
-            "to let Heph drive the session."
-        )
-        mock_plan_turn.return_value = LearningTurnPlan(
-            action=LearningAction.CHAT,
-            phase=LearningPhase.PRESENTING,
-            prompt="",
-            allow_tools=False,
-            direct_reply=direct_reply,
-        )
-        mock_resolve_evidence.return_value = None
-        mock_stream.return_value = iter(
-            [
-                CompletionDelta(
-                    content=(
-                        "Nutze Heph, um mit deinen eigenen Materialien zu lernen: "
-                        "stelle eine quellenbasierte Frage, starte /exam fuer Active Recall, "
-                        "nutze /priority fuer einen Plan oder /practice on, damit Heph die "
-                        "Sitzung fuehrt."
-                    )
-                )
-            ]
-        )
-
-        session = _make_armory_session()
-        session.config.base_url = "https://local.test/v1"
-        session.config.model = "fallback-localizer"
-        orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("was kann heph tun?"))
-
-        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert deltas[0].startswith("Nutze Heph")
-        assert "/exam" in deltas[0]
-        assert "/priority" in deltas[0]
-        assert "/practice" in deltas[0]
-        assert "Use Heph" not in deltas[0]
-        assert session.conversation.messages[-1].content == deltas[0]
+        assert deltas == ["model abstention"]
+        assert "Evidence gate:" in mock_iter_agent.call_args.kwargs["extra_system_prompt"]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_source_only_present_without_evidence_abstains_before_tools(
+    def test_source_only_present_without_evidence_uses_model_with_gate(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -4148,16 +4054,15 @@ class TestTurnOrchestratorLearning:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = None
-        mock_iter_agent.return_value = iter([])
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("model abstention")])
 
         session = _make_armory_session()
         orch = TurnOrchestrator(session)
         events = list(orch.iter_events("Using only the indexed sources, what is amber forge?"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert "enabled armory sources do not contain an answer" in deltas[0]
-        mock_iter_agent.assert_not_called()
+        assert deltas == ["model abstention"]
+        assert "Evidence gate:" in mock_iter_agent.call_args.kwargs["extra_system_prompt"]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -4187,7 +4092,7 @@ class TestTurnOrchestratorLearning:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_broad_present_query_routes_to_overview_guidance_before_generation(
+    def test_broad_present_query_with_thin_evidence_goes_to_model_with_gate(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -4199,21 +4104,21 @@ class TestTurnOrchestratorLearning:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = None
-        mock_iter_agent.return_value = iter([AssistantDeltaEvent("unused")])
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("PARTIAL: model reply")])
 
         session = _make_armory_session()
         events = list(TurnOrchestrator(session).iter_events("what is this material about overall"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert "Start with a material overview" in deltas[0]
-        assert "need one clarification" not in deltas[0]
-        mock_iter_agent.assert_not_called()
+        assert deltas == ["PARTIAL: model reply"]
+        prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "Evidence gate:" in prompt
+        assert "action=retrieve more" in prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_assess_without_evidence_routes_to_quiz_first_before_generation(
+    def test_assess_without_evidence_goes_to_model_with_gate(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -4225,15 +4130,16 @@ class TestTurnOrchestratorLearning:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = None
-        mock_iter_agent.return_value = iter([AssistantDeltaEvent("unused")])
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("PARTIAL: model reply")])
 
         session = _make_armory_session()
         events = list(TurnOrchestrator(session).iter_events("answer"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert "test your current understanding first" in deltas[0]
-        mock_iter_agent.assert_not_called()
+        assert deltas == ["PARTIAL: model reply"]
+        prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "Evidence gate:" in prompt
+        assert "action=retrieve more" in prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     def test_simple_greeting_goes_to_model_when_armory_is_attached(
@@ -4346,6 +4252,8 @@ class TestTurnOrchestratorLearning:
         session = _make_armory_session()
         assert session.armory_path is not None
         session.armory_path.mkdir(parents=True, exist_ok=True)
+        schedule_path = session.armory_path / ".hephaistos" / "recall_schedule.json"
+        schedule_path.unlink(missing_ok=True)
         session.learning_state = LearningState(
             phase=LearningPhase.RECALL,
             current_item="Q1",

@@ -25,6 +25,7 @@ _TOOL_DISPLAY_FIELDS = {
     "edit_file": ("Editing", "path"),
     "search_materials": ("Searching materials", "query"),
 }
+type _ToolArgFormatter = Callable[[dict[str, object]], str]
 
 
 class ToolCallFunction(TypedDict):
@@ -321,22 +322,39 @@ def format_tool_args(name: str, args: dict[str, object]) -> str:
     if name in _TOOL_DISPLAY_FIELDS:
         label, key = _TOOL_DISPLAY_FIELDS[name]
         return f"{_TOOL_DISPLAY_INDENT}{label}: {_string_arg(args, key)}"
-    if name == "write_file":
-        path = _string_arg(args, "path")
-        size = len(_string_arg(args, "content"))
-        return f"{_TOOL_DISPLAY_INDENT}Writing: {path} ({size} chars)"
-    if name == "list_files":
-        path = _string_arg(args, "path") or "."
-        return f"{_TOOL_DISPLAY_INDENT}Listing: {path}"
-    if name == "open_material":
-        source = _string_arg(args, "source")
-        chunk = args.get("chunk")
-        if isinstance(chunk, int):
-            return f"{_TOOL_DISPLAY_INDENT}Opening material: {source}#chunk={chunk}"
-        return f"{_TOOL_DISPLAY_INDENT}Opening material: {source}"
-    if name == "compact":
-        return f"{_TOOL_DISPLAY_INDENT}Compacting conversation"
+    if formatter := _TOOL_ARG_FORMATTERS.get(name):
+        return f"{_TOOL_DISPLAY_INDENT}{formatter(args)}"
     return f"{_TOOL_DISPLAY_INDENT}[{name}] {args}"
+
+
+def _format_write_file_args(args: dict[str, object]) -> str:
+    path = _string_arg(args, "path")
+    size = len(_string_arg(args, "content"))
+    return f"Writing: {path} ({size} chars)"
+
+
+def _format_list_files_args(args: dict[str, object]) -> str:
+    return f"Listing: {_string_arg(args, 'path') or '.'}"
+
+
+def _format_open_material_args(args: dict[str, object]) -> str:
+    source = _string_arg(args, "source")
+    chunk = args.get("chunk")
+    if isinstance(chunk, int):
+        return f"Opening material: {source}#chunk={chunk}"
+    return f"Opening material: {source}"
+
+
+def _format_compact_args(_args: dict[str, object]) -> str:
+    return "Compacting conversation"
+
+
+_TOOL_ARG_FORMATTERS: dict[str, _ToolArgFormatter] = {
+    "write_file": _format_write_file_args,
+    "list_files": _format_list_files_args,
+    "open_material": _format_open_material_args,
+    "compact": _format_compact_args,
+}
 
 
 def summarize_result(content: str) -> str:
