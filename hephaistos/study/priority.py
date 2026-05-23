@@ -67,9 +67,8 @@ _BOILERPLATE_LINE_RE = re.compile(
     r"all\s+rights\s+reserved|candidate\s+number|copyright|course|department|"
     r"e-?mail|exam\s+seat|faculty|institute|instructor|lecturer|office\s+hours|"
     r"prof(?:essor)?|school|semester|student\s+id|student\s+name|student\s+number|"
-    r"term|university|aufgabennummer|dozent|dozentin|hochschule|matrikelnummer|"
-    r"nachname|sommersemester|universität|universitaet|vorname|"
-    r"wintersemester"
+    r"term|university|dozent|dozentin|hochschule|sommersemester|universität|"
+    r"universitaet|wintersemester"
     r")\b|@",
     re.IGNORECASE,
 )
@@ -152,8 +151,7 @@ _RAW_METRIC_RE = re.compile(
 _FORBIDDEN_REPORT_RE = re.compile(
     r"Score\s+\d|exam hits|exam marks|material hits|"
     r"formula-not-decoded|image not decoded|ocr noise|"
-    r"student name|student id|candidate number|exam seat|"
-    r"matrikelnummer|aufgabennummer",
+    r"student name|student id|candidate number|exam seat",
     re.IGNORECASE,
 )
 _LATEX_ENGINE_NAMES = ("latexmk", "lualatex", "xelatex", "pdflatex", "tectonic")
@@ -284,7 +282,6 @@ _STOPWORDS = frozenset(
         "at",
         "auf",
         "aufgabe",
-        "aufgabennummer",
         "aus",
         "basic",
         "basics",
@@ -347,7 +344,6 @@ _STOPWORDS = frozenset(
         "denotes",
         "handschriftlich",
         "have",
-        "hilfsmittel",
         "identify",
         "ihre",
         "insbesondere",
@@ -456,10 +452,7 @@ _STOPWORDS = frozenset(
         "verfasste",
         "viele",
         "wie",
-        "matrikelnummer",
-        "nachname",
         "nschen",
-        "vorname",
         "vorlesung",
         "article",
         "course",

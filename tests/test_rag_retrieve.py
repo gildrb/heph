@@ -805,6 +805,7 @@ class TestReciprocalRankFusion:
         ranked = [ScoredChunk(chunk=c_a, score=0.9)]
         result = reciprocal_rank_fusion([ranked])
         assert result[0].score > 0
+        assert result[0].score == pytest.approx(1.0)
 
     def test_k_parameter_affects_scores(self) -> None:
         c_a = _make_chunk("alpha", "a.md", 0)
@@ -1318,11 +1319,10 @@ class TestCrossEncoderReranker:
         assert len(results) == 3
         # New ordering: c (0.95) > a (0.6) > b (0.1)
         assert results[0].chunk.source == "c.md"
-        assert results[0].score == 0.95
+        assert results[0].score == pytest.approx(1.0)
         assert results[1].chunk.source == "a.md"
-        assert results[1].score == 0.6
         assert results[2].chunk.source == "b.md"
-        assert results[2].score == 0.1
+        assert results[0].score > results[1].score > results[2].score
 
     def test_rerank_respects_top_k(self) -> None:
         c_a = _make_chunk("doc a", "a.md", 0)
@@ -1343,14 +1343,29 @@ class TestCrossEncoderReranker:
         assert results[0].chunk.source == "b.md"
         assert results[1].chunk.source == "c.md"
 
-    def test_scores_are_cross_encoder_scores(self) -> None:
-        """Original retrieval scores are fully replaced by cross-encoder scores."""
+    def test_scores_are_normalized_cross_encoder_scores(self) -> None:
+        """Original retrieval scores are replaced by normalized cross-encoder scores."""
         c_a = _make_chunk("hello", "a.md", 0)
         candidates = [ScoredChunk(chunk=c_a, score=0.1)]
 
         reranker = self._make_reranker_with_mock([0.99])
         results = reranker.rerank("test", candidates, top_k=5)
-        assert results[0].score == 0.99
+        assert results[0].score == pytest.approx(1.0)
+
+    def test_negative_model_scores_are_normalized_relative_to_best(self) -> None:
+        c_a = _make_chunk("most relevant", "a.md", 0)
+        c_b = _make_chunk("less relevant", "b.md", 0)
+        candidates = [
+            ScoredChunk(chunk=c_a, score=0.9),
+            ScoredChunk(chunk=c_b, score=0.8),
+        ]
+
+        reranker = self._make_reranker_with_mock([-8.0, -9.0])
+        results = reranker.rerank("test", candidates, top_k=2)
+
+        assert [result.chunk.source for result in results] == ["a.md", "b.md"]
+        assert results[0].score == pytest.approx(1.0)
+        assert 0.0 < results[1].score < results[0].score
 
     def test_model_name_default(self) -> None:
         reranker = CrossEncoderReranker()
@@ -1701,6 +1716,47 @@ class TestRetrieveConvenience:
         ):
             results = retrieve("binary search", index)
             assert len(results) > 0
+
+    def test_hybrid_negative_rerank_scores_survive_min_score_filter(self) -> None:
+        chunks = [
+            _make_chunk("Binary search runs in O(log n) time.", "algo.md", 0),
+            _make_chunk("Cooking notes for soups.", "cook.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        mock_embed = MagicMock(spec=EmbeddingRetriever)
+        mock_embed.retrieve.return_value = [
+            ScoredChunk(chunk=chunks[0], score=0.95),
+            ScoredChunk(chunk=chunks[1], score=0.2),
+        ]
+        reranker = CrossEncoderReranker()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [-8.0, -9.0]
+        reranker._model = mock_model
+
+        with (
+            patch(
+                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
+            patch(
+                "hephaistos.rag.retrieve.CrossEncoderReranker",
+                return_value=reranker,
+            ),
+        ):
+            results = retrieve("binary search", index, min_score=0.1)
+
+        assert results
+        assert results[0].chunk.source == "algo.md"
+        assert results[0].score == pytest.approx(1.0)
 
     def test_overfetches_before_precision_adjustments(self) -> None:
         chunks = [

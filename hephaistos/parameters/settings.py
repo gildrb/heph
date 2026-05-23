@@ -14,8 +14,12 @@ _DEFAULTS_FILE = Path(__file__).parent / "default.toml"
 _USER_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
 _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
-DEFAULT_THEME: Final[str] = "forge"
-THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
+DEFAULT_THEME: Final[str] = "dark"
+THEME_PRESETS: Final[tuple[str, ...]] = ("dark", "light")
+THEME_LABELS: Final[dict[str, str]] = {
+    "dark": "Dark",
+    "light": "Light",
+}
 ACTIVITY_TRACE_TOOL_CALLS: Final[str] = "tool_calls"
 ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: Final[str] = "minimal_tool_calls"
 ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: Final[str] = "hidden_tool_calls"

@@ -457,7 +457,7 @@ First infer canonical topic names in English. Then choose a concise display labe
 of the user's request; if the request language is unclear, use the canonical English topic. Return
 actual concepts a user can learn or review, not filenames, document roles, metadata,
 table-of-contents labels, administrative text, or generic labels such as definitions, examples,
-exercises, or proofs.
+exercises, or proofs. Judge this from meaning and context rather than fixed keyword lists.
 Every topic must cite exactly one supplied evidence_id and include an exact evidence_quote copied
 from that excerpt. Return JSON only, matching this schema:
 """.strip()
@@ -471,28 +471,39 @@ _LEARNING_INTENT_NORMALIZATION_SCHEMA = "\n".join(
     )
 )
 _LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
-Classify a user's learning intent for a local source-grounded assistant. Interpret the request
-in whatever language the user wrote, but return an English-first control signal. Do not answer the
-request. Use material_overview only when the user asks for the broad picture of the enabled,
-uploaded, indexed, or provided materials as a corpus. Use source_qa for a specific fact or quote
-from the materials, source_only_policy when the user only instructs Heph not to guess,
-hallucinate, invent, or use outside knowledge, topic_presentation for explaining a named concept,
-topic_drill for quiz or practice requests, ready_for_recall when the user says they are ready to
-answer from memory or continue the active recall step, recall_clarification when active recall is
-underway and the user asks to repeat, rephrase, translate, clarify what to answer, or change prompt
-language without answering, recall_answer_attempt when the user appears to be answering an
-active-recall prompt from memory, and chat when the intent is unclear or not material-specific.
+Classify the user's intent for Heph, a tool that answers from the user's own materials.
+The user's materials are the default subject; ambiguous messages refer to them.
+
+Intents:
+- material_overview: broad picture of the materials.
+- source_qa: a specific fact or quote from the materials.
+- source_only_policy: user only asks Heph to stay strictly grounded in sources.
+- topic_presentation: explain a named concept from the materials.
+- topic_drill: quiz or practice from the materials.
+- ready_for_recall: user is ready to answer the active recall prompt.
+- recall_clarification: user wants the active recall prompt repeated, translated, or clarified.
+- recall_answer_attempt: user is attempting the recall answer.
+- chat: clearly unrelated to the user's materials.
+
+When a prior assistant intent is given, treat short or anaphoric follow-ups in any language
+as continuations of that intent. Do not classify them as literal keyword searches.
+Rewrite canonical_english_request with enough source-grounded context for retrieval to find
+more or different relevant material.
+
 Return JSON only, matching this schema:
 """.strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
-Write a user-facing corpus overview from cited material excerpts. Use only the supplied
-evidence. Answer in the same language as the user's request. Give the big picture first and avoid
-organizing primarily by dates, filenames, authors, institutions, semester labels, course logistics,
-or individual chunks unless the user asks for that metadata. Do not mention calendar dates,
-semester labels, lecturer names, or course administration metadata unless the user asks for that
-metadata. Include at least two concise bullet lines with evidence IDs such as [E1].
-Do not mention internal evidence-grounding blocks, and do not include an English topic menu unless
-the user wrote in English. Do not end with a caveat about sampling, orientation, partial inventory,
+Repair or write a user-facing corpus overview from cited material excerpts. Use only the supplied
+evidence; use any rejected draft only to understand formatting mistakes, not as source evidence.
+Answer in the same language as the user's request. Use this exact shape: one short cited overview
+paragraph, then 2-5 concise cited bullets. Start each bullet with "- "; do not use Markdown tables,
+columns, or pipe-separated layouts. Give the big picture first and avoid organizing primarily by
+dates, filenames, authors, institutions, semester labels, course logistics, or individual chunks
+unless the user asks for that metadata. Do not mention calendar dates, semester labels, lecturer
+names, or course administration metadata unless the user asks for that metadata. Decide what is
+substantive material semantically from excerpt context rather than fixed keyword lists. Do not
+mention internal evidence-grounding blocks, and do not include an English topic menu unless the
+user wrote in English. Do not end with a caveat about sampling, orientation, partial inventory,
 or non-exhaustive coverage.
 """.strip()
 _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT = """
@@ -686,21 +697,15 @@ def _requires_indexed_material(session: ChatSession, action: LearningAction) -> 
 
 
 def _indexed_material_state_reply(session: ChatSession, index: ArmoryIndex) -> str:
-    if indexed_reply := _indexed_material_availability_reply(session, index):
-        return indexed_reply
+    if index.chunk_count > 0:
+        if _has_enabled_indexed_material(session, index):
+            return ""
+        return _all_material_disabled_reply()
     if sources := _enabled_unindexable_sources(session, index):
         materials = _material_list_label(sources)
         reasons = [index.unindexable_files[source] for source in sources]
         return _unindexable_material_reply(materials, reasons)
     return _empty_material_index_reply()
-
-
-def _indexed_material_availability_reply(session: ChatSession, index: ArmoryIndex) -> str:
-    if index.chunk_count <= 0:
-        return ""
-    if _has_enabled_indexed_material(session, index):
-        return ""
-    return _all_material_disabled_reply()
 
 
 def _has_enabled_indexed_material(session: ChatSession, index: ArmoryIndex) -> bool:
@@ -747,6 +752,22 @@ def _empty_material_index_reply() -> str:
         "The armory has visible materials, but no searchable evidence is indexed yet. "
         "I cannot answer from outside knowledge. Heph prepares the index "
         "automatically when possible; run `heph index <armory>` to inspect the failure."
+    )
+
+
+def _no_matching_indexed_evidence_reply(session: ChatSession, plan: LearningTurnPlan) -> str:
+    index = session.rag_index
+    if (
+        not _requires_indexed_material(session, plan.action)
+        or index is None
+        or not plan.retrieval_query
+        or not _has_enabled_indexed_material(session, index)
+    ):
+        return ""
+    return (
+        "The enabled materials are indexed, but this turn did not retrieve matching evidence "
+        f"for `{plan.retrieval_query}`. Ask a more specific material-backed question or ask "
+        "for another corpus overview."
     )
 
 
@@ -1442,6 +1463,7 @@ def _postprocess_learning_reply(
             resolved.turn_evidence,
             user_input=user_input,
             config=config,
+            rejected_reply=raw_reply,
         )
         raw_reply = fallback_reply or _overview_unavailable_reply()
         visible_reply = raw_reply
@@ -1461,9 +1483,14 @@ def _postprocess_learning_reply(
 def _deterministic_learning_reply(
     session: ChatSession,
     plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
 ) -> _DeterministicLearningReply | None:
+    if resolved.turn_evidence is not None and resolved.turn_evidence.items:
+        return None
     if missing_reply := _missing_indexed_material_reply(session, plan.action):
         return _DeterministicLearningReply(missing_reply)
+    if no_match_reply := _no_matching_indexed_evidence_reply(session, plan):
+        return _DeterministicLearningReply(no_match_reply)
     return None
 
 
@@ -1731,12 +1758,37 @@ def _overview_turn(plan: LearningTurnPlan) -> bool:
     )
 
 
+_PLAN_INTENT_BY_ACTION: Mapping[LearningAction, str] = {
+    LearningAction.PRIORITY: "material_overview",
+    LearningAction.SOURCE_QA: "source_qa",
+    LearningAction.PRESENT: "topic_presentation",
+    LearningAction.CALIBRATE: "topic_drill",
+    LearningAction.REVIEW: "topic_presentation",
+    LearningAction.SIMPLIFY: "topic_presentation",
+    LearningAction.HINT: "topic_drill",
+    LearningAction.PROMPT_RECALL: "ready_for_recall",
+    LearningAction.WAIT_READY_REMINDER: "ready_for_recall",
+    LearningAction.REFUSE_REVEAL: "recall_clarification",
+    LearningAction.ASSESS: "recall_answer_attempt",
+    LearningAction.CHAT: "chat",
+}
+
+
+def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
+    if plan is None:
+        return ""
+    if _overview_turn(plan):
+        return "material_overview"
+    return _PLAN_INTENT_BY_ACTION.get(plan.action, plan.action.value)
+
+
 def _overview_fallback_reply(
     plan: LearningTurnPlan,
     evidence: TurnEvidence | None,
     *,
     user_input: str = "",
     config: ChatConfig | None = None,
+    rejected_reply: str = "",
 ) -> str:
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
@@ -1746,8 +1798,9 @@ def _overview_fallback_reply(
         evidence,
         user_input=user_input,
         config=config,
+        rejected_reply=rejected_reply,
     )
-    return model_reply or ""
+    return model_reply or _deterministic_overview_fallback_reply(plan, evidence)
 
 
 def _overview_unavailable_reply() -> str:
@@ -1755,6 +1808,47 @@ def _overview_unavailable_reply() -> str:
         "I could not produce a grounded material overview from the current model output. "
         "Please try again or narrow the request to one file or concept."
     )
+
+
+def _deterministic_overview_fallback_reply(
+    plan: LearningTurnPlan,
+    evidence: TurnEvidence,
+) -> str:
+    cited_items = _overview_fallback_citation_items(evidence)
+    if not cited_items:
+        return ""
+    citations = _citation_group(cited_items)
+    source_count = len({item.source for item in cited_items})
+    lines = [
+        "I found indexed evidence for this material overview, but the generated overview was "
+        f"not reliable enough to show. Sample refs: {citations}.",
+        "I will not infer topics from filenames, metadata, or unsupported snippets; ask a "
+        f"narrower source-grounded question about {_count_label(source_count, 'sampled source')}, "
+        f"or retry the overview when the model can produce a valid cited synthesis {citations}.",
+    ]
+    return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
+
+
+def _overview_fallback_citation_items(
+    evidence: TurnEvidence,
+    *,
+    limit: int = 2,
+) -> list[EvidenceChunk]:
+    selected: list[EvidenceChunk] = []
+    seen_keys: set[tuple[str, int]] = set()
+    for item in evidence.items:
+        key = (item.source, item.chunk_index)
+        if key in seen_keys:
+            continue
+        selected.append(item)
+        seen_keys.add(key)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _citation_group(items: Sequence[EvidenceChunk]) -> str:
+    return "".join(f"[{item.evidence_id}]" for item in items)
 
 
 def _should_append_english_topic_menu(user_input: str) -> bool:
@@ -1827,13 +1921,21 @@ def _overview_model_fallback_reply(
     *,
     user_input: str,
     config: ChatConfig | None,
+    rejected_reply: str = "",
 ) -> str:
     usable_config = _overview_fallback_config(config)
     if usable_config is None:
         return ""
     conversation = Conversation()
     conversation.add("system", _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT)
-    conversation.add("user", _overview_topic_normalization_context(evidence, user_input))
+    conversation.add(
+        "user",
+        _overview_topic_normalization_context(
+            evidence,
+            user_input,
+            rejected_reply=rejected_reply,
+        ),
+    )
     reply = _clean_overview_model_reply(_stream_one_shot_model_text(usable_config, conversation))
     if not _valid_overview_model_reply(reply, evidence):
         return ""
@@ -1917,11 +2019,27 @@ def _learning_agent_request(
     )
 
 
-def _overview_topic_normalization_context(evidence: TurnEvidence, user_input: str) -> str:
+def _overview_topic_normalization_context(
+    evidence: TurnEvidence,
+    user_input: str,
+    *,
+    rejected_reply: str = "",
+) -> str:
     lines = [
         f"User request: {user_input.strip() or '(none)'}",
-        "Evidence excerpts:",
+        "Task rules:",
+        "- Treat title pages, logistics, and boilerplate as non-substantive unless requested.",
+        "- Infer substantive learning material by semantic context, not hardcoded keywords.",
     ]
+    if rejected_reply.strip():
+        lines.extend(
+            (
+                "",
+                "Rejected draft to repair:",
+                _trace_excerpt(rejected_reply, limit=1400),
+            )
+        )
+    lines.append("Evidence excerpts:")
     for item in evidence.items[:12]:
         role, _confidence, _reason = infer_material_role_from_text(item.source, item.content)
         heading = item.chunk.heading or "none"
@@ -1977,15 +2095,66 @@ def _model_normalized_learning_intent(
     user_input: str,
     *,
     config: ChatConfig | None,
+    conversation: Conversation | None = None,
+    prior_intent: str = "",
 ) -> _NormalizedLearningIntent | None:
     payload = _model_json_payload(
         config,
         system_prompt=(
             f"{_LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n{_LEARNING_INTENT_NORMALIZATION_SCHEMA}"
         ),
-        user_prompt=f"User request:\n{user_input.strip()}",
+        user_prompt=_learning_intent_normalization_context(
+            user_input,
+            conversation,
+            prior_intent=prior_intent,
+        ),
     )
     return _normalized_learning_intent_from_payload(payload) if payload is not None else None
+
+
+def _learning_intent_normalization_context(
+    user_input: str,
+    conversation: Conversation | None,
+    *,
+    prior_intent: str = "",
+) -> str:
+    lines: list[str] = []
+    if prior_intent:
+        lines.extend((f"Prior assistant intent: {prior_intent}", ""))
+    last_assistant = _last_assistant_message(conversation, user_input)
+    if last_assistant is not None:
+        lines.extend(
+            (
+                "Last assistant reply (excerpt):",
+                _trace_excerpt(last_assistant.content, limit=400),
+                "",
+            )
+        )
+    lines.extend(("Current user request:", user_input.strip()))
+    return "\n".join(lines)
+
+
+def _last_assistant_message(
+    conversation: Conversation | None,
+    user_input: str,
+) -> Message | None:
+    if conversation is None:
+        return None
+    messages = [
+        message
+        for message in conversation.messages
+        if message.role in {"user", "assistant"} and message.content.strip()
+    ]
+    if messages and _same_message_text(messages[-1].content, user_input):
+        messages = messages[:-1]
+    for message in reversed(messages):
+        if message.role == "assistant":
+            return message
+    return None
+
+
+def _same_message_text(left: str, right: str) -> bool:
+    return " ".join(left.split()) == " ".join(right.split())
 
 
 def _model_json_payload(
@@ -2041,8 +2210,18 @@ def _model_normalized_learning_plan(
     state: LearningState,
     user_input: str,
     config: ChatConfig | None,
+    *,
+    conversation: Conversation | None = None,
+    prior_intent: str = "",
 ) -> LearningTurnPlan:
-    normalized = _accepted_normalized_learning_intent(plan, state, user_input, config)
+    normalized = _accepted_normalized_learning_intent(
+        plan,
+        state,
+        user_input,
+        config,
+        conversation=conversation,
+        prior_intent=prior_intent,
+    )
     if normalized is None:
         return plan
     canonical_query = normalized.canonical_english_request or user_input
@@ -2060,10 +2239,18 @@ def _accepted_normalized_learning_intent(
     state: LearningState,
     user_input: str,
     config: ChatConfig | None,
+    *,
+    conversation: Conversation | None = None,
+    prior_intent: str = "",
 ) -> _NormalizedLearningIntent | None:
     if not _should_model_normalize_learning_intent(plan, state, user_input, config):
         return None
-    normalized = _model_normalized_learning_intent(user_input, config=config)
+    normalized = _model_normalized_learning_intent(
+        user_input,
+        config=config,
+        conversation=conversation,
+        prior_intent=prior_intent,
+    )
     if normalized is None or normalized.confidence < _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD:
         return None
     return normalized
@@ -2810,6 +2997,8 @@ class TurnOrchestrator:
             original_learning_state,
             user_input,
             session.config,
+            conversation=session.conversation,
+            prior_intent=session.last_plan_intent,
         )
         if notice := _reading_notice(learning_plan):
             yield NoticeEvent(notice, code="reading")
@@ -3000,7 +3189,7 @@ class TurnOrchestrator:
         plan = resolved.learning_plan
         assert plan is not None
 
-        if deterministic_reply := _deterministic_learning_reply(session, plan):
+        if deterministic_reply := _deterministic_learning_reply(session, plan, resolved):
             yield from self._iter_deterministic_learning_reply_events(
                 deterministic_reply,
                 original_learning_state,
@@ -3327,6 +3516,7 @@ class TurnOrchestrator:
             latency_ms=latency_ms,
             notice=notice,
         )
+        self.session.last_plan_intent = _resolved_plan_intent(resolved.learning_plan)
         self._schedule_memory_extraction(user_input, visible_evidence)
         self._save_usage_if_armory_session()
         return notice

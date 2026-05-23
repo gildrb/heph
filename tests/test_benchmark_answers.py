@@ -540,7 +540,7 @@ def test_material_overview_rejects_date_by_date_document_walkthrough() -> None:
     case = benchmark_answers.AnswerCase(
         case_id="overview-date-walkthrough",
         answer=(
-            "Der Korpus behandelt Mathematik fuer Informatiker 2 [E1][E2].\n"
+            "Der Korpus behandelt Analysis und Modellierung [E1][E2].\n"
             "- In den Folien vom 22. April geht es um Reihen und Potenzreihen [E1].\n"
             "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].\n"
             "- In den Folien vom 4. Mai geht es um Taylor-Polynome [E1]."

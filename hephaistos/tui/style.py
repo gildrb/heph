@@ -6,8 +6,8 @@ from hephaistos.terminal.palette import TRANSPARENT
 
 def _tui_css(theme: Theme | None = None) -> str:
     p = theme or current_palette()
-    app_bg = TRANSPARENT
-    bg = TRANSPARENT
+    app_bg = p.bg_app
+    bg = p.bg_surface
     bt = TRANSPARENT
     user_bg = p.bg_raised
     return f"""
@@ -215,16 +215,16 @@ RichLog {{
 #materials-list-right.material-enabled > .option-list--option-highlighted,
 #materials-list-right.material-enabled:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.action_primary_bg};
-    text-style: not bold;
+    color: {p.brand_primary};
+    text-style: bold;
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
 #materials-list.material-disabled:focus > .option-list--option-highlighted,
 #materials-list-right.material-disabled > .option-list--option-highlighted,
 #materials-list-right.material-disabled:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.status_error_text};
-    text-style: not bold;
+    color: {p.brand_primary};
+    text-style: bold;
 }}
 #materials-footer {{
     height: 1;
@@ -314,16 +314,16 @@ RichLog {{
 #suggestions > .option-list--option-highlighted,
 #suggestions:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.text_primary};
-    text-style: not bold;
+    color: {p.brand_primary};
+    text-style: bold;
 }}
 #suggestions.mouse-hovering > .option-list--option-highlighted,
 #suggestions.mouse-hovering:focus > .option-list--option-highlighted,
 #suggestions > .option-list--option-hover,
 #suggestions:focus > .option-list--option-hover {{
-    background: {user_bg};
-    color: {p.text_primary};
-    text-style: not bold;
+    background: {bg};
+    color: {p.brand_primary};
+    text-style: bold;
 }}
 .hidden {{
     visibility: hidden;

@@ -1187,11 +1187,12 @@ class HephTui(
                 return f"{value:<22} {candidate.description}  "
             return f"{value}  "
         palette = current_palette()
-        command_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
+        command_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
+        description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
         text = _RichText()
         if candidate.description:
             text.append(f"{value:<22} ", style=command_style)
-            text.append(f"{candidate.description}  ", style=palette.text_muted)
+            text.append(f"{candidate.description}  ", style=description_style)
             return text
         text.append(f"{value}  ", style=command_style)
         return text

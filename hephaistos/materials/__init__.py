@@ -76,8 +76,7 @@ _EXERCISE_ITEM_RE = re.compile(
     re.IGNORECASE,
 )
 _LECTURE_STRUCTURE_RE = re.compile(
-    r"\b(?:table of contents|inhaltsverzeichnis|willkommen|vorlesungstermine|"
-    r"übungstermine|ubungstermine)\b",
+    r"\b(?:table of contents|inhaltsverzeichnis|willkommen)\b",
     re.IGNORECASE,
 )
 _PUBLIC_TEXTBOOK_RE = re.compile(
@@ -130,7 +129,6 @@ _EXAM_TEXT_TOKENS = (
     "pruefung",
     "aufgabe",
     "bearbeitungszeit",
-    "hilfsmittel",
     "punkte",
 )
 _ASSIGNMENT_TEXT_TOKENS = (

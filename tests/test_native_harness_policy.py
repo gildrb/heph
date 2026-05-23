@@ -439,6 +439,21 @@ def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
     assert "hardcoded assistant answer" in rendered
 
 
+def test_repo_policy_rejects_configured_private_corpus_terms_outside_tests() -> None:
+    violations = check_repo_policies._private_corpus_identifier_hits(
+        "hephaistos/chat/orchestrator.py",
+        'SYSTEM_PROMPT = "Summarize Private University calculus notes."',
+        ("Private University",),
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "private corpus, university, course, lecturer, or local armory identifiers" in rendered
+
+
+def test_repo_policy_skips_private_corpus_terms_inside_tests() -> None:
+    assert check_repo_policies._skip_private_corpus_scan("tests/test_fixture.py")
+
+
 def test_repo_policy_rejects_literal_returns_from_reply_functions() -> None:
     source = """
 def _clarifying_question_reply(missing: str) -> str:

@@ -28,7 +28,7 @@ def test_config_show_uses_registered_handler(
         params_cli,
         "_effective_setting_value",
         lambda key: {
-            "theme": "forge",
+            "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",
@@ -44,7 +44,7 @@ def test_config_show_uses_registered_handler(
     assert "model: test-model" in out
     assert "max_tokens: 1234" in out
     assert "rag_context_budget: 4321" in out
-    assert "theme: forge" in out
+    assert "theme: dark" in out
     assert "analytics_enabled: false [unavailable]" in out
 
 
@@ -282,7 +282,7 @@ def test_config_show_displays_feature_flags(
         params_cli,
         "_effective_setting_value",
         lambda key: {
-            "theme": "forge",
+            "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",
@@ -313,7 +313,7 @@ def test_config_show_displays_no_feature_flags(
         params_cli,
         "_effective_setting_value",
         lambda key: {
-            "theme": "forge",
+            "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",

@@ -612,10 +612,16 @@ def _overview_prompt(query: str) -> str:
         f"User request: {query}",
         rules=(
             _SAME_LANGUAGE_REQUEST_RULE,
+            "- Use this exact shape: one short cited overview paragraph, then 2-5 concise "
+            "cited bullets.",
+            "- Start each bullet with '- '; do not use Markdown tables, columns, or "
+            "pipe-separated layouts.",
             "- Give the big picture first: domain, document types, major topic clusters, "
             "and how the topics relate.",
             "- Use only cited retrieved evidence. Do not infer from filenames, dates, "
             "semester labels, lecturers, institutions, language, or outside knowledge.",
+            "- Decide what is substantive material semantically from the excerpt context; "
+            "do not rely on fixed keyword lists for boilerplate or logistics.",
             "- Avoid course administration metadata and do not explain retrieval sampling "
             "mechanics.",
             "- Synthesize in your own words. Do not paste long source excerpts; quote only "

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
@@ -18,6 +19,8 @@ __all__ = [
     "cosine_similarity",
     "embedding_rows",
     "float_list",
+    "normalize_positive_rank_scores",
+    "normalize_relative_rank_scores",
     "object_rows",
     "reciprocal_rank_fusion",
     "sklearn_scores",
@@ -130,6 +133,7 @@ _PLURAL_RULES: tuple[_PluralRule, ...] = (
     (5, ("sses", "shes", "ches", "xes", "zes"), 2, ""),
     (4, "s", 1, ""),
 )
+_RELATIVE_SCORE_EXP_FLOOR = -60.0
 
 
 def tokenize(text: str) -> list[str]:
@@ -191,7 +195,35 @@ def reciprocal_rank_fusion(
         for score, scored_chunk in merged.values()
     ]
     results.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-    return results
+    return normalize_positive_rank_scores(results)
+
+
+def normalize_positive_rank_scores(ranked: Sequence[ScoredChunk]) -> list[ScoredChunk]:
+    """Normalize positive rank-fusion scores so the best returned item is 1.0."""
+    if not ranked:
+        return []
+    top_score = ranked[0].score
+    if top_score <= 0.0:
+        return list(ranked)
+    return [ScoredChunk(chunk=item.chunk, score=item.score / top_score) for item in ranked]
+
+
+def normalize_relative_rank_scores(ranked: Sequence[ScoredChunk]) -> list[ScoredChunk]:
+    """Convert unbounded reranker scores into relative 0..1 relevance scores."""
+    if not ranked:
+        return []
+    best_score = ranked[0].score
+    return [
+        ScoredChunk(chunk=item.chunk, score=_relative_rank_score(item.score, best_score))
+        for item in ranked
+    ]
+
+
+def _relative_rank_score(score: float, best_score: float) -> float:
+    delta = min(0.0, score - best_score)
+    if delta <= _RELATIVE_SCORE_EXP_FLOOR:
+        return 0.0
+    return 2.0 / (1.0 + math.exp(-delta))
 
 
 def _rrf_weight(weights: Sequence[float] | None, list_index: int) -> float:

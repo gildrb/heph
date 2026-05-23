@@ -11,6 +11,12 @@ Protect this shape in every change:
 - Memory is scoped to the armory unless the user explicitly opts into a shared service.
 - Provider and model choices stay swappable; vendor-specific behavior remains optional.
 - Do not market bare-minimum plumbing as a feature in user-facing docs.
+- Never hardcode user-private corpus details: university names, course titles, lecturer names,
+  campus platforms, armory names, local paths, or one-off source-file vocabulary. Retrieval and
+  overview fixes must use provider-swappable prompts, semantic evidence handling, and generic
+  fixtures instead of private keyword lists. Add local private terms to
+  `.git/info/heph-private-corpus-terms` and run
+  `uv run python -m scripts.check_repo_policies` before handing off.
 
 ## Setup
 ```bash

@@ -58,6 +58,7 @@ class ChatSession:
     live_tokens_visible: bool = False
     live_cost_visible: bool = False
     last_turn_evidence: TurnEvidence | None = None
+    last_plan_intent: str = ""
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     _tool_registry: ToolRegistry = field(

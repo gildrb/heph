@@ -344,7 +344,7 @@ class TestDoclingIntegration:
 
         mock_result = MagicMock()
         mock_result.document.export_to_markdown.return_value = (
-            "Administrative Header\nAdministrative header\n¨ Ubungstermine"
+            "Administrative Header\nAdministrative header\n¨ Ubersicht"
         )
         mock_converter = MagicMock()
         mock_converter.convert.return_value = mock_result
@@ -355,7 +355,7 @@ class TestDoclingIntegration:
         ):
             md = _convert_to_markdown(pdf)
 
-        assert md == "Administrative Header\nAdministrative header\nÜbungstermine"
+        assert md == "Administrative Header\nAdministrative header\nÜbersicht"
 
     def test_normalize_extracted_text_repairs_misplaced_umlauts(self) -> None:
         text = "f¨ ur beschr¨ ankt ¨ Ubung Administrative header"

@@ -34,6 +34,14 @@ def _relative_luminance(hex_color: str) -> float:
     return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
 
 
+def _is_grayscale(hex_color: str) -> bool:
+    color = hex_color.removeprefix("#")
+    red = int(color[0:2], 16)
+    green = int(color[2:4], 16)
+    blue = int(color[4:6], 16)
+    return red == green == blue
+
+
 def _contrast_ratio(first: str, second: str) -> float:
     first_luminance = _relative_luminance(first)
     second_luminance = _relative_luminance(second)
@@ -71,7 +79,7 @@ def _iter_string_literals(path: Path) -> list[tuple[int, str]]:
 
 
 def test_ansi_fg_returns_truecolor_escape_sequence() -> None:
-    palette.set_theme("forge")
+    palette.set_theme("dark")
     color = palette.current_palette().bg_raised
     r = int(color[1:3], 16)
     g = int(color[3:5], 16)
@@ -81,7 +89,7 @@ def test_ansi_fg_returns_truecolor_escape_sequence() -> None:
 
 
 def test_style_tokens_render_from_current_theme() -> None:
-    palette.set_theme("forge")
+    palette.set_theme("dark")
     p = palette.current_palette()
 
     assert str(palette.STYLE_PROMPT) == f"{palette.BOLD}{palette.ansi_fg(p.text_primary)}"
@@ -102,12 +110,21 @@ def test_style_tokens_render_from_current_theme() -> None:
     assert str(palette.STYLE_ASSISTANT) == str(palette.STYLE_PROMPT)
 
 
-def test_high_contrast_keeps_emphasis_neutral_and_accent_for_attention() -> None:
-    palette.set_theme("high_contrast")
+def test_dark_theme_is_transparent_monochrome_with_semantic_state_colours() -> None:
+    palette.set_theme("dark")
     p = palette.current_palette()
 
-    assert p.text_primary != p.action_primary_bg
-    assert p.text_secondary == p.text_muted
+    assert p.bg_app == theme_tokens.TRANSPARENT
+    assert p.bg_surface == theme_tokens.TRANSPARENT
+    assert p.brand_primary == "#FFFFFF"
+    assert p.brand_primary != p.text_primary
+    assert _is_grayscale(p.bg_raised)
+    assert _is_grayscale(p.text_primary)
+    assert _is_grayscale(p.text_secondary)
+    assert _is_grayscale(p.text_muted)
+    assert _is_grayscale(p.border_subtle)
+    assert not _is_grayscale(p.action_primary_bg)
+    assert not _is_grayscale(p.status_error_text)
     assert str(palette.STYLE_PROMPT) == f"{palette.BOLD}{palette.ansi_fg(p.text_primary)}"
     assert str(palette.STYLE_ASSISTANT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_ACCENT) == f"{palette.BOLD}{palette.ansi_fg(p.action_primary_bg)}"
@@ -148,30 +165,44 @@ def test_set_theme_ignores_unknown() -> None:
     assert palette.current_theme_name() == palette.DEFAULT_THEME
 
 
-def test_current_palette_returns_forge_by_default() -> None:
-    palette.set_theme("forge")
+def test_current_palette_returns_dark_by_default() -> None:
+    palette.set_theme("dark")
 
-    assert palette.current_palette() == theme_tokens.FORGE_THEME
+    assert palette.current_palette() == theme_tokens.DARK_THEME
+
+
+def test_theme_presets_expose_only_dark_and_light() -> None:
+    assert THEME_PRESETS == ("dark", "light")
+    assert set(theme_tokens.THEMES) == {"dark", "light"}
 
 
 def test_light_theme_matches_token_contract() -> None:
     assert (
         theme_tokens.Theme(
-            bg_app="#f8f9fa",
-            bg_surface="#ffffff",
-            bg_raised="#ffffff",
-            text_primary="#212529",
-            text_secondary="#495057",
-            text_muted="#868e96",
-            text_inverse="#ffffff",
-            border_subtle="#dee2e6",
-            brand_primary="#e03131",
-            action_primary_bg="#228be6",
-            action_primary_text="#ffffff",
-            status_error_text="#e03131",
+            bg_app="#FAFAFA",
+            bg_surface="#FFFFFF",
+            bg_raised="#F2F2F2",
+            text_primary="#000000",
+            text_secondary="#404040",
+            text_muted="#666666",
+            text_inverse="#FFFFFF",
+            border_subtle="#D9D9D9",
+            brand_primary="#000000",
+            action_primary_bg="#0F7A3A",
+            action_primary_text="#FFFFFF",
+            status_error_text="#B00020",
         )
         == theme_tokens.LIGHT
     )
+
+
+def test_light_theme_uses_bright_background_with_dark_text() -> None:
+    assert theme_tokens.LIGHT.bg_app != theme_tokens.TRANSPARENT
+    assert theme_tokens.LIGHT.bg_surface != theme_tokens.TRANSPARENT
+    assert _relative_luminance(theme_tokens.LIGHT.bg_app) > 0.9
+    assert _relative_luminance(theme_tokens.LIGHT.bg_surface) > 0.9
+    assert theme_tokens.LIGHT.text_primary == "#000000"
+    assert theme_tokens.LIGHT.brand_primary == theme_tokens.LIGHT.text_primary
 
 
 def test_all_theme_presets_are_valid_palettes() -> None:

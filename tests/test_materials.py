@@ -151,7 +151,7 @@ def test_infer_material_role_from_text_detects_generic_exam_file() -> None:
         Administrative Header 2
         Klausur SS23
         Bearbeitungszeit: 90 Minuten
-        Hilfsmittel: keine
+        Instructions: answer every problem.
         Aufgabe 1. Beweisen Sie die Aussage. [10 Punkte]
         Aufgabe 2. Berechnen Sie das Integral. [8 Punkte]
         """,

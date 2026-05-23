@@ -52,22 +52,11 @@ _QUERY_NEIGHBOR_RADIUS = 1
 _QUERY_NEIGHBOR_LIMIT = 8
 _PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
-_OVERVIEW_CHUNK_LIMIT = 32
-_OVERVIEW_CHUNKS_PER_DOCUMENT = 2
-_OVERVIEW_DOCUMENT_LIMIT = 32
+_OVERVIEW_CHUNK_LIMIT = 48
+_OVERVIEW_CHUNKS_PER_DOCUMENT = 5
+_OVERVIEW_DOCUMENT_LIMIT = 48
 _OVERVIEW_EXCERPT_CHAR_LIMIT = 700
-_OVERVIEW_CONTEXT_TOKEN_BUDGET = 6000
-_FRONT_MATTER_METADATA_RE = re.compile(
-    r"\b(?:university|universität|institute|department|faculty|semester|professor|lecturer|"
-    r"instructor|dozent|dozentin|author|email|administrative)\b",
-    re.IGNORECASE,
-)
-_FRONT_MATTER_DATE_RE = re.compile(r"\b\d{1,2}[. ]\s*[A-Za-zÄÖÜäöüß]+\s+\d{4}\b|\b\d{4}\b")
-_FRONT_MATTER_CONTENT_RE = re.compile(
-    r"\b(?:table of contents|inhaltsverzeichnis|definition|theorem|satz|lemma|proof|beweis|"
-    r"question|aufgabe|exercise|übung)\b",
-    re.IGNORECASE,
-)
+_OVERVIEW_CONTEXT_TOKEN_BUDGET = 9000
 _LOW_CONTENT_CHUNK_RE = re.compile(
     r"^\s*(?:cite as:|for information about citing|downloaded on|terms of use\b|"
     r"copyright\b|http://ocw\.mit\.edu/terms)",
@@ -1008,8 +997,6 @@ def _append_overview_offset(
 
 
 def _overview_document_chunks(document: ChunkedDocument) -> tuple[Chunk, ...]:
-    if len(document.chunks) > 1 and _looks_like_front_matter(document.chunks[0].text):
-        return tuple(document.chunks[1:])
     return tuple(document.chunks)
 
 
@@ -1029,22 +1016,6 @@ def _compact_overview_chunk(chunk: Chunk) -> Chunk:
         chunk,
         text=text[: _OVERVIEW_EXCERPT_CHAR_LIMIT - 17].rstrip() + "\n[... truncated]",
     )
-
-
-def _looks_like_front_matter(text: str) -> bool:
-    lines = _front_matter_lines(text)
-    if not lines:
-        return True
-    sample = "\n".join(lines[:12])
-    if _FRONT_MATTER_CONTENT_RE.search(sample):
-        return False
-    has_metadata = bool(_FRONT_MATTER_METADATA_RE.search(sample))
-    has_date = bool(_FRONT_MATTER_DATE_RE.search(sample))
-    return has_metadata and has_date and len(lines) <= 12
-
-
-def _front_matter_lines(text: str) -> list[str]:
-    return [line.strip(" #\t") for line in text.splitlines() if line.strip()]
 
 
 def build_overview_context(session: ChatSession) -> str:

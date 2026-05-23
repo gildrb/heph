@@ -86,7 +86,6 @@ _DATE_ONLY_RE = re.compile(
 )
 _BAD_DEFINITION_TERMS = frozenset(
     {
-        "als hilfsmittel",
         "this",
         "these",
         "that",

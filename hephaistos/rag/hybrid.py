@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import cast
 
+from hephaistos.logging import get_logger
 from hephaistos.rag import optional_backends
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.query_transform import (
@@ -20,6 +21,7 @@ from hephaistos.rag.semantic import EmbeddingRetriever
 from hephaistos.rag.sparse import Bm25Retriever, TfidfRetriever
 
 _DEFAULT_EMBEDDING_RETRIEVER = EmbeddingRetriever
+_log = get_logger("rag.hybrid")
 DEFAULT_PSEUDO_FEEDBACK_DOCS = 3
 DEFAULT_PSEUDO_FEEDBACK_TERMS = 6
 DEFAULT_PSEUDO_FEEDBACK_WEIGHT = 0.1
@@ -109,7 +111,14 @@ class HybridRetriever:
         if self._reranker is not None:
             if not candidates:
                 return []
-            return self._reranker.rerank(query, candidates, top_k=top_k)
+            try:
+                return self._reranker.rerank(query, candidates, top_k=top_k)
+            except Exception:
+                _log.warning(
+                    "hybrid reranker failed; falling back to fused retrieval",
+                    exc_info=True,
+                )
+                self._reranker = None
 
         return candidates[:top_k]
 

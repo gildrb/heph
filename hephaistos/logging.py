@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import ClassVar, Self, TextIO
 
 from hephaistos._types import is_object_list, is_string_mapping
-from hephaistos.terminal.palette import FORGE_THEME, ansi_fg
+from hephaistos.terminal.palette import DARK_THEME, ansi_fg
 
 # -- Redaction / scrubbing ---------------------------------------------------
 
@@ -86,14 +86,14 @@ class _JsonFormatter(logging.Formatter):
 
 class _TextFormatter(logging.Formatter):
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": ansi_fg(FORGE_THEME.text_muted),
-        "INFO": ansi_fg(FORGE_THEME.action_primary_bg),
-        "WARNING": ansi_fg(FORGE_THEME.action_primary_bg),
-        "ERROR": ansi_fg(FORGE_THEME.status_error_text),
-        "CRITICAL": f"\033[1m{ansi_fg(FORGE_THEME.status_error_text)}",
+        "DEBUG": ansi_fg(DARK_THEME.text_muted),
+        "INFO": ansi_fg(DARK_THEME.action_primary_bg),
+        "WARNING": ansi_fg(DARK_THEME.action_primary_bg),
+        "ERROR": ansi_fg(DARK_THEME.status_error_text),
+        "CRITICAL": f"\033[1m{ansi_fg(DARK_THEME.status_error_text)}",
     }
     _RESET = "\033[0m"
-    _DIM = f"\033[2m{ansi_fg(FORGE_THEME.text_muted)}"
+    _DIM = f"\033[2m{ansi_fg(DARK_THEME.text_muted)}"
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")

@@ -89,7 +89,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _reset_diagnostics_module_objects()
     _pin_optional_rag_backends_off()
     _obs_mod.reset_state()
-    set_theme("forge")
+    set_theme("dark")
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(_provider_config_mod, "_CONFIG_DIR", config_dir)
@@ -117,7 +117,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _reset_diagnostics_module_objects()
     _pin_optional_rag_backends_off()
     _obs_mod.reset_state()
-    set_theme("forge")
+    set_theme("dark")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 

@@ -39,8 +39,10 @@ from hephaistos.chat.orchestrator import (
     _evidence_notice_metadata,
     _learning_practice_context,
     _localize_deterministic_reply,
+    _missing_indexed_material_reply,
     _model_normalized_learning_plan,
     _needs_overview_fallback,
+    _no_matching_indexed_evidence_reply,
     _normalized_learning_intent_from_payload,
     _overview_answer_has_bad_shape,
     _overview_fallback_reply,
@@ -239,7 +241,7 @@ def test_user_visible_reply_strips_inline_tool_call_markup() -> None:
 def test_overview_user_visible_reply_strips_trailing_learning_loop_boilerplate() -> None:
     plan = material_overview_plan("um was geht es in den dateien")
     raw = (
-        "Die Dateien behandeln Mathematik fuer Informatiker [E1][E2].\n"
+        "Die Dateien behandeln Analysis und Datenmodelle [E1][E2].\n"
         "- Ein Schwerpunkt sind Reihen und Konvergenzkriterien [E1].\n"
         "- Ein weiterer Schwerpunkt sind Taylor-Polynome und Approximationen [E2].\n\n"
         "Am sinnvollsten ist jetzt, den kleinsten source-backed Block zu wiederholen. "
@@ -249,7 +251,7 @@ def test_overview_user_visible_reply_strips_trailing_learning_loop_boilerplate()
 
     cleaned = _user_visible_reply(plan, raw)
 
-    assert "Die Dateien behandeln Mathematik" in cleaned
+    assert "Die Dateien behandeln Analysis" in cleaned
     assert "Taylor-Polynome" in cleaned
     assert "Am sinnvollsten" not in cleaned
     assert "Next action" not in cleaned
@@ -365,7 +367,7 @@ def test_chat_user_visible_reply_strips_unsolicited_followup_sentence() -> None:
 def test_user_visible_reply_strips_leading_control_json_from_model_reply() -> None:
     plan = _make_learning_plan(action=LearningAction.CHAT)
     raw = (
-        '{"query":"Mathematik fuer Informatiker 2 sequences limits"}'
+        '{"query":"calculus sequences limits"}'
         "Because the uploaded files are lecture slides for the course."
     )
 
@@ -377,7 +379,7 @@ def test_user_visible_reply_strips_leading_control_json_from_model_reply() -> No
 def test_user_visible_reply_strips_malformed_leading_control_json_from_model_reply() -> None:
     plan = _make_learning_plan(action=LearningAction.CHAT)
     raw = (
-        '{"query":""Mathematik für Informatiker 2" sequences limits"}'
+        '{"query":""calculus module" sequences limits"}'
         "Because the uploaded files are lecture slides for the course."
     )
 
@@ -581,8 +583,9 @@ def test_model_normalized_learning_plan_routes_non_english_material_intents(
     assert normalized_plan.buffer_response is expected_buffer
     assert all(bit in normalized_plan.prompt for bit in prompt_bits)
     intent_prompt = mock_stream.call_args.args[1].messages[0].content
-    assert "English-first control signal" in intent_prompt
-    assert "whatever language the user wrote" in intent_prompt
+    assert "Heph" in intent_prompt
+    assert "Intents:" in intent_prompt
+    assert "material_overview" in intent_prompt
     assert (
         '"intent": "material_overview | source_qa | source_only_policy | '
         "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
@@ -590,6 +593,7 @@ def test_model_normalized_learning_plan_routes_non_english_material_intents(
     ) in intent_prompt
     assert "topic_drill |\n" not in intent_prompt
     assert "German" not in intent_prompt
+    assert len(intent_prompt) < 1500
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -1178,6 +1182,140 @@ def test_evidence_notice_metadata_includes_query_audit_for_jsonl() -> None:
     assert trace["latency_ms"] == 12.3
 
 
+def test_missing_indexed_material_reply_ignores_empty_query_results_when_index_ready() -> None:
+    session = _make_armory_session()
+    session.source_file_count = 1
+    document = MagicMock()
+    document.source = "materials/lecture.md"
+    document.chunks = [_make_chunk("materials/lecture.md", 0)]
+    index = MagicMock()
+    index.chunk_count = 1
+    index.documents = [document]
+    index.unindexable_files = {}
+    session.rag_index = index
+
+    reply = _missing_indexed_material_reply(session, LearningAction.PRESENT)
+
+    assert reply == ""
+
+
+def test_no_matching_indexed_evidence_reply_reports_query_not_empty_index() -> None:
+    session = _make_armory_session()
+    session.source_file_count = 1
+    document = MagicMock()
+    document.source = "materials/lecture.md"
+    document.chunks = [_make_chunk("materials/lecture.md", 0)]
+    index = MagicMock()
+    index.chunk_count = 1
+    index.documents = [document]
+    session.rag_index = index
+    plan = _make_learning_plan(action=LearningAction.PRESENT, retrieval_query="absent concept")
+
+    reply = _no_matching_indexed_evidence_reply(session, plan)
+
+    assert "enabled materials are indexed" in reply
+    assert "did not retrieve matching evidence" in reply
+    assert "no searchable evidence is indexed yet" not in reply
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_learning_plan_uses_conversation_for_material_continuity(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = _make_learning_plan(
+        retrieval_query="broaden that from the same material",
+        allow_tools=True,
+    )
+    conversation = Conversation()
+    conversation.add("user", "What are the materials about?")
+    conversation.add("assistant", "They introduce sequences and limits with citations [E1].")
+    conversation.add("user", "broaden that from the same material")
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"material_overview",'
+                    '"canonical_english_request":"additional synthesis of the enabled materials",'
+                    '"confidence":0.93}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_learning_plan(
+        base_plan,
+        LearningState(),
+        "broaden that from the same material",
+        config,
+        conversation=conversation,
+        prior_intent="material_overview",
+    )
+
+    assert normalized_plan.action is LearningAction.PRESENT
+    assert normalized_plan.retrieval_query == "what is the material about"
+    user_prompt = mock_stream.call_args.args[1].messages[1].content
+    assert "Prior assistant intent: material_overview" in user_prompt
+    assert "Last assistant reply (excerpt):" in user_prompt
+    assert "They introduce sequences and limits" in user_prompt
+    assert user_prompt.count("broaden that from the same material") == 1
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_learning_plan_inherits_material_intent_for_short_followup(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = _make_learning_plan(
+        retrieval_query="what else?",
+        allow_tools=True,
+    )
+    conversation = Conversation()
+    conversation.add("user", "what is the material about")
+    conversation.add(
+        "assistant",
+        "The material covers introductory analysis topics with citations [E1][E2].",
+    )
+    conversation.add("user", "what else?")
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"material_overview",'
+                    '"canonical_english_request":'
+                    '"additional substantive material from the corpus",'
+                    '"confidence":0.92}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_learning_plan(
+        base_plan,
+        LearningState(),
+        "what else?",
+        config,
+        conversation=conversation,
+        prior_intent="material_overview",
+    )
+
+    assert normalized_plan.action is LearningAction.PRESENT
+    assert normalized_plan.retrieval_query == "what is the material about"
+    system_prompt = mock_stream.call_args.args[1].messages[0].content
+    user_prompt = mock_stream.call_args.args[1].messages[1].content
+    assert "Heph" in system_prompt
+    assert "anaphoric" in system_prompt
+    assert "Prior assistant intent: material_overview" in user_prompt
+    assert "Last assistant reply (excerpt):" in user_prompt
+    assert "The material covers introductory analysis topics" in user_prompt
+    assert user_prompt.count("what else?") == 1
+    assert len(system_prompt) < 1500
+
+
 def test_evidence_notice_discloses_partial_source_only_support() -> None:
     evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
     plan = _make_learning_plan(
@@ -1317,6 +1455,10 @@ def test_overview_fallback_preserves_model_repair_without_english_menu_for_germa
         evidence,
         user_input="um was geht es in den dateien?",
         config=_make_overview_model_config(),
+        rejected_reply=(
+            "Domain: generic collection [E1][E2]\n"
+            "Major topic clusters | Subtopics | Evidence | |---|---|---|"
+        ),
     )
 
     assert reply == repaired_reply
@@ -1325,6 +1467,12 @@ def test_overview_fallback_preserves_model_repair_without_english_menu_for_germa
     assert "These are the topics" not in reply
     assert "Choose a topic to explore next" not in reply
     assert "Recommended options" not in reply
+    system_prompt = mock_stream.call_args.args[1].messages[0].content
+    user_prompt = mock_stream.call_args.args[1].messages[1].content
+    assert "Use this exact shape" in system_prompt
+    assert "do not use Markdown tables" in system_prompt
+    assert "Rejected draft to repair:" in user_prompt
+    assert "Major topic clusters" in user_prompt
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -1457,7 +1605,7 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         evidence,
     )
     assert _overview_answer_has_bad_shape(
-        "Der Korpus behandelt Mathematik fuer Informatiker 2 [E1][E2].\n"
+        "Der Korpus behandelt Analysis und Modellierung [E1][E2].\n"
         "- In den Folien vom 22. April geht es um Reihen und Potenzreihen [E1].\n"
         "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].\n"
         "- In den Folien vom 4. Mai geht es um Taylor-Polynome [E1].",
@@ -2759,7 +2907,7 @@ class TestTurnOrchestratorLearning:
             phase=LearningPhase.PRESENTING,
             prompt=(
                 "Execute SOURCE_FOLLOWUP.\n"
-                "Current material focus: Mathematik fuer Informatiker 2\n"
+                "Current material focus: calculus module\n"
                 "User follow-up: why\n"
             ),
         )
@@ -2768,7 +2916,7 @@ class TestTurnOrchestratorLearning:
         mock_iter_agent.return_value = iter(
             [
                 AssistantDeltaEvent(
-                    '{"query":"Mathematik fuer Informatiker 2 sequences limits"}'
+                    '{"query":"calculus sequences limits"}'
                     "Because the uploaded files are lecture slides for the same subject."
                     "\n\nIf you want, I can be more specific about one file or one topic."
                 )
@@ -2967,7 +3115,7 @@ class TestTurnOrchestratorLearning:
         normalized_plan = mock_resolve_evidence.call_args.args[1]
         assert normalized_plan.retrieval_query == "what are the materials about"
         intent_prompt = mock_stream.call_args_list[0].args[1].messages[0].content
-        assert "English-first control signal" in intent_prompt
+        assert "Classify the user's intent for Heph" in intent_prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -3309,11 +3457,62 @@ class TestTurnOrchestratorLearning:
         final_reply = deltas[0]
         assert "I could not identify precise topics" not in final_reply
         assert "The enabled materials include" not in final_reply
-        assert "Zephyrology concepts" not in final_reply
-        assert "could not produce a grounded material overview" in final_reply
+        assert "could not produce a grounded material overview" not in final_reply
+        assert "I found indexed evidence for this material overview" in final_reply
+        assert "not reliable enough to show" in final_reply
+        assert "[E1]" in final_reply
         assert "These are the topics I found in the material:" not in final_reply
         assert "Choose a topic to explore next" not in final_reply
         assert orch.last_reply == final_reply
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_evidence_prevents_false_unindexed_material_reply(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_learning_plan(
+            action=LearningAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                1,
+                "E1",
+                "Definition. Sequences and series are introduced for the course.",
+            ),
+            _make_evidence_chunk(
+                "materials/exam.pdf",
+                2,
+                "E2",
+                "Past exam. Compute limits and derivatives in point-bearing questions.",
+            ),
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        model_reply = (
+            "The material combines lecture concepts and exam practice [E1][E2].\n"
+            "- Sequences and series appear in the lecture evidence [E1].\n"
+            "- Limits and derivatives appear in exam-style questions [E2]."
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
+
+        session = _make_armory_session()
+        session.source_file_count = 2
+        session.source_files = ("materials/lecture.pdf", "materials/exam.pdf")
+        session.rag_index = ArmoryIndex(Path("/tmp/fake-armory"))
+
+        events = list(TurnOrchestrator(session).iter_events("what are the materials about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == [model_reply]
+        assert "no searchable evidence is indexed yet" not in deltas[0]
+        mock_iter_agent.assert_called_once()
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
@@ -4771,7 +4970,7 @@ class TestHelperFunctions:
         assert evidence_refs(result) == ["materials/enabled.md#chunk=0"]
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
-    def test_build_turn_evidence_from_overview_skips_front_matter_when_content_exists(
+    def test_build_turn_evidence_from_overview_keeps_sampling_keyword_free(
         self,
         mock_ensure: MagicMock,
     ) -> None:
@@ -4798,7 +4997,40 @@ class TestHelperFunctions:
         result = build_turn_evidence_from_overview(_make_armory_session())
 
         assert result is not None
-        assert evidence_refs(result) == ["materials/lecture.md#chunk=1"]
+        assert evidence_refs(result) == [
+            "materials/lecture.md#chunk=0",
+            "materials/lecture.md#chunk=1",
+        ]
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_samples_deeper_document_context(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        doc = MagicMock()
+        doc.source = "materials/lecture.md"
+        doc.chunks = [
+            _make_chunk("materials/lecture.md", 0, "Opening slide with general context."),
+            _make_chunk("materials/lecture.md", 1, "Agenda for the session."),
+            _make_chunk(
+                "materials/lecture.md",
+                2,
+                "Core concept: recurrence relations connect subproblems to solutions.",
+            ),
+        ]
+        mock_index = MagicMock()
+        mock_index.documents = [doc]
+        mock_index.all_chunks = doc.chunks
+        mock_ensure.return_value = mock_index
+
+        result = build_turn_evidence_from_overview(_make_armory_session())
+
+        assert result is not None
+        assert evidence_refs(result) == [
+            "materials/lecture.md#chunk=0",
+            "materials/lecture.md#chunk=1",
+            "materials/lecture.md#chunk=2",
+        ]
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def test_build_priority_turn_evidence_uses_whole_enabled_corpus(

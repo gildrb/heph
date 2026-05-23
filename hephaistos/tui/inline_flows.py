@@ -19,6 +19,7 @@ from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_MODES,
     ACTIVITY_TRACE_TOOL_CALLS,
+    THEME_LABELS,
     THEME_PRESETS,
     VOCAB_STRICTNESS_LABELS,
     VOCAB_STRICTNESS_MODES,
@@ -315,12 +316,13 @@ def _inline_menu_option_text(
     if _RichText is None:
         return f"{label}  {description}" if description else label
     palette = current_palette()
-    label_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
+    label_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
+    description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
     text = _RichText()
     text.append(label, style=label_style)
     if description:
-        text.append("  ", style=palette.text_muted)
-        text.append(description, style=palette.text_muted)
+        text.append("  ", style=description_style)
+        text.append(description, style=description_style)
     return text
 
 
@@ -512,7 +514,7 @@ class TuiInlineFlowMixin:
             title=f"Settings  current model source: {current}",
             options=[
                 ("Privacy & Diagnostics", self._privacy_settings_summary()),
-                ("Appearance", f"theme: {settings.theme}"),
+                ("Appearance", f"theme: {THEME_LABELS.get(settings.theme, settings.theme)}"),
                 ("Activity trace", self._activity_trace_summary()),
                 (
                     "Vocabulary practice",
@@ -587,7 +589,7 @@ class TuiInlineFlowMixin:
             title="Settings  Appearance",
             options=[
                 (
-                    theme,
+                    THEME_LABELS[theme],
                     "current theme" if theme == current else "theme preset",
                 )
                 for theme in THEME_PRESETS
@@ -894,13 +896,17 @@ class TuiInlineFlowMixin:
         self._open_privacy_flow(selected_label=label)
 
     def _handle_appearance_choice(self: _InlineFlowHost, label: str) -> None:
-        if label not in THEME_PRESETS:
+        theme = _setting_value_from_label(THEME_LABELS, label)
+        if theme is None and label in THEME_PRESETS:
+            theme = label
+        if theme is None:
             return
-        save_setting("theme", label)
-        set_theme(label)
+        save_setting("theme", theme)
+        set_theme(theme)
         self._refresh_tui_css()
-        self._append_notice(f"theme: {label}")
-        self._open_appearance_flow(selected_label=label)
+        display_label = THEME_LABELS[theme]
+        self._append_notice(f"theme: {display_label}")
+        self._open_appearance_flow(selected_label=display_label)
 
     def _handle_activity_trace_choice(self: _InlineFlowHost, label: str) -> None:
         activity_trace_mode = _ACTIVITY_TRACE_MODE_BY_LABEL.get(label)
@@ -919,15 +925,16 @@ class TuiInlineFlowMixin:
         self._open_vocabulary_flow(selected_label=label)
 
     def _refresh_tui_css(self: _InlineFlowHost) -> None:
+        palette = current_palette()
         self.CSS = _tui_css()
         screen_path = inspect.getfile(self.__class__)
         read_from = (screen_path, f"{self.__class__.__name__}.CSS")
         self.stylesheet.add_source(self.CSS, read_from=read_from, is_default_css=False)
         self.refresh_css(animate=False)
-        self.styles.background = TRANSPARENT
+        self.styles.background = palette.bg_app
         self.styles.background_tint = TRANSPARENT
         screen = cast("_ScreenObject", self.screen)
-        screen.styles.background = TRANSPARENT
+        screen.styles.background = palette.bg_app
         screen.styles.background_tint = TRANSPARENT
         self._refresh_status()
         self._refresh_footer_hints()

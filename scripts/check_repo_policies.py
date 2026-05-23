@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -218,6 +219,7 @@ HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
         "_index_unavailable_reply",
         "_missing_indexed_material_reply",
         "_missing_source_span_message",
+        "_no_matching_indexed_evidence_reply",
         "_overview_unavailable_reply",
         "_plain_empty_reply",
         "empty_armory_guidance",
@@ -231,6 +233,32 @@ HARDCODED_ANSWER_MESSAGE: Final[str] = (
 )
 GENERATED_CACHE_MESSAGE: Final[str] = (
     "generated Python cache files must not live inside repository source roots"
+)
+PRIVATE_CORPUS_TERMS_FILES: Final[tuple[Path, ...]] = (
+    REPO_ROOT / ".git" / "info" / "heph-private-corpus-terms",
+    REPO_ROOT / ".heph-private-corpus-terms",
+)
+PRIVATE_CORPUS_TERMS_ENV_VAR: Final[str] = "HEPHAISTOS_PRIVATE_CORPUS_TERMS"
+PRIVATE_CORPUS_TEXT_SUFFIXES: Final[frozenset[str]] = frozenset(
+    {
+        ".cfg",
+        ".css",
+        ".html",
+        ".ini",
+        ".js",
+        ".json",
+        ".md",
+        ".py",
+        ".sh",
+        ".toml",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+)
+PRIVATE_CORPUS_HARDCODING_MESSAGE: Final[str] = (
+    "private corpus, university, course, lecturer, or local armory identifiers are "
+    "forbidden outside tests; use generic fixtures, prompts, and semantic evidence handling"
 )
 
 
@@ -270,6 +298,23 @@ def _tracked_repo_paths() -> tuple[str, ...]:
     except (OSError, subprocess.CalledProcessError):
         return ()
     return tuple(line for line in result.stdout.splitlines() if line)
+
+
+def _private_corpus_terms() -> tuple[str, ...]:
+    terms = [
+        line.strip()
+        for line in os.environ.get(PRIVATE_CORPUS_TERMS_ENV_VAR, "").splitlines()
+        if line.strip()
+    ]
+    for terms_file in PRIVATE_CORPUS_TERMS_FILES:
+        if not terms_file.is_file():
+            continue
+        terms.extend(
+            line.strip()
+            for line in terms_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    return tuple(dict.fromkeys(terms))
 
 
 def _dotted_name(node: ast.AST | None) -> str | None:
@@ -815,6 +860,58 @@ def _is_generated_python_cache_path(path: str) -> bool:
     return "__pycache__" in parts or path.endswith((".pyc", ".pyo"))
 
 
+def _private_corpus_identifier_violations(
+    paths: Sequence[str] | None = None,
+    *,
+    terms: Sequence[str] | None = None,
+) -> list[Violation]:
+    blocked_terms = tuple(terms) if terms is not None else _private_corpus_terms()
+    if not blocked_terms:
+        return []
+    violations: list[Violation] = []
+    for rel_path in paths if paths is not None else _tracked_repo_paths():
+        if _skip_private_corpus_scan(rel_path):
+            continue
+        path = REPO_ROOT / rel_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        violations.extend(_private_corpus_identifier_hits(rel_path, text, blocked_terms))
+    return violations
+
+
+def _skip_private_corpus_scan(path: str) -> bool:
+    return (
+        path.startswith("tests/") or Path(path).suffix.lower() not in PRIVATE_CORPUS_TEXT_SUFFIXES
+    )
+
+
+def _private_corpus_identifier_hits(
+    rel_path: str,
+    text: str,
+    terms: Sequence[str],
+) -> list[Violation]:
+    violations: list[Violation] = []
+    for term in terms:
+        if not term:
+            continue
+        search_from = 0
+        while True:
+            index = text.casefold().find(term.casefold(), search_from)
+            if index < 0:
+                break
+            violations.append(
+                Violation(
+                    path=rel_path,
+                    line=text.count("\n", 0, index) + 1,
+                    column=index - text.rfind("\n", 0, index),
+                    message=PRIVATE_CORPUS_HARDCODING_MESSAGE,
+                )
+            )
+            search_from = index + len(term)
+    return violations
+
+
 def _hardcoded_answer_violations(
     literals: Sequence[HardcodedAnswerLiteral],
 ) -> list[Violation]:
@@ -872,6 +969,7 @@ def main() -> None:
         violations.extend(_check_file(path))
     violations.extend(_check_duplicate_prompt_rules())
     violations.extend(_check_generated_caches())
+    violations.extend(_private_corpus_identifier_violations())
 
     if not violations:
         print("Repo policy check passed.")

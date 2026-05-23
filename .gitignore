@@ -58,6 +58,7 @@ node_modules/
 .pi/
 .deepsec/
 .agents/
+.heph-private-corpus-terms
 
 # Generated artifacts
 .artifacts/

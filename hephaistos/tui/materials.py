@@ -330,15 +330,27 @@ class TuiMaterialsMixin:
         *,
         selected: bool,
     ) -> str | Text:
-        _ = selected
         palette = current_palette()
         enabled_file = file not in self.session.disabled_source_files
         label = material_display_name(file)
-        state_color = palette.action_primary_bg if enabled_file else palette.status_error_text
+        prefix = "→ " if selected else "  "
+        if selected:
+            state_color = f"bold {palette.brand_primary}"
+            marker_color = f"bold {palette.brand_primary}"
+            prefix_color = f"bold {palette.brand_primary}"
+        elif enabled_file:
+            state_color = palette.action_primary_bg
+            marker_color = palette.text_muted
+            prefix_color = palette.text_muted
+        else:
+            state_color = palette.status_error_text
+            marker_color = palette.text_muted
+            prefix_color = palette.text_muted
         if _RichText is None:
-            return f"@{label}"
+            return f"{prefix}@{label}"
         text = _RichText()
-        text.append("@", style=palette.text_muted)
+        text.append(prefix, style=prefix_color)
+        text.append("@", style=marker_color)
         text.append(label, style=state_color)
         return text
 

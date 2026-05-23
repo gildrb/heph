@@ -358,7 +358,7 @@ def test_secondary_chrome_details_share_darker_tint(
 ) -> None:
     monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
-    session.armory_path = Path.home() / ".armories" / "MfI-2"
+    session.armory_path = Path.home() / ".armories" / "sample-course"
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
     palette = tui.current_palette()
 
@@ -408,8 +408,8 @@ def test_info_panel_material_paths_are_truncated_to_one_line() -> None:
     assert material_lines[1].strip() == "@short.md"
 
 
-def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
-    set_theme("high_contrast")
+def test_dark_routine_labels_use_neutral_emphasis() -> None:
+    set_theme("dark")
     try:
         session = _plain_session()
         status = tui._status_text(session)
@@ -455,7 +455,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
         assert not any(palette.text_primary in style for style in shortcut_styles)
         assert not any(palette.action_primary_bg in style for style in shortcut_styles)
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
 def test_tui_config_error_allows_pollinations_without_api_key() -> None:
@@ -544,7 +544,8 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "scrollbar-size-vertical" not in suggestions_block
     assert "padding: 0 2;" in option_block
     assert "border-bottom: tall" not in css
-    assert "background: #FFFFFF;" not in css
+    assert "App {\n    background: #FFFFFF;" not in css
+    assert "Screen {\n    layout: vertical;\n    background: #FFFFFF;" not in css
     assert "#suggestions:focus > .option-list--option-highlighted" in css
 
 
@@ -576,21 +577,23 @@ def test_duplicate_model_choices_keep_provider_identity() -> None:
     assert selected == ("openai-codex", "gpt-5.5", "OpenAI Codex", False)
 
 
-def test_non_default_themes_do_not_paint_terminal_background() -> None:
+def test_light_theme_paints_bright_app_background() -> None:
     try:
-        for theme in ("light", "high_contrast"):
-            set_theme(theme)
-            palette = tui.current_palette()
-            css = tui._tui_css()
+        set_theme("light")
+        palette = tui.current_palette()
+        css = tui._tui_css()
 
-            assert palette.bg_app
-            assert "background: transparent;" in css
-            assert palette.bg_app in css
+        assert palette.bg_app != "transparent"
+        assert f"App {{\n    background: {palette.bg_app};" in css
+        assert f"Screen {{\n    layout: vertical;\n    background: {palette.bg_app};" in css
+        assert "#main-layout {\n    layer: base;\n    layout: horizontal;" in css
+        assert f"background: {palette.bg_app};" in css
+        assert f"color: {palette.text_primary};" in css
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
-def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
+def test_runtime_theme_switch_applies_light_background_and_dark_transparency() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -630,17 +633,16 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._open_settings_flow()
             app._handle_inline_menu_choice("Appearance")
-            app._handle_appearance_choice("light")
+            app._handle_appearance_choice("Light")
             await pilot.pause()
 
             assert app.styles.background is not None
-            assert app.styles.background.a == 0.0
+            assert app.styles.background.a == 1.0
             assert app.screen.styles.background is not None
-            assert app.screen.styles.background.a == 0.0
+            assert app.screen.styles.background.a == 1.0
+            assert tui.current_palette().bg_app in app.CSS
 
-            assert_core_widgets_are_transparent()
-
-            app._handle_appearance_choice("high_contrast")
+            app._handle_appearance_choice("Dark")
             await pilot.pause()
 
             assert app.styles.background is not None
@@ -669,7 +671,7 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
             assert issubclass(widgets.rich_log, tui.RichLog)
             assert widgets.rich_log.can_focus is False
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
 def test_tui_mouse_mode_passes_selection_through_layouts_to_text_widgets() -> None:
@@ -1015,10 +1017,10 @@ def test_tui_css_materials_highlight_uses_state_colours() -> None:
     enabled_block = css[enabled_start:enabled_end]
     assert "background: transparent;" in enabled_block
     assert "background: transparent;" in disabled_block
-    assert f"color: {palette.action_primary_bg};" in enabled_block
-    assert f"color: {palette.status_error_text};" in disabled_block
-    assert "text-style: not bold;" in enabled_block
-    assert "text-style: not bold;" in disabled_block
+    assert f"color: {palette.brand_primary};" in enabled_block
+    assert f"color: {palette.brand_primary};" in disabled_block
+    assert "text-style: bold;" in enabled_block
+    assert "text-style: bold;" in disabled_block
     assert f"background: {palette.action_primary_bg};" not in enabled_block
     assert f"background: {palette.status_error_text};" not in disabled_block
 
@@ -1040,7 +1042,7 @@ def test_tui_css_materials_header_and_gaps_are_status_weight() -> None:
     assert "height: 1;" in gap_block
 
 
-def test_materials_current_label_matches_other_state_labels() -> None:
+def test_materials_selected_label_uses_sparse_white_highlight() -> None:
     if tui._RichText is None:
         pytest.skip("Rich is not installed")
 
@@ -1057,14 +1059,13 @@ def test_materials_current_label_matches_other_state_labels() -> None:
 
     assert not isinstance(selected, str)
     assert not isinstance(unselected, str)
-    assert selected.plain == unselected.plain
-    assert [str(span.style) for span in selected.spans] == [
-        str(span.style) for span in unselected.spans
-    ]
-    styles = [str(span.style) for span in selected.spans]
-    assert palette.action_primary_bg in styles
-    assert not any("bold" in style for style in styles)
-    assert not any(" on " in style for style in styles)
+    assert selected.plain == "→ @biology.pdf"
+    assert unselected.plain == "  @biology.pdf"
+    selected_styles = [str(span.style) for span in selected.spans]
+    unselected_styles = [str(span.style) for span in unselected.spans]
+    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
+    assert palette.action_primary_bg in unselected_styles
+    assert not any(" on " in style for style in selected_styles)
 
 
 def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
@@ -1079,17 +1080,20 @@ def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
         tui._TuiRuntimeState(),
         tui.current_palette(),
     )
-    option = app._format_material_option("materials/biology.pdf", selected=True)
+    selected = app._format_material_option("materials/biology.pdf", selected=True)
+    unselected = app._format_material_option("materials/biology.pdf", selected=False)
     palette = tui.current_palette()
 
-    assert not isinstance(option, str)
-    styles = [str(span.style) for span in option.spans]
-    assert palette.status_error_text in styles
-    assert palette.action_primary_bg not in styles
-    assert not any("bold" in style for style in styles)
+    assert not isinstance(selected, str)
+    assert not isinstance(unselected, str)
+    selected_styles = [str(span.style) for span in selected.spans]
+    unselected_styles = [str(span.style) for span in unselected.spans]
+    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
+    assert palette.status_error_text in unselected_styles
+    assert palette.action_primary_bg not in selected_styles
 
 
-def test_materials_mouse_selection_preserves_state_colours() -> None:
+def test_materials_highlight_uses_sparse_white_without_state_stripe() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -1109,8 +1113,7 @@ def test_materials_mouse_selection_preserves_state_colours() -> None:
             app._open_materials_inline()
             await pilot.pause()
 
-            await pilot.mouse_down("#materials-list", offset=(3, 0))
-            await pilot.hover("#materials-list", offset=(12, 1))
+            app._handle_materials_option_highlighted("materials-list", 1)
             await pilot.pause()
 
             material_list = app.query_one("#materials-list", tui.OptionList)
@@ -1126,18 +1129,16 @@ def test_materials_mouse_selection_preserves_state_colours() -> None:
             ]
 
             assert len(first_line_styles) == 1
-            assert "not bold" in first_line_styles[0]
-            assert "reverse" in first_line_styles[0]
             assert palette.action_primary_bg.lower() in first_line_styles[0].lower()
+            assert palette.brand_primary.lower() not in first_line_styles[0].lower()
             assert len(second_line_styles) == 1
-            assert "reverse" in second_line_styles[0]
-            assert palette.status_error_text.lower() in second_line_styles[0].lower()
-            assert palette.text_primary.lower() not in second_line_styles[0].lower()
+            assert palette.brand_primary.lower() in second_line_styles[0].lower()
+            assert palette.status_error_text.lower() not in second_line_styles[0].lower()
 
     asyncio.run(check_material_selection())
 
 
-def test_tui_css_completion_highlight_stays_quiet_until_mouse_hover() -> None:
+def test_tui_css_completion_highlight_has_sparse_white_selection_contrast() -> None:
     css = tui._tui_css()
     palette = tui.current_palette()
     highlight_start = css.index("#suggestions > .option-list--option-highlighted")
@@ -1148,12 +1149,12 @@ def test_tui_css_completion_highlight_stays_quiet_until_mouse_hover() -> None:
     hover_block = css[hover_start:hover_end]
 
     assert "background: transparent;" in highlight_block
-    assert f"color: {palette.text_primary};" in highlight_block
+    assert f"color: {palette.brand_primary};" in highlight_block
+    assert "text-style: bold;" in highlight_block
     assert "#suggestions > .option-list--option-hover" in hover_block
-    assert f"background: {palette.bg_raised};" in hover_block
-    assert f"color: {palette.text_primary};" in hover_block
-    assert f"background: {palette.bg_surface};" not in hover_block
-    assert f"background: {palette.action_primary_bg};" not in hover_block
+    assert "background: transparent;" in hover_block
+    assert f"color: {palette.brand_primary};" in hover_block
+    assert "text-style: bold;" in hover_block
     assert f"color: {palette.action_primary_text};" not in hover_block
 
 
@@ -1163,7 +1164,7 @@ def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
     assert "#suggestions.inline-menu > .option-list--option-highlighted" not in css
 
 
-def test_inline_menu_selected_label_uses_brand_without_recoloring_description() -> None:
+def test_inline_menu_selected_label_uses_white_for_whole_active_row() -> None:
     selected = _inline_menu_option_text(
         "Signal Entropy",
         "uncertainty in signals",
@@ -1180,9 +1181,10 @@ def test_inline_menu_selected_label_uses_brand_without_recoloring_description() 
     assert not isinstance(unselected, str)
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert any(palette.brand_primary in style and "bold" in style for style in selected_styles)
-    assert any(palette.text_muted in style for style in selected_styles)
-    assert not any(palette.brand_primary in style for style in unselected_styles)
+    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
+    assert any(palette.text_secondary in style for style in unselected_styles)
+    assert any(palette.text_muted in style for style in unselected_styles)
+    assert not any("bold" in style.lower() for style in unselected_styles)
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -1847,17 +1849,17 @@ def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         tui,
         "load_app_settings",
-        lambda: settings_store.AppSettings(theme="high_contrast"),
+        lambda: settings_store.AppSettings(theme="light"),
     )
 
     try:
-        set_theme("forge")
+        set_theme("dark")
         tui.run_tui(_plain_session())
         assert captured_palette is not None
         assert captured_palette == tui.current_palette()
-        assert current_theme_name() == "high_contrast"
+        assert current_theme_name() == "light"
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
 def test_run_tui_for_path_resolves_armory(
@@ -2173,9 +2175,7 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             appearance_labels = [label for label, _description in app._inline_flow.options]
 
             assert app._inline_flow.step == "appearance"
-            assert "forge" in appearance_labels
-            assert "light" in appearance_labels
-            assert "high_contrast" in appearance_labels
+            assert appearance_labels == ["Dark", "Light"]
             assert "Back" not in appearance_labels
 
             app._open_settings_flow()
@@ -2273,7 +2273,7 @@ def test_settings_inline_toggles_privacy_and_theme(
     try:
         asyncio.run(check_settings_changes())
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
 def test_settings_inline_keeps_selected_row_after_changes(
@@ -2299,7 +2299,7 @@ def test_settings_inline_keeps_selected_row_after_changes(
         async with typed_app.run_test(size=(120, 24)):
             cases = [
                 ("Privacy & Diagnostics", "Crash reports"),
-                ("Appearance", "light"),
+                ("Appearance", "Light"),
                 ("Activity trace", "Hidden tool calls"),
                 ("Vocabulary practice", "Lenient punctuation"),
             ]
@@ -2319,7 +2319,7 @@ def test_settings_inline_keeps_selected_row_after_changes(
     try:
         asyncio.run(check_stable_selection())
     finally:
-        set_theme("forge")
+        set_theme("dark")
 
 
 def test_logout_inline_menu_lists_only_clearable_stored_credentials(
@@ -4569,7 +4569,7 @@ def test_models_command_shows_plain_suggestion() -> None:
     asyncio.run(check_models_suggestion())
 
 
-def test_command_completion_selected_text_uses_brand_without_recoloring_description() -> None:
+def test_command_completion_selected_text_uses_white_for_whole_active_row() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -4602,12 +4602,12 @@ def test_command_completion_selected_text_uses_brand_without_recoloring_descript
 
             selected_styles = [str(span.style) for span in selected.spans]
             unselected_styles = [str(span.style) for span in unselected.spans]
-            assert any(
+            assert all(
                 palette.brand_primary in style and "bold" in style for style in selected_styles
             )
-            assert any(palette.text_muted in style for style in selected_styles)
-            assert any(palette.text_primary in style for style in unselected_styles)
-            assert not any(palette.brand_primary in style for style in unselected_styles)
+            assert any(palette.text_secondary in style for style in unselected_styles)
+            assert any(palette.text_muted in style for style in unselected_styles)
+            assert not any("bold" in style.lower() for style in unselected_styles)
 
     asyncio.run(check_completion_styles())
 

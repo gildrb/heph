@@ -57,6 +57,11 @@ def test_app_settings_default_activity_trace_mode_is_tool_calls() -> None:
     assert s.activity_trace_mode == settings.DEFAULT_ACTIVITY_TRACE_MODE
 
 
+def test_app_settings_default_theme_is_dark() -> None:
+    s = settings.AppSettings()
+    assert s.theme == settings.DEFAULT_THEME == "dark"
+
+
 def test_app_settings_default_vocab_strictness_is_strict() -> None:
     s = settings.AppSettings()
     assert s.vocab_strictness == settings.DEFAULT_VOCAB_STRICTNESS
@@ -90,6 +95,29 @@ def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.Monke
     assert settings.load_app_settings().activity_trace_mode == (
         settings.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
     )
+
+
+@pytest.mark.parametrize("removed_theme", ["forge", "high_contrast"])
+def test_load_app_settings_maps_removed_themes_to_dark(
+    removed_theme: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(json.dumps({"theme": removed_theme}), encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    assert settings.load_app_settings().theme == "dark"
+
+
+@pytest.mark.parametrize("removed_theme", ["forge", "high_contrast"])
+def test_normalize_theme_rejects_removed_presets(removed_theme: str) -> None:
+    with pytest.raises(ValueError, match="theme"):
+        settings.normalize_setting_value("theme", removed_theme)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not portable on Windows")

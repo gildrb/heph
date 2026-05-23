@@ -418,7 +418,7 @@ def _selectable_entry(entry: _DirEntry) -> bool:
 def _armory_browser_css(p: Theme) -> str:
     """Generate CSS from the active theme palette."""
     bg = p.bg_surface
-    border_color = p.bg_app
+    border_color = p.border_subtle
     text_color = p.text_primary
     dim_color = p.text_muted
     emphasis_color = p.text_primary

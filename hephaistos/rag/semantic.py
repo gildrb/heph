@@ -12,7 +12,12 @@ from hephaistos.rag.optional_backends import (
     SentenceTransformerProtocol,
 )
 from hephaistos.rag.retrieval_types import ScoredChunk
-from hephaistos.rag.scoring import cosine_similarity, embedding_rows, float_list
+from hephaistos.rag.scoring import (
+    cosine_similarity,
+    embedding_rows,
+    float_list,
+    normalize_relative_rank_scores,
+)
 
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _EMBED_MODEL_DEFAULT = "all-MiniLM-L6-v2"
@@ -157,4 +162,4 @@ class CrossEncoderReranker:
             for i in range(len(candidates))
         ]
         scored.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-        return scored[:top_k]
+        return normalize_relative_rank_scores(scored[:top_k])

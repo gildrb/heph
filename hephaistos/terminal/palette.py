@@ -43,56 +43,39 @@ class Theme:
 DARK = Theme(
     bg_app=TRANSPARENT,
     bg_surface=TRANSPARENT,
-    bg_raised="#1C1C1C",
-    text_primary="#E0E0E0",
-    text_secondary="#D4C6A5",
-    text_muted="#858585",
+    bg_raised="#161616",
+    text_primary="#CFCFCF",
+    text_secondary="#8F8F8F",
+    text_muted="#6F6F6F",
     text_inverse="#000000",
-    border_subtle="#555555",
-    brand_primary="#E06666",
-    action_primary_bg="#7F9A6A",
+    border_subtle="#3D3D3D",
+    brand_primary="#FFFFFF",
+    action_primary_bg="#57C785",
     action_primary_text="#000000",
-    status_error_text="#E06666",
+    status_error_text="#FF6B6B",
 )
 
 LIGHT = Theme(
-    bg_app="#f8f9fa",
-    bg_surface="#ffffff",
-    bg_raised="#ffffff",
-    text_primary="#212529",
-    text_secondary="#495057",
-    text_muted="#868e96",
-    text_inverse="#ffffff",
-    border_subtle="#dee2e6",
-    brand_primary="#e03131",
-    action_primary_bg="#228be6",
-    action_primary_text="#ffffff",
-    status_error_text="#e03131",
+    bg_app="#FAFAFA",
+    bg_surface="#FFFFFF",
+    bg_raised="#F2F2F2",
+    text_primary="#000000",
+    text_secondary="#404040",
+    text_muted="#666666",
+    text_inverse="#FFFFFF",
+    border_subtle="#D9D9D9",
+    brand_primary="#000000",
+    action_primary_bg="#0F7A3A",
+    action_primary_text="#FFFFFF",
+    status_error_text="#B00020",
 )
 
-HIGH_CONTRAST = Theme(
-    bg_app=TRANSPARENT,
-    bg_surface=TRANSPARENT,
-    bg_raised="#1A1A1A",
-    text_primary="#FFFFFF",
-    text_secondary="#C0C0C0",
-    text_muted="#C0C0C0",
-    text_inverse="#000000",
-    border_subtle="#8A8A8A",
-    brand_primary="#FF4D4D",
-    action_primary_bg="#FFD400",
-    action_primary_text="#000000",
-    status_error_text="#FF4D4D",
-)
-
-FORGE_THEME = DARK
+DARK_THEME = DARK
 LIGHT_THEME = LIGHT
-HIGH_CONTRAST_THEME = HIGH_CONTRAST
 
 THEMES: Final[dict[str, Theme]] = {
-    "forge": FORGE_THEME,
+    "dark": DARK_THEME,
     "light": LIGHT_THEME,
-    "high_contrast": HIGH_CONTRAST_THEME,
 }
 
 

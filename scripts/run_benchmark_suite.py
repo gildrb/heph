@@ -101,9 +101,9 @@ DEFAULT_REQUIRED_LEARNING_INTENT_LABELS = (
     "chat",
 )
 DEFAULT_REQUIRED_LEARNING_INTENT_PROMPT_PHRASES = (
-    "whatever language",
-    "English-first control signal",
-    "Do not answer the request",
+    "Classify the user's intent",
+    "Heph",
+    "any language",
     "Return JSON only",
 )
 DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES = (
