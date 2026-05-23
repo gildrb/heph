@@ -350,6 +350,31 @@ class TestAutoCompact:
         assert cache_files[0].read_text(encoding="utf-8") == "Cached summary."
         assert any("Cached summary." in _message_text(message) for message in compressed)
 
+    @pytest.mark.skipif(
+        os.name == "nt", reason="POSIX permission bits are not portable on Windows"
+    )
+    def test_summary_cache_uses_private_permissions_and_redacts_secrets(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, mock_client = self._mock_config_and_client(summary="summary token=compact-secret")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: mock_client,
+        )
+
+        auto_compact(messages, config, tmp_path)
+
+        cache_dir = tmp_path / ".hephaistos" / "compaction_cache"
+        cache_path = next(cache_dir.glob("*.txt"))
+        serialized = cache_path.read_text(encoding="utf-8")
+        assert stat.S_IMODE(cache_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE(cache_path.stat().st_mode) == 0o600
+        assert "compact-secret" not in serialized
+        assert "***REDACTED***" in serialized
+
     def test_unavailable_summary_is_not_cached(
         self,
         tmp_path: Path,

@@ -371,6 +371,35 @@ def test_beir_adapter_refuses_existing_output_without_overwrite(tmp_path: Path) 
     assert not (output / RAG_DATASET_NAME).exists()
 
 
+def test_beir_adapter_refuses_overwrite_of_unowned_nonempty_output(tmp_path: Path) -> None:
+    source = _beir_fixture(tmp_path)
+    output = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    output.mkdir()
+    sentinel = output / "sentinel.txt"
+    sentinel.write_text("keep me\n", encoding="utf-8")
+
+    status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-dir",
+            str(source),
+            "--output",
+            str(output),
+            "--json-report",
+            str(report_path),
+            "--overwrite",
+        ]
+    )
+
+    assert status == 2
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "error"
+    assert report["error"]["code"] == "unsafe_overwrite_path"
+    assert sentinel.read_text(encoding="utf-8") == "keep me\n"
+    assert not (output / RAG_DATASET_NAME).exists()
+
+
 def test_beir_adapter_rejects_symlinked_output_root(tmp_path: Path) -> None:
     source = _beir_fixture(tmp_path)
     outside = tmp_path / "outside-output-target"

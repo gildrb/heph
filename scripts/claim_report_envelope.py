@@ -70,22 +70,6 @@ _ALLOWED_LATENCY_SCOPES = frozenset(
         "not_executed",
     }
 )
-_STRIPPED_RUNTIME_KEYS = frozenset(
-    {
-        "armory_path",
-        "cases_path",
-        "command_invocation",
-        "elapsed_ms",
-        "latency_ms",
-        "mean_latency_ms",
-        "mean_ms",
-        "projection_sha256",
-        "readiness_report_path",
-        "report_path",
-        "suite",
-        "suite_path",
-    }
-)
 _SECRET_ENV_NAME_MARKERS = (
     "API_KEY",
     "AUTH",
@@ -312,7 +296,7 @@ def observe_current_state(root: Path | None = None) -> dict[str, object]:
 
 def deterministic_report_projection(report: Mapping[str, object]) -> object:
     """Return report content with declared runtime-only and self-hash fields removed."""
-    return _strip_runtime_fields(report)
+    return _strip_runtime_fields(report, runtime_paths=_projection_runtime_paths(report))
 
 
 def deterministic_projection_sha256(report: Mapping[str, object]) -> str:
@@ -1296,22 +1280,91 @@ def _string_list(value: object) -> tuple[str, ...]:
     return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
 
 
-def _strip_runtime_fields(value: object, *, key_name: str = "") -> object:
-    if key_name == "deterministic_projection":
-        return None
-    if key_name in _STRIPPED_RUNTIME_KEYS:
-        return None
+def _projection_runtime_paths(report: Mapping[str, object]) -> frozenset[tuple[str, ...]]:
+    metadata = _mapping_or_empty(report.get("metadata"))
+    reproducibility = _mapping_or_empty(report.get("reproducibility"))
+    paths = tuple(
+        dict.fromkeys(
+            (
+                *_string_list(report.get("runtime_only_fields")),
+                *_string_list(reproducibility.get("runtime_only_fields")),
+                *_runtime_only_fields(metadata),
+            )
+        )
+    )
+    return frozenset(
+        (("deterministic_projection",), *(_runtime_path_parts(path) for path in paths))
+    )
+
+
+def _runtime_path_parts(path: str) -> tuple[str, ...]:
+    parts: list[str] = []
+    for raw_part in path.split("."):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if part.endswith("[]"):
+            stem = part[:-2]
+            if stem:
+                parts.append(stem)
+            parts.append("[]")
+        else:
+            parts.append(part)
+    return tuple(parts)
+
+
+def _strip_runtime_fields(
+    value: object,
+    *,
+    runtime_paths: frozenset[tuple[str, ...]],
+    path: tuple[str, ...] = (),
+) -> object:
     if isinstance(value, dict):
         normalized: dict[str, object] = {}
         for raw_key, raw_child in sorted(value.items(), key=lambda item: str(item[0])):
             if not isinstance(raw_key, str):
                 continue
-            if raw_key == "deterministic_projection" or raw_key in _STRIPPED_RUNTIME_KEYS:
+            child_path = (*path, raw_key)
+            if _runtime_path_matches(child_path, runtime_paths):
                 continue
-            normalized[raw_key] = _strip_runtime_fields(raw_child, key_name=raw_key)
+            normalized[raw_key] = _strip_runtime_fields(
+                raw_child,
+                runtime_paths=runtime_paths,
+                path=child_path,
+            )
         return normalized
     if isinstance(value, list):
-        return [_strip_runtime_fields(item) for item in value]
+        return [
+            _strip_runtime_fields(
+                item,
+                runtime_paths=runtime_paths,
+                path=(*path, "[]"),
+            )
+            for item in value
+        ]
     if isinstance(value, tuple):
-        return [_strip_runtime_fields(item) for item in value]
+        return [
+            _strip_runtime_fields(
+                item,
+                runtime_paths=runtime_paths,
+                path=(*path, "[]"),
+            )
+            for item in value
+        ]
     return value
+
+
+def _runtime_path_matches(
+    path: tuple[str, ...],
+    runtime_paths: frozenset[tuple[str, ...]],
+) -> bool:
+    return any(_runtime_path_matches_pattern(path, runtime_path) for runtime_path in runtime_paths)
+
+
+def _runtime_path_matches_pattern(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
+    if len(path) != len(pattern):
+        return False
+    return all(
+        pattern_part in {path_part, "[]"}
+        for path_part, pattern_part in zip(path, pattern, strict=True)
+    )

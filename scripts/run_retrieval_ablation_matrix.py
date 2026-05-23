@@ -78,6 +78,7 @@ _MISS_PERMISSION_SCOPE = "permission_scope_exclusion"
 _FUSION_NONE = "none"
 _FUSION_WEIGHTED_HYBRID = "weighted_sparse_dense"
 _FUSION_RRF = "reciprocal_rank_fusion"
+_WORKING_ARMORY_PREFIX = "working-armory-"
 _ARTIFACT_FILENAMES = {
     "matrix_report": "matrix-report.json",
     "per_query_results": "per-query-results.jsonl",
@@ -2744,12 +2745,21 @@ def _ensure_cell_backend_available(cell: MatrixCell) -> None:
 def _prepare_working_armory(armory_path: Path, output_dir: Path, copy_armory: bool) -> Path:
     if not copy_armory:
         return armory_path
-    destination = output_dir / "working-armory"
-    if destination.exists():
-        shutil.rmtree(destination)
+    _reject_armory_symlinks(armory_path)
+    destination = output_dir / f"{_WORKING_ARMORY_PREFIX}{time.time_ns()}"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(armory_path, destination)
+    shutil.copytree(armory_path, destination, symlinks=True)
     return destination.resolve()
+
+
+def _reject_armory_symlinks(armory_path: Path) -> None:
+    if armory_path.is_symlink():
+        raise RuntimeError(f"armory path must not be a symlink: {armory_path}")
+    for root, dir_names, file_names in armory_path.walk(follow_symlinks=False):
+        for child_name in (*dir_names, *file_names):
+            child = root / child_name
+            if child.is_symlink():
+                raise RuntimeError(f"armory copy refuses symlink: {child}")
 
 
 def _input_hashes(armory_path: Path, cases_path: Path) -> dict[str, str]:

@@ -210,6 +210,17 @@ def _cached_summary(cache_path: Path) -> str | None:
     return None
 
 
+def _write_cached_summary(cache_path: Path, summary: str) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cache_path.parent.chmod(0o700)
+    try:
+        fd = os.open(str(cache_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, "w", encoding="utf-8") as cache_file:
+        cache_file.write(summary)
+
+
 def _truncate_summary_source(serialized: str) -> str:
     if len(serialized) <= _SUMMARY_PROMPT_CHAR_LIMIT:
         return serialized
@@ -268,10 +279,9 @@ def _summary_for_messages(
     if summary is not None:
         return summary
 
-    summary = _request_summary(config, serialized)
+    summary = _redacted_transcript_text(_request_summary(config, serialized))
     if _should_cache_summary(summary):
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(summary, encoding="utf-8")
+        _write_cached_summary(cache_path, summary)
     return summary
 
 

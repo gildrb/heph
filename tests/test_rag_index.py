@@ -198,6 +198,20 @@ class TestArmoryIndexPersist:
         assert loaded.load()
         assert loaded.chunk_count == index.chunk_count
 
+    def test_load_embeddings_treats_malformed_numeric_values_as_cache_miss(
+        self,
+        armory: Path,
+    ) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        embed_path = index.save_embeddings([[1.0]], "test-model")
+        assert embed_path is not None
+        data = json.loads(embed_path.read_text(encoding="utf-8"))
+        data["embeddings"] = [["not-a-float"]]
+        embed_path.write_text(json.dumps(data), encoding="utf-8")
+
+        assert index.load_embeddings("test-model") is None
+
     def test_load_missing_returns_false(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         assert not index.load()

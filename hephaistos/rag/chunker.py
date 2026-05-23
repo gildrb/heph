@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -114,6 +115,9 @@ _MAX_CHUNK_SIZE = 2000
 _PDF_TEXT_TIMEOUT_SECONDS = 30
 _PDF_OCR_RENDER_TIMEOUT_SECONDS = 60
 _PDF_OCR_PAGE_TIMEOUT_SECONDS = 45
+_PDF_OCR_TOTAL_TIMEOUT_SECONDS = 120
+_PDF_OCR_MAX_PAGES = 25
+_PDF_OCR_MAX_RENDERED_BYTES = 100 * 1024 * 1024
 _PDF_OCR_DPI = 200
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
@@ -504,7 +508,8 @@ def _extract_pdf_ocr_pages(path: Path) -> list[str] | None:
             page_paths = _render_pdf_pages(path, Path(temp_dir))
             if not page_paths:
                 return None
-            return _ocr_pdf_pages(path, page_paths)
+            deadline = time.monotonic() + _PDF_OCR_TOTAL_TIMEOUT_SECONDS
+            return _ocr_pdf_pages(path, page_paths, deadline)
     except (OSError, subprocess.SubprocessError) as exc:
         _log_extraction_warning(path, "pdf OCR extraction failed", exc)
         return None
@@ -518,6 +523,10 @@ def _render_pdf_pages(path: Path, temp_dir: Path) -> list[Path]:
             "pdftoppm",
             "-r",
             str(_PDF_OCR_DPI),
+            "-f",
+            "1",
+            "-l",
+            str(_PDF_OCR_MAX_PAGES),
             "-png",
             str(path),
             output_prefix,
@@ -527,23 +536,56 @@ def _render_pdf_pages(path: Path, temp_dir: Path) -> list[Path]:
     )
     if render is None:
         return []
-    return sorted(temp_dir.glob("page-*.png"))
+    return _bounded_pdf_ocr_page_paths(path, temp_dir)
 
 
-def _ocr_pdf_pages(path: Path, page_paths: Sequence[Path]) -> list[str]:
+def _bounded_pdf_ocr_page_paths(path: Path, temp_dir: Path) -> list[Path]:
+    page_paths = sorted(temp_dir.glob("page-*.png"))
+    if len(page_paths) > _PDF_OCR_MAX_PAGES:
+        _log_extraction_failure(
+            path,
+            "pdf OCR render exceeded page limit",
+            f"{len(page_paths)} page(s) rendered, limit is {_PDF_OCR_MAX_PAGES}",
+        )
+        return []
+
+    total_bytes = 0
+    for page_path in page_paths:
+        total_bytes += page_path.stat().st_size
+        if total_bytes > _PDF_OCR_MAX_RENDERED_BYTES:
+            _log_extraction_failure(
+                path,
+                "pdf OCR render exceeded size limit",
+                f"{total_bytes} byte(s) rendered, limit is {_PDF_OCR_MAX_RENDERED_BYTES}",
+            )
+            return []
+    return page_paths
+
+
+def _ocr_pdf_pages(path: Path, page_paths: Sequence[Path], deadline: float) -> list[str]:
     texts: list[str] = []
     for page_path in page_paths:
-        page = _ocr_pdf_page(path, page_path)
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            _log_extraction_failure(
+                path,
+                "pdf OCR total deadline exceeded",
+                f"limit is {_PDF_OCR_TOTAL_TIMEOUT_SECONDS} second(s)",
+                fields={"page": page_path.name},
+            )
+            break
+        page_timeout = min(_PDF_OCR_PAGE_TIMEOUT_SECONDS, remaining_seconds)
+        page = _ocr_pdf_page(path, page_path, page_timeout)
         if page is not None:
             texts.append(page)
     return texts
 
 
-def _ocr_pdf_page(path: Path, page_path: Path) -> str | None:
+def _ocr_pdf_page(path: Path, page_path: Path, timeout: float) -> str | None:
     page = _run_extraction_command(
         path,
         ["tesseract", str(page_path), "stdout", "-l", "eng"],
-        timeout=_PDF_OCR_PAGE_TIMEOUT_SECONDS,
+        timeout=timeout,
         warning="pdf OCR page failed",
         fields={"page": page_path.name},
     )
@@ -554,7 +596,7 @@ def _run_extraction_command(
     path: Path,
     command: Sequence[str],
     *,
-    timeout: int,
+    timeout: float,
     warning: str,
     fields: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str] | None:

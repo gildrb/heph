@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 
@@ -26,7 +27,11 @@ KNOWN_AGENT_EMAILS = {"droid@factory.ai", "agent@factory.ai"}
 
 
 def git(*args: str) -> str:
-    result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        print("git error: executable not found", file=sys.stderr)
+        sys.exit(1)
+    result = subprocess.run([git_bin, *args], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         print(f"git error: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)

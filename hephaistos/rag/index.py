@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import signal
@@ -308,11 +309,19 @@ def _coerce_embedding_row(raw_row: object) -> list[float] | None:
         return None
     typed_row: list[float] = []
     for raw_value in cast("list[object]", raw_row):
-        if isinstance(raw_value, int | float):
-            typed_row.append(float(raw_value))
-        else:
-            typed_row.append(float(str(raw_value)))
+        value = _coerce_embedding_value(raw_value)
+        if value is None:
+            return None
+        typed_row.append(value)
     return typed_row
+
+
+def _coerce_embedding_value(raw_value: object) -> float | None:
+    try:
+        value = float(raw_value) if isinstance(raw_value, int | float) else float(str(raw_value))
+    except (OverflowError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _coerce_embedding_rows(raw_embeddings: object) -> list[list[float]] | None:

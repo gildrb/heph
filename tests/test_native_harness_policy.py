@@ -157,6 +157,41 @@ def test_claim_policy_redacts_command_invocation_secrets(
     assert reproducibility["command_invocation"] == command_invocation
 
 
+def test_deterministic_projection_strips_only_declared_runtime_paths() -> None:
+    report = _minimal_claim_report()
+    metadata = cast("dict[str, object]", report["metadata"])
+    metadata["command_invocation"] = "uv run benchmark"
+    metadata["runtime_only_fields"] = [
+        "metadata.command_invocation",
+        "benchmarks[].per_query_results[].latency_ms",
+    ]
+    benchmarks = cast("list[dict[str, object]]", report["benchmarks"])
+    per_query = cast("list[dict[str, object]]", benchmarks[0]["per_query_results"])
+    per_query[0]["latency_ms"] = 1.0
+    per_query[0]["command_invocation"] = "substantive query field"
+    initial_hash = claim_report_envelope.deterministic_projection_sha256(report)
+
+    per_query[0]["latency_ms"] = 999.0
+    latency_changed_hash = claim_report_envelope.deterministic_projection_sha256(report)
+    per_query[0]["command_invocation"] = "changed substantive query field"
+    substantive_changed_hash = claim_report_envelope.deterministic_projection_sha256(report)
+
+    projection = claim_report_envelope.deterministic_report_projection(report)
+    projected = cast("dict[str, object]", projection)
+    projected_metadata = cast("dict[str, object]", projected["metadata"])
+    projected_benchmarks = cast("list[dict[str, object]]", projected["benchmarks"])
+    projected_per_query = cast(
+        "list[dict[str, object]]",
+        projected_benchmarks[0]["per_query_results"],
+    )
+
+    assert initial_hash == latency_changed_hash
+    assert substantive_changed_hash != latency_changed_hash
+    assert "command_invocation" not in projected_metadata
+    assert "latency_ms" not in projected_per_query[0]
+    assert projected_per_query[0]["command_invocation"] == "changed substantive query field"
+
+
 def test_claim_policy_validator_rejects_failed_redaction_status() -> None:
     finalized = claim_report_envelope.finalize_claim_report(
         _minimal_claim_report(),

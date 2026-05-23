@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hephaistos.rag import chunker as rag_chunker
 from hephaistos.rag.chunker import (
     _DOCLING_EXTENSIONS,
     ChunkStrategy,
@@ -427,8 +428,10 @@ class TestDoclingIntegration:
     ) -> None:
         pdf = tmp_path / "scan.pdf"
         pdf.write_bytes(b"%PDF\x00image")
+        commands: list[list[str]] = []
 
         def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
+            commands.append(args)
             completed = MagicMock()
             completed.returncode = 0
             completed.stderr = ""
@@ -445,6 +448,71 @@ class TestDoclingIntegration:
         text = _convert_pdf_with_ocr(pdf)
 
         assert text == "OCR extracted theorem text."
+        assert commands[0][:9] == [
+            "pdftoppm",
+            "-r",
+            str(rag_chunker._PDF_OCR_DPI),
+            "-f",
+            "1",
+            "-l",
+            str(rag_chunker._PDF_OCR_MAX_PAGES),
+            "-png",
+            str(pdf),
+        ]
+
+    def test_convert_pdf_with_ocr_skips_oversized_rendered_pages(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF\x00image")
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
+            commands.append(args)
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stderr = ""
+            if args[0] == "pdftoppm":
+                Path(f"{args[-1]}-1.png").write_bytes(b"png")
+                completed.stdout = ""
+                return completed
+            raise AssertionError("oversized OCR render should not invoke tesseract")
+
+        monkeypatch.setattr("hephaistos.rag.chunker._PDF_OCR_MAX_RENDERED_BYTES", 2)
+        monkeypatch.setattr("hephaistos.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaistos.rag.chunker.subprocess.run", fake_run)
+
+        assert _convert_pdf_with_ocr(pdf) is None
+        assert len(commands) == 1
+
+    def test_convert_pdf_with_ocr_honors_total_deadline(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF\x00image")
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
+            commands.append(args)
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stderr = ""
+            if args[0] == "pdftoppm":
+                Path(f"{args[-1]}-1.png").write_bytes(b"png")
+                completed.stdout = ""
+                return completed
+            raise AssertionError("expired OCR budget should not invoke tesseract")
+
+        monkeypatch.setattr("hephaistos.rag.chunker._PDF_OCR_TOTAL_TIMEOUT_SECONDS", 0)
+        monkeypatch.setattr("hephaistos.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaistos.rag.chunker.subprocess.run", fake_run)
+
+        assert _convert_pdf_with_ocr(pdf) is None
+        assert len(commands) == 1
 
     def test_chunk_pdf_falls_back_to_pdftotext_when_docling_fails(
         self,

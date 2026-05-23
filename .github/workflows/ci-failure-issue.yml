@@ -37,6 +37,17 @@ jobs:
           TRACKING_LABEL="status/ci-failure"
           SEARCH_TERM="$TRACKING_MARKER"
           FIND_MANAGED_ISSUE='map(select(.title | startswith("CI failure on main")) | select(.body | contains("<!-- hephaistos-ci-failure-main -->")) | select(.author.login == "github-actions[bot]") | select(any(.labels[]?; .name == "status/ci-failure"))) | .[0].number // ""'
+          CURRENT_MAIN_SHA=$(gh api "repos/$REPO/git/ref/heads/main" --jq '.object.sha' 2>/dev/null || echo "")
+
+          if [ -z "$CURRENT_MAIN_SHA" ]; then
+            echo "Unable to verify current main SHA -- no action taken"
+            exit 0
+          fi
+
+          if [ "$SHA" != "$CURRENT_MAIN_SHA" ]; then
+            echo "Ignoring stale CI $CONCLUSION for ${SHA:0:7}; current main is ${CURRENT_MAIN_SHA:0:7}"
+            exit 0
+          fi
 
           if [ "$CONCLUSION" = "failure" ]; then
             echo "CI failed on main -- creating/updating issue"

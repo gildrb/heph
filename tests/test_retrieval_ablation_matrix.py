@@ -54,6 +54,42 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory
 
 
+def test_prepare_working_armory_copies_to_unique_directory_without_deleting_existing(
+    tmp_path: Path,
+) -> None:
+    armory = _make_armory(tmp_path)
+    output_dir = tmp_path / "out"
+    existing = output_dir / "working-armory"
+    existing.mkdir(parents=True)
+    sentinel = existing / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+
+    working = run_retrieval_ablation_matrix._prepare_working_armory(armory, output_dir, True)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+    assert working.parent == output_dir
+    assert working.name.startswith("working-armory-")
+    assert (working / "materials" / "alpha.md").is_file()
+
+
+def test_prepare_working_armory_rejects_symlinked_armory_content(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    link = armory / "materials" / "outside-link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    with pytest.raises(RuntimeError, match="refuses symlink"):
+        run_retrieval_ablation_matrix._prepare_working_armory(
+            armory,
+            tmp_path / "out",
+            True,
+        )
+
+
 def _fixture_per_query_row(
     *,
     row_id: str,

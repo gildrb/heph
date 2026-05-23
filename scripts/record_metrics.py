@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
+
+from defusedxml import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 JUNIT_DEFAULT = REPO_ROOT / ".artifacts" / "pytest-junit.xml"
@@ -46,9 +48,12 @@ class JunitResult(TypedDict):
 
 def _gh(*args: str) -> str:
     """Run a gh CLI command and return stdout."""
+    gh_bin = shutil.which("gh")
+    if gh_bin is None:
+        return ""
     try:
         result = subprocess.run(
-            ["gh", *args],
+            [gh_bin, *args],
             capture_output=True,
             text=True,
             timeout=30,
@@ -154,8 +159,8 @@ def _parse_junit_timing(path: Path) -> JunitResult | None:
         return None
 
     try:
-        tree = ET.parse(path)
-    except ET.ParseError:
+        tree = ElementTree.parse(path)
+    except ElementTree.ParseError:
         return None
 
     root = tree.getroot()
