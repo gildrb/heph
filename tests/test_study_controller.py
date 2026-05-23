@@ -1,4 +1,4 @@
-"""Tests for the deterministic learning-loop controller."""
+"""Tests for the intent-classifier-driven learning controller."""
 
 from __future__ import annotations
 
@@ -6,59 +6,1300 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from hephaistos.chat.orchestrator import _MODEL_NORMALIZED_INTENTS
 from hephaistos.study import (
     LearningAction,
     LearningFeedbackType,
+    LearningMove,
     LearningPhase,
     LearningState,
+    LearningTurnPlan,
     MemoryState,
     RecallRating,
+    ReviewItem,
     apply_turn_result,
     assess_evidence,
+    heph_help_plan,
+    is_driven_learning_intent,
+    material_overview_plan,
+    material_source_qa_plan,
     material_topic_drill_plan,
+    material_topic_presentation_plan,
     plain_chat_plan,
     plan_turn,
+    recall_clarification_plan,
     validate_pedagogy,
 )
 
+ActionRow = tuple[LearningPhase, bool, str, LearningAction, LearningPhase]
 
-def test_first_turn_plans_presentation() -> None:
+
+_DISPATCH_EXPECTATIONS: tuple[ActionRow, ...] = (
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "source_qa",
+        LearningAction.SOURCE_QA,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "topic_drill",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "hint_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        False,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.PRESENTING, False, "wait", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.PRESENTING, False, "heph_help", LearningAction.CHAT, LearningPhase.PRESENTING),
+    (LearningPhase.PRESENTING, False, "chat", LearningAction.CHAT, LearningPhase.PRESENTING),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "source_qa",
+        LearningAction.SOURCE_QA,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "topic_drill",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "hint_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.PRESENTING,
+        True,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.PRESENTING, True, "wait", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.PRESENTING, True, "heph_help", LearningAction.CHAT, LearningPhase.PRESENTING),
+    (LearningPhase.PRESENTING, True, "chat", LearningAction.CHAT, LearningPhase.PRESENTING),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "source_qa",
+        LearningAction.SOURCE_QA,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "topic_drill",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "hint_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "wait",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "heph_help",
+        LearningAction.CHAT,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        False,
+        "chat",
+        LearningAction.CHAT,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "source_qa",
+        LearningAction.SOURCE_QA,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "source_only_policy",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "topic_drill",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "ready_for_recall",
+        LearningAction.PROMPT_RECALL,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "recall_clarification",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "recall_answer_attempt",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "reveal_request",
+        LearningAction.REFUSE_REVEAL,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "hint_request",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "scaffold_request",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "material_review",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "driven_learning_calibration",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "wait",
+        LearningAction.WAIT_READY_REMINDER,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "heph_help",
+        LearningAction.CHAT,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.WAITING_FOR_READY,
+        True,
+        "chat",
+        LearningAction.CHAT,
+        LearningPhase.WAITING_FOR_READY,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.RECALL, False, "source_qa", LearningAction.SOURCE_QA, LearningPhase.PRESENTING),
+    (
+        LearningPhase.RECALL,
+        False,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.RECALL, False, "topic_drill", LearningAction.CALIBRATE, LearningPhase.RECALL),
+    (
+        LearningPhase.RECALL,
+        False,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "hint_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.RECALL,
+        False,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.RECALL, False, "wait", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.RECALL, False, "heph_help", LearningAction.CHAT, LearningPhase.RECALL),
+    (LearningPhase.RECALL, False, "chat", LearningAction.CHAT, LearningPhase.RECALL),
+    (
+        LearningPhase.RECALL,
+        True,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.RECALL, True, "source_qa", LearningAction.SOURCE_QA, LearningPhase.PRESENTING),
+    (
+        LearningPhase.RECALL,
+        True,
+        "source_only_policy",
+        LearningAction.ASSESS,
+        LearningPhase.ASSESS,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.RECALL, True, "topic_drill", LearningAction.CALIBRATE, LearningPhase.RECALL),
+    (LearningPhase.RECALL, True, "ready_for_recall", LearningAction.ASSESS, LearningPhase.ASSESS),
+    (
+        LearningPhase.RECALL,
+        True,
+        "recall_clarification",
+        LearningAction.PROMPT_RECALL,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "recall_answer_attempt",
+        LearningAction.ASSESS,
+        LearningPhase.ASSESS,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "reveal_request",
+        LearningAction.REFUSE_REVEAL,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.RECALL, True, "hint_request", LearningAction.HINT, LearningPhase.ASSESS),
+    (LearningPhase.RECALL, True, "skip_request", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (
+        LearningPhase.RECALL,
+        True,
+        "scaffold_request",
+        LearningAction.SIMPLIFY,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "material_review",
+        LearningAction.REVIEW,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.RECALL,
+    ),
+    (
+        LearningPhase.RECALL,
+        True,
+        "driven_learning_calibration",
+        LearningAction.ASSESS,
+        LearningPhase.ASSESS,
+    ),
+    (LearningPhase.RECALL, True, "wait", LearningAction.ASSESS, LearningPhase.ASSESS),
+    (LearningPhase.RECALL, True, "heph_help", LearningAction.CHAT, LearningPhase.RECALL),
+    (LearningPhase.RECALL, True, "chat", LearningAction.CHAT, LearningPhase.RECALL),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.ASSESS, False, "source_qa", LearningAction.SOURCE_QA, LearningPhase.PRESENTING),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.ASSESS, False, "topic_drill", LearningAction.CALIBRATE, LearningPhase.RECALL),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "hint_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "skip_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.ASSESS,
+    ),
+    (
+        LearningPhase.ASSESS,
+        False,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.ASSESS, False, "wait", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.ASSESS, False, "heph_help", LearningAction.CHAT, LearningPhase.ASSESS),
+    (LearningPhase.ASSESS, False, "chat", LearningAction.CHAT, LearningPhase.ASSESS),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "material_overview",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.ASSESS, True, "source_qa", LearningAction.SOURCE_QA, LearningPhase.PRESENTING),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "source_only_policy",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "topic_presentation",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.ASSESS, True, "topic_drill", LearningAction.CALIBRATE, LearningPhase.RECALL),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "ready_for_recall",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "recall_clarification",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "recall_answer_attempt",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "reveal_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (LearningPhase.ASSESS, True, "hint_request", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.ASSESS, True, "skip_request", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "scaffold_request",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "material_review",
+        LearningAction.PRESENT,
+        LearningPhase.PRESENTING,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "priority_request",
+        LearningAction.PRIORITY,
+        LearningPhase.ASSESS,
+    ),
+    (
+        LearningPhase.ASSESS,
+        True,
+        "driven_learning_calibration",
+        LearningAction.CALIBRATE,
+        LearningPhase.RECALL,
+    ),
+    (LearningPhase.ASSESS, True, "wait", LearningAction.PRESENT, LearningPhase.PRESENTING),
+    (LearningPhase.ASSESS, True, "heph_help", LearningAction.CHAT, LearningPhase.ASSESS),
+    (LearningPhase.ASSESS, True, "chat", LearningAction.CHAT, LearningPhase.ASSESS),
+)
+
+
+def _state(
+    phase: LearningPhase = LearningPhase.PRESENTING, *, current_item: bool = False
+) -> LearningState:
+    return LearningState(
+        phase=phase,
+        current_item="compactness" if current_item else "",
+        retrieval_query="compactness" if current_item else "",
+        expected_source_refs=["notes.md#chunk=1"] if current_item else [],
+        attempt_count=1,
+        hint_level=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("phase", "current_item", "intent", "expected_action", "expected_phase"),
+    list(_DISPATCH_EXPECTATIONS),
+)
+def test_plan_turn_dispatches_for_each_state_item_intent_combination(
+    phase: LearningPhase,
+    current_item: bool,
+    intent: str,
+    expected_action: LearningAction,
+    expected_phase: LearningPhase,
+) -> None:
+    assert intent in _MODEL_NORMALIZED_INTENTS
+
+    plan = plan_turn(
+        _state(phase, current_item=current_item), "Explain compactness", intent=intent
+    )
+
+    assert plan.action is expected_action
+    assert plan.phase is expected_phase
+
+
+def test_dispatch_table_covers_every_model_intent_for_each_phase_and_item_state() -> None:
+    covered = {
+        (phase, current_item, intent)
+        for phase, current_item, intent, _, _ in _DISPATCH_EXPECTATIONS
+    }
+    expected = {
+        (phase, current_item, intent)
+        for phase in LearningPhase
+        for current_item in (False, True)
+        for intent in _MODEL_NORMALIZED_INTENTS
+    }
+
+    assert covered == expected
+
+
+def test_plan_turn_passes_explicit_driven_intent_to_policy() -> None:
+    plan = plan_turn(
+        LearningState(), "Start active practice", intent="driven_learning_calibration"
+    )
+
+    assert plan.action is LearningAction.CALIBRATE
+    assert plan.learning_move is not None
+    assert plan.learning_move.kind == "ask_recall"
+    assert "Learning policy" in plan.prompt
+    assert "Practice goal: material review" in plan.prompt
+
+
+@pytest.mark.parametrize(
+    ("intent", "expected"),
+    [
+        ("driven_learning_calibration", True),
+        ("topic_drill", True),
+        ("priority_request", True),
+        ("topic_presentation", False),
+        ("chat", False),
+        ("", False),
+    ],
+)
+def test_is_driven_learning_intent_uses_intent_set(intent: str, expected: bool) -> None:
+    assert is_driven_learning_intent(intent) is expected
+
+
+@pytest.mark.parametrize(
+    ("intent", "expected_action", "expected_query", "expected_prompt"),
+    [
+        (
+            "material_overview",
+            LearningAction.PRESENT,
+            "what is the material about",
+            "Execute MATERIAL_OVERVIEW",
+        ),
+        ("source_qa", LearningAction.SOURCE_QA, "Explain compactness", "Execute SOURCE_QA"),
+        (
+            "topic_presentation",
+            LearningAction.PRESENT,
+            "Explain compactness",
+            "Execute the PRESENT phase",
+        ),
+        ("topic_drill", LearningAction.CALIBRATE, "Explain compactness", "Execute CALIBRATE"),
+    ],
+)
+def test_open_material_intents_select_material_prompt_builders(
+    intent: str,
+    expected_action: LearningAction,
+    expected_query: str,
+    expected_prompt: str,
+) -> None:
+    plan = plan_turn(LearningState(), "Explain compactness", intent=intent)
+
+    assert plan.action is expected_action
+    assert plan.retrieval_query == expected_query
+    assert expected_prompt in plan.prompt
+
+
+@pytest.mark.parametrize(
+    ("builder_plan", "expected_action", "expected_prompt"),
+    [
+        (
+            material_overview_plan("What is in the files?"),
+            LearningAction.PRESENT,
+            "Execute MATERIAL_OVERVIEW",
+        ),
+        (
+            material_source_qa_plan(
+                "Where is compactness defined?", retrieval_query="compactness"
+            ),
+            LearningAction.SOURCE_QA,
+            "Execute SOURCE_QA",
+        ),
+        (
+            material_topic_presentation_plan("Explain it", retrieval_query="compactness"),
+            LearningAction.PRESENT,
+            "Execute the PRESENT phase",
+        ),
+        (
+            material_topic_drill_plan("Quiz me", retrieval_query="compactness", exam_style=True),
+            LearningAction.CALIBRATE,
+            "Execute CALIBRATE",
+        ),
+        (
+            recall_clarification_plan("repeat it", current_item="compactness"),
+            LearningAction.PROMPT_RECALL,
+            "Execute RECALL_CLARIFICATION",
+        ),
+        (plain_chat_plan("hello"), LearningAction.CHAT, "Execute CHAT"),
+        (heph_help_plan("what is heph?"), LearningAction.CHAT, "Execute HEPH_HELP"),
+    ],
+)
+def test_public_plan_builders_emit_expected_action_and_prompt(
+    builder_plan: LearningTurnPlan,
+    expected_action: LearningAction,
+    expected_prompt: str,
+) -> None:
+    assert builder_plan.action is expected_action
+    assert expected_prompt in builder_plan.prompt
+
+
+def test_topic_drill_exam_builder_hides_answer_key() -> None:
+    plan = material_topic_drill_plan(
+        "Exam question", retrieval_query="compactness", exam_style=True
+    )
+
+    assert plan.action is LearningAction.CALIBRATE
+    assert "do not show the result, answer key" in plan.prompt
+
+
+def test_material_overview_result_does_not_enter_ready_loop() -> None:
+    plan = plan_turn(LearningState(), "Overview", intent="material_overview")
+
+    next_state, visible_reply = apply_turn_result(
+        LearningState(),
+        plan,
+        "Corpus overview [E1]",
+        ["notes.md#chunk=1"],
+    )
+
+    assert visible_reply == "Corpus overview [E1]"
+    assert next_state.phase is LearningPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.last_feedback_type is LearningFeedbackType.NONE
+
+
+def test_apply_present_result_enters_waiting_loop_with_sources() -> None:
     state = LearningState()
+    plan = plan_turn(state, "Explain compactness", intent="topic_presentation")
 
-    plan = plan_turn(state, "Explain question 1")
+    next_state, _ = apply_turn_result(
+        state, plan, "Compactness means every cover has a subcover.", ["notes.md#chunk=1"]
+    )
 
-    assert plan.action is LearningAction.PRESENT
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == "Explain question 1"
-    assert plan.allow_tools is True
-    assert "Do not offer menus" in plan.prompt
-    assert "signal when they are ready for recall" not in plan.prompt
-    assert "type the literal command `ready`" not in plan.prompt
-    assert "End with exactly: Say ready when you want recall" not in plan.prompt
-
-
-def test_plain_chat_plan_is_non_material_specific() -> None:
-    plan = plain_chat_plan("que puedes hacer?")
-
-    assert plan.action is LearningAction.CHAT
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute CHAT" in plan.prompt
-    assert "same language as the user's request" in plan.prompt
-    assert "que puedes hacer?" in plan.prompt
+    assert next_state.phase is LearningPhase.WAITING_FOR_READY
+    assert next_state.current_item == "Explain compactness"
+    assert next_state.retrieval_query == "Explain compactness"
+    assert next_state.expected_source_refs == ["notes.md#chunk=1"]
+    assert next_state.last_feedback_type is LearningFeedbackType.PRESENTED
 
 
-def test_learning_state_round_trips_confidence() -> None:
-    state = LearningState(last_confidence=0.6)
+def test_apply_present_result_without_sources_marks_no_source() -> None:
+    state = LearningState()
+    plan = plan_turn(state, "Explain compactness", intent="topic_presentation")
 
-    loaded = LearningState.from_dict(state.to_dict())
+    next_state, _ = apply_turn_result(state, plan, "No evidence found.", [])
 
-    assert loaded.last_confidence == 0.6
+    assert next_state.phase is LearningPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.last_feedback_type is LearningFeedbackType.NO_SOURCE
 
 
-def test_learning_state_round_trips_practice_session() -> None:
+def test_apply_calibration_result_enters_recall_with_model_question() -> None:
+    state = LearningState()
+    plan = plan_turn(state, "Quiz me on compactness", intent="topic_drill")
+    now = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+
+    next_state, _ = apply_turn_result(
+        state,
+        plan,
+        "What does compactness require?",
+        ["notes.md#chunk=2"],
+        now=now,
+    )
+
+    assert next_state.phase is LearningPhase.RECALL
+    assert next_state.current_item == "What does compactness require?"
+    assert next_state.retrieval_query == "Quiz me on compactness"
+    assert next_state.expected_source_refs == ["notes.md#chunk=2"]
+    assert next_state.last_feedback_type is LearningFeedbackType.CALIBRATING
+    assert next_state.recall_started_at == now
+
+
+def test_waiting_ready_intent_prompts_recall_and_updates_state() -> None:
+    state = _state(LearningPhase.WAITING_FOR_READY, current_item=True)
+    plan = plan_turn(state, "I am ready", intent="ready_for_recall")
+    now = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+
+    next_state, _ = apply_turn_result(state, plan, "Answer from memory.", [], now=now)
+
+    assert plan.action is LearningAction.PROMPT_RECALL
+    assert next_state.phase is LearningPhase.RECALL
+    assert next_state.last_feedback_type is LearningFeedbackType.READY
+    assert next_state.recall_started_at == now
+    assert next_state.hint_level == 0
+
+
+def test_waiting_wait_intent_reminds_without_advancing() -> None:
+    state = _state(LearningPhase.WAITING_FOR_READY, current_item=True)
+    plan = plan_turn(state, "wait", intent="wait")
+
+    next_state, _ = apply_turn_result(state, plan, "Say when ready.", [])
+
+    assert plan.action is LearningAction.WAIT_READY_REMINDER
+    assert next_state.phase is LearningPhase.WAITING_FOR_READY
+    assert next_state.last_feedback_type is LearningFeedbackType.WAITING
+
+
+@pytest.mark.parametrize("phase", [LearningPhase.WAITING_FOR_READY, LearningPhase.RECALL])
+def test_reveal_intent_is_refused_in_active_recall_loop(phase: LearningPhase) -> None:
+    state = _state(phase, current_item=True)
+    plan = plan_turn(state, "show answer", intent="reveal_request")
+
+    next_state, _ = apply_turn_result(state, plan, "Try first.", [])
+
+    assert plan.action is LearningAction.REFUSE_REVEAL
+    assert next_state.phase is phase
+    assert next_state.last_feedback_type is LearningFeedbackType.REFUSED
+
+
+def test_recall_answer_intent_assesses_and_tracks_confidence() -> None:
+    started = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+    state = _state(LearningPhase.RECALL, current_item=True)
+    state.recall_started_at = started
+    plan = plan_turn(
+        state, "It is closed and bounded; confidence 80%", intent="recall_answer_attempt"
+    )
+
+    next_state, visible_reply = apply_turn_result(
+        state,
+        plan,
+        "PARTIAL: Good start; missing open-cover condition.",
+        ["notes.md#chunk=1"],
+        now=started + timedelta(seconds=20),
+    )
+
+    assert plan.stated_confidence == 0.8
+    assert visible_reply == "PARTIAL: Good start; missing open-cover condition."
+    assert next_state.phase is LearningPhase.RECALL
+    assert next_state.attempt_count == 2
+    assert next_state.last_feedback_type is LearningFeedbackType.PARTIAL
+    assert next_state.last_recall_seconds == 20
+    assert next_state.last_recall_rating is RecallRating.GOOD
+    assert next_state.last_confidence == 0.8
+
+
+def test_correct_assessment_clears_recall_target_and_keeps_attempt_count() -> None:
+    started = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+    state = _state(LearningPhase.RECALL, current_item=True)
+    state.recall_started_at = started
+    plan = plan_turn(state, "Open covers; confidence 5/5", intent="recall_answer_attempt")
+
+    next_state, visible_reply = apply_turn_result(
+        state,
+        plan,
+        "CORRECT:\nScore: complete",
+        ["notes.md#chunk=1"],
+        now=started + timedelta(seconds=140),
+    )
+
+    assert visible_reply == "CORRECT:\nScore: complete"
+    assert next_state.phase is LearningPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.attempt_count == 2
+    assert next_state.last_feedback_type is LearningFeedbackType.CORRECT
+    assert next_state.last_recall_rating is RecallRating.HARD
+    assert next_state.last_confidence == 1.0
+    assert next_state.hint_level == 0
+
+
+def test_missing_assessment_prefix_defaults_to_partial() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+    plan = plan_turn(state, "attempt", intent="recall_answer_attempt")
+
+    next_state, visible_reply = apply_turn_result(state, plan, "Needs the theorem name.", [])
+
+    assert visible_reply == "PARTIAL: Needs the theorem name."
+    assert next_state.last_feedback_type is LearningFeedbackType.PARTIAL
+    assert next_state.practice_stop_reason == ""
+
+
+def test_recall_hint_requires_prior_attempt_then_updates_hint_level() -> None:
+    no_attempt = _state(LearningPhase.RECALL, current_item=True)
+    no_attempt.attempt_count = 0
+    attempt = _state(LearningPhase.RECALL, current_item=True)
+    attempt.attempt_count = 1
+
+    no_attempt_plan = plan_turn(no_attempt, "hint", intent="hint_request")
+    hint_plan = plan_turn(attempt, "hint", intent="hint_request")
+    next_state, _ = apply_turn_result(
+        attempt, hint_plan, "Think about covers.", ["notes.md#chunk=3"]
+    )
+
+    assert no_attempt_plan.action is LearningAction.ASSESS
+    assert hint_plan.action is LearningAction.HINT
+    assert hint_plan.phase is LearningPhase.ASSESS
+    assert next_state.phase is LearningPhase.RECALL
+    assert next_state.hint_level == 2
+    assert next_state.last_feedback_type is LearningFeedbackType.HINT
+    assert next_state.expected_source_refs == ["notes.md#chunk=3"]
+
+
+def test_scaffold_and_review_intents_use_stored_source_refs() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+
+    scaffold_plan = plan_turn(state, "make it easier", intent="scaffold_request")
+    review_plan = plan_turn(state, "review material", intent="material_review")
+
+    assert scaffold_plan.action is LearningAction.SIMPLIFY
+    assert scaffold_plan.use_expected_source_refs is True
+    assert review_plan.action is LearningAction.REVIEW
+    assert review_plan.use_expected_source_refs is True
+
+
+def test_apply_scaffold_and_review_results_transition_back_through_recall_loop() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+    scaffold_plan = plan_turn(state, "make it easier", intent="scaffold_request")
+    scaffolded, _ = apply_turn_result(
+        state,
+        scaffold_plan,
+        "What is the cover condition?",
+        ["notes.md#chunk=4"],
+    )
+    review_plan = plan_turn(scaffolded, "review", intent="material_review")
+    reviewed, _ = apply_turn_result(
+        scaffolded, review_plan, "Compactness review [E1]", ["notes.md#chunk=5"]
+    )
+
+    assert scaffolded.phase is LearningPhase.RECALL
+    assert scaffolded.current_item == "What is the cover condition?"
+    assert scaffolded.last_feedback_type is LearningFeedbackType.EASIER
+    assert scaffolded.hint_level == 2
+    assert reviewed.phase is LearningPhase.WAITING_FOR_READY
+    assert reviewed.current_item == scaffolded.current_item
+    assert reviewed.last_feedback_type is LearningFeedbackType.REVIEWING
+    assert reviewed.expected_source_refs == ["notes.md#chunk=5"]
+
+
+def test_source_qa_result_clears_active_item_without_resetting_hint() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+    state.hint_level = 3
+    plan = plan_turn(state, "Where is this stated?", intent="source_qa")
+
+    next_state, _ = apply_turn_result(state, plan, "It is in [E1].", ["notes.md#chunk=1"])
+
+    assert next_state.phase is LearningPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.last_feedback_type is LearningFeedbackType.NONE
+    assert next_state.hint_level == 3
+
+
+def test_chat_and_priority_results_do_not_enter_recall_loop() -> None:
+    chat_plan = plan_turn(LearningState(), "hello", intent="chat")
+    priority_plan = plan_turn(LearningState(), "what matters most?", intent="priority_request")
+
+    chat_state, _ = apply_turn_result(LearningState(), chat_plan, "hello", [])
+    priority_state, _ = apply_turn_result(
+        LearningState(), priority_plan, "Priority [E1]", ["notes.md#chunk=1"]
+    )
+
+    assert chat_state.last_feedback_type is LearningFeedbackType.NONE
+    assert priority_state.phase is LearningPhase.PRESENTING
+    assert priority_state.last_feedback_type is LearningFeedbackType.NONE
+
+
+def test_practice_boundaries_return_chat_completion_plan() -> None:
+    timed_out = LearningState(
+        time_budget_minutes=10,
+        practice_started_at=datetime.now(UTC) - timedelta(minutes=11),
+    )
+    review_done = LearningState(practice_session_type="review", practice_turns=2)
+    mastered = LearningState(practice_turns=4)
+
+    assert "time budget reached" in plan_turn(timed_out, "next", intent="topic_drill").prompt
+    assert (
+        "due cards completed"
+        in plan_turn(
+            review_done,
+            "next",
+            intent="topic_drill",
+            due_reviews=(),
+            memory_state=MemoryState(),
+        ).prompt
+    )
+    assert (
+        "mastery target reached"
+        in plan_turn(
+            mastered,
+            "next",
+            intent="topic_drill",
+            due_reviews=(),
+            memory_state=MemoryState(),
+        ).prompt
+    )
+
+
+def test_learning_state_round_trips_practice_fields() -> None:
     started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     state = LearningState(
+        last_confidence=0.6,
         session_goal="exam preparation",
         time_budget_minutes=45,
         practice_session_type="exam",
@@ -70,6 +1311,7 @@ def test_learning_state_round_trips_practice_session() -> None:
 
     loaded = LearningState.from_dict(state.to_dict())
 
+    assert loaded.last_confidence == 0.6
     assert loaded.session_goal == "exam preparation"
     assert loaded.time_budget_minutes == 45
     assert loaded.practice_session_type == "exam"
@@ -79,1780 +1321,40 @@ def test_learning_state_round_trips_practice_session() -> None:
     assert loaded.hint_level == 2
 
 
-def test_practice_start_turn_disables_agent_tools() -> None:
-    state = LearningState(
-        session_goal="exam preparation",
-        practice_session_type="exam",
-        practice_started_at=datetime.now(UTC),
+def test_evidence_assessment_and_pedagogy_validation_still_cover_policy_shapes() -> None:
+    source_only = assess_evidence(("notes.md#chunk=1",), source_only=True)
+    move = LearningMove(
+        kind="ask_recall",
+        reason="test",
+        requires_evidence=True,
+        requires_user_commitment=True,
+        difficulty="easy",
+        target_topic="compactness",
+        expected_output_shape="Ask one recall question.",
     )
 
+    invalid = validate_pedagogy("The answer is compactness.", move)
+
+    assert source_only.sufficient is False
+    assert source_only.recommended_action == "give_partial_answer"
+    assert invalid.valid is False
+    assert set(invalid.issues) == {
+        "missing confidence request",
+        "possible answer leakage during recall",
+    }
+
+
+def test_due_reviews_and_memory_state_feed_policy_for_explicit_driven_intent() -> None:
+    due = (ReviewItem(item="card one", concept="compactness"),)
     plan = plan_turn(
-        state,
-        "Start an practice session from my materials using the exam profile. "
-        "Use exam preparation as the session goal.",
-    )
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-
-
-def test_practice_time_budget_returns_completion_reply() -> None:
-    state = LearningState(
-        time_budget_minutes=10,
-        practice_started_at=datetime.now(UTC) - timedelta(minutes=11),
-    )
-
-    plan = plan_turn(state, "next")
-
-    assert plan.action is LearningAction.CHAT
-    assert "time budget reached" in plan.prompt
-
-
-def test_practice_review_stops_when_due_cards_complete() -> None:
-    state = LearningState(
-        practice_session_type="review",
-        practice_turns=2,
-    )
-
-    plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
-
-    assert plan.action is LearningAction.CHAT
-    assert "due cards completed" in plan.prompt
-
-
-def test_practice_stops_when_mastery_target_reached() -> None:
-    state = LearningState(
-        practice_turns=4,
-    )
-
-    plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
-
-    assert plan.action is LearningAction.CHAT
-    assert "mastery target reached" in plan.prompt
-
-
-def test_learning_intent_attaches_policy() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "help me study Bayes theorem")
-    assert plan.learning_move is not None
-    assert plan.learning_move.kind == "ask_recall"
-    assert "Learning policy" in plan.prompt
-    assert "confidence from 0-100%" in plan.prompt
-    assert "Target response shape" in plan.prompt
-    assert "Adapt the shape to the learner's language" in plan.prompt
-
-
-def test_material_explanation_uses_presentation_without_recall_prompt() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Explain Bayes theorem")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "Explain Bayes theorem"
-    assert "same language as the user's request" in plan.prompt
-    assert "Do not offer menus" in plan.prompt
-    assert "Say ready when you want recall" not in plan.prompt
-    assert "signal when they are ready for recall" not in plan.prompt
-
-
-def test_learning_intent_can_start_practice() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "help me study Bayes theorem")
-    assert plan.action is LearningAction.CALIBRATE
-
-
-@pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
-def test_light_chat_goes_to_model_without_tools(message: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CHAT
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute CHAT" in plan.prompt
-    assert "same language as the user's request" in plan.prompt
-    assert "available tools" not in plan.prompt
-
-
-@pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
-def test_armory_harness_light_chat_disables_tools_with_canned_replies(message: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message, allow_direct_chat=False)
-
-    assert plan.action is LearningAction.CHAT
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute CHAT" in plan.prompt
-    assert "available tools" not in plan.prompt
-
-
-def test_recall_clarification_reprompts_without_static_answer() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Define conditional probability.",
-        retrieval_query="conditional probability",
-        expected_source_refs=["source/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "what is the answer?")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert "Current item: Define conditional probability." in plan.prompt
-
-
-def test_learning_recommendations_require_a_reason() -> None:
-    state = LearningState()
-    plan = plan_turn(state, "Explain Bayes theorem")
-    assert plan.learning_move is not None
-
-    validation = validate_pedagogy(
-        "Here is the source-backed answer. Next action: review one similar example.",
-        plan.learning_move,
-    )
-
-    assert validation.valid is True
-
-
-def test_practice_first_turn_drives_a_diagnostic() -> None:
-    state = LearningState(
-        session_goal="exam preparation",
-        practice_session_type="exam",
-    )
-
-    plan = plan_turn(state, "Explain Bayes theorem")
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.retrieval_query == "Explain Bayes theorem"
-    assert plan.learning_move is not None
-    assert plan.learning_move.kind == "ask_recall"
-    assert "Execute PRACTICE_CALIBRATION" in plan.prompt
-    assert "Practice type: exam" in plan.prompt
-    assert "Start directly with the recall task" in plan.prompt
-    assert "do not reveal the answer" in plan.prompt.lower()
-    assert "confidence from 0-100%" in plan.prompt
-
-
-def test_practice_command_bootstrap_uses_corpus_diagnostic() -> None:
-    state = LearningState(
-        session_goal="material review",
-        practice_session_type="general",
-    )
-
-    plan = plan_turn(
-        state,
-        "Start an practice session from my materials using the general profile. "
-        "Use material review as the session goal.",
-    )
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.retrieval_query is None
-    assert "Use the retrieved source material to ask exactly one diagnostic" in plan.prompt
-    assert "Use only the provided source material" in plan.prompt
-    assert "user's language" in plan.prompt
-    assert "Do not hard-code an English closing instruction" in plan.prompt
-    assert "provided canonical source label" in plan.prompt
-
-
-def test_just_answer_omits_learning_policy() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "just answer this from the source")
-    assert "Learning policy" not in plan.prompt
-
-
-def test_evidence_assessment_abstains_for_source_only_without_refs() -> None:
-    assessment = assess_evidence((), source_only=True)
-
-    assert assessment.sufficient is False
-    assert assessment.recommended_action == "abstain"
-    assert assessment.missing_information
-
-
-def test_pedagogy_validation_flags_missing_confidence_for_recall() -> None:
-    state = LearningState()
-    plan = plan_turn(state, "quiz me")
-    assert plan.learning_move is not None
-
-    validation = validate_pedagogy(
-        "Try defining the theorem from memory.",
-        plan.learning_move,
-    )
-
-    assert validation.valid is False
-    assert "missing confidence request" in validation.issues
-
-
-def test_policy_uses_local_intervention_outcomes_for_next_move() -> None:
-    plan = plan_turn(
-        LearningState(),
-        "help me study",
-        memory_state=MemoryState(
-            misconceptions=("Bayes theorem",),
-            successful_interventions=("give_hint",),
-            failed_interventions=("contrastive_question",),
-        ),
+        LearningState(practice_session_type="review"),
+        "practice",
+        intent="driven_learning_calibration",
+        due_reviews=due,
+        memory_state=MemoryState(weak_topics=("limits",)),
     )
 
     assert plan.learning_move is not None
     assert plan.learning_move.kind == "ask_recall"
-    assert plan.learning_move.requires_user_commitment is True
-
-
-def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "what is the material about")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-    assert "Cover the big picture" in plan.prompt
-    assert "Cite evidence IDs like [E1]" in plan.prompt
-    assert "Do not infer from filenames" in plan.prompt
-    assert "Use material tools to inspect indexed sources" not in plan.prompt
-    # The overview prompt is now compact: under 600 chars including header and rules.
-    assert len(plan.prompt) < 600
-
-
-@pytest.mark.parametrize("message", ["Do some math", "any math"])
-def test_vague_math_learning_requests_use_material_overview(message: str) -> None:
-    plan = plan_turn(LearningState(), message)
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-    assert "ask_clarifying_question" not in plan.prompt
-
-
-def test_practice_with_me_remains_drill_intent_in_driven_practice() -> None:
-    plan = plan_turn(
-        LearningState(),
-        "practice math with me",
-    )
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.retrieval_query == "math"
-    assert "Execute MATERIAL_OVERVIEW" not in plan.prompt
-
-
-def test_material_overview_result_does_not_enter_ready_loop() -> None:
-    state = LearningState()
-    plan = plan_turn(state, "what is the material about")
-
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "The material covers graph algorithms and exams [E1].",
-        ["materials/algorithms.md#chunk=0"],
-    )
-
-    assert cleaned == "The material covers graph algorithms and exams [E1]."
-    assert next_state.phase is LearningPhase.PRESENTING
-    assert next_state.current_item == ""
-    assert next_state.retrieval_query == ""
-    assert next_state.expected_source_refs == []
-    assert next_state.last_feedback_type is LearningFeedbackType.NONE
-
-
-def test_non_english_material_overview_is_left_for_model_intent_normalization() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "um was geht es in den dateien")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "um was geht es in den dateien"
-    assert plan.allow_tools is True
-    assert plan.buffer_response is False
-    assert "Execute MATERIAL_OVERVIEW" not in plan.prompt
-
-
-def test_source_worded_material_overview_still_uses_overview_plan() -> None:
-    state = LearningState()
-
-    plan = plan_turn(
-        state,
-        "Using the indexed sources, give a concise grounded overview of the enabled material.",
-    )
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-
-
-def test_first_turn_explain_material_simply_uses_overview() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "explain the material simply")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "User request: explain the material simply" in plan.prompt
-    assert "document types" in plan.prompt
-
-
-def test_read_through_all_files_uses_overview() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Can you read through all the files")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "User request: Can you read through all the files" in plan.prompt
-    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-
-
-def test_read_through_files_interrupts_ready_wait_with_overview() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="what are the materials about",
-        retrieval_query="what are the materials about",
-        expected_source_refs=["materials/a.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "Can you read through all the files")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.buffer_response is True
-    assert plan.allow_tools is False
-    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-
-
-def test_explicit_source_question_answers_without_entering_recall_loop() -> None:
-    state = LearningState()
-
-    plan = plan_turn(
-        state,
-        "Using the source files, what is the QA sentinel phrase? Answer with the exact phrase.",
-    )
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        'The QA sentinel phrase is "amber forge" [E1].',
-        ["materials/rag-target.md#chunk=0"],
-    )
-
-    assert plan.action is LearningAction.SOURCE_QA
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query is not None
-    assert plan.allow_tools is False
-    assert "readiness" not in plan.prompt
-    assert cleaned == 'The QA sentinel phrase is "amber forge" [E1].'
-    assert next_state.phase is LearningPhase.PRESENTING
-    assert next_state.current_item == ""
-    assert next_state.expected_source_refs == []
-
-
-@pytest.mark.parametrize(
-    ("message", "query"),
-    [
-        ("Can you quiz me on Bayes theorem?", "Bayes theorem"),
-        ("Ask me a question about Bayes theorem", "Bayes theorem"),
-        ("Practice Bayes theorem with me", "Bayes theorem"),
-        ("Give me an exam-style question on Bayes theorem.", "Bayes theorem"),
-    ],
-)
-def test_topic_specific_calibration_requests_use_named_topic(message: str, query: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query == query
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute CALIBRATE" in plan.prompt or "Execute PRACTICE_CALIBRATION" in plan.prompt
-    assert "Execute the PRESENT phase" not in plan.prompt
-
-
-def test_topic_specific_exam_question_keeps_answer_hidden() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Give me an exam-style question on Bayes theorem.")
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert "active-recall exam drill" in plan.prompt
-    assert "do not show the result" in plan.prompt
-
-
-def test_model_normalized_topic_drill_prompt_keeps_original_language_signal() -> None:
-    plan = material_topic_drill_plan(
-        "frag mich zu Enzymkinetik ab",
-        retrieval_query="enzyme kinetics",
-    )
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.retrieval_query == "enzyme kinetics"
-    assert "User request (language/topic signal; rules below override it)" in plan.prompt
-    assert "frag mich zu Enzymkinetik ab" in plan.prompt
-    assert "user's language" in plan.prompt
-    assert "answer from memory, or ask for an easier question" in plan.prompt
-    assert "Do not hard-code an English closing instruction" in plan.prompt
-    assert "End with exactly: Answer from memory" not in plan.prompt
-    assert "Use only the provided source material" in plan.prompt
-    assert "Softwaretechnik" not in plan.prompt
-    assert "English/German" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "What do my notes say about Bayes theorem?",
-        "Do the slides mention Lagrange multipliers?",
-        "According to my lecture notes, what is the definition of entropy?",
-        "Based on the PDF, what is the exact formula?",
-        "Can you check my notes for Bayes theorem?",
-        "Find Lagrange multipliers in the slides.",
-        "Summarize my notes on Bayes theorem.",
-        "List the formulas from my lecture notes.",
-        "What page mentions Lagrange multipliers?",
-        "Which slide explains Lagrange multipliers?",
-        "What does the textbook say about Bayes theorem?",
-        "According to the reading, what is entropy?",
-        "Can you check the workbook for Lagrange multipliers?",
-        "Find eigenvalues in the worksheet.",
-        "What does the assignment ask us to prove?",
-        "Summarize the problem set on induction.",
-        "Does the syllabus mention Bayes theorem?",
-        "What does the mark scheme say about partial credit?",
-        "Based on the paper, what is the method?",
-        "Look through the article for the theorem.",
-        "Rely only on the lecture notes for this.",
-        "Stick to the source material.",
-        "What does the source material say about entropy?",
-        "Where did the slides explain Lagrange multipliers?",
-        "What do the course notes say about Bayes theorem?",
-        "According to the class notes, what is entropy?",
-        "Based on the study guide, what is the formula?",
-        "From the course pack, define entropy.",
-        "Using the attached documents, what is the theorem?",
-        "If the attached files do not contain it, do not guess.",
-        "Show me where the slides explain Bayes theorem.",
-        "Which document covers Bayes theorem?",
-        "Which source says entropy is conserved?",
-        "Can you cite the notes for the theorem?",
-        "Point me to the lecture notes that define entropy.",
-        "Base your answer on the textbook only.",
-        "If my notes do not mention it, say so.",
-        "If it is not in the slides, say so.",
-    ],
-)
-def test_material_referential_questions_use_source_qa(message: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.SOURCE_QA
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == message
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute SOURCE_QA" in plan.prompt
-    assert "Say ready when you want recall" not in plan.prompt
-
-
-def test_material_referential_question_interrupts_ready_wait_with_source_qa() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "What do my notes say about Bayes theorem?")
-
-    assert plan.action is LearningAction.SOURCE_QA
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute SOURCE_QA" in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "What does the textbook say about Bayes theorem?",
-        "What does the assignment ask us to prove?",
-        "Look through the article for the theorem.",
-        "Stick to the source material.",
-        "Using the attached documents, what is the theorem?",
-        "If the attached files do not contain it, do not guess.",
-        "Which document covers Bayes theorem?",
-        "Can you cite the notes for the theorem?",
-        "If my notes do not mention it, say so.",
-        "If it is not in the slides, say so.",
-    ],
-)
-def test_academic_source_question_interrupts_ready_wait_with_source_qa(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.SOURCE_QA
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == message
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute SOURCE_QA" in plan.prompt
-    assert "SOURCE_FOLLOWUP" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "do not guess",
-        "please do not guess",
-        "don't guess",
-        "don't hallucinate",
-        "do not use outside knowledge",
-        "no outside knowledge",
-        "don't make it up",
-        "say you don't know",
-    ],
-)
-def test_standalone_source_policy_without_active_item_acknowledges(message: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CHAT
-    assert "source-only preference" in plan.prompt
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "do not guess",
-        "please do not guess",
-        "don't guess",
-        "don't hallucinate",
-        "do not use outside knowledge",
-        "no outside knowledge",
-        "don't make it up",
-        "say you don't know",
-    ],
-)
-def test_standalone_source_policy_does_not_reset_ready_wait(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.REVIEW
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == "conditional probability"
-    assert plan.use_expected_source_refs is True
-    assert "SOURCE_FOLLOWUP" in plan.prompt
-    assert "same language as the user's follow-up" in plan.prompt
-    assert "Execute SOURCE_QA" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Can you quiz me on Bayes theorem?",
-        "Ask me a question about Bayes theorem",
-        "Practice Bayes theorem with me",
-    ],
-)
-def test_topic_specific_drill_interrupts_ready_wait_with_calibration(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query == "Bayes theorem"
-    assert plan.use_expected_source_refs is False
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute CALIBRATE" in plan.prompt
-    assert "SOURCE_FOLLOWUP" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Explain Bayes theorem",
-        "Teach me derivatives",
-        "Can you help me study eigenvalues?",
-        "Can you compare Bayes theorem and conditional probability?",
-        "Compare Bayes theorem with conditional probability",
-        "What are the differences between Bayes theorem and conditional probability?",
-        "Can you give me an example of Bayes theorem?",
-        "Do Bayes theorem",
-        "Let's do Bayes theorem",
-        "Can we do Bayes theorem?",
-        "I want to study Bayes theorem",
-        "I would like to study Bayes theorem",
-        "Work on Bayes theorem with me",
-        "Move to eigenvalues",
-        "Switch to Lagrange multipliers",
-        "Start derivatives",
-        "Next topic: entropy",
-    ],
-)
-def test_new_topic_question_interrupts_ready_wait_with_fresh_presentation(
-    message: str,
-) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == message
-    assert plan.use_expected_source_refs is False
-    assert plan.allow_tools is True
-    assert "Execute the PRESENT phase" in plan.prompt
-    assert "SOURCE_FOLLOWUP" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Explain the question again",
-        "Teach me this again",
-        "Can you compare this with that?",
-        "Can you give me an example of the question?",
-        "Let's do this again",
-    ],
-)
-def test_followup_referents_do_not_start_fresh_topic_in_ready_wait(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.REVIEW
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == "conditional probability"
-    assert plan.use_expected_source_refs is True
-    assert "SOURCE_FOLLOWUP" in plan.prompt
-    assert "same language as the user's follow-up" in plan.prompt
-    assert "Execute the PRESENT phase" not in plan.prompt
-
-
-def test_material_referential_question_interrupts_recall_with_source_qa() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, "What do my notes say about Bayes theorem?")
-
-    assert plan.action is LearningAction.SOURCE_QA
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == "What do my notes say about Bayes theorem?"
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute SOURCE_QA" in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Can you quiz me on Bayes theorem?",
-        "Ask me a question about Bayes theorem",
-        "Practice Bayes theorem with me",
-    ],
-)
-def test_topic_specific_drill_interrupts_recall_with_calibration(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query == "Bayes theorem"
-    assert plan.use_expected_source_refs is False
-    assert plan.allow_tools is False
-    assert plan.buffer_response is True
-    assert "Execute CALIBRATE" in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Explain Bayes theorem",
-        "Can you compare Bayes theorem and conditional probability?",
-        "Compare Bayes theorem with conditional probability",
-        "What are the differences between Bayes theorem and conditional probability?",
-        "Can you give me an example of Bayes theorem?",
-        "Do Bayes theorem",
-        "Let's do Bayes theorem",
-        "Can we do Bayes theorem?",
-        "I want to study Bayes theorem",
-        "I would like to study Bayes theorem",
-        "Work on Bayes theorem with me",
-        "Move to eigenvalues",
-        "Switch to Lagrange multipliers",
-        "Start derivatives",
-        "Next topic: entropy",
-    ],
-)
-def test_new_topic_question_interrupts_recall_with_fresh_presentation(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query == message
-    assert plan.use_expected_source_refs is False
-    assert plan.allow_tools is True
-    assert "Execute the PRESENT phase" in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-
-
-def test_explain_question_again_in_recall_reprompts_without_assessing() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, "Explain the question again")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute RECALL_CLARIFICATION" in plan.prompt
-    assert "Execute the PRESENT phase" not in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-
-
-def test_lets_do_this_again_in_recall_reprompts_without_assessing() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, "Let's do this again")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute RECALL_CLARIFICATION" in plan.prompt
-    assert "Execute the PRESENT phase" not in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "do not guess",
-        "please do not guess",
-        "don't guess",
-        "don't hallucinate",
-        "do not use outside knowledge",
-        "no outside knowledge",
-        "don't make it up",
-        "say you don't know",
-    ],
-)
-def test_standalone_source_policy_in_recall_reprompts_without_assessing(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="define conditional probability",
-        retrieval_query="conditional probability",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute RECALL_CLARIFICATION" in plan.prompt
-    assert "Execute SOURCE_QA" not in plan.prompt
-    assert "Execute ASSESS" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "hey",
-        "hello!",
-        "What can I use this for?",
-        "thanks",
-        "thank you",
-        "what is Heph?",
-    ],
-)
-def test_initial_casual_message_goes_to_prompt_not_static_reply(message: str) -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.CHAT
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute CHAT" in plan.prompt or "Execute HEPH_HELP" in plan.prompt
-
-
-def test_easy_question_starts_calibration() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Can you ask me a really easy question")
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute CALIBRATE" in plan.prompt
-    assert "genuinely easy" in plan.prompt
-    # Calibration must explicitly forbid trivial metadata questions
-    assert "FORBIDDEN" in plan.prompt
-    assert "Titles of documents" in plan.prompt
-    assert "active-recall questions, not passive summaries" in plan.prompt
-    assert "Each question must ask exactly one thing" in plan.prompt
-    assert "trade-offs" in plan.prompt
-    assert "copyright text" in plan.prompt
-    assert "English term and a local-language technical term" in plan.prompt
-    assert "Keep expected answers concise but exam-useful" in plan.prompt
-    assert "filenames, chunk IDs, dates, or instructor metadata" in plan.prompt
-
-
-def test_exam_question_prompt_requires_timing_and_no_solution() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Ask me one random exam-style question from my past exams")
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert plan.buffer_response is True
-    assert "reasonable time limit" in plan.prompt
-    assert "reason their answer from memory" in plan.prompt
-    assert "do not show the result" in plan.prompt
-    assert "answer key" in plan.prompt
-    assert "source IDs" in plan.prompt
-    assert "citations" in plan.prompt
-
-
-def test_priority_request_does_not_start_recall_item() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "Figure out my priorities")
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "Prioritize recurrence relations first [E1].",
-        ["materials/exam.md#chunk=0"],
-    )
-
-    assert plan.action is LearningAction.PRIORITY
-    assert (
-        plan.retrieval_query == "exam priority topics prerequisites past exams materials overview"
-    )
-    assert "User request: Figure out my priorities" in plan.prompt
-    assert "same language as the user's request" in plan.prompt
-    assert cleaned == "Prioritize recurrence relations first [E1]."
-    assert next_state.current_item == ""
-    assert next_state.phase is LearningPhase.PRESENTING
-
-
-def test_calibration_prompt_forbids_metadata_questions() -> None:
-    """Calibration prompt must contain constraints against surface metadata."""
-    state = LearningState()
-    plan = plan_turn(state, "quiz me")
-
-    for forbidden in ("Titles of documents", "Author names", "File names"):
-        assert forbidden in plan.prompt, f"Calibration prompt missing constraint: {forbidden}"
-
-
-def test_calibration_result_starts_recall_from_model_question() -> None:
-    state = LearningState()
-    plan = plan_turn(state, "quiz me")
-
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "What does the source say an index stores?",
-        ["materials/notes.md#chunk=0"],
-    )
-
-    assert cleaned == "What does the source say an index stores?"
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.current_item == "What does the source say an index stores?"
-    assert next_state.expected_source_refs == ["materials/notes.md#chunk=0"]
-    assert next_state.attempt_count == 0
-    assert next_state.last_feedback_type is LearningFeedbackType.CALIBRATING
-
-
-@pytest.mark.parametrize("message", ["show me the answer again", "explain again"])
-def test_waiting_for_ready_refuses_more_reveal(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.REFUSE_REVEAL
-    assert plan.phase is LearningPhase.WAITING_FOR_READY
-    assert plan.allow_tools is False
-
-
-def test_ready_signal_moves_to_recall() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "ready")
-    now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    next_state, cleaned = apply_turn_result(state, plan, "State it from memory.", [], now=now)
-
-    assert cleaned == "State it from memory."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.last_feedback_type is LearningFeedbackType.READY
-    assert next_state.recall_started_at == now
-
-
-def test_non_english_ready_signal_is_not_hard_coded_in_controller() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Definiere bedingte Wahrscheinlichkeit.",
-        retrieval_query="conditional probability",
-    )
-
-    plan = plan_turn(state, "ich bin bereit")
-
-    assert plan.action is LearningAction.REVIEW
-    assert "SOURCE_FOLLOWUP" in plan.prompt
-
-
-def test_recall_prompt_localizes_short_memory_instruction() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Definiere eine Folge mit Definitionsmenge und Folgenglied.",
-        retrieval_query="folge definition",
-    )
-
-    plan = plan_turn(state, "ready")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert "same language as the current item" in plan.prompt
-    assert "Do not hard-code an English recall sentence" in plan.prompt
-
-
-def test_assess_partial_keeps_item_active() -> None:
-    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["source/exam.md#chunk=0"],
-        recall_started_at=started,
-    )
-
-    plan = plan_turn(state, "I forgot the last step")
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "PARTIAL: You omitted the final justification.",
-        ["source/exam.md#chunk=0"],
-        now=started + timedelta(seconds=45),
-    )
-
-    assert cleaned == "PARTIAL: You omitted the final justification."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.current_item == "Q1"
-    assert next_state.attempt_count == 1
-    assert next_state.last_feedback_type is LearningFeedbackType.PARTIAL
-    assert next_state.last_recall_seconds == 45
-    assert next_state.last_recall_rating is RecallRating.HARD
-    assert next_state.recall_started_at == started + timedelta(seconds=45)
-
-
-def test_assess_correct_resets_for_next_item() -> None:
-    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["source/exam.md#chunk=0"],
-        attempt_count=1,
-        recall_started_at=started,
-    )
-
-    plan = plan_turn(state, "It equals 4 because ... Confidence: 80%.")
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "CORRECT: Correct. Move to the next item.",
-        ["source/exam.md#chunk=0"],
-        now=started + timedelta(seconds=18),
-    )
-
-    assert cleaned == "CORRECT: Correct. Move to the next item."
-    assert next_state.phase is LearningPhase.PRESENTING
-    assert next_state.current_item == ""
-    assert next_state.retrieval_query == ""
-    assert next_state.expected_source_refs == []
-    assert next_state.attempt_count == 2
-    assert next_state.last_feedback_type is LearningFeedbackType.CORRECT
-    assert next_state.last_recall_seconds == 18
-    assert next_state.last_recall_rating is RecallRating.EASY
-    assert next_state.last_confidence == 0.8
-    assert next_state.recall_started_at is None
-
-
-def test_slow_correct_recall_is_hard_for_scheduler_signal() -> None:
-    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        recall_started_at=started,
-    )
-
-    plan = plan_turn(state, "Eventually, the answer is 4")
-    next_state, _cleaned = apply_turn_result(
-        state,
-        plan,
-        "CORRECT: Correct. Move to the next item.",
-        [],
-        now=started + timedelta(minutes=3),
-    )
-
-    assert next_state.last_feedback_type is LearningFeedbackType.CORRECT
-    assert next_state.last_recall_seconds == 180
-    assert next_state.last_recall_rating is RecallRating.HARD
-
-
-def test_missing_assessment_prefix_defaults_to_partial() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "attempt")
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "You are missing the setup.",
-        [],
-    )
-
-    assert cleaned == "PARTIAL: You are missing the setup."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.last_feedback_type is LearningFeedbackType.PARTIAL
-    assert next_state.attempt_count == 1
-
-
-def test_structured_assessment_reply_preserves_label_and_sections() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "attempt")
-    _next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "PARTIAL:\n"
-        "Score: 1/2.\n"
-        "Got: You recalled the definition.\n"
-        "Missing: You missed the condition.",
-        [],
-    )
-
-    assert cleaned.startswith("PARTIAL:\nScore: 1/2.")
-    assert "Got: You recalled the definition." in cleaned
-    assert "Missing: You missed the condition." in cleaned
-
-
-def test_skip_without_current_item_requests_next_material_backed_item() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "skip")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "next material-backed learning item"
-
-
-def test_skip_with_current_item_requests_different_material_backed_item() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "skip")
-
-    assert plan.action is LearningAction.PRESENT
-    assert plan.retrieval_query == "different material-backed item from Q1"
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "what now?",
-        "not ready yet",
-        "I'm not ready yet",
-        "give me a minute",
-        "one sec",
-        "one second",
-        "hold on a second",
-        "wait a minute",
-        "later please",
-        "pause",
-    ],
-)
-def test_waiting_for_ready_reminder_keeps_waiting_state(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, message)
-    next_state, cleaned = apply_turn_result(state, plan, "Say ready when you want recall.", [])
-
-    assert plan.action is LearningAction.WAIT_READY_REMINDER
-    assert "SOURCE_FOLLOWUP" not in plan.prompt
-    assert "signal when they are ready for recall" in plan.prompt
-    assert "Do not require a specific English word such as `ready`" in plan.prompt
-    assert "type the literal command `ready`" not in plan.prompt
-    assert "Tell the user to say ready" not in plan.prompt
-    assert cleaned == "Say ready when you want recall."
-    assert next_state.phase is LearningPhase.WAITING_FOR_READY
-    assert next_state.last_feedback_type is LearningFeedbackType.WAITING
-
-
-@pytest.mark.parametrize("followup", ["interesting", "why", "ok why"])
-def test_waiting_for_ready_followups_use_stored_evidence(followup: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="what is the material about",
-        retrieval_query="what is the material about",
-        expected_source_refs=["materials/lecture.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, followup)
-
-    assert plan.action is LearningAction.REVIEW
-    assert plan.phase is LearningPhase.PRESENTING
-    assert plan.use_expected_source_refs is True
-    assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
-    assert "SOURCE_FOLLOWUP" in plan.prompt
-    assert "not as a readiness signal" in plan.prompt
-
-
-def test_im_ready_moves_waiting_state_to_recall() -> None:
-    state = LearningState(
-        phase=LearningPhase.WAITING_FOR_READY,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "im ready")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert "Execute RECALL" in plan.prompt
-
-
-def test_recall_phase_refuses_reveal_requests() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Definiere eine Folge.",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "tell me the full answer")
-    next_state, cleaned = apply_turn_result(state, plan, "No. Attempt recall first.", [])
-
-    assert plan.action is LearningAction.REFUSE_REVEAL
-    assert plan.phase is LearningPhase.RECALL
-    assert "same language as the current item" in plan.prompt
-    assert "Do not hard-code an English refusal" in plan.prompt
-    assert cleaned == "No. Attempt recall first."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.last_feedback_type is LearningFeedbackType.REFUSED
-
-
-def test_recall_clarification_is_not_assessed_as_attempt() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "which answer")
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.learning_move is not None
-    assert plan.learning_move.kind == "ask_clarifying_question"
-    assert "RECALL_CLARIFICATION" in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "user_request",
-    [
-        "ask me again in German",
-        "can you ask that in German again?",
-        "in German please",
-        "again in German please",
-        "again in Spanish please",
-        "¿Puedes preguntarme otra vez en espanol?",
-    ],
-)
-def test_recall_reprompt_language_request_is_not_assessed(user_request: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Explain integration by parts.",
-        retrieval_query="integration by parts",
-        attempt_count=2,
-    )
-
-    plan = plan_turn(state, user_request)
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "Erklaere die Aufgabe noch einmal aus dem Gedaechtnis.",
-        [],
-    )
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert "RECALL_CLARIFICATION" in plan.prompt
-    assert "translate, or use a language" in plan.prompt
-    assert "Do not include answer content, grading, scores" in plan.prompt
-    assert "same language as the user's clarification request" in plan.prompt
-    assert "Do not hard-code an English recall sentence" in plan.prompt
-    assert cleaned == "Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.current_item == "Explain integration by parts."
-    assert next_state.attempt_count == 2
-
-
-@pytest.mark.parametrize(
-    "user_request",
-    [
-        "what can Heph do?",
-        "how do I switch models in Heph?",
-        "what can you do?",
-        "how can you help?",
-    ],
-)
-def test_recall_heph_self_request_is_chat_not_assessment(user_request: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Explain integration by parts.",
-        retrieval_query="integration by parts",
-        attempt_count=2,
-    )
-
-    plan = plan_turn(state, user_request)
-
-    assert plan.action is LearningAction.CHAT
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.retrieval_query is None
-    assert plan.allow_tools is False
-    assert "Execute HEPH_HELP" in plan.prompt
-    assert "same language as the user's request" in plan.prompt
-    assert "Do not treat the user message as a recall attempt" in plan.prompt
-    assert "Do not use armory material" in plan.prompt
-
-
-def test_recall_translate_answer_request_is_refused_not_reprompted() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Explain integration by parts.",
-        retrieval_query="integration by parts",
-    )
-
-    plan = plan_turn(state, "translate the answer into Spanish")
-
-    assert plan.action is LearningAction.REFUSE_REVEAL
-    assert plan.phase is LearningPhase.RECALL
-
-
-def test_recall_attempt_with_language_words_is_still_assessed() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Explain the German terminology in the theorem.",
-        retrieval_query="German terminology",
-    )
-
-    plan = plan_turn(state, "I would write the answer in German as Begriff and Beispiel")
-
-    assert plan.action is LearningAction.ASSESS
-    assert plan.phase is LearningPhase.ASSESS
-
-
-def test_recall_attempt_that_mentions_answer_is_assessed() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "the answer is 4 because I squared 2")
-
-    assert plan.action is LearningAction.ASSESS
-    assert plan.phase is LearningPhase.ASSESS
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Is it 4?",
-        "Maybe 4?",
-        "I think it is 4?",
-        "Could it be entropy?",
-        "Bayes theorem?",
-        "A?",
-        "My answer would be conditional probability?",
-    ],
-)
-def test_recall_tentative_answer_questions_are_assessed(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.ASSESS
-    assert plan.phase is LearningPhase.ASSESS
-    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Which answer?",
-        "What answer do you want?",
-        "What question am I answering?",
-    ],
-)
-def test_recall_answer_clarification_questions_still_reprompt(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, message)
-
-    assert plan.action is LearningAction.PROMPT_RECALL
-    assert plan.phase is LearningPhase.RECALL
-    assert "Execute RECALL_CLARIFICATION" in plan.prompt
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "too hard",
-        "I do not understand",
-        "I don't understand this",
-        "I'm confused",
-        "I need help",
-        "help me please",
-        "I don't understand?",
-        "Can you explain this?",
-        "Why is that true?",
-        "How do I approach this?",
-        "What is the first step?",
-        "Can you walk me through this?",
-        "Break this down please",
-    ],
-)
-def test_recall_phase_help_request_scaffolds_instead_of_assessing(message: str) -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["source/exam.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, message)
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "What is the first definition used in Q1?",
-        ["source/exam.md#chunk=0"],
-    )
-
-    assert plan.action is LearningAction.SIMPLIFY
-    assert plan.use_expected_source_refs is True
-    assert plan.allow_tools is False
-    assert "Execute ASSESS" not in plan.prompt
-    assert "Execute HEPH_HELP" not in plan.prompt
-    assert cleaned == "What is the first definition used in Q1?"
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.current_item == "What is the first definition used in Q1?"
-    assert next_state.attempt_count == 0
-    assert next_state.last_feedback_type is LearningFeedbackType.EASIER
-
-
-def test_practice_not_sure_scaffolds_instead_of_grading() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Define a sequence with domain and nth-term notation.",
-        retrieval_query="sequence definition",
-        expected_source_refs=["materials/notes.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "not sure")
-
-    assert plan.action is LearningAction.SIMPLIFY
-    assert plan.phase is LearningPhase.RECALL
-    assert plan.use_expected_source_refs is True
-    assert "Do not grade the learner" in plan.prompt
-    assert "fill-the-gaps" in plan.prompt
-    assert "confidence from 0-100%" in plan.prompt
-    assert "user's language" in plan.prompt
-    assert "Do not hard-code an English closing instruction" in plan.prompt
-    assert "End with exactly: Fill the gap" not in plan.prompt
-
-
-def test_practice_scaffold_prompt_forbids_metadata_questions() -> None:
-    """Simplify prompt must contain constraints against surface metadata."""
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["source/exam.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "too hard")
-
-    assert "Do not grade the learner" in plan.prompt
-    assert "fill-the-gaps" in plan.prompt
-    assert "retrieved source span" in plan.prompt
-    assert "full answer hidden" in plan.prompt
-    assert "user's language" in plan.prompt
-    assert "End with exactly: Answer from memory" not in plan.prompt
-
-
-def test_calibration_prompt_requires_grounded_questions() -> None:
-    state = LearningState()
-
-    plan = plan_turn(state, "quiz me")
-
-    assert plan.action is LearningAction.CALIBRATE
-    assert "retrieved source span" in plan.prompt
-    assert "past-exam pattern" in plan.prompt
-    assert "never invent unsupported questions" in plan.prompt
-    assert "user's language" in plan.prompt
-    assert "End with exactly: Answer from memory" not in plan.prompt
-
-
-def test_assessment_prompt_requires_source_backed_feedback_shape() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Explain the mechanism.",
-        retrieval_query="Explain the mechanism.",
-        expected_source_refs=["source/exam.md#chunk=0"],
-    )
-
-    plan = plan_turn(state, "It works because the receptor opens.")
-
-    assert plan.action is LearningAction.ASSESS
-    assert "retrieved material only" in plan.prompt
-    assert "source of truth" in plan.prompt
-    assert "Score:" in plan.prompt
-    assert "Missing:" in plan.prompt
-    assert "Misconception:" in plan.prompt
-    assert "Correction:" in plan.prompt
-    assert "Confidence:" in plan.prompt
-    assert "default to PARTIAL:" in plan.prompt
-
-
-def test_recall_phase_can_review_material_when_user_requests_it() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["source/exam.md#chunk=0"],
-        attempt_count=2,
-    )
-
-    plan = plan_turn(state, "review material")
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "Review the setup. Say ready when you want recall.",
-        ["source/exam.md#chunk=0"],
-    )
-
-    assert plan.action is LearningAction.REVIEW
-    assert plan.use_expected_source_refs is True
-    assert "Do not offer menus" in plan.prompt
-    assert "signal when they are ready for recall" not in plan.prompt
-    assert "type the literal command `ready`" not in plan.prompt
-    assert "End with exactly: Say ready when you want recall" not in plan.prompt
-    assert cleaned == "Review the setup. Say ready when you want recall."
-    assert next_state.phase is LearningPhase.WAITING_FOR_READY
-    assert next_state.current_item == "Q1"
-    assert next_state.attempt_count == 0
-    assert next_state.last_feedback_type is LearningFeedbackType.REVIEWING
-
-
-def test_hint_requests_require_a_prior_attempt() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        attempt_count=0,
-    )
-
-    plan = plan_turn(state, "hint please")
-
-    assert plan.action is LearningAction.ASSESS
-    assert plan.use_expected_source_refs is True
-
-
-def test_hint_requests_after_an_attempt_return_hint_plan() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        attempt_count=1,
-    )
-
-    plan = plan_turn(state, "hint please")
-
-    assert plan.action is LearningAction.HINT
-    assert plan.phase is LearningPhase.ASSESS
-    assert plan.retrieval_query == "Q1"
-    assert plan.use_expected_source_refs is True
-    assert plan.allow_tools is False
-
-
-def test_hint_prompt_uses_ladder_level_one_for_first_hint() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        attempt_count=1,
-        hint_level=0,
-    )
-
-    plan = plan_turn(state, "hint please")
-
-    assert plan.action is LearningAction.HINT
-    assert "Hint level: 1" in plan.prompt
-    assert "orienting hint" in plan.prompt
-    assert "Do not reveal later steps" in plan.prompt
-    assert "same language as the current item" in plan.prompt
-    assert "Do not hard-code an English hint" in plan.prompt
-
-
-def test_hint_prompt_uses_ladder_level_four_for_deeper_scaffold() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        attempt_count=1,
-        hint_level=3,
-    )
-
-    plan = plan_turn(state, "hint please")
-
-    assert plan.action is LearningAction.HINT
-    assert "Hint level: 4" in plan.prompt
-    assert "partial worked step" in plan.prompt
-
-
-def test_hint_prompt_level_five_still_hides_direct_answer() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        attempt_count=1,
-        hint_level=4,
-    )
-
-    plan = plan_turn(state, "hint please")
-
-    assert plan.action is LearningAction.HINT
-    assert "Hint level: 5" in plan.prompt
-    assert "strongest scaffold" in plan.prompt
-    assert "do not state the final answer directly" in plan.prompt
-
-
-def test_present_result_without_source_refs_resets_current_item() -> None:
-    state = LearningState()
-    plan = plan_turn(state, "Explain question 1")
-
-    next_state, cleaned = apply_turn_result(state, plan, "No grounded source found.", [])
-
-    assert cleaned == "No grounded source found."
-    assert next_state.phase is LearningPhase.PRESENTING
-    assert next_state.current_item == ""
-    assert next_state.retrieval_query == ""
-    assert next_state.expected_source_refs == []
-    assert next_state.last_feedback_type is LearningFeedbackType.NO_SOURCE
-
-
-def test_practice_no_source_marks_stop_reason() -> None:
-    state = LearningState(practice_started_at=datetime.now(UTC))
-    plan = plan_turn(state, "Explain question 1")
-
-    next_state, _cleaned = apply_turn_result(state, plan, "No grounded source found.", [])
-
-    assert next_state.practice_stop_reason == "evidence is insufficient"
-
-
-def test_hint_result_updates_expected_source_refs_when_present() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        expected_source_refs=["old-ref"],
-        attempt_count=1,
-    )
-    plan = plan_turn(state, "need a hint")
-
-    next_state, cleaned = apply_turn_result(
-        state,
-        plan,
-        "Start with the first substitution.",
-        ["source/exam.md#chunk=1"],
-    )
-
-    assert cleaned == "Start with the first substitution."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.expected_source_refs == ["source/exam.md#chunk=1"]
-    assert next_state.last_feedback_type is LearningFeedbackType.HINT
-    assert next_state.hint_level == 1
-
-
-def test_hint_level_resets_after_correct_assessment() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        hint_level=2,
-        recall_started_at=datetime(2026, 5, 9, 12, 0, tzinfo=UTC),
-    )
-    plan = plan_turn(state, "answer confidence 80%")
-
-    next_state, _cleaned = apply_turn_result(
-        state,
-        plan,
-        "CORRECT: Good.",
-        ["source/exam.md#chunk=1"],
-        now=datetime(2026, 5, 9, 12, 0, 20, tzinfo=UTC),
-    )
-
-    assert next_state.hint_level == 0
-    assert next_state.last_recall_rating is RecallRating.EASY
-
-
-def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-    )
-
-    plan = plan_turn(state, "attempt")
-    next_state, cleaned = apply_turn_result(state, plan, "WRONG:", [])
-
-    assert cleaned == "WRONG: I could not parse the assessment output as WRONG."
-    assert next_state.phase is LearningPhase.RECALL
-    assert next_state.last_feedback_type is LearningFeedbackType.WRONG
-    assert next_state.attempt_count == 1
-
-
-def test_practice_wrong_after_many_hints_marks_frustration_stop_reason() -> None:
-    state = LearningState(
-        phase=LearningPhase.RECALL,
-        current_item="Q1",
-        retrieval_query="Q1",
-        hint_level=4,
-        practice_started_at=datetime.now(UTC),
-    )
-    plan = plan_turn(state, "attempt")
-
-    next_state, _cleaned = apply_turn_result(
-        state,
-        plan,
-        "WRONG: Start over from first principles.",
-        ["source/exam.md#chunk=0"],
-    )
-
-    assert next_state.practice_stop_reason == "learner fatigue or frustration detected"
+    assert plan.learning_move.target_topic is None
+    assert "Ask one recall task" in plan.prompt
