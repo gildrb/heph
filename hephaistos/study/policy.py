@@ -102,6 +102,7 @@ class LearningPolicyInput:
     due_reviews: tuple[ReviewItem, ...]
     recent_turns: tuple[TurnSummary, ...]
     material_status: MaterialStatus
+    intent: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,20 +170,10 @@ class PolicyOutcome:
         )
 
 
-_JUST_ANSWER_RE = re.compile(r"\b(?:just|only)\s+answer\b|\bno\s+(?:quiz|tutor|drill)\b")
-_DRIVEN_LEARNING_RE = re.compile(
-    r"\b(?:practice|prepare me|exam prep|cram|study plan|drive the session|"
-    r"help me study|study with me|quiz me|test me)\b",
-    re.IGNORECASE,
+_DRIVEN_LEARNING_INTENTS = frozenset(
+    {"driven_learning_calibration", "topic_drill", "priority_request"}
 )
-_STUDY_RE = re.compile(
-    r"\b(?:help me study|study with me|quiz me|test me|what should i study)\b",
-    re.IGNORECASE,
-)
-_RATIONALE_RE = re.compile(
-    r"\b(?:because|reason|helps?|beneficial|benefit|so that|so you|useful)\b",
-    re.IGNORECASE,
-)
+_STUDY_INTENTS = frozenset({"driven_learning_calibration", "topic_drill"})
 _SESSION_TYPE_CUES = (
     ("exam", PracticeSessionType.EXAM),
     ("weak", PracticeSessionType.WEAK_TOPICS),
@@ -217,13 +208,13 @@ _CONFIDENCE_VALUE_DIVISORS: tuple[tuple[float, float], ...] = (
 
 class LearningPolicy:
     def next_turn(self, input_data: LearningPolicyInput) -> LearningMove:
-        if _DRIVEN_LEARNING_RE.search(input_data.user_message.casefold()):
+        if input_data.intent in _DRIVEN_LEARNING_INTENTS:
             return _driven_learning_move(input_data)
         return _material_learning_move(input_data)
 
 
-def is_driven_learning_intent(user_message: str) -> bool:
-    return bool(_DRIVEN_LEARNING_RE.search(user_message.casefold()))
+def is_driven_learning_intent(intent: str) -> bool:
+    return intent in _DRIVEN_LEARNING_INTENTS
 
 
 def assess_evidence(
@@ -368,6 +359,7 @@ def move_for_plan(
     state: LearningState,
     user_message: str,
     *,
+    intent: str = "",
     evidence_refs: tuple[str, ...] = (),
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
@@ -381,6 +373,7 @@ def move_for_plan(
         due_reviews=due_reviews,
         recent_turns=(),
         material_status=_material_status_from_refs(evidence_refs),
+        intent=intent,
     )
     move = _move_from_action(plan_action, input_data)
     if move is not None:
@@ -575,7 +568,7 @@ def _stored_memory_move(input_data: LearningPolicyInput) -> LearningMove | None:
             difficulty="medium",
             expected_output_shape="Ask a contrastive question before giving another summary.",
         )
-    if memory_state.weak_topics and _STUDY_RE.search(input_data.user_message):
+    if memory_state.weak_topics and input_data.intent in _STUDY_INTENTS:
         return _learning_move(
             "ask_recall",
             "stored learner state points to a weak topic",
@@ -592,7 +585,7 @@ def _material_learning_move(input_data: LearningPolicyInput) -> LearningMove:
         _active_recall_move(input_data.learning_state),
         _stored_memory_move(input_data),
         _missing_index_move(input_data.material_status),
-        _explicit_study_move(input_data.user_message),
+        _explicit_study_move(input_data.intent),
     ):
         if maybe_move is not None:
             return maybe_move
@@ -618,8 +611,8 @@ def _missing_index_move(material_status: MaterialStatus) -> LearningMove | None:
     )
 
 
-def _explicit_study_move(user_message: str) -> LearningMove | None:
-    if not _STUDY_RE.search(user_message):
+def _explicit_study_move(intent: str) -> LearningMove | None:
+    if intent not in _STUDY_INTENTS:
         return None
     return _learning_move(
         "ask_recall",
@@ -814,9 +807,9 @@ def _active_recall_action_move(_input_data: LearningPolicyInput) -> LearningMove
 
 
 def _present_action_move(input_data: LearningPolicyInput) -> LearningMove:
-    if is_driven_learning_intent(input_data.user_message):
+    if is_driven_learning_intent(input_data.intent):
         return _driven_learning_move(input_data)
-    if _JUST_ANSWER_RE.search(input_data.user_message.casefold()):
+    if input_data.intent == "chat":
         return _direct_answer_move(input_data)
     return _material_learning_move(input_data)
 

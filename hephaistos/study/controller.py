@@ -8,20 +8,11 @@ from datetime import UTC, datetime, timedelta
 
 from hephaistos.logging import get_logger
 from hephaistos.product.context import heph_product_context
-from hephaistos.study.intent import (
-    is_material_source_request,
-    is_new_material_topic_request,
-    is_source_only_policy,
-    is_standalone_source_only_policy,
-    material_drill_query,
-)
-from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.policy import (
     LearningMove,
     MemoryState,
     ReviewItem,
     append_policy_prompt,
-    is_driven_learning_intent,
     move_for_plan,
     normalize_confidence_value,
 )
@@ -68,175 +59,6 @@ _NO_UNSOLICITED_LEARNING_MENU_RULE = (
 )
 _PRIORITY_RETRIEVAL_QUERY = "exam priority topics prerequisites past exams materials overview"
 
-_READY_RE = re.compile(
-    r"^(?:"
-    r"ready|go|go ahead|start|yes|y|ok|okay|"
-    r"i\s*(?:am|'m|m)?\s+ready|"
-    r"lets go|let's go"
-    r")(?:[.!?]|\s+now)?$",
-    re.IGNORECASE,
-)
-_WAITING_PROCEDURE_RE = re.compile(
-    r"^(?:"
-    r"what now|now what|what next|next step|what should i do|what do i do next|"
-    r"not ready(?: yet)?|not yet|wait|wait for now|wait a minute|"
-    r"later(?: please)?|hold on(?: a (?:sec|second|minute))?|"
-    r"give me a minute|one sec(?:ond)?|pause|"
-    r"i\s*(?:am|'m|m)?\s+not\s+ready(?: yet)?|"
-    r"no"
-    r")[.!?]?$",
-    re.IGNORECASE,
-)
-_RECALL_CLARIFICATION_RE = re.compile(
-    r"\b(?:"
-    r"which (?:answer|question|one)|"
-    r"explain (?:the )?(?:question|prompt)(?: again)?|"
-    r"what (?:answer|question|do you want|should i answer|am i answering)|"
-    r"answer what|"
-    r"(?:do not|don'?t) guess|"
-    r"let'?s do (?:this|that|it)(?: again)?|"
-    r"repeat (?:the )?(?:question|prompt)|"
-    r"say (?:the )?(?:question|prompt) again"
-    r")\b",
-    re.IGNORECASE,
-)
-_RECALL_REPROMPT_RE = re.compile(
-    r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
-    r"(?:ask|repeat|restate|rephrase|say|read|write|translate)\b"
-    r"(?=[^.!?]*(?:again|once more|one more time|question|prompt|item|task|exercise|"
-    r"in\s+[\w-]+|language))",
-    re.IGNORECASE,
-)
-_RECALL_SHORT_REPROMPT_RE = re.compile(
-    r"^(?:again|once more|one more time)"
-    r"(?:\s+in\s+[\w-]+)?"
-    r"(?:\s+please)?[.!?]?$",
-    re.IGNORECASE,
-)
-_RECALL_LANGUAGE_ONLY_RE = re.compile(
-    r"^in\s+[\w-]+"
-    r"(?:\s+please)?[.!?]?$",
-    re.IGNORECASE,
-)
-_RECALL_QUESTION_PUNCT_RE = re.compile(r"[?\u00bf\u061f\uff1f]")
-_RECALL_ANSWER_CLAIM_RE = re.compile(
-    r"\b(?:the\s+)?answer\s+(?:is|=)|\bconfidence\b|(?<!\w)[A-D][.)]\s+\w+",
-    re.IGNORECASE,
-)
-_RECALL_TENTATIVE_ANSWER_RE = re.compile(
-    r"^\s*(?:"
-    r"(?:is|are|was|were)\s+(?:it|this|that|the\s+answer)\s+\S.+|"
-    r"(?:could|would|should|can)\s+(?:it|this|that|the\s+answer)\s+be\s+\S.+|"
-    r"(?:maybe|perhaps|probably)\s+\S.+|"
-    r"i\s+(?:think|guess|believe|would\s+say|suspect)\s+\S.+|"
-    r"my\s+answer\s+(?:is|would\s+be)\s+\S.+"
-    r")\s*[.?!]?\s*$",
-    re.IGNORECASE,
-)
-_RECALL_SHORT_ANSWER_RE = re.compile(
-    r"^\s*(?!(?:why|what|which|who|where|when|how|again|yes|no)\b)"
-    r"(?:[A-D][.)]?|[\wÀ-ÖØ-öø-ÿ][\wÀ-ÖØ-öø-ÿ0-9_+*/=.,:;'\s-]{1,80})\?\s*$",
-    re.IGNORECASE,
-)
-_HEPH_SELF_RE = re.compile(
-    r"\b(?:"
-    r"heph|hephaistos|this\s+(?:tool|app|cli)|yourself|your\s+commands?|"
-    r"armory|armories|model\s+picker|"
-    r"login|privacy|diagnostics|settings"
-    r")\b",
-    re.IGNORECASE,
-)
-_HEPH_PRONOUN_SELF_REQUEST_RE = re.compile(
-    r"\b(?:"
-    r"what\s+is\s+(?:heph|hephaistos|this\s+(?:tool|app|cli))|"
-    r"what\s+can\s+you\s+do|"
-    r"what\s+do\s+you\s+do|"
-    r"who\s+are\s+you|"
-    r"how\s+do\s+you\s+work|"
-    r"how\s+can\s+you\s+help(?:\s+me)?|"
-    r"how\s+(?:do|can|should)\s+(?:i|we)\s+(?:use|work\s+with)\s+you|"
-    r"what\s+commands?\s+(?:can\s+i\s+use|do\s+you\s+have)|"
-    r"show\s+me\s+your\s+commands?"
-    r")\b",
-    re.IGNORECASE,
-)
-_HEPH_SELF_INTENT_RE = re.compile(
-    r"\b(?:"
-    r"what\s+can|what\s+do|who\s+are|how\s+(?:do|can|should)|help|commands?|"
-    r"use|work|switch|change|configure|set\s+up|turn\s+(?:on|off)|explain"
-    r")\b",
-    re.IGNORECASE,
-)
-_INITIAL_CALIBRATION_RE = re.compile(
-    r"^(?:"
-    r"start|begin|"
-    r"study|study with me|let'?s study|"
-    r"quiz me|test me|ask me .*question.*|ask me something|"
-    r"what should i study(?: next)?|what do i study(?: next)?"
-    r")\??$",
-    re.IGNORECASE,
-)
-_GREETING_RE = re.compile(r"^(?:hi|hey|hello|yo|sup)\.?!?$", re.IGNORECASE)
-_THANKS_RE = re.compile(r"^(?:thanks|thank you|thx)\.?!?$", re.IGNORECASE)
-_PRODUCT_HELP_RE = re.compile(
-    r"\b(?:"
-    r"what can i use (?:this|hephaistos) for|"
-    r"what can you do|"
-    r"how can you help|"
-    r"what do you do"
-    r")\b",
-    re.IGNORECASE,
-)
-_EXAM_DRILL_RE = re.compile(r"\b(?:exam|past exam|past paper|exam-style|timed)\b", re.IGNORECASE)
-_SKIP_RE = re.compile(
-    r"\b(?:skip|pass|next|move on|different question|another question|new question)\b",
-    re.IGNORECASE,
-)
-_REVEAL_RE = re.compile(
-    r"\b(?:"
-    r"show (?:me )?(?:the )?(?:full )?(?:answer|solution)|"
-    r"tell me (?:the )?(?:full )?(?:answer|solution)|"
-    r"give me (?:the )?(?:full )?(?:answer|solution)|"
-    r"translate (?:the )?(?:answer|solution)|"
-    r"reveal(?: the)?(?: answer| solution)?|"
-    r"explain again|full answer|full solution"
-    r")\b",
-    re.IGNORECASE,
-)
-_SHORT_REVEAL_RE = re.compile(r"^(?:answer|solution)\s*(?:please|\?)?$", re.IGNORECASE)
-_HINT_RE = re.compile(r"\b(?:hint|nudge|clue)\b", re.IGNORECASE)
-_TOO_HARD_RE = re.compile(
-    r"\b(?:too hard|too difficult|easier|simpler|not sure|unsure|not prepared|"
-    r"i don'?t know|dunno|no idea|lost|stuck|can'?t answer|cannot answer|"
-    r"i (?:do not|don'?t|cannot|can'?t) understand|i don'?t get (?:it|this)|"
-    r"i(?: am|'m)? confused|confused|need help|help me)\b",
-    re.IGNORECASE,
-)
-_RECALL_SCAFFOLD_RE = re.compile(
-    r"\b(?:"
-    r"(?:can|could|would)\s+you\s+(?:please\s+)?"
-    r"(?:explain|walk\s+me\s+through|show\s+me\s+how\s+to\s+"
-    r"(?:start|approach|think)|help\s+me\s+(?:start|approach|understand)|"
-    r"break\s+(?:this|that|it)\s+down)|"
-    r"(?:explain|walk\s+me\s+through)\s+(?:this|that|it|the\s+"
-    r"(?:problem|item|exercise|concept))|"
-    r"break\s+(?:this|that|it)\s+down|"
-    r"break\s+down\s+(?:this|that|it|the\s+(?:problem|item|exercise|concept))|"
-    r"why\s+(?:is|are|does|do|did)\s+(?:this|that|it|the\s+.{1,80})|"
-    r"how\s+(?:do|should|can)\s+i\s+"
-    r"(?:start|begin|approach|think\s+about|solve|work\s+through|answer)|"
-    r"where\s+(?:do|should|can)\s+i\s+start|"
-    r"what(?:'s|\s+is)\s+the\s+first\s+step|"
-    r"show\s+me\s+how\s+to\s+start|"
-    r"give\s+me\s+(?:a\s+)?(?:scaffold|starting\s+point)"
-    r")\b",
-    re.IGNORECASE,
-)
-_REVIEW_MATERIAL_RE = re.compile(
-    r"\b(?:review|look at (?:the )?material|study (?:the )?material|"
-    r"show (?:me )?(?:the )?material|teach me|walk me through)\b",
-    re.IGNORECASE,
-)
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 _ASSESS_SECTION_RE = re.compile(
     r"^(?:Score|Got|Missing|Misconception|Correction|Try again|Confidence):",
@@ -309,124 +131,6 @@ def _turn_plan(
 
 def _normalize(text: str) -> str:
     return " ".join(text.strip().split())
-
-
-def _derive_presentation_query(user_input: str, state: LearningState) -> str:
-    cleaned = _normalize(user_input)
-    if cleaned and not _SKIP_RE.fullmatch(cleaned.lower()):
-        return cleaned
-    if state.current_item:
-        return f"different material-backed item from {state.current_item}"
-    return "next material-backed learning item"
-
-
-def _needs_initial_calibration(user_input: str) -> bool:
-    text = _normalize(user_input)
-    return (
-        material_drill_query(text) is not None
-        or bool(_INITIAL_CALIBRATION_RE.fullmatch(text))
-        or bool(
-            re.fullmatch(
-                r"(?:can|could|would) you ask me .*question.*\??",
-                text,
-                re.IGNORECASE,
-            )
-        )
-    )
-
-
-def _is_simple_greeting(user_input: str) -> bool:
-    return bool(_GREETING_RE.fullmatch(_normalize(user_input)))
-
-
-def _is_light_chat_request(user_input: str) -> bool:
-    text = _normalize(user_input)
-    return bool(
-        _GREETING_RE.fullmatch(text) or _THANKS_RE.fullmatch(text) or _PRODUCT_HELP_RE.search(text)
-    )
-
-
-def _is_overview_request(text: str) -> bool:
-    return bool(OVERVIEW_REQUEST_RE.search(_normalize(text)))
-
-
-def _is_reveal_request(text: str) -> bool:
-    return bool(_REVEAL_RE.search(text) or _SHORT_REVEAL_RE.fullmatch(text))
-
-
-def _is_recall_clarification_request(text: str) -> bool:
-    normalized = _normalize(text)
-    return any(_recall_clarification_checks(normalized))
-
-
-def _recall_clarification_checks(text: str) -> tuple[bool, ...]:
-    return (
-        is_source_only_policy(text),
-        _RECALL_CLARIFICATION_RE.search(text) is not None,
-        _RECALL_REPROMPT_RE.search(text) is not None,
-        _RECALL_SHORT_REPROMPT_RE.fullmatch(text) is not None,
-        _RECALL_LANGUAGE_ONLY_RE.fullmatch(text) is not None,
-        _is_recall_question_clarification(text),
-    )
-
-
-def _is_recall_question_clarification(text: str) -> bool:
-    return _RECALL_QUESTION_PUNCT_RE.search(text) is not None and not _looks_like_recall_answer(
-        text
-    )
-
-
-def _looks_like_recall_answer(text: str) -> bool:
-    return bool(
-        _RECALL_ANSWER_CLAIM_RE.search(text)
-        or _RECALL_TENTATIVE_ANSWER_RE.fullmatch(text)
-        or _RECALL_SHORT_ANSWER_RE.fullmatch(text)
-    )
-
-
-def _is_heph_self_request(text: str) -> bool:
-    normalized = _normalize(text)
-    return bool(
-        _HEPH_PRONOUN_SELF_REQUEST_RE.search(normalized)
-        or (_HEPH_SELF_RE.search(normalized) and _HEPH_SELF_INTENT_RE.search(normalized))
-    )
-
-
-def _is_recall_scaffold_request(text: str) -> bool:
-    normalized = _normalize(text)
-    if (
-        _RECALL_CLARIFICATION_RE.search(normalized)
-        or _RECALL_REPROMPT_RE.search(normalized)
-        or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
-        or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
-    ):
-        return False
-    return bool(_RECALL_SCAFFOLD_RE.search(normalized))
-
-
-def _material_request_plan(
-    state: LearningState,
-    user_input: str,
-    *,
-    phase: LearningPhase = LearningPhase.PRESENTING,
-) -> LearningTurnPlan | None:
-    text = _normalize(user_input)
-    if "priorit" in text.lower():
-        return _priority_plan(user_input, phase=phase)
-    if drill_query := material_drill_query(user_input):
-        return material_topic_drill_plan(user_input, retrieval_query=drill_query)
-    query = _derive_presentation_query(user_input, state)
-    return _material_query_plan(query)
-
-
-def _material_query_plan(query: str) -> LearningTurnPlan | None:
-    if _is_overview_request(query):
-        return material_overview_plan(query)
-    if is_material_source_request(query):
-        return material_source_qa_plan(query, retrieval_query=query)
-    if is_new_material_topic_request(query):
-        return material_topic_presentation_plan(query, retrieval_query=query)
-    return None
 
 
 def _prompt_frame(execute_line: str, *context_lines: str, rules: tuple[str, ...]) -> str:
@@ -517,40 +221,6 @@ def _chat_prompt_plan(prompt: str, *, phase: LearningPhase) -> LearningTurnPlan:
     return _turn_plan(LearningAction.CHAT, prompt, phase=phase)
 
 
-def _chat_or_product_help_plan(
-    user_input: str,
-    text: str,
-    *,
-    phase: LearningPhase,
-    allow_light_chat: bool,
-    skip_simple_greeting: bool = False,
-    normalize_light_prompt: bool = False,
-) -> LearningTurnPlan | None:
-    if _is_heph_self_request(text):
-        return _chat_prompt_plan(_heph_self_prompt(text), phase=phase)
-    if not _should_route_light_chat(
-        user_input,
-        text,
-        allow_light_chat=allow_light_chat,
-        skip_simple_greeting=skip_simple_greeting,
-    ):
-        return None
-    prompt_text = text if normalize_light_prompt else user_input
-    return _chat_prompt_plan(_plain_chat_prompt(prompt_text), phase=phase)
-
-
-def _should_route_light_chat(
-    user_input: str,
-    text: str,
-    *,
-    allow_light_chat: bool,
-    skip_simple_greeting: bool,
-) -> bool:
-    if not allow_light_chat or (skip_simple_greeting and _is_simple_greeting(user_input)):
-        return False
-    return _is_light_chat_request(user_input) or is_standalone_source_only_policy(text)
-
-
 def _prompt_recall_plan(item: str) -> LearningTurnPlan:
     return _turn_plan(
         LearningAction.PROMPT_RECALL,
@@ -575,13 +245,6 @@ def _material_review_plan(
         retrieval_query=retrieval_query,
         use_expected_source_refs=True,
     )
-
-
-def _present_query_plan(state: LearningState, user_input: str) -> LearningTurnPlan:
-    query = _derive_presentation_query(user_input, state)
-    if _is_overview_request(query):
-        return material_overview_plan(query)
-    return material_topic_presentation_plan(query, retrieval_query=query)
 
 
 def _present_prompt(item: str, *, user_request: str | None = None) -> str:
@@ -612,26 +275,9 @@ def _overview_prompt(query: str) -> str:
         f"User request: {query}",
         rules=(
             _SAME_LANGUAGE_REQUEST_RULE,
-            "- Use this exact shape: one short cited overview paragraph, then 2-5 concise "
-            "cited bullets.",
-            "- Start each bullet with '- '; do not use Markdown tables, columns, or "
-            "pipe-separated layouts.",
-            "- Give the big picture first: domain, document types, major topic clusters, "
-            "and how the topics relate.",
-            "- Use only cited retrieved evidence. Do not infer from filenames, dates, "
-            "semester labels, lecturers, institutions, language, or outside knowledge.",
-            "- Decide what is substantive material semantically from the excerpt context; "
-            "do not rely on fixed keyword lists for boilerplate or logistics.",
-            "- Avoid course administration metadata and do not explain retrieval sampling "
-            "mechanics.",
-            "- Synthesize in your own words. Do not paste long source excerpts; quote only "
-            "short exact wording when useful.",
-            "- Use at least two concise cited bullets when evidence supports them, and cite "
-            "evidence IDs for every factual claim.",
-            "- If evidence is thin, state only the supported subject and document roles; "
-            "do not add a generic sampling or completeness disclaimer.",
-            "- Do not end with readiness, drill, next-step, evidence-grounding-block, "
-            "sample-scope, non-exhaustive list, or completeness caveats.",
+            "- Cover the big picture: domain, document types, and major topics in your own words.",
+            "- Cite evidence IDs like [E1] for every factual claim; cite multiple sources.",
+            "- Do not infer from filenames, lecturers, institutions, or outside knowledge.",
         ),
     )
 
@@ -667,9 +313,10 @@ def material_topic_drill_plan(
     user_request: str,
     *,
     retrieval_query: str,
+    exam_style: bool = False,
 ) -> LearningTurnPlan:
     prompt = _calibration_prompt(user_request=user_request)
-    if _EXAM_DRILL_RE.search(_normalize(user_request)):
+    if exam_style:
         prompt = (
             f"{prompt}\n"
             "- This is an active-recall exam drill: do not show the result, answer key, "
@@ -718,7 +365,20 @@ def plain_chat_plan(
 ) -> LearningTurnPlan:
     return _turn_plan(
         LearningAction.CHAT,
-        _plain_chat_prompt(_normalize(user_request), terminal_context=True),
+        _plain_chat_prompt(_normalize(user_request)),
+        phase=phase,
+    )
+
+
+def heph_help_plan(
+    user_request: str,
+    *,
+    phase: LearningPhase = LearningPhase.PRESENTING,
+) -> LearningTurnPlan:
+    """Plan a chat turn answering a question about Heph itself, grounded in product docs."""
+    return _turn_plan(
+        LearningAction.CHAT,
+        _heph_self_prompt(_normalize(user_request)),
         phase=phase,
     )
 
@@ -742,38 +402,20 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
     )
 
 
-def _plain_chat_prompt(query: str, *, terminal_context: bool = False) -> str:
-    rules = [
+def _plain_chat_prompt(query: str) -> str:
+    rules = (
         _SAME_LANGUAGE_USER_RULE,
+        "- Behave like a plain terminal assistant with access to the current "
+        "armory's memory and materials.\n",
+        "- Use retrieved armory evidence when it is relevant, and cite evidence IDs for "
+        "claims based on the armory.\n",
+        "- You may supplement with general knowledge when the user is not asking for a "
+        "source-only or armory-only answer; clearly separate general knowledge from "
+        "armory-backed claims.\n",
         "- Do not quiz unless the user explicitly asks.\n",
         _NO_UNSOLICITED_LEARNING_MENU_RULE + "\n",
-    ]
-    if terminal_context:
-        rules[1:1] = [
-            "- Behave like a plain terminal assistant with access to the current "
-            "armory's memory and materials.\n",
-            "- Use retrieved armory evidence when it is relevant, and cite evidence IDs for "
-            "claims based on the armory.\n",
-            "- You may supplement with general knowledge when the user is not asking for a "
-            "source-only or armory-only answer; clearly separate general knowledge from "
-            "armory-backed claims.\n",
-        ]
-    else:
-        if is_standalone_source_only_policy(query):
-            rules.append(
-                "- Treat this as a source-only preference: acknowledge briefly, then use "
-                "enabled material only and say when sources are insufficient.\n"
-            )
-        rules.extend(
-            (
-                "- Reply directly as a plain terminal assistant.\n",
-                "- Keep it short. Do not use armory retrieval or citations unless the user "
-                "asks about their materials.\n",
-                "- For questions about Heph itself, answer from current Heph documentation "
-                "context when provided by the system prompt or turn prompt.",
-            )
-        )
-    return _prompt_frame("Execute CHAT.", f"User request: {query}", rules=tuple(rules))
+    )
+    return _prompt_frame("Execute CHAT.", f"User request: {query}", rules=rules)
 
 
 def _heph_self_prompt(query: str) -> str:
@@ -1027,9 +669,9 @@ def plan_turn(
     state: LearningState,
     user_input: str,
     *,
+    intent: str = "",
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
-    allow_direct_chat: bool = True,
 ) -> LearningTurnPlan:
     effective_memory = memory_state if memory_state is not None else MemoryState()
     bounded_plan = _practice_stop_plan(
@@ -1039,11 +681,12 @@ def plan_turn(
     )
     if bounded_plan is not None:
         return bounded_plan
-    plan = _plan_turn_from_intent(state, user_input, allow_direct_chat=allow_direct_chat)
+    plan = _plan_for_intent(state, user_input, intent)
     return _with_learning_policy(
         plan,
         state,
         user_input,
+        intent=intent,
         due_reviews=due_reviews,
         memory_state=effective_memory,
     )
@@ -1054,6 +697,7 @@ def _with_learning_policy(
     state: LearningState,
     user_input: str,
     *,
+    intent: str,
     due_reviews: tuple[ReviewItem, ...],
     memory_state: MemoryState,
 ) -> LearningTurnPlan:
@@ -1061,6 +705,7 @@ def _with_learning_policy(
         plan.action,
         state,
         user_input,
+        intent=intent,
         due_reviews=due_reviews,
         memory_state=memory_state,
     )
@@ -1085,23 +730,139 @@ def _with_learning_policy(
 
 
 def _is_material_overview_plan(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and (
-        "Execute MATERIAL_OVERVIEW" in plan.prompt
-        or (plan.retrieval_query is not None and _is_overview_request(plan.retrieval_query))
+    return plan.action is LearningAction.PRESENT and "Execute MATERIAL_OVERVIEW" in plan.prompt
+
+
+def _plan_for_intent(
+    state: LearningState,
+    user_input: str,
+    intent: str,
+) -> LearningTurnPlan:
+    if state.current_item:
+        recall_plan = _plan_recall_loop_intent(state, user_input, intent)
+        if recall_plan is not None:
+            return recall_plan
+    return _plan_open_intent(state, user_input, intent)
+
+
+def _plan_recall_loop_intent(
+    state: LearningState,
+    user_input: str,
+    intent: str,
+) -> LearningTurnPlan | None:
+    item = state.current_item
+    phase = state.phase
+    source_query = state.retrieval_query or item
+    if phase is LearningPhase.WAITING_FOR_READY:
+        return _plan_waiting_intent(state, user_input, intent, source_query)
+    if phase is LearningPhase.RECALL:
+        return _plan_recall_phase_intent(state, user_input, intent, source_query)
+    return None
+
+
+def _plan_waiting_intent(
+    state: LearningState,
+    user_input: str,
+    intent: str,
+    source_query: str,
+) -> LearningTurnPlan:
+    item = state.current_item
+    if intent == "ready_for_recall":
+        return _prompt_recall_plan(item)
+    if intent == "reveal_request":
+        return _refuse_reveal_plan(item, phase=LearningPhase.WAITING_FOR_READY)
+    if intent == "skip_request":
+        return material_overview_plan(user_input or f"different material-backed item from {item}")
+    if intent == "wait":
+        return _turn_plan(
+            LearningAction.WAIT_READY_REMINDER,
+            _waiting_prompt(),
+            phase=LearningPhase.WAITING_FOR_READY,
+        )
+    if intent in {"material_overview", "source_qa", "topic_presentation", "topic_drill"}:
+        return _open_material_plan_for_intent(user_input, intent)
+    if intent == "priority_request":
+        return _priority_plan(user_input, phase=state.phase)
+    if intent == "heph_help":
+        return heph_help_plan(user_input, phase=state.phase)
+    if intent == "chat":
+        return plain_chat_plan(user_input, phase=state.phase)
+    return _material_review_plan(
+        prompt=_source_followup_prompt(item, user_input),
+        retrieval_query=source_query,
     )
 
 
-def _plan_turn_from_intent(
+def _plan_recall_phase_intent(
     state: LearningState,
     user_input: str,
-    *,
-    allow_direct_chat: bool,
+    intent: str,
+    source_query: str,
 ) -> LearningTurnPlan:
-    if state.current_item or state.phase is not LearningPhase.PRESENTING:
-        return _plan_turn_base(state, user_input, allow_direct_chat=allow_direct_chat)
-    if is_driven_learning_intent(user_input) or _practice_session_active(state):
-        return _plan_turn_driven_learning(state, user_input, allow_direct_chat=allow_direct_chat)
-    return _plan_turn_plain(state, user_input)
+    item = state.current_item
+    if intent == "reveal_request":
+        return _refuse_reveal_plan(item, phase=LearningPhase.RECALL)
+    if intent == "skip_request":
+        return material_overview_plan(user_input or f"different material-backed item from {item}")
+    if intent == "hint_request" and state.attempt_count > 0:
+        return _recall_hint_plan(state, source_query)
+    if intent == "scaffold_request":
+        return _recall_scaffold_plan(state, source_query)
+    if intent == "material_review":
+        return _recall_review_plan(state, source_query)
+    if intent == "recall_clarification":
+        return recall_clarification_plan(user_input, current_item=item)
+    if intent in {"material_overview", "source_qa", "topic_presentation", "topic_drill"}:
+        return _open_material_plan_for_intent(user_input, intent)
+    if intent == "priority_request":
+        return _priority_plan(user_input, phase=state.phase)
+    if intent == "heph_help":
+        return _chat_prompt_plan(_heph_self_prompt(user_input), phase=state.phase)
+    if intent == "chat":
+        return plain_chat_plan(user_input, phase=state.phase)
+    return _recall_assessment_plan(state, user_input, source_query)
+
+
+def _plan_open_intent(
+    state: LearningState,
+    user_input: str,
+    intent: str,
+) -> LearningTurnPlan:
+    if intent == "heph_help":
+        return heph_help_plan(user_input, phase=state.phase)
+    if intent == "chat":
+        return plain_chat_plan(user_input, phase=state.phase)
+    if intent == "priority_request":
+        return _priority_plan(user_input, phase=state.phase)
+    if intent == "driven_learning_calibration":
+        return _practice_calibration_plan(state, user_input)
+    if intent in {"source_qa", "topic_presentation", "topic_drill", "material_overview"}:
+        return _open_material_plan_for_intent(user_input, intent)
+    if _practice_session_active(state) and state.phase is LearningPhase.PRESENTING:
+        return _practice_calibration_plan(state, user_input)
+    return material_overview_plan(user_input or "what is the material about")
+
+
+def _open_material_plan_for_intent(user_input: str, intent: str) -> LearningTurnPlan:
+    query = _normalize(user_input) or "what is the material about"
+    if intent == "material_overview":
+        return material_overview_plan(user_input)
+    if intent == "source_qa":
+        return material_source_qa_plan(user_input, retrieval_query=query)
+    if intent == "topic_drill":
+        return material_topic_drill_plan(user_input, retrieval_query=query)
+    return material_topic_presentation_plan(user_input, retrieval_query=query)
+
+
+def _practice_calibration_plan(state: LearningState, user_input: str) -> LearningTurnPlan:
+    query = _normalize(user_input) or "next material-backed learning item"
+    return _turn_plan(
+        LearningAction.CALIBRATE,
+        _practice_calibration_prompt(query, state),
+        phase=LearningPhase.RECALL,
+        retrieval_query=query if user_input else None,
+        buffer_response=True,
+    )
 
 
 def _practice_session_active(state: LearningState) -> bool:
@@ -1239,263 +1000,6 @@ def _practice_fatigue_detected(state: LearningState) -> bool:
         state.last_feedback_type in {LearningFeedbackType.WRONG, LearningFeedbackType.PARTIAL}
         and state.hint_level >= 4
     )
-
-
-def _plan_turn_plain(state: LearningState, user_input: str) -> LearningTurnPlan:
-    text = _normalize(user_input)
-    if plan := _priority_or_initial_drill_plan(user_input, phase=state.phase):
-        return plan
-    if chat_plan := _plain_chat_direct_plan(
-        user_input,
-        text,
-        phase=LearningPhase.PRESENTING,
-        allow_light_chat=True,
-    ):
-        return chat_plan
-
-    query = _derive_presentation_query(user_input, state)
-    return _without_current_query_plan(query)
-
-
-def _plan_turn_driven_learning(
-    state: LearningState,
-    user_input: str,
-    *,
-    allow_direct_chat: bool,
-) -> LearningTurnPlan:
-    if state.current_item:
-        return _plan_turn_base(state, user_input, allow_direct_chat=allow_direct_chat)
-
-    if direct_plan := _practice_direct_plan(state, user_input, allow_direct_chat):
-        return direct_plan
-
-    query = _derive_presentation_query(user_input, state)
-    if plan := _driven_material_plan(user_input, query, phase=state.phase):
-        return plan
-    return _turn_plan(
-        LearningAction.CALIBRATE,
-        _practice_calibration_prompt(query, state),
-        phase=LearningPhase.RECALL,
-        retrieval_query=_practice_calibration_retrieval_query(query),
-        buffer_response=True,
-    )
-
-
-def _driven_material_plan(
-    user_input: str,
-    query: str,
-    *,
-    phase: LearningPhase,
-) -> LearningTurnPlan | None:
-    if "priorit" in _normalize(user_input).lower():
-        return _priority_plan(user_input, phase=phase)
-    if _is_overview_request(query):
-        return material_overview_plan(query)
-    if not _is_practice_bootstrap(query) and is_material_source_request(query):
-        return material_source_qa_plan(query, retrieval_query=query)
-    return None
-
-
-def _practice_direct_plan(
-    state: LearningState,
-    user_input: str,
-    allow_direct_chat: bool,
-) -> LearningTurnPlan | None:
-    text = _normalize(user_input)
-    return _chat_or_product_help_plan(
-        user_input,
-        text,
-        phase=state.phase,
-        allow_light_chat=True,
-        skip_simple_greeting=True,
-        normalize_light_prompt=not allow_direct_chat,
-    )
-
-
-def _is_practice_bootstrap(query: str) -> bool:
-    normalized_query = _normalize(query).casefold()
-    return normalized_query.startswith("start ") and bool(
-        re.search(r"\b(?:a|an)?\s*practice session\b", normalized_query)
-    )
-
-
-def _practice_calibration_retrieval_query(query: str) -> str | None:
-    if _is_practice_bootstrap(query):
-        return None
-    if drill_query := material_drill_query(query):
-        return drill_query
-    if _needs_initial_calibration(query):
-        return None
-    return query
-
-
-def _plan_turn_base(
-    state: LearningState,
-    user_input: str,
-    *,
-    allow_direct_chat: bool = True,
-) -> LearningTurnPlan:
-    text = _normalize(user_input)
-
-    if not state.current_item:
-        return _plan_turn_without_current_item(
-            state,
-            user_input,
-            text,
-            allow_direct_chat=allow_direct_chat,
-        )
-
-    if _SKIP_RE.search(text):
-        return _present_query_plan(state, user_input)
-
-    source_query = state.retrieval_query or state.current_item
-    return _plan_turn_with_current_item(state, user_input, text, source_query)
-
-
-def _plan_turn_with_current_item(
-    state: LearningState,
-    user_input: str,
-    text: str,
-    source_query: str,
-) -> LearningTurnPlan:
-    if state.phase == LearningPhase.WAITING_FOR_READY:
-        return _plan_waiting_for_ready_turn(state, user_input, text, source_query)
-    if state.phase == LearningPhase.RECALL:
-        return _plan_recall_turn(state, user_input, text, source_query)
-    return _present_query_plan(state, user_input)
-
-
-def _plan_turn_without_current_item(
-    state: LearningState,
-    user_input: str,
-    text: str,
-    *,
-    allow_direct_chat: bool,
-) -> LearningTurnPlan:
-    if direct_plan := _plain_chat_direct_plan(
-        user_input,
-        text,
-        phase=state.phase,
-        allow_light_chat=not allow_direct_chat,
-    ):
-        return direct_plan
-    if plan := _priority_or_initial_drill_plan(user_input, phase=state.phase):
-        return plan
-
-    query = _derive_presentation_query(user_input, state)
-    return _without_current_query_plan(query)
-
-
-def _plain_chat_direct_plan(
-    user_input: str,
-    text: str,
-    *,
-    phase: LearningPhase,
-    allow_light_chat: bool,
-) -> LearningTurnPlan | None:
-    return _chat_or_product_help_plan(
-        user_input,
-        text,
-        phase=phase,
-        allow_light_chat=allow_light_chat,
-        normalize_light_prompt=True,
-    )
-
-
-def _priority_or_initial_drill_plan(
-    user_input: str,
-    *,
-    phase: LearningPhase,
-) -> LearningTurnPlan | None:
-    if "priorit" in _normalize(user_input).lower():
-        return _priority_plan(user_input, phase=phase)
-    if _needs_initial_calibration(user_input):
-        drill_query = material_drill_query(user_input)
-        return material_topic_drill_plan(user_input, retrieval_query=drill_query or "")
-    return None
-
-
-def _without_current_query_plan(query: str) -> LearningTurnPlan:
-    if _is_overview_request(query):
-        return material_overview_plan(query)
-    if is_material_source_request(query):
-        return material_source_qa_plan(query, retrieval_query=query)
-    return material_topic_presentation_plan(query, retrieval_query=query)
-
-
-def _plan_waiting_for_ready_turn(
-    state: LearningState,
-    user_input: str,
-    text: str,
-    source_query: str,
-) -> LearningTurnPlan:
-    if material_plan := _material_request_plan(state, user_input):
-        return material_plan
-    if _READY_RE.fullmatch(text):
-        return _prompt_recall_plan(state.current_item)
-    if _is_reveal_request(text):
-        return _refuse_reveal_plan(state.current_item, phase=LearningPhase.WAITING_FOR_READY)
-    if not _WAITING_PROCEDURE_RE.fullmatch(text):
-        return _material_review_plan(
-            prompt=_source_followup_prompt(state.current_item, user_input),
-            retrieval_query=source_query,
-        )
-    return _turn_plan(
-        LearningAction.WAIT_READY_REMINDER,
-        _waiting_prompt(),
-        phase=LearningPhase.WAITING_FOR_READY,
-    )
-
-
-def _plan_recall_turn(
-    state: LearningState,
-    user_input: str,
-    text: str,
-    source_query: str,
-) -> LearningTurnPlan:
-    if control_plan := _recall_control_plan(state, user_input, text):
-        return control_plan
-    if learning_plan := _recall_learning_plan(state, text, source_query):
-        return learning_plan
-    return _recall_assessment_plan(state, text, source_query)
-
-
-def _recall_control_plan(
-    state: LearningState,
-    user_input: str,
-    text: str,
-) -> LearningTurnPlan | None:
-    if _is_reveal_request(text):
-        return _refuse_reveal_plan(state.current_item, phase=LearningPhase.RECALL)
-    if _is_heph_self_request(text):
-        return _chat_prompt_plan(_heph_self_prompt(text), phase=LearningPhase.RECALL)
-    if material_plan := _material_request_plan(state, user_input):
-        return material_plan
-    return None
-
-
-def _recall_learning_plan(
-    state: LearningState,
-    text: str,
-    source_query: str,
-) -> LearningTurnPlan | None:
-    if _is_recall_scaffold_request(text) or _TOO_HARD_RE.search(text):
-        return _recall_scaffold_plan(state, source_query)
-    if _is_recall_clarification_request(text):
-        return recall_clarification_plan(text, current_item=state.current_item)
-    return _recall_review_or_hint_plan(state, text, source_query)
-
-
-def _recall_review_or_hint_plan(
-    state: LearningState,
-    text: str,
-    source_query: str,
-) -> LearningTurnPlan | None:
-    if _REVIEW_MATERIAL_RE.search(text):
-        return _recall_review_plan(state, source_query)
-    if _HINT_RE.search(text) and state.attempt_count > 0:
-        return _recall_hint_plan(state, source_query)
-    return None
 
 
 def _recall_review_plan(state: LearningState, source_query: str) -> LearningTurnPlan:

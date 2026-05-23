@@ -314,15 +314,12 @@ def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools()
     assert plan.allow_tools is False
     assert plan.buffer_response is True
     assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-    assert "do not explain retrieval sampling mechanics" in plan.prompt
-    assert "generic sampling or completeness disclaimer" in plan.prompt
-    assert "non-exhaustive list" in plan.prompt
+    assert "Cover the big picture" in plan.prompt
+    assert "Cite evidence IDs like [E1]" in plan.prompt
     assert "Do not infer from filenames" in plan.prompt
-    assert "semester labels" in plan.prompt
-    assert "course administration metadata" in plan.prompt
     assert "Use material tools to inspect indexed sources" not in plan.prompt
-    assert "Do not paste long source excerpts" in plan.prompt
-    assert "next-step, evidence-grounding-block" in plan.prompt
+    # The overview prompt is now compact: under 600 chars including header and rules.
+    assert len(plan.prompt) < 600
 
 
 @pytest.mark.parametrize("message", ["Do some math", "any math"])

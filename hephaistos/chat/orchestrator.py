@@ -7,7 +7,7 @@ import json
 import re
 import threading
 import urllib.error
-from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from html import unescape
 from typing import TYPE_CHECKING
@@ -50,9 +50,6 @@ from hephaistos.chat.evidence import (
     is_overview_query as _is_overview_query,
 )
 from hephaistos.chat.evidence import (
-    query_demands_source_only_answer as _query_demands_source_only_answer,
-)
-from hephaistos.chat.evidence import (
     resolve_turn_evidence as _resolve_turn_evidence,
 )
 from hephaistos.chat.evidence import (
@@ -87,13 +84,7 @@ from hephaistos.study import (
     ReviewItem,
     apply_turn_result,
     learner_assessment_from_state,
-    material_overview_plan,
-    material_source_qa_plan,
-    material_topic_drill_plan,
-    material_topic_presentation_plan,
-    plain_chat_plan,
     plan_turn,
-    recall_clarification_plan,
     validate_pedagogy,
 )
 from hephaistos.study.policy import LearningMoveKind
@@ -141,7 +132,6 @@ _TRACE_TASK_BY_ACTION = {
     LearningAction.ASSESS: "active-recall-assessment",
     LearningAction.HINT: "hint",
 }
-type _IntentPlanBuilder = Callable[[str, str, LearningPhase], LearningTurnPlan]
 _MODEL_NORMALIZED_INTENTS = (
     "material_overview",
     "source_qa",
@@ -151,21 +141,18 @@ _MODEL_NORMALIZED_INTENTS = (
     "ready_for_recall",
     "recall_clarification",
     "recall_answer_attempt",
+    "reveal_request",
+    "hint_request",
+    "skip_request",
+    "scaffold_request",
+    "material_review",
+    "priority_request",
+    "driven_learning_calibration",
+    "wait",
+    "heph_help",
     "chat",
 )
 _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = 0.75
-_MODEL_NORMALIZED_PLAN_BUILDERS: dict[str, _IntentPlanBuilder] = {
-    "chat": lambda user_input, _query, phase: plain_chat_plan(user_input, phase=phase),
-    "source_qa": lambda user_input, query, _phase: material_source_qa_plan(
-        user_input, retrieval_query=query
-    ),
-    "topic_presentation": lambda user_input, query, _phase: material_topic_presentation_plan(
-        user_input, retrieval_query=query
-    ),
-    "topic_drill": lambda user_input, query, _phase: material_topic_drill_plan(
-        user_input, retrieval_query=query
-    ),
-}
 _EVIDENCE_CITATION_TEXT_RE = re.compile(
     r"\s*(?:\[|【)(?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*(?:\]|】)"
 )
@@ -174,9 +161,6 @@ _EXACT_PHRASE_AFTER_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 _QUOTED_PHRASE_RE = re.compile(r"[\"“”'](?P<phrase>[^\"“”']{2,80})[\"“”']")
-_OVERVIEW_CITATION_RANGE_RE = re.compile(
-    r"\[(?:e|E)\d+\]\s*(?:-|\u2013)\s*(?:\[(?:e|E)\d+\]|(?:e|E)?\d+)"
-)
 _OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call\b[^>]*>.*?</tool_call>", re.IGNORECASE | re.DOTALL)
 _TOOL_CALL_OPEN_RE = re.compile(r"<tool_call\b[^>]*>", re.IGNORECASE)
@@ -195,12 +179,8 @@ _READ_ALL_FILES_RE = re.compile(
 _OVERVIEW_MIN_WORDS = 24
 _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
-_OVERVIEW_MIN_BULLETS = 2
-_OVERVIEW_MIN_CITED_BULLETS = 2
 _OVERVIEW_TOPIC_LIMIT = 7
 _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
-_OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
-_OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _ENGLISH_TOPIC_MENU_CUE_WORDS = frozenset(
     {
         "can",
@@ -228,51 +208,15 @@ _ENGLISH_TOPIC_MENU_CUE_WORDS = frozenset(
         "write",
     }
 )
-_OVERVIEW_REPLY_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
-_OVERVIEW_EXPLICIT_DATE_RE = re.compile(
-    r"\b(?:"
-    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"
-    r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|"
-    r"\d{1,2}\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}\s+\d{4}|"
-    r"(?:1[3-9]|2\d|3[01])\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}"
-    r")\b"
-)
-_OVERVIEW_CHRONOLOGICAL_LINE_RE = re.compile(
-    r"^\s*(?:[-*+]\s*|\d+[.)]\s*)?"
-    r"(?:"
-    r"(?:first|second|third|next|then|afterwards?|later|finally|subsequently)\b|"
-    r"in\s+(?:the\s+)?(?:first|second|third|next|following|later)\b"
-    r")",
-    re.IGNORECASE,
-)
-_ENGLISH_TOPIC_PRESENTATION_START_RE = re.compile(
-    r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
-    r"(?:explain|teach|review|study|go\s+over|walk\s+me\s+through|tell\s+me\s+about|"
-    r"help\s+me\s+(?:study|understand))\b",
-    re.IGNORECASE,
-)
 _MAX_INTERNAL_PASSES = 3
-_OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
-_OVERVIEW_FORBIDDEN_SHAPE = (
-    "corpus-level claim",
-    "document signal",
-    "indexed source",
-    "next action",
-    "no evidence citations",
-    "non-exhaustive list",
-    "not an exhaustive summary",
-    "only a sample",
-    "partial inventory",
-    "ask for recall",
-    "answer from memory",
-    "retrieved overview sample",
-    "source-backed",
-    "source backed",
-    "say ready when you want recall",
-    "sampled mix",
-    "sampled orientation",
-    "the files cover",
-    "visible topics",
+_CONTINUABLE_MATERIAL_INTENTS = frozenset(
+    {
+        "material_overview",
+        "source_qa",
+        "source_only_policy",
+        "topic_presentation",
+        "topic_drill",
+    }
 )
 _UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE = re.compile(
     r"\b(?:next\s+action|say\s+ready|source[-\s]?backed|ask\s+for\s+recall|"
@@ -475,36 +419,41 @@ Classify the user's intent for Heph, a tool that answers from the user's own mat
 The user's materials are the default subject; ambiguous messages refer to them.
 
 Intents:
-- material_overview: broad picture of the materials.
-- source_qa: a specific fact or quote from the materials.
+- material_overview: broad view of the materials as a corpus, listing topics, themes, contents,
+  or what is inside the files. Use whenever no single named concept is the focus.
+- source_qa: a specific fact, quote, or definition from the materials.
 - source_only_policy: user only asks Heph to stay strictly grounded in sources.
-- topic_presentation: explain a named concept from the materials.
-- topic_drill: quiz or practice from the materials.
-- ready_for_recall: user is ready to answer the active recall prompt.
-- recall_clarification: user wants the active recall prompt repeated, translated, or clarified.
-- recall_answer_attempt: user is attempting the recall answer.
-- chat: clearly unrelated to the user's materials.
+- topic_presentation: explain ONE specific concept the user names directly.
+- topic_drill: quiz or practice on the materials.
+- driven_learning_calibration: user asks to study, prepare, cram, run a study plan, or have
+  Heph drive a structured practice session.
+- priority_request: user asks what topics to prioritize, what to study first, or what is
+  most important.
+- ready_for_recall: user signals they are ready to answer the active recall prompt.
+- wait: user wants to delay or pause the recall step without skipping or asking for help.
+- recall_clarification: user wants the active recall prompt repeated, translated, or clarified
+  without attempting an answer.
+- recall_answer_attempt: user is attempting an answer to the active recall prompt.
+- reveal_request: user asks for the answer, solution, or to be shown how to solve it.
+- hint_request: user asks for a hint or partial nudge.
+- scaffold_request: user signals the task is too hard or asks how to start without giving up.
+- skip_request: user wants to skip, pass, or move on to a different item.
+- material_review: user asks to review the cited material before attempting recall.
+- heph_help: user asks about Heph itself (what Heph does, how to use it, its commands).
+- chat: clearly unrelated to the user's materials and not about Heph itself.
 
-When a prior assistant intent is given, treat short or anaphoric follow-ups in any language
-as continuations of that intent. Do not classify them as literal keyword searches.
-Rewrite canonical_english_request with enough source-grounded context for retrieval to find
-more or different relevant material.
+When a prior assistant intent is given, continue that intent unless the user clearly switches
+to a different one. Short, vague, or anaphoric follow-ups in any language continue the prior
+intent; do not classify them as literal keyword searches.
 
 Return JSON only, matching this schema:
 """.strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
-Repair or write a user-facing corpus overview from cited material excerpts. Use only the supplied
-evidence; use any rejected draft only to understand formatting mistakes, not as source evidence.
-Answer in the same language as the user's request. Use this exact shape: one short cited overview
-paragraph, then 2-5 concise cited bullets. Start each bullet with "- "; do not use Markdown tables,
-columns, or pipe-separated layouts. Give the big picture first and avoid organizing primarily by
-dates, filenames, authors, institutions, semester labels, course logistics, or individual chunks
-unless the user asks for that metadata. Do not mention calendar dates, semester labels, lecturer
-names, or course administration metadata unless the user asks for that metadata. Decide what is
-substantive material semantically from excerpt context rather than fixed keyword lists. Do not
-mention internal evidence-grounding blocks, and do not include an English topic menu unless the
-user wrote in English. Do not end with a caveat about sampling, orientation, partial inventory,
-or non-exhaustive coverage.
+Write a user-facing corpus overview from cited material excerpts. Use only the supplied evidence;
+ignore any rejected draft as a source.
+Answer in the same language as the user's request. Cover the big picture in your own words and
+cite evidence IDs like [E1] for every claim. Do not infer from filenames, lecturers, or
+institutions, and do not lecture the user about retrieval or sampling.
 """.strip()
 _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT = """
 Rewrite an internal English fallback message for the user. Use the same language as the user's
@@ -524,13 +473,6 @@ _OVERVIEW_ROLE_LABELS = {
     "textbook": "textbook or chapter material",
     "vocabulary": "vocabulary practice material",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class _NormalizedLearningIntent:
-    intent: str
-    canonical_english_request: str
-    confidence: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -1692,8 +1634,7 @@ def _can_answer_source_qa_from_evidence(
 ) -> bool:
     if evidence is None or not evidence.items:
         return False
-    query = plan.retrieval_query or ""
-    return plan.action is LearningAction.SOURCE_QA or _query_demands_source_only_answer(query)
+    return plan.action is LearningAction.SOURCE_QA
 
 
 def _source_qa_exact_phrase(query: str, evidence: TurnEvidence) -> str:
@@ -2059,60 +2000,36 @@ def _overview_topic_normalization_context(
     return "\n".join(lines)
 
 
-def _should_model_normalize_learning_intent(
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-    config: ChatConfig | None,
-) -> bool:
-    if not _can_model_normalize_intent(config, plan, user_input):
-        return False
-    if _overview_turn(plan) or _ENGLISH_TOPIC_PRESENTATION_START_RE.search(user_input):
-        return False
-    if state.current_item:
-        return _should_normalize_active_recall_intent(plan, state)
-    return plan.action is LearningAction.PRESENT and plan.allow_tools
-
-
-def _can_model_normalize_intent(
-    config: ChatConfig | None,
-    plan: LearningTurnPlan,
-    user_input: str,
-) -> bool:
-    return bool(config is not None and config.base_url and config.model and user_input.strip())
-
-
-def _should_normalize_active_recall_intent(
-    plan: LearningTurnPlan,
-    state: LearningState,
-) -> bool:
-    if state.phase is LearningPhase.WAITING_FOR_READY:
-        return plan.action is LearningAction.REVIEW
-    return state.phase is LearningPhase.RECALL and plan.action is LearningAction.ASSESS
-
-
-def _model_normalized_learning_intent(
+def _classified_user_intent(
     user_input: str,
     *,
     config: ChatConfig | None,
     conversation: Conversation | None = None,
     prior_intent: str = "",
-) -> _NormalizedLearningIntent | None:
+) -> str:
+    if not user_input.strip() or config is None or not config.base_url or not config.model:
+        return ""
     payload = _model_json_payload(
         config,
         system_prompt=(
-            f"{_LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n{_LEARNING_INTENT_NORMALIZATION_SCHEMA}"
+            f"{_LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n"
+            f"{_LEARNING_INTENT_NORMALIZATION_SCHEMA}"
         ),
-        user_prompt=_learning_intent_normalization_context(
+        user_prompt=_intent_normalization_context(
             user_input,
             conversation,
             prior_intent=prior_intent,
         ),
     )
-    return _normalized_learning_intent_from_payload(payload) if payload is not None else None
+    intent, confidence = _classifier_intent_from_payload(payload)
+    if confidence >= _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD:
+        return intent
+    if prior_intent in _CONTINUABLE_MATERIAL_INTENTS:
+        return prior_intent
+    return ""
 
 
-def _learning_intent_normalization_context(
+def _intent_normalization_context(
     user_input: str,
     conversation: Conversation | None,
     *,
@@ -2171,23 +2088,18 @@ def _model_json_payload(
     return parse_json_object_fragment(_stream_one_shot_model_text(config, conversation))
 
 
-def _normalized_learning_intent_from_payload(
-    payload: Mapping[str, object],
-) -> _NormalizedLearningIntent | None:
+def _classifier_intent_from_payload(
+    payload: Mapping[str, object] | None,
+) -> tuple[str, float]:
+    if payload is None:
+        return ("", 0.0)
     raw_intent = payload.get("intent")
     if not isinstance(raw_intent, str):
-        return None
+        return ("", 0.0)
     intent = re.sub(r"[^a-z0-9]+", "_", raw_intent.strip().casefold()).strip("_")
     if intent not in _MODEL_NORMALIZED_INTENTS:
-        return None
-    raw_request = payload.get("canonical_english_request")
-    canonical_request = raw_request.strip() if isinstance(raw_request, str) else ""
-    confidence = _normalized_confidence(payload.get("confidence"))
-    return _NormalizedLearningIntent(
-        intent=intent,
-        canonical_english_request=canonical_request,
-        confidence=confidence,
-    )
+        return ("", 0.0)
+    return (intent, _normalized_confidence(payload.get("confidence")))
 
 
 def _normalized_confidence(value: object) -> float:
@@ -2203,129 +2115,6 @@ def _normalized_confidence(value: object) -> float:
     if confidence > 1.0:
         confidence /= 100.0
     return min(1.0, max(0.0, confidence))
-
-
-def _model_normalized_learning_plan(
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-    config: ChatConfig | None,
-    *,
-    conversation: Conversation | None = None,
-    prior_intent: str = "",
-) -> LearningTurnPlan:
-    normalized = _accepted_normalized_learning_intent(
-        plan,
-        state,
-        user_input,
-        config,
-        conversation=conversation,
-        prior_intent=prior_intent,
-    )
-    if normalized is None:
-        return plan
-    canonical_query = normalized.canonical_english_request or user_input
-    return _learning_plan_from_normalized_intent(
-        normalized.intent,
-        plan,
-        state,
-        user_input,
-        canonical_query,
-    )
-
-
-def _accepted_normalized_learning_intent(
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-    config: ChatConfig | None,
-    *,
-    conversation: Conversation | None = None,
-    prior_intent: str = "",
-) -> _NormalizedLearningIntent | None:
-    if not _should_model_normalize_learning_intent(plan, state, user_input, config):
-        return None
-    normalized = _model_normalized_learning_intent(
-        user_input,
-        config=config,
-        conversation=conversation,
-        prior_intent=prior_intent,
-    )
-    if normalized is None or normalized.confidence < _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD:
-        return None
-    return normalized
-
-
-def _learning_plan_from_normalized_intent(
-    intent: str,
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-    canonical_query: str,
-) -> LearningTurnPlan:
-    recall_plan = _model_normalized_recall_plan(intent, plan, state, user_input)
-    if recall_plan is not None:
-        return recall_plan
-    if intent == "source_only_policy":
-        return _source_only_policy_plan(user_input, state.phase)
-    if builder := _MODEL_NORMALIZED_PLAN_BUILDERS.get(intent):
-        return builder(user_input, canonical_query, state.phase)
-    return _model_normalized_overview_plan(intent, plan, user_input, canonical_query)
-
-
-def _model_normalized_recall_plan(
-    intent: str,
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-) -> LearningTurnPlan | None:
-    if intent == "ready_for_recall":
-        return _normalized_ready_for_recall_plan(plan, state)
-    if intent == "recall_clarification":
-        return _normalized_recall_clarification_plan(plan, state, user_input)
-    return None
-
-
-def _normalized_ready_for_recall_plan(
-    plan: LearningTurnPlan,
-    state: LearningState,
-) -> LearningTurnPlan:
-    if state.phase is LearningPhase.WAITING_FOR_READY and state.current_item:
-        return plan_turn(state, "ready")
-    return plan
-
-
-def _normalized_recall_clarification_plan(
-    plan: LearningTurnPlan,
-    state: LearningState,
-    user_input: str,
-) -> LearningTurnPlan:
-    if state.phase is LearningPhase.RECALL and state.current_item:
-        return recall_clarification_plan(user_input, current_item=state.current_item)
-    return plan
-
-
-def _source_only_policy_plan(user_input: str, phase: LearningPhase) -> LearningTurnPlan:
-    return LearningTurnPlan(
-        action=LearningAction.CHAT,
-        phase=phase,
-        prompt=plain_chat_plan(user_input, phase=phase).prompt,
-        allow_tools=False,
-    )
-
-
-def _model_normalized_overview_plan(
-    intent: str,
-    plan: LearningTurnPlan,
-    user_input: str,
-    canonical_query: str,
-) -> LearningTurnPlan:
-    if intent != "material_overview":
-        return plan
-    retrieval_query = canonical_query or "what is the material about"
-    if not _is_overview_query(retrieval_query):
-        retrieval_query = "what is the material about"
-    return material_overview_plan(user_input, retrieval_query=retrieval_query)
 
 
 def _overview_topic_items_from_model_payload(
@@ -2776,55 +2565,21 @@ def _overview_answer_has_bad_shape(
     raw_reply: str,
     evidence: TurnEvidence | None = None,
 ) -> bool:
-    if _overview_answer_has_invalid_structure(raw_reply):
-        return True
+    """Reject overview replies that are too thin or under-grounded.
+
+    The only guard rail Heph enforces here is groundedness: the model must cite
+    enough evidence IDs and span multiple sources. Style (bullets vs prose,
+    date references, phrasing) is guided in the prompt, not policed here.
+    """
     citation_ids = _overview_citation_ids(raw_reply)
-    if _overview_answer_has_weak_evidence_shape(raw_reply, citation_ids, evidence):
+    words = re.findall(r"\b[\w'-]+\b", raw_reply)
+    if len(words) < _OVERVIEW_MIN_WORDS or len(citation_ids) < _OVERVIEW_MIN_CITATIONS:
         return True
-    topic_labels = _overview_reply_topic_labels(raw_reply)
-    return _overview_answer_has_bad_topic_labels(topic_labels)
-
-
-def _overview_answer_has_invalid_structure(raw_reply: str) -> bool:
-    return (
-        _OVERVIEW_CITATION_RANGE_RE.search(raw_reply) is not None
-        or _overview_answer_has_bad_required_language(raw_reply)
-        or _overview_answer_is_date_or_document_organized(raw_reply)
-    )
-
-
-def _overview_answer_has_weak_evidence_shape(
-    raw_reply: str,
-    citation_ids: tuple[str, ...],
-    evidence: TurnEvidence | None,
-) -> bool:
-    return (
-        _overview_answer_is_too_thin(raw_reply, citation_ids)
-        or (evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence))
-        or not _overview_has_enough_cited_bullets(raw_reply)
-    )
-
-
-def _overview_answer_has_bad_topic_labels(topic_labels: Sequence[str]) -> bool:
-    return len(topic_labels) > _OVERVIEW_TOPIC_LIMIT or any(
-        not _overview_topic_is_useful(label) for label in topic_labels
-    )
-
-
-def _overview_answer_has_bad_required_language(raw_reply: str) -> bool:
-    normalized = raw_reply.casefold()
-    return any(phrase not in normalized for phrase in _OVERVIEW_REQUIRED_SHAPE) or any(
-        phrase in normalized for phrase in _OVERVIEW_FORBIDDEN_SHAPE
-    )
+    return evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence)
 
 
 def _overview_citation_ids(raw_reply: str) -> tuple[str, ...]:
     return tuple(f"E{match.group('id')}" for match in _OVERVIEW_CITATION_ID_RE.finditer(raw_reply))
-
-
-def _overview_answer_is_too_thin(raw_reply: str, citation_ids: tuple[str, ...]) -> bool:
-    words = re.findall(r"\b[\w'-]+\b", raw_reply)
-    return len(words) < _OVERVIEW_MIN_WORDS or len(citation_ids) < _OVERVIEW_MIN_CITATIONS
 
 
 def _overview_covers_enough_sources(citation_ids: tuple[str, ...], evidence: TurnEvidence) -> bool:
@@ -2836,53 +2591,6 @@ def _overview_covers_enough_sources(citation_ids: tuple[str, ...], evidence: Tur
     }
     available_source_count = len(set(source_by_id.values()))
     return len(cited_sources) >= min(_OVERVIEW_MIN_DISTINCT_SOURCES, available_source_count)
-
-
-def _overview_has_enough_cited_bullets(raw_reply: str) -> bool:
-    bullet_lines = [
-        line.strip() for line in raw_reply.splitlines() if line.lstrip().startswith(("- ", "* "))
-    ]
-    cited_bullets = [line for line in bullet_lines if _OVERVIEW_CITATION_ID_RE.search(line)]
-    return (
-        len(bullet_lines) >= _OVERVIEW_MIN_BULLETS
-        and len(cited_bullets) >= _OVERVIEW_MIN_CITED_BULLETS
-    )
-
-
-def _overview_answer_is_date_or_document_organized(raw_reply: str) -> bool:
-    date_lines = [
-        line for line in raw_reply.splitlines() if _OVERVIEW_EXPLICIT_DATE_RE.search(line)
-    ]
-    chronology_lines = [
-        line for line in raw_reply.splitlines() if _OVERVIEW_CHRONOLOGICAL_LINE_RE.search(line)
-    ]
-    return len(date_lines) >= 2 or len(chronology_lines) >= 2
-
-
-def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
-    labels: list[str] = []
-    for stripped in _overview_topic_section_lines(raw_reply):
-        match = _OVERVIEW_REPLY_TOPIC_LINE_RE.match(stripped)
-        if match is None:
-            if labels:
-                break
-            continue
-        labels.append(match.group("label").strip())
-    return tuple(labels)
-
-
-def _overview_topic_section_lines(raw_reply: str) -> Iterator[str]:
-    in_topics = False
-    for line in raw_reply.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(_OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":")):
-            in_topics = True
-            continue
-        if not in_topics:
-            continue
-        if not stripped or stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
-            break
-        yield stripped
 
 
 @dataclass(slots=True)
@@ -2985,20 +2693,18 @@ class TurnOrchestrator:
     ) -> Generator[TurnEvent, None, ResolvedTurnPlan]:
         session = self.session
         due_reviews, memory_state = _learning_practice_context(session)
+        intent = _classified_user_intent(
+            user_input,
+            config=session.config,
+            conversation=session.conversation,
+            prior_intent=session.last_plan_intent,
+        )
         learning_plan = plan_turn(
             original_learning_state,
             user_input,
+            intent=intent,
             due_reviews=due_reviews,
             memory_state=memory_state,
-            allow_direct_chat=False,
-        )
-        learning_plan = _model_normalized_learning_plan(
-            learning_plan,
-            original_learning_state,
-            user_input,
-            session.config,
-            conversation=session.conversation,
-            prior_intent=session.last_plan_intent,
         )
         if notice := _reading_notice(learning_plan):
             yield NoticeEvent(notice, code="reading")

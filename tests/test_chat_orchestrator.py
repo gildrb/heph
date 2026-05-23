@@ -395,7 +395,8 @@ def test_user_visible_reply_preserves_requested_json_answer() -> None:
     assert _user_visible_reply(plan, raw) == raw
 
 
-def test_overview_bad_shape_rejects_chronological_walkthrough_without_dates() -> None:
+def test_overview_bad_shape_accepts_chronological_walkthrough_when_grounded() -> None:
+    """Chronological framing is a stylistic choice, not a hallucination signal."""
     raw = (
         "The material is about applied mathematics and exam preparation [E1][E2].\n"
         "- First, it introduces sequences and limits [E1].\n"
@@ -403,7 +404,7 @@ def test_overview_bad_shape_rejects_chronological_walkthrough_without_dates() ->
         "- Later, it covers Taylor polynomials and approximation [E1]."
     )
 
-    assert _overview_answer_has_bad_shape(raw, None)
+    assert not _overview_answer_has_bad_shape(raw, None)
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -589,11 +590,11 @@ def test_model_normalized_learning_plan_routes_non_english_material_intents(
     assert (
         '"intent": "material_overview | source_qa | source_only_policy | '
         "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
-        'recall_answer_attempt | chat"'
+        'recall_answer_attempt | heph_help | chat"'
     ) in intent_prompt
     assert "topic_drill |\n" not in intent_prompt
     assert "German" not in intent_prompt
-    assert len(intent_prompt) < 1500
+    assert len(intent_prompt) < 1700
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -1313,7 +1314,73 @@ def test_model_normalized_learning_plan_inherits_material_intent_for_short_follo
     assert "Last assistant reply (excerpt):" in user_prompt
     assert "The material covers introductory analysis topics" in user_prompt
     assert user_prompt.count("what else?") == 1
-    assert len(system_prompt) < 1500
+    assert len(system_prompt) < 1700
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_low_confidence_classification_falls_back_to_prior_material_intent(
+    mock_stream: MagicMock,
+) -> None:
+    """When the model can't classify a follow-up confidently, Heph keeps the conversation
+    on the prior material intent instead of degrading to a literal keyword search.
+    """
+    base_plan = _make_learning_plan(
+        retrieval_query="kannst du mir alle themen die in den dateien vorkommen nennen?",
+        allow_tools=True,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    # Model returns a low-confidence (or wrong) classification — Heph must not let
+    # the user's plain-language follow-up turn into a literal retrieval query.
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"topic_presentation",'
+                    '"canonical_english_request":"topics in files",'
+                    '"confidence":0.4}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_learning_plan(
+        base_plan,
+        LearningState(),
+        "kannst du mir alle themen die in den dateien vorkommen nennen?",
+        config,
+        prior_intent="material_overview",
+    )
+
+    assert normalized_plan.action is LearningAction.PRESENT
+    assert normalized_plan.retrieval_query == "what is the material about"
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_classifier_unavailable_keeps_prior_material_intent(
+    mock_stream: MagicMock,
+) -> None:
+    """If the classifier returns no usable JSON, the prior material intent carries the turn."""
+    base_plan = _make_learning_plan(
+        retrieval_query="kannst du mir alle themen nennen?",
+        allow_tools=True,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter([CompletionDelta(content="not-json")])
+
+    normalized_plan = _model_normalized_learning_plan(
+        base_plan,
+        LearningState(),
+        "kannst du mir alle themen nennen?",
+        config,
+        prior_intent="material_overview",
+    )
+
+    assert normalized_plan.action is LearningAction.PRESENT
+    assert normalized_plan.retrieval_query == "what is the material about"
 
 
 def test_evidence_notice_discloses_partial_source_only_support() -> None:
@@ -1469,8 +1536,8 @@ def test_overview_fallback_preserves_model_repair_without_english_menu_for_germa
     assert "Recommended options" not in reply
     system_prompt = mock_stream.call_args.args[1].messages[0].content
     user_prompt = mock_stream.call_args.args[1].messages[1].content
-    assert "Use this exact shape" in system_prompt
-    assert "do not use Markdown tables" in system_prompt
+    assert "Cover the big picture" in system_prompt
+    assert "cite evidence IDs" in system_prompt
     assert "Rejected draft to repair:" in user_prompt
     assert "Major topic clusters" in user_prompt
 
@@ -1573,50 +1640,34 @@ def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
     )
 
 
-def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
+def test_overview_shape_rejects_under_grounded_summaries() -> None:
+    """Heph only rejects overviews that are too thin or under-grounded.
+
+    Style (date references, bullet count, phrasing) is left to the model;
+    the validator is a citation/source-coverage guard rail, not a style police.
+    """
     evidence = _make_turn_evidence(
         _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
         _make_evidence_chunk("materials/exam.pdf", 0, "E2"),
     )
 
+    # Single-citation reply is too thin to be grounded across the corpus.
     assert _overview_answer_has_bad_shape(
         "These are the topics I found in the material [E1].",
         evidence,
     )
+    # Word count below the minimum signal Heph expects.
+    assert _overview_answer_has_bad_shape("[E1] [E2]", evidence)
+    # Only cites one of two distinct evidence sources.
     assert _overview_answer_has_bad_shape(
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Lecture material appears in the material.\n"
-        "- Exam material appears in the material.\n"
-        "- Choose a topic to explore next.",
+        "The material covers algorithms and graph traversal in some depth [E1][E1].",
         evidence,
     )
-    assert _overview_answer_has_bad_shape(
-        "The material is about graph algorithms and recurrence relations [E1][E2].\n"
-        "- Graph algorithms [E1].\n"
-        "- Recurrence relations [E2].\n"
-        "Next action: Review the smallest source-backed piece, then ask for recall.",
-        evidence,
-    )
-    assert _overview_answer_has_bad_shape(
-        "The material is about graph algorithms and recurrence relations [E1][E2].\n"
-        "- Graph algorithms [E1].\n"
-        "- Recurrence relations [E2].\n"
-        "This is only a sample, not a non-exhaustive list of every source [E1].",
-        evidence,
-    )
-    assert _overview_answer_has_bad_shape(
+    # Multi-cited paragraph that mentions dates is still grounded and accepted.
+    assert not _overview_answer_has_bad_shape(
         "Der Korpus behandelt Analysis und Modellierung [E1][E2].\n"
         "- In den Folien vom 22. April geht es um Reihen und Potenzreihen [E1].\n"
-        "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].\n"
-        "- In den Folien vom 4. Mai geht es um Taylor-Polynome [E1].",
-        evidence,
-    )
-    assert not _overview_answer_has_bad_shape(
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Graph algorithms [E1].\n"
-        "- Recurrence relations [E2].\n"
-        "- Bayes theorem [E1].\n"
-        "Use the menu to choose one cited topic for review.",
+        "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].",
         evidence,
     )
     assert not _overview_answer_has_bad_shape(
@@ -1708,22 +1759,6 @@ def test_large_corpus_overview_uses_model_path(
     assert completions[0].full_text == deltas[0]
     assert completions[0].finish_reason == "stop"
     assert "The enabled materials include" not in deltas[0]
-
-
-def test_overview_shape_rejects_non_topic_menu_labels() -> None:
-    evidence = _make_turn_evidence(
-        _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
-        _make_evidence_chunk("materials/exam.pdf", 0, "E2"),
-    )
-
-    assert _overview_answer_has_bad_shape(
-        "These are the topics I found in the material [E1][E2].\n"
-        "- Definition only [E1].\n"
-        "- Administrative Header 2 [E1].\n"
-        "- exam-style questions or structured assessment prompts [E2].\n"
-        "Use the menu to choose one cited topic for review.",
-        evidence,
-    )
 
 
 def test_overview_topic_metadata_filter_removes_title_page_person_names() -> None:
@@ -3106,7 +3141,7 @@ class TestTurnOrchestratorLearning:
         assert "Next action:" not in deltas[0]
         assert "Say ready" not in deltas[0]
         assert "Answer in the same language" in extra_prompt
-        assert "Give the big picture first" in extra_prompt
+        assert "Cover the big picture" in extra_prompt
         assert "User request: um was geht es in den dateien" in extra_prompt
         assert "Learning policy" not in extra_prompt
         assert session.learning_state.phase is LearningPhase.PRESENTING
@@ -3760,7 +3795,10 @@ class TestTurnOrchestratorLearning:
         assert "source-backed" not in final_reply
         system_prompt = mock_stream.call_args.args[1].messages[0].content
         assert "same language as the user's request" in system_prompt
-        assert "internal evidence-grounding blocks" in system_prompt
+        assert "Cover the big picture" in system_prompt
+        assert "cite evidence IDs" in system_prompt
+        # The localized fallback prompt is now compact: focused guidance, no bloat.
+        assert len(system_prompt) < 700
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")

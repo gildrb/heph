@@ -20,6 +20,7 @@ from hephaistos.study.artifacts import (
 from hephaistos.study.controller import (
     LearningTurnPlan,
     apply_turn_result,
+    heph_help_plan,
     material_overview_plan,
     material_source_qa_plan,
     material_topic_drill_plan,
@@ -107,6 +108,7 @@ __all__ = [
     "extract_academic_items",
     "generate_grounded_questions",
     "grounded_question_quality_issues",
+    "heph_help_plan",
     "is_driven_learning_intent",
     "learner_assessment_from_state",
     "learning_artifacts_to_anki_tsv",
