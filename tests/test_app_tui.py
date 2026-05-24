@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -55,8 +57,30 @@ class _SelectableClass(Protocol):
     ALLOW_SELECT: bool
 
 
+class _TerminalSizeReader(Protocol):
+    def _get_terminal_size(self) -> tuple[int, int]: ...
+
+
 def _allow_select(widget_class: type) -> bool:
     return cast("_SelectableClass", widget_class).ALLOW_SELECT
+
+
+def _composited_screen_text(app: tui.HephTui) -> str:
+    compositor = app.screen._compositor
+    region = compositor.size.region
+    rows = [[" "] * region.width for _ in range(region.height)]
+    chops = compositor._render_chops(region, lambda _line_y: True)
+    for row_index, chops_line in enumerate(chops):
+        for start_column, strip in chops_line.items():
+            if strip is None:
+                continue
+            column = start_column
+            for segment in strip:
+                for char in segment.text:
+                    if 0 <= row_index < region.height and 0 <= column < region.width:
+                        rows[row_index][column] = char
+                    column += 1
+    return "\n".join("".join(row).rstrip() for row in rows)
 
 
 def _plain_session() -> ChatSession:
@@ -238,6 +262,24 @@ def test_render_cache_skips_unchanged_region_updates() -> None:
 
     assert cache.should_update(tui.DirtyRegion.STATUS, "ready")
     assert not cache.should_update(tui.DirtyRegion.STATUS, "ready")
+
+
+def test_resize_redraw_state_tracks_follow_up_frame_after_resize_spam() -> None:
+    state = tui._ResizeRedrawState()
+
+    assert state.note_size((120, 24))
+    assert state.schedule_trailing_refresh(now=10.0, delay=0.075)
+    assert state.refresh_pending
+    assert not state.note_size((120, 24))
+    assert state.note_size((80, 10))
+    assert not state.schedule_trailing_refresh(now=10.03, delay=0.075)
+    assert state.refresh_delay(now=10.05) == pytest.approx(0.055)
+    assert state.refresh_delay(now=10.105) == 0.0
+    assert state.finish_trailing_refresh()
+
+    assert state.schedule_trailing_refresh(now=20.0, delay=0.075)
+    assert state.refresh_pending
+    assert not state.finish_trailing_refresh()
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -604,6 +646,413 @@ def test_light_theme_paints_bright_app_background() -> None:
         assert f"color: {palette.text_primary};" in css
     finally:
         set_theme("dark")
+
+
+def test_resize_invalidates_transient_surfaces_without_duplicate_composer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_resize_sequence() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app._append_user("A long transcript line " * 12, mark_working=False)
+            clear_writes: list[str] = []
+            driver = app._driver
+            assert driver is not None
+            original_write = driver.write
+
+            def record_write(data: str) -> None:
+                clear_writes.append(data)
+                original_write(data)
+
+            monkeypatch.setattr(driver, "write", record_write)
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/"
+            composer.cursor_position = 1
+            app._refresh_completions()
+            await pilot.pause()
+
+            assert app.query_one("#suggestions", tui.OptionList).has_class("visible")
+
+            for width, height in ((90, 11), (132, 26), (80, 9), (140, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            composers = list(app.query("#composer"))
+            assert len(composers) == 1
+            assert app.focused is composers[0]
+            assert app.query_one("#suggestions", tui.OptionList).has_class("visible")
+            assert app.completion_candidates
+            assert app.query_one("#info-panel").styles.display == "block"
+            assert app._sidebar_width_visible is True
+            assert not app.query_one("#completion-stack").has_class("compact")
+            assert not app.query_one("#composer-frame").has_class("compact")
+            assert app._transcript_render_width == app.query_one("#transcript").size.width
+            assert tui._TERMINAL_CLEAR_SCREEN in clear_writes
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("→") == 1
+            assert "Ask anything" not in screen_text
+            assert screen_text.count("ctrl+o armory") == 1
+            assert screen_text.count("/help") <= 1
+
+    asyncio.run(check_resize_sequence())
+
+
+def test_compact_resize_keeps_layout_deterministic_and_focus_on_composer() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_compact_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app._append_user("Prompt that should reflow cleanly " * 8, mark_working=False)
+            await pilot.resize_terminal(82, 10)
+            await pilot.pause(0.1)
+
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+            assert app.query_one("#info-panel").styles.display == "none"
+            assert app._sidebar_width_visible is False
+            assert app.query_one("#completion-stack").has_class("compact")
+            assert app.query_one("#composer-frame").has_class("compact")
+            assert app.focused is app.query_one("#composer", tui.Input)
+
+            await pilot.resize_terminal(124, 18)
+            await pilot.pause(0.03)
+
+            assert app.query_one("#info-panel").styles.display == "block"
+            assert app._sidebar_width_visible is True
+            assert not app.query_one("#completion-stack").has_class("compact")
+            assert app.focused is app.query_one("#composer", tui.Input)
+
+    asyncio.run(check_compact_resize())
+
+
+def test_empty_composer_resize_keeps_single_placeholder_and_footer() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_empty_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            assert app.focused is app.query_one("#composer", tui.Input)
+
+            for width, height in ((84, 9), (132, 22), (76, 8), (140, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+            assert app.focused is app.query_one("#composer", tui.Input)
+            assert app.query_one("#info-panel").styles.display == "block"
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("→") == 1
+            assert screen_text.count(tui.COMPOSER_PLACEHOLDER) == 1
+            assert screen_text.count("ctrl+o armory") == 1
+            assert "/help" not in screen_text
+
+    asyncio.run(check_empty_resize())
+
+
+def test_resize_reflows_active_inline_menu_without_duplicate_composer() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_inline_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app._open_settings_flow()
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert app._inline_flow.active
+            assert suggestions.has_class("visible")
+
+            for width, height in ((86, 10), (132, 22), (78, 8), (126, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            assert app._inline_flow.active
+            assert suggestions.has_class("visible")
+            assert app.focused is app.query_one("#composer", tui.Input)
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("→") == 1
+            assert screen_text.count("Settings") <= 1
+
+    asyncio.run(check_inline_resize())
+
+
+def test_resize_preserves_materials_inline_focus_without_duplicate_chrome() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = tuple(f"materials/source-{index}.md" for index in range(8))
+    session.source_file_count = len(session.source_files)
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_materials_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app._open_materials_inline()
+            await pilot.pause()
+
+            focused_before_resize = app.focused
+            assert getattr(focused_before_resize, "id", None) == "materials-list"
+
+            for width, height in ((88, 10), (132, 22), (78, 8), (126, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            assert app._materials_inline_active
+            assert getattr(app.focused, "id", None) == "materials-list"
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+            assert app.query_one("#info-panel").styles.display == "none"
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("Filter materials...") == 1
+            assert screen_text.count("Materials") <= 1
+
+    asyncio.run(check_materials_resize())
+
+
+def test_resize_preserves_armory_inline_without_duplicate_chrome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    (tmp_path / "math").mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_armory_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app._open_armory_inline("manage")
+            await pilot.pause()
+
+            for width, height in ((86, 10), (132, 22), (78, 8), (126, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            assert app._armory_inline_active
+            assert app.focused is app.query_one("#composer", tui.Input)
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+            assert app.query_one("#info-panel").styles.display == "none"
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("Filter armory paths...") == 1
+            assert screen_text.count("ctrl+o armory") <= 1
+            assert tui.COMPOSER_PLACEHOLDER not in screen_text
+
+    asyncio.run(check_armory_resize())
+
+
+def test_resize_spam_coalesces_repair_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    original_set_timer = app.set_timer
+    resize_repair_delays: list[float] = []
+
+    class _PendingResizeTimer:
+        def stop(self) -> None:
+            return
+
+    def record_timer(
+        delay: float,
+        callback: Callable[[], object] | None = None,
+        *,
+        name: str | None = None,
+        pause: bool = False,
+    ):
+        if callback == app._finish_resize_refresh:
+            resize_repair_delays.append(delay)
+            return _PendingResizeTimer()
+        return original_set_timer(delay, callback, name=name, pause=pause)
+
+    monkeypatch.setattr(app, "set_timer", record_timer)
+
+    async def check_resize_spam() -> None:
+        sizes = (
+            (119, 24),
+            (118, 23),
+            (100, 18),
+            (82, 10),
+            (78, 8),
+            (90, 12),
+            (121, 20),
+            (130, 24),
+            (88, 9),
+            (126, 22),
+            (80, 8),
+            (140, 24),
+        )
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            for width, height in sizes:
+                await pilot.resize_terminal(width, height)
+
+            assert resize_repair_delays == [tui._RESIZE_REDRAW_DELAY_SECONDS]
+            app._resize_redraw.quiet_until = time.monotonic() - 1
+            app._finish_resize_refresh()
+            await pilot.pause(0.1)
+
+            assert app.query_one("#info-panel").styles.display == "block"
+            assert not app.query_one("#completion-stack").has_class("compact")
+            assert app.focused is app.query_one("#composer", tui.Input)
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("→") == 1
+            assert tui.COMPOSER_PLACEHOLDER in screen_text
+
+    asyncio.run(check_resize_spam())
+
+
+def test_busy_thinking_indicator_resize_has_no_duplicate_surface() -> None:
+    if tui.Input is None or tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_busy_resize() -> None:
+        async with typed_app.run_test(size=(130, 24)) as pilot:
+            app.busy = True
+            app._thinking_label = "thinking"
+            app._start_thinking_animation()
+            await pilot.pause(0.15)
+
+            for width, height in ((86, 10), (132, 22), (78, 8), (126, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause(0.03)
+
+            thinking = app.query_one("#thinking-indicator", tui.Static)
+            assert thinking.has_class("active")
+            assert app.focused is app.query_one("#composer", tui.Input)
+            assert list(app.query("#composer")) == [app.query_one("#composer")]
+
+            screen_text = _composited_screen_text(app)
+            assert screen_text.count("→") == 1
+            assert screen_text.count("thinking...") == 1
+            assert screen_text.count("esc stop") == 1
+            assert "ctrl+o armory" not in screen_text
+
+            app.busy = False
+            app._stop_thinking_animation()
+
+    asyncio.run(check_busy_resize())
+
+
+def test_tty_resize_poll_uses_actual_pty_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_terminal_size(fileno: int) -> os.terminal_size:
+        assert fileno == 77
+        return os.terminal_size((92, 10))
+
+    async def check_tty_resize_poll() -> None:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
+            assert app.query_one("#info-panel").styles.display == "block"
+            driver = app._driver
+            assert driver is not None
+            monkeypatch.setattr(driver, "fileno", 77, raising=False)
+            monkeypatch.setattr(os, "get_terminal_size", fake_terminal_size)
+
+            app._sync_terminal_size_from_tty()
+            await pilot.pause(0.1)
+
+            assert app.size.width == 92
+            assert app.size.height == 10
+            assert app.query_one("#info-panel").styles.display == "none"
+            assert app.query_one("#completion-stack").has_class("compact")
+
+    asyncio.run(check_tty_resize_poll())
+
+
+def test_tty_resize_reader_overrides_textual_shutil_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_terminal_size(fileno: int) -> os.terminal_size:
+        assert fileno == 88
+        return os.terminal_size((101, 12))
+
+    async def check_tty_reader() -> None:
+        async with typed_app.run_test(size=(160, 24)):
+            driver = app._driver
+            assert driver is not None
+            monkeypatch.setattr(driver, "fileno", 88, raising=False)
+            monkeypatch.setattr(os, "get_terminal_size", fake_terminal_size)
+
+            app._install_tty_resize_reader()
+
+            assert cast("_TerminalSizeReader", driver)._get_terminal_size() == (101, 12)
+
+    asyncio.run(check_tty_reader())
 
 
 def test_runtime_theme_switch_applies_light_background_and_dark_transparency() -> None:
@@ -3183,7 +3632,7 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
     asyncio.run(check_reflow())
 
 
-def test_resize_clears_transient_completion_menu() -> None:
+def test_resize_preserves_completion_menu_at_current_width() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3211,8 +3660,8 @@ def test_resize_clears_transient_completion_menu() -> None:
             await pilot.pause()
             await pilot.pause()
 
-            assert not suggestions.has_class("visible")
-            assert suggestions.option_count == 0
+            assert suggestions.has_class("visible")
+            assert suggestions.option_count > 0
             assert app.query_one("#composer", tui.Input) is composer
             assert getattr(app.focused, "id", None) == "composer"
 

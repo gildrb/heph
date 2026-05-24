@@ -45,6 +45,7 @@ _TRANSCRIPT_TAIL_TOLERANCE = 1
 _REPLY_TRANSCRIPT_HORIZONTAL_PADDING = 2
 _USER_TRANSCRIPT_HORIZONTAL_PADDING = 2
 _USER_TRANSCRIPT_VERTICAL_PADDING = 1
+_TRANSCRIPT_REFLOW_DELAY_SECONDS = 0.01
 
 _WidgetT = TypeVar("_WidgetT")
 
@@ -66,6 +67,7 @@ class _TranscriptHost(Protocol):
     _focused_msg_index: int | None
     _inline_flow: InlineFlow
     _transcript_reflow_pending: bool
+    _transcript_reflow_requested_while_pending: bool
     _transcript_render_width: int | None
     _side_panel_progress: str
 
@@ -80,6 +82,8 @@ class _TranscriptHost(Protocol):
     def set_timer(self, delay: float, callback: Callable[[], object]) -> object: ...
 
     def _refresh_completion_position(self) -> None: ...
+
+    def _schedule_transcript_reflow(self) -> None: ...
 
     def _run_scheduled_transcript_reflow(self) -> None: ...
 
@@ -388,16 +392,21 @@ class TuiTranscriptMixin:
 
     def _schedule_transcript_reflow(self: _TranscriptHost) -> None:
         if self._transcript_reflow_pending:
+            self._transcript_reflow_requested_while_pending = True
             return
         log = self._reflowable_transcript_log()
         if log is not None and self._transcript_render_width == log.size.width:
             return
         self._transcript_reflow_pending = True
-        self.set_timer(0.01, self._run_scheduled_transcript_reflow)
+        self.set_timer(_TRANSCRIPT_REFLOW_DELAY_SECONDS, self._run_scheduled_transcript_reflow)
 
     def _run_scheduled_transcript_reflow(self: _TranscriptHost) -> None:
         self._transcript_reflow_pending = False
         self._reflow_transcript_entries()
+        if self._transcript_reflow_requested_while_pending:
+            self._transcript_reflow_requested_while_pending = False
+            self._transcript_render_width = None
+            self._schedule_transcript_reflow()
 
     def _reflow_transcript_entries(self: _TranscriptHost) -> None:
         log = self._reflowable_transcript_log()

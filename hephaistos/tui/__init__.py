@@ -5,12 +5,13 @@ Imports stay lazy so test suites can exercise dependency errors cleanly.
 
 from __future__ import annotations
 
+import os
 import subprocess  # nosec B404
 import sys
 import threading
 import time
 from collections.abc import Callable
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
@@ -149,6 +150,7 @@ try:
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
     from textual.css.query import NoMatches
+    from textual.geometry import Size
     from textual.screen import Screen
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, RichLog, Static
@@ -162,6 +164,7 @@ except ImportError:
     App = object  # ty:ignore[invalid-assignment]
     ComposeResult = object  # ty:ignore[invalid-assignment]
     NoMatches = Exception  # ty:ignore[invalid-assignment]
+    Size = None  # ty:ignore[invalid-assignment]
     Horizontal = object  # ty:ignore[invalid-assignment]
     Vertical = object  # ty:ignore[invalid-assignment]
     Screen = object  # ty:ignore[invalid-assignment]
@@ -206,6 +209,26 @@ _slash_suggestion = slash_suggestion
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _COMPLETION_DESCRIPTION_GAP = 4
+_LIVE_RESIZE_POLL_SECONDS = 1 / 60
+_RESIZE_REDRAW_DELAY_SECONDS = 0.075
+_TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
+_RESIZE_SENSITIVE_SELECTORS = (
+    "#status",
+    TRANSCRIPT_SELECTOR,
+    "#transcript-spacer",
+    "#thinking-indicator",
+    "#armory-inline",
+    "#materials-inline",
+    COMPOSER_FRAME_SELECTOR,
+    f"#{COMPOSER_PROMPT_ID}",
+    COMPOSER_SELECTOR,
+    COMPLETION_STACK_SELECTOR,
+    SUGGESTIONS_SELECTOR,
+    f"#{COMPLETION_POSITION_ID}",
+    FOOTER_HINTS_SELECTOR,
+    INFO_PANEL_SELECTOR,
+)
+_RESIZE_MATERIALS_FOCUS_IDS = ("materials-list", "materials-list-right")
 # Textual owns mouse events so widgets can be clicked, while ALLOW_SELECT on
 # individual widgets keeps selection scoped to rendered text.
 _TUI_ENABLE_MOUSE = True
@@ -237,6 +260,51 @@ class _ManagedResendCommand:
     result: CommandResult
     output: str
     resend_input: str
+
+
+@dataclass(slots=True)
+class _ResizeRedrawState:
+    """Track terminal-size observations separately from completed repair frames."""
+
+    last_size: tuple[int, int] | None = None
+    refresh_pending: bool = False
+    changed_while_pending: bool = False
+    quiet_until: float | None = None
+    timer_running: bool = False
+
+    def note_size(self, size: tuple[int, int]) -> bool:
+        if self.last_size == size:
+            return False
+        if self.refresh_pending:
+            self.changed_while_pending = True
+        self.last_size = size
+        return True
+
+    def schedule_trailing_refresh(self, *, now: float, delay: float) -> bool:
+        self.quiet_until = now + delay
+        self.refresh_pending = True
+        if self.timer_running:
+            return False
+        self.timer_running = True
+        return True
+
+    def refresh_delay(self, *, now: float) -> float | None:
+        if self.quiet_until is None:
+            self.timer_running = False
+            self.refresh_pending = False
+            return None
+        remaining = self.quiet_until - now
+        if remaining > 0:
+            return remaining
+        return 0.0
+
+    def finish_trailing_refresh(self) -> bool:
+        changed_while_pending = self.changed_while_pending
+        self.quiet_until = None
+        self.timer_running = False
+        self.refresh_pending = False
+        self.changed_while_pending = False
+        return changed_while_pending
 
 
 def _managed_resend_output(captured_output: str, command_output: str | None) -> tuple[str, str]:
@@ -322,13 +390,15 @@ class HephTui(
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
         self._transcript_reflow_pending = False
+        self._transcript_reflow_requested_while_pending = False
         self._transcript_render_width: int | None = None
         self._render_cache = TuiRenderCache()
-        self._resize_refresh_pending = False
         self._suggestions_mouse_hovering = False
         self._completion_command_column_width = 22
         self._side_panel_progress = ""
         self._inline_flow = _InlineFlow()
+        self._resize_redraw = _ResizeRedrawState()
+        self._resize_redraw_timer: object | None = None
 
     def get_default_screen(self) -> Screen:
         return self._widgets.screen(id="_default")
@@ -385,12 +455,15 @@ class HephTui(
     def on_mount(self) -> None:
         self.title = "Heph"
         self.sub_title = "local document harness"
+        self._install_tty_resize_reader()
+        self._sync_terminal_size_from_tty()
         self._initialize_layout_visibility()
         self._replay_transcript()
         self._focus_composer()
         self._append_initial_cards()
         self._schedule_transcript_reflow()
         self._prefetch_model_catalogs()
+        self.set_interval(_LIVE_RESIZE_POLL_SECONDS, self._sync_terminal_size_from_tty)
         self.set_interval(1.0, self._tick_session_duration)
 
     def _initialize_layout_visibility(self) -> None:
@@ -456,16 +529,22 @@ class HephTui(
         self._handle_suggestions_mouse_move(event)
 
     def on_resize(self, event: events.Resize) -> None:
-        visible = event.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
+        self._handle_resize_dimensions(event.size.width, event.size.height)
+
+    def _handle_resize_dimensions(self, width: int, height: int) -> None:
+        size = (width, height)
+        if not self._resize_redraw.note_size(size):
+            return
+        visible = width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         target = visible and not self._armory_inline_active and not self._materials_inline_active
         self._set_sidebar_visible(target)
-        self._refresh_compact_layout_class()
+        self._refresh_compact_layout_class(height=height)
         self._invalidate_after_resize()
 
     def _invalidate_after_resize(self) -> None:
-        if self._completion_menu_visible() and not self._inline_flow.active:
-            self._hide_completions()
+        self._clear_terminal_viewport()
+        self._clear_resize_sensitive_widget_caches()
         self._render_cache.forget(*DirtyRegion)
         self._transcript_render_width = None
         self._refresh_status()
@@ -473,21 +552,126 @@ class HephTui(
         self._update_info_panel()
         self._schedule_transcript_reflow()
         self.refresh(repaint=True, layout=True)
-        if not self._resize_refresh_pending:
-            self._resize_refresh_pending = True
-            self.set_timer(0.05, self._finish_resize_refresh)
+        self._schedule_resize_refresh()
 
     def _finish_resize_refresh(self) -> None:
-        self._resize_refresh_pending = False
+        self._resize_redraw_timer = None
+        refresh_delay = self._resize_redraw.refresh_delay(now=time.monotonic())
+        if refresh_delay is None:
+            return
+        if refresh_delay > 0:
+            self._resize_redraw_timer = self.set_timer(
+                refresh_delay,
+                self._finish_resize_refresh,
+            )
+            return
+        self._resize_redraw.finish_trailing_refresh()
         if not self._core_widgets_available():
             return
+        self._clear_resize_sensitive_widget_caches()
         self._render_cache.forget(*DirtyRegion)
         self._transcript_render_width = None
         self._refresh_status()
         self._refresh_footer_hints()
         self._update_info_panel()
         self._schedule_transcript_reflow()
+        self._restore_focus_after_resize()
         self.refresh(repaint=True, layout=True)
+
+    def _schedule_resize_refresh(self) -> None:
+        should_start_timer = self._resize_redraw.schedule_trailing_refresh(
+            now=time.monotonic(),
+            delay=_RESIZE_REDRAW_DELAY_SECONDS,
+        )
+        if should_start_timer:
+            self._resize_redraw_timer = self.set_timer(
+                _RESIZE_REDRAW_DELAY_SECONDS,
+                self._finish_resize_refresh,
+            )
+
+    def _install_tty_resize_reader(self) -> None:
+        driver = getattr(self, "_driver", None)
+        fallback = getattr(driver, "_get_terminal_size", None)
+        if driver is None or not callable(fallback):
+            return
+
+        def get_terminal_size() -> tuple[int, int]:
+            terminal_size = self._terminal_size_from_tty()
+            if terminal_size is not None:
+                return terminal_size
+            return cast("Callable[[], tuple[int, int]]", fallback)()
+
+        driver._get_terminal_size = get_terminal_size
+
+    def _sync_terminal_size_from_tty(self) -> None:
+        terminal_size = self._terminal_size_from_tty()
+        if terminal_size is None or terminal_size == (self.size.width, self.size.height):
+            return
+
+        driver = getattr(self, "_driver", None)
+        if driver is not None:
+            with suppress(AttributeError):
+                driver._size = terminal_size
+        if Size is None:
+            return
+        width, height = terminal_size
+        resize_event = events.Resize(Size(width, height), Size(width, height))
+        self.post_message(resize_event)
+
+    def _terminal_size_from_tty(self) -> tuple[int, int] | None:
+        driver = getattr(self, "_driver", None)
+        fileno = getattr(driver, "fileno", None)
+        if not isinstance(fileno, int):
+            return None
+        try:
+            size = os.get_terminal_size(fileno)
+        except OSError:
+            return None
+        if size.columns <= 0 or size.lines <= 0:
+            return None
+        return size.columns, size.lines
+
+    def _clear_terminal_viewport(self) -> None:
+        driver = getattr(self, "_driver", None)
+        write = getattr(driver, "write", None)
+        flush = getattr(driver, "flush", None)
+        if not callable(write):
+            return
+        write(_TERMINAL_CLEAR_SCREEN)
+        if callable(flush):
+            flush()
+        self._force_full_screen_repaint()
+
+    def _force_full_screen_repaint(self) -> None:
+        self.screen.refresh(self.size.region, repaint=True, layout=True)
+
+    def _clear_resize_sensitive_widget_caches(self) -> None:
+        self.screen.clear_cached_dimensions()
+        self._force_full_screen_repaint()
+        for selector in _RESIZE_SENSITIVE_SELECTORS:
+            try:
+                widget = self.query_one(selector)
+            except NoMatches:
+                continue
+            widget.clear_cached_dimensions()
+            widget.refresh(repaint=True, layout=True)
+
+    def _restore_focus_after_resize(self) -> None:
+        if self._materials_inline_active:
+            focused_id = getattr(self.focused, "id", None)
+            if focused_id in _RESIZE_MATERIALS_FOCUS_IDS:
+                return
+            target = self._materials_focus_target_after_resize()
+            target.focus()
+            self.set_focus(target)
+            return
+        self._focus_composer()
+
+    def _materials_focus_target_after_resize(self) -> OptionList:
+        highlighted = self._materials_highlighted_index
+        if highlighted is not None and highlighted >= len(self._materials_columns[0]):
+            return self.query_one("#materials-list-right", OptionList)
+        return self.query_one("#materials-list", OptionList)
 
     def _core_widgets_available(self) -> bool:
         try:
@@ -523,10 +707,11 @@ class HephTui(
             except NoMatches:
                 self._render_cache.forget(region)
 
-    def _refresh_compact_layout_class(self) -> None:
+    def _refresh_compact_layout_class(self, *, height: int | None = None) -> None:
         stack = self.query_one(COMPLETION_STACK_SELECTOR)
         frame = self.query_one(COMPOSER_FRAME_SELECTOR)
-        if self.size.height <= _COMPACT_COMPLETION_STACK_MAX_HEIGHT:
+        layout_height = self.size.height if height is None else height
+        if layout_height <= _COMPACT_COMPLETION_STACK_MAX_HEIGHT:
             stack.add_class("compact")
             frame.add_class("compact")
         else:
