@@ -255,6 +255,39 @@ class TestExtractFromExchange:
         assert call_kwargs.kwargs["model"] == "cheap-extractor"
         assert config.model == "test-model"
 
+    def test_codex_subscription_uses_runtime_stream_path(self) -> None:
+        config = ChatConfig(
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.5",
+        )
+        config.apply_provider_reference("openai-codex", "")
+
+        with (
+            patch("hephaistos.memory.extract.build_client") as mock_build,
+            patch(
+                "hephaistos.memory.extract.stream_reply",
+                return_value=iter(
+                    [
+                        (
+                            '[{"topic":"answer style","content":"User prefers concise '
+                            'answers.","source":"conversation"}]'
+                        )
+                    ]
+                ),
+            ) as mock_stream,
+        ):
+            result = extract_from_exchange(config, "Prefer concise answers.", "Done.")
+
+        assert result == [
+            {
+                "topic": "answer style",
+                "content": "User prefers concise answers.",
+                "source": "conversation",
+            }
+        ]
+        mock_stream.assert_called_once()
+        mock_build.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # extract_and_store

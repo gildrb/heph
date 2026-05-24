@@ -222,6 +222,7 @@ HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
         "_no_matching_indexed_evidence_reply",
         "_overview_unavailable_reply",
         "_plain_empty_reply",
+        "_source_qa_abstain_reply",
         "empty_armory_guidance",
         "tui_dependency_message",
         "_unindexable_material_reply",
@@ -231,6 +232,45 @@ HARDCODED_ANSWER_MESSAGE: Final[str] = (
     "hardcoded assistant answer for non-deterministic chat is forbidden; use a "
     "model-facing prompt or an allowlisted harness fallback"
 )
+SEMANTIC_DISPATCH_MESSAGE: Final[str] = (
+    "semantic intent, follow-up, or source-relevance dispatch must not use regexes or "
+    "phrase tables; use serialized turn state and model-resolved intent"
+)
+SEMANTIC_DISPATCH_SCAN_ROOTS: Final[tuple[str, ...]] = (
+    "hephaistos/chat/",
+    "hephaistos/study/",
+)
+SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
+    {
+        "followup",
+        "follow",
+        "intent",
+        "keyword",
+        "phrase",
+        "relevance",
+        "semantic",
+    }
+)
+QUARANTINED_SEMANTIC_DISPATCH_NAMES: Final[dict[str, frozenset[str]]] = {
+    "hephaistos/chat/orchestrator.py": frozenset(
+        {
+            "_EXACT_PHRASE_AFTER_LABEL_RE",
+            "_INLINE_LEARNING_FOLLOWUP_SUFFIX_RE",
+            "_OVERVIEW_TOPIC_FRAGMENT_RE",
+            "_PLAN_INTENT_BY_ACTION",
+            "_PROMPT_USER_FOLLOWUP_RE",
+            "_QUOTED_PHRASE_RE",
+            "_UNSOLICITED_MENU_INTENT_RE",
+            "_UNSOLICITED_FOLLOWUP_SENTENCE_RE",
+            "_UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE",
+        }
+    ),
+    "hephaistos/study/priority.py": frozenset(
+        {
+            "_TOPIC_PHRASE_RE",
+        }
+    ),
+}
 GENERATED_CACHE_MESSAGE: Final[str] = (
     "generated Python cache files must not live inside repository source roots"
 )
@@ -534,6 +574,35 @@ class PolicyVisitor(ast.NodeVisitor):
 
         self.generic_visit(node)
 
+    def visit_Assign(self, node: ast.Assign) -> None:
+        target_names = tuple(
+            name for target in node.targets for name in _semantic_dispatch_target_names(target)
+        )
+        self._check_semantic_dispatch_assignment(node.value, target_names)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        target_names = tuple(_semantic_dispatch_target_names(node.target))
+        if node.value is not None:
+            self._check_semantic_dispatch_assignment(node.value, target_names)
+        self.generic_visit(node)
+
+    def _check_semantic_dispatch_assignment(
+        self,
+        value: ast.AST,
+        target_names: Sequence[str],
+    ) -> None:
+        if not self.rel_path.startswith(SEMANTIC_DISPATCH_SCAN_ROOTS):
+            return
+        for target_name in target_names:
+            if _semantic_dispatch_target_is_quarantined(self.rel_path, target_name):
+                continue
+            if _is_semantic_dispatch_regex(target_name, value) or (
+                _is_semantic_dispatch_phrase_table_name(target_name)
+                and _is_string_literal_container(value)
+            ):
+                self._add(value, SEMANTIC_DISPATCH_MESSAGE)
+
 
 @dataclass(frozen=True)
 class PromptRuleLiteral:
@@ -559,6 +628,45 @@ def _is_benchmark_only_module(module: str) -> bool:
 def _is_generated_or_benchmark_artifact_path(value: str) -> bool:
     normalized = value.replace("\\", "/")
     return any(marker in normalized for marker in RUNTIME_BENCHMARK_PATH_MARKERS)
+
+
+def _semantic_dispatch_target_names(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, ast.Attribute):
+        return (node.attr,)
+    if isinstance(node, ast.Tuple | ast.List):
+        return tuple(
+            name for element in node.elts for name in _semantic_dispatch_target_names(element)
+        )
+    return ()
+
+
+def _semantic_dispatch_target_is_quarantined(rel_path: str, target_name: str) -> bool:
+    return target_name in QUARANTINED_SEMANTIC_DISPATCH_NAMES.get(rel_path, frozenset())
+
+
+def _is_semantic_dispatch_regex(target_name: str, value: ast.AST) -> bool:
+    if not _is_semantic_dispatch_phrase_table_name(target_name):
+        return False
+    return (
+        isinstance(value, ast.Call)
+        and _dotted_name(value.func) == "re.compile"
+        and bool(value.args)
+    )
+
+
+def _is_semantic_dispatch_phrase_table_name(target_name: str) -> bool:
+    normalized = target_name.strip("_").casefold()
+    parts = frozenset(part for part in normalized.split("_") if part)
+    return bool(parts & SEMANTIC_DISPATCH_TARGET_PARTS)
+
+
+def _is_string_literal_container(node: ast.AST) -> bool:
+    return isinstance(node, ast.Dict | ast.Set | ast.List | ast.Tuple) and any(
+        isinstance(child, ast.Constant) and isinstance(child.value, str)
+        for child in ast.walk(node)
+    )
 
 
 def _check_source(source: str, rel_path: str, *, filename: str | None = None) -> list[Violation]:

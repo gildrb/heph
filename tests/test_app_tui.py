@@ -228,6 +228,18 @@ def test_shift_tab_replaces_reasoning_notice(monkeypatch: pytest.MonkeyPatch) ->
     asyncio.run(check_reasoning_notice_replacement())
 
 
+def test_render_cache_skips_unchanged_region_updates() -> None:
+    cache = tui.TuiRenderCache()
+
+    assert cache.should_update(tui.DirtyRegion.STATUS, "ready")
+    assert not cache.should_update(tui.DirtyRegion.STATUS, "ready")
+
+    cache.mark(tui.DirtyRegion.STATUS)
+
+    assert cache.should_update(tui.DirtyRegion.STATUS, "ready")
+    assert not cache.should_update(tui.DirtyRegion.STATUS, "ready")
+
+
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
@@ -336,7 +348,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 
     labelled_texts = (
         (tui._status_text(session), ("armory", "model")),
-        (tui._info_panel_default_text(session), ("materials", "time", "next")),
+        (tui._info_panel_default_text(session), ("scope", "time", "grounding")),
         (
             tui._footer_hints_text(session),
             ("enter", "tab", "ctrl+p", "ctrl+o", "ctrl+c", "ctrl+d"),
@@ -437,11 +449,11 @@ def test_dark_routine_labels_use_neutral_emphasis() -> None:
             for span in hints.spans
             if span.start <= shortcut_start and span.end >= shortcut_start + len("ctrl+p")
         ]
-        title_start = panel.plain.index("Session")
+        title_start = panel.plain.index("Grounding")
         title_styles = [
             str(span.style)
             for span in panel.spans
-            if span.start <= title_start and span.end >= title_start + len("Session")
+            if span.start <= title_start and span.end >= title_start + len("Grounding")
         ]
 
         assert reasoning_styles == [palette.text_secondary]
@@ -773,9 +785,7 @@ def test_mouse_selection_skips_info_panel_leading_indentation() -> None:
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
     plus_line = next(index for index, line in enumerate(panel_lines) if "+1 more" in line)
-    exam_line = next(
-        index for index, line in enumerate(panel_lines) if "/exam active recall" in line
-    )
+    grounding_line = next(index for index, line in enumerate(panel_lines) if "grounding" in line)
     typed_app = cast("TextualApp[None]", app)
 
     async def check_indentation_selection() -> None:
@@ -783,7 +793,7 @@ def test_mouse_selection_skips_info_panel_leading_indentation() -> None:
             await pilot.pause()
             panel = app.query_one("#info-panel", tui.Static)
 
-            for line_y, end_x in ((plus_line, 12), (exam_line, 25)):
+            for line_y, end_x in ((plus_line, 12), (grounding_line, 14)):
                 await pilot.mouse_down("#info-panel", offset=(4, line_y))
                 await pilot.hover("#info-panel", offset=(end_x, line_y))
                 await pilot.pause()
@@ -1312,7 +1322,7 @@ def test_composer_text_is_inset_inside_full_width_chatbox() -> None:
             assert frame.region.x == 0
             assert frame.region.width == 80
             assert prompt.region.x == frame.region.x
-            assert str(prompt.render()) == "▸"
+            assert str(prompt.render()) == "→"
             assert composer.region.x == frame.region.x + 2
 
     asyncio.run(check_composer_inset())
@@ -1727,15 +1737,15 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     )
 
     lines = panel.plain.splitlines()
-    assert lines[0].startswith("  Session")
+    assert lines[0].startswith("  Grounding")
     assert lines[1].startswith("  time 2m 05s")
     assert "\u2500" not in panel.plain
     assert all(line.startswith("  ") for line in lines if line)
     assert "time 2m 05s" in panel.plain
-    assert "materials" in panel.plain
-    assert "/exam active recall" in panel.plain
-    assert "/priority plan focus" in panel.plain
-    assert "/remind due review" in panel.plain
+    assert "scope" in panel.plain
+    assert "2/2 materials active" in panel.plain
+    assert "grounding" in panel.plain
+    assert "no evidence used yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
     assert "☑" not in panel.plain
@@ -1743,7 +1753,6 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     assert "..." not in panel.plain
     assert "model" not in panel.plain
     assert "armory" not in panel.plain
-    assert "evidence" not in panel.plain
 
 
 def test_info_panel_message_text_is_indented_from_sidebar_edge() -> None:
@@ -3171,6 +3180,42 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
             assert widest_after < widest_before
 
     asyncio.run(check_reflow())
+
+
+def test_resize_clears_transient_completion_menu() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_resize_completion_cleanup() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+
+            composer.value = "/"
+            composer.cursor_position = 1
+            app._refresh_completions()
+            await pilot.pause()
+
+            assert suggestions.has_class("visible")
+            assert suggestions.option_count > 0
+
+            await pilot.resize_terminal(100, 18)
+            await pilot.pause()
+            await pilot.pause()
+
+            assert not suggestions.has_class("visible")
+            assert suggestions.option_count == 0
+            assert app.query_one("#composer", tui.Input) is composer
+            assert getattr(app.focused, "id", None) == "composer"
+
+    asyncio.run(check_resize_completion_cleanup())
 
 
 def test_transcript_scrolls_to_latest_entry_after_long_output() -> None:
@@ -4610,6 +4655,50 @@ def test_command_completion_selected_text_uses_white_for_whole_active_row() -> N
             assert not any("bold" in style.lower() for style in unselected_styles)
 
     asyncio.run(check_completion_styles())
+
+
+def test_command_completion_column_tracks_visible_commands() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_completion_width() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/"
+            composer.cursor_position = len("/")
+            app.completion_candidates = [
+                tui.CompletionCandidate(text=f"{name} ", description=description, start_position=0)
+                for name, description in (
+                    ("help", "Show available commands"),
+                    ("exit", "Leave Heph"),
+                    ("login", "Authenticate"),
+                    ("logout", "Clear credentials"),
+                    ("status", "Show status"),
+                    ("new", "Start a new chat"),
+                    ("armory", "Browse armories"),
+                    ("much-longer-command", "Visible after scrolling"),
+                )
+            ]
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            app._set_completion_options(highlighted=0)
+            first_visible = suggestions.get_option_at_index(0).prompt
+            assert str(first_visible).startswith("/help      Show available commands")
+
+            app._set_completion_options(highlighted=7)
+            scrolled_visible = suggestions.get_option_at_index(0).prompt
+            assert str(scrolled_visible).startswith(
+                "/help                   Show available commands"
+            )
+
+    asyncio.run(check_completion_width())
 
 
 def test_busy_footer_keeps_exit_hint_with_completion_menu_visible() -> None:

@@ -121,6 +121,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     ),
     "HEPHAISTOS_RERANK_MODEL": "Override the reranker model when available.",
     "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
+    "HEPHAISTOS_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
@@ -459,7 +460,11 @@ def render_home_footer(*, docs_index: bool) -> str:
             " conventions.\n"
             "- Read the [runbooks](runbooks/index.md) for operational debugging.\n"
         )
-    return "## License\n\nThis project is licensed under the [MIT License](LICENSE).\n"
+    return (
+        "## License\n\n"
+        "This project is licensed under the "
+        "[GNU General Public License v3.0 only](LICENSE).\n"
+    )
 
 
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:

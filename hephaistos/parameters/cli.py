@@ -51,6 +51,7 @@ def _apply_toml_defaults(config: ChatConfig) -> None:
     if model_id := toml.get("model_id"):
         config.model = model_id
     _apply_int_override(config, "max_tokens", toml.get("max_tokens"))
+    _apply_float_override(config, "temperature", toml.get("temperature"))
 
 
 def _apply_provider_config(config: ChatConfig) -> None:
@@ -81,6 +82,7 @@ def _apply_mapping_overrides(config: ChatConfig, values: Mapping[str, str]) -> N
         config.model = model
     _apply_int_override(config, "max_tokens", values.get("max_tokens"))
     _apply_int_override(config, "rag_context_budget", values.get("rag_context_budget"))
+    _apply_float_override(config, "temperature", values.get("temperature"))
     if feature_flags := values.get("feature_flags"):
         config.feature_flags = settings_store.parse_feature_flags(feature_flags)
 
@@ -93,6 +95,15 @@ def _apply_int_override(config: ChatConfig, field_name: str, value: str | None) 
                 config.max_tokens = parsed
             elif field_name == "rag_context_budget":
                 config.rag_context_budget = parsed
+
+
+def _apply_float_override(config: ChatConfig, field_name: str, value: str | None) -> None:
+    if value is None:
+        return
+    with contextlib.suppress(ValueError):
+        parsed = float(value)
+        if field_name == "temperature":
+            config.temperature = min(2.0, max(0.0, parsed))
 
 
 def _env_overrides() -> dict[str, str]:
@@ -111,6 +122,7 @@ _CONFIG_KEY_TO_ENV = {
     "model": "HEPHAISTOS_MODEL",
     "max_tokens": "HEPHAISTOS_MAX_TOKENS",
     "rag_context_budget": "HEPHAISTOS_RAG_CONTEXT_BUDGET",
+    "temperature": "HEPHAISTOS_TEMPERATURE",
     "feature_flags": "HEPHAISTOS_FEATURE_FLAGS",
     "theme": "",
     "default_armory_path": "",
@@ -125,6 +137,7 @@ _SETTING_DESCRIPTIONS = {
     "model": "Model identifier",
     "max_tokens": "Maximum response tokens",
     "rag_context_budget": "Retrieval context token budget",
+    "temperature": "Model sampling temperature",
     "feature_flags": "Comma-separated feature flags",
     "theme": "TUI theme preset",
     "default_armory_path": "Startup armory fallback path",
@@ -178,6 +191,7 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  model: {config.model or '(not set)'}")
     print(f"  max_tokens: {config.max_tokens}")
     print(f"  rag_context_budget: {config.rag_context_budget}")
+    print(f"  temperature: {config.temperature}")
     flags = ", ".join(sorted(config.feature_flags)) if config.feature_flags else "(none)"
     print(f"  feature_flags: {flags}")
     print(f"  theme: {_effective_setting_value('theme')}")
@@ -245,7 +259,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         "key",
         help=(
             "Config key "
-            "(base_url, model, max_tokens, rag_context_budget, feature_flags, theme, "
+            "(base_url, model, max_tokens, rag_context_budget, temperature, feature_flags, theme, "
             "default_armory_path, analytics_enabled, crash_reports_enabled)."
         ),
     )

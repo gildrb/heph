@@ -921,6 +921,19 @@ def test_plan_turn_passes_explicit_driven_intent_to_policy() -> None:
     assert "Practice goal: material review" in plan.prompt
 
 
+def test_material_answer_turns_skip_learning_policy_scaffold() -> None:
+    plan = plan_turn(
+        LearningState(phase=LearningPhase.WAITING_FOR_READY, current_item="compactness"),
+        "Explain the cited source",
+        intent="topic_presentation",
+    )
+
+    assert plan.action is LearningAction.PRESENT
+    assert plan.learning_move is None
+    assert "Learning policy" not in plan.prompt
+    assert "confidence" not in plan.prompt.casefold()
+
+
 @pytest.mark.parametrize(
     ("intent", "expected"),
     [
@@ -1009,6 +1022,15 @@ def test_public_plan_builders_emit_expected_action_and_prompt(
 ) -> None:
     assert builder_plan.action is expected_action
     assert expected_prompt in builder_plan.prompt
+
+
+def test_material_overview_prompt_shapes_answer_before_validation() -> None:
+    plan = material_overview_plan("What is in the files?")
+
+    assert "Shape the final answer before sending it" in plan.prompt
+    assert "Prefer a valid compact synthesis over refusing when evidence is present" in plan.prompt
+    assert "title pages, logistics, and boilerplate" in plan.prompt
+    assert "rewrite it internally" in plan.prompt
 
 
 def test_topic_drill_exam_builder_hides_answer_key() -> None:

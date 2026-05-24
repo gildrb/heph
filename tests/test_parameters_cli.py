@@ -22,6 +22,7 @@ def test_config_show_uses_registered_handler(
             model="test-model",
             max_tokens=1234,
             rag_context_budget=4321,
+            temperature=0.2,
         ),
     )
     monkeypatch.setattr(
@@ -44,6 +45,7 @@ def test_config_show_uses_registered_handler(
     assert "model: test-model" in out
     assert "max_tokens: 1234" in out
     assert "rag_context_budget: 4321" in out
+    assert "temperature: 0.2" in out
     assert "theme: dark" in out
     assert "analytics_enabled: false [unavailable]" in out
 
@@ -68,6 +70,7 @@ def test_load_config_precedence(
                 'base_url = "https://defaults.example/v1"',
                 'model_id = "default-model"',
                 "max_tokens = 1000",
+                "temperature = 0.4",
             ]
         )
         + "\n",
@@ -81,6 +84,7 @@ def test_load_config_precedence(
                 "model": "user-model",
                 "max_tokens": "2000",
                 "rag_context_budget": "3000",
+                "temperature": "0.3",
             }
         ),
         encoding="utf-8",
@@ -100,6 +104,7 @@ def test_load_config_precedence(
     monkeypatch.setenv("HEPHAISTOS_MODEL", "env-model")
     monkeypatch.setenv("HEPHAISTOS_MAX_TOKENS", "4000")
     monkeypatch.setenv("HEPHAISTOS_RAG_CONTEXT_BUDGET", "5000")
+    monkeypatch.setenv("HEPHAISTOS_TEMPERATURE", "0")
 
     config = params_cli.load_config()
 
@@ -107,6 +112,7 @@ def test_load_config_precedence(
     assert config.model == "env-model"
     assert config.max_tokens == 4000
     assert config.rag_context_budget == 5000
+    assert config.temperature == 0.0
 
 
 def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
@@ -114,7 +120,7 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
 ) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text(
-        json.dumps({"model": "user-model", "rag_context_budget": "2500"}),
+        json.dumps({"model": "user-model", "rag_context_budget": "2500", "temperature": "0.1"}),
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -130,6 +136,7 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
 
     assert config.model == "user-model"
     assert config.rag_context_budget == 2500
+    assert config.temperature == 0.1
 
 
 def test_parse_toml_simple_handles_comments_and_literals(
@@ -262,6 +269,17 @@ def test_config_set_feature_flags_persists(
     assert "Set feature_flags = alpha,beta" in out
     data = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
     assert data["feature_flags"] == "alpha,beta"
+
+
+def test_config_set_temperature_persists_float(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "temperature", "0.25"])
+
+    out = capsys.readouterr().out
+    assert "Set temperature = 0.25" in out
+    data = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert data["temperature"] == 0.25
 
 
 def test_config_show_displays_feature_flags(

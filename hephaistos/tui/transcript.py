@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from hephaistos.terminal import current_palette
 from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.render_state import DirtyRegion
 from hephaistos.tui.rich_transcript import (
     enrich_reply,
     evidence_citation_spans,
@@ -65,6 +66,8 @@ class _TranscriptHost(Protocol):
     _focused_msg_index: int | None
     _inline_flow: InlineFlow
     _transcript_reflow_pending: bool
+    _transcript_render_width: int | None
+    _side_panel_progress: str
 
     @property
     def abort_event(self) -> _Clearable: ...
@@ -144,6 +147,14 @@ class _TranscriptHost(Protocol):
     def _update_materials_sidebar(self) -> None: ...
 
     def _tui_session_seconds(self) -> int: ...
+
+    def _update_static_region(
+        self,
+        selector: str,
+        widget_type: type[Static],
+        region: DirtyRegion,
+        renderable: object,
+    ) -> None: ...
 
 
 def _combined_segment_style(
@@ -378,6 +389,9 @@ class TuiTranscriptMixin:
     def _schedule_transcript_reflow(self: _TranscriptHost) -> None:
         if self._transcript_reflow_pending:
             return
+        log = self._reflowable_transcript_log()
+        if log is not None and self._transcript_render_width == log.size.width:
+            return
         self._transcript_reflow_pending = True
         self.set_timer(0.01, self._run_scheduled_transcript_reflow)
 
@@ -389,6 +403,7 @@ class TuiTranscriptMixin:
         log = self._reflowable_transcript_log()
         if log is None:
             return
+        self._transcript_render_width = log.size.width
         log.clear()
         for index, entry in enumerate(self.state.transcript):
             if index > 0:
@@ -497,6 +512,7 @@ class TuiTranscriptMixin:
         entry_content = normalize_math_output(content) if kind == "markdown" else content
         entry = TuiTranscriptEntry(entry_content, kind)
         self.state.transcript.append(entry)
+        self._transcript_render_width = self.query_one("#transcript", RichLog).size.width
         self._write_transcript_entry(entry)
 
     def _append_plain(self: _TranscriptHost, text: str) -> None:
@@ -518,6 +534,7 @@ class TuiTranscriptMixin:
         if self.state.transcript:
             self._write_transcript_gap()
         self.state.transcript.append(entry)
+        self._transcript_render_width = self.query_one("#transcript", RichLog).size.width
         self._write_transcript_entry(entry)
 
     def _append_notice(self: _TranscriptHost, text: str) -> None:
@@ -542,6 +559,7 @@ class TuiTranscriptMixin:
         self.busy = False
         self.abort_event.clear()
         self._thinking_label = "thinking"
+        self._side_panel_progress = ""
         self._stop_thinking_animation()
         self._refresh_status()
         self._refresh_footer_hints()
@@ -549,26 +567,37 @@ class TuiTranscriptMixin:
         self._update_info_panel()
 
     def _refresh_status(self: _TranscriptHost) -> None:
-        status = self.query_one("#status", Static)
         tui_module = sys.modules["hephaistos.tui"]
-        status.update(tui_module._status_text(self.session))
+        self._update_static_region(
+            "#status",
+            Static,
+            DirtyRegion.STATUS,
+            tui_module._status_text(self.session),
+        )
 
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
         self._refresh_completion_position()
-        hints = self.query_one("#footer-hints", Static)
         tui_module = sys.modules["hephaistos.tui"]
         if self._armory_inline_active:
-            hints.update(
+            self._update_static_region(
+                "#footer-hints",
+                Static,
+                DirtyRegion.FOOTER,
                 tui_module._armory_footer_hints_text(
                     creating=self._armory_creating,
                     filtering=bool(self._armory_filter),
-                )
+                ),
             )
             return
         if self._materials_inline_active:
-            hints.update("")
+            self._update_static_region("#footer-hints", Static, DirtyRegion.FOOTER, "")
             return
-        hints.update(tui_module._footer_hints_text(self.session, busy=self.busy))
+        self._update_static_region(
+            "#footer-hints",
+            Static,
+            DirtyRegion.FOOTER,
+            tui_module._footer_hints_text(self.session, busy=self.busy),
+        )
 
     def _focus_message(self: _TranscriptHost, direction: int) -> None:
         """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
@@ -582,9 +611,13 @@ class TuiTranscriptMixin:
                 0, min(len(entries) - 1, self._focused_msg_index + direction)
             )
         entry = entries[self._focused_msg_index]
-        panel = self.query_one("#info-panel", Static)
         tui_module = sys.modules["hephaistos.tui"]
-        panel.update(tui_module._info_panel_message_text(entry, self.session))
+        self._update_static_region(
+            "#info-panel",
+            Static,
+            DirtyRegion.SIDE_PANEL,
+            tui_module._info_panel_message_text(entry, self.session),
+        )
 
     def _update_info_panel(self: _TranscriptHost) -> None:
         """Refresh the info panel to reflect current state."""
@@ -601,11 +634,16 @@ class TuiTranscriptMixin:
         if self._update_focused_info_panel(panel):
             return
         tui_module = sys.modules["hephaistos.tui"]
-        panel.update(
+        self._update_static_region(
+            "#info-panel",
+            Static,
+            DirtyRegion.SIDE_PANEL,
             tui_module._info_panel_default_text(
                 self.session,
                 session_seconds=self._tui_session_seconds(),
-            )
+                busy=self.busy,
+                progress=self._side_panel_progress,
+            ),
         )
 
     def _update_focused_info_panel(self: _TranscriptHost, panel: Static) -> bool:
@@ -614,10 +652,13 @@ class TuiTranscriptMixin:
         entries = _focusable_transcript_entries(self.state.transcript)
         if self._focused_msg_index >= len(entries):
             return False
-        panel.update(
+        self._update_static_region(
+            "#info-panel",
+            Static,
+            DirtyRegion.SIDE_PANEL,
             sys.modules["hephaistos.tui"]._info_panel_message_text(
                 entries[self._focused_msg_index],
                 self.session,
-            )
+            ),
         )
         return True

@@ -439,6 +439,37 @@ def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
     assert "hardcoded assistant answer" in rendered
 
 
+def test_repo_policy_rejects_semantic_followup_regex_dispatch() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import re",
+                '_WHAT_ELSE_FOLLOWUP_RE = re.compile(r"what else|go on")',
+            )
+        ),
+        "hephaistos/chat/orchestrator.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "semantic intent, follow-up, or source-relevance dispatch" in rendered
+
+
+def test_repo_policy_rejects_semantic_phrase_tables() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                'FOLLOWUP_PHRASES = {"what else": "reuse_prior_evidence"}',
+            )
+        ),
+        "hephaistos/study/controller.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "semantic intent, follow-up, or source-relevance dispatch" in rendered
+
+
 def test_repo_policy_rejects_configured_private_corpus_terms_outside_tests() -> None:
     violations = check_repo_policies._private_corpus_identifier_hits(
         "hephaistos/chat/orchestrator.py",

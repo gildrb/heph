@@ -32,7 +32,10 @@ _LATEX_COMMAND_REPLACEMENTS = {
     r"\!": "",
 }
 _MARKDOWN_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]+`", re.DOTALL)
+_MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r":?-{3,}:?")
 _MAX_VISIBLE_SOURCE_ITEMS = 3
+_READABLE_TABLE_WIDTH = 92
+_READABLE_TABLE_CELL_WIDTH = 48
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +87,119 @@ def normalize_math_output(text: str) -> str:
     return "".join(pieces)
 
 
+def normalize_markdown_tables(text: str) -> str:
+    """Convert wide markdown tables into stacked rows for narrow transcript panes."""
+    pieces: list[str] = []
+    last_end = 0
+    for match in _MARKDOWN_CODE_RE.finditer(text):
+        pieces.append(_normalize_markdown_tables_segment(text[last_end : match.start()]))
+        pieces.append(match.group(0))
+        last_end = match.end()
+    pieces.append(_normalize_markdown_tables_segment(text[last_end:]))
+    return "".join(pieces)
+
+
+def _normalize_markdown_tables_segment(text: str) -> str:
+    lines = text.splitlines()
+    if not lines:
+        return text
+    rendered: list[str] = []
+    index = 0
+    while index < len(lines):
+        table_end = _table_block_end(lines, index)
+        if table_end is None:
+            rendered.append(lines[index])
+            index += 1
+            continue
+        table_lines = lines[index:table_end]
+        rendered.extend(_render_readable_table(table_lines))
+        index = table_end
+    return _restore_trailing_newline(text, "\n".join(rendered))
+
+
+def _table_block_end(lines: list[str], start: int) -> int | None:
+    if start + 1 >= len(lines):
+        return None
+    header = _split_table_row(lines[start])
+    separator = _split_table_row(lines[start + 1])
+    if not header or not _is_table_separator(separator) or len(header) != len(separator):
+        return None
+    end = start + 2
+    while end < len(lines):
+        cells = _split_table_row(lines[end])
+        if not cells:
+            break
+        end += 1
+    return end if end > start + 2 else None
+
+
+def _split_table_row(line: str) -> tuple[str, ...]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|") or stripped.count("|") < 2:
+        return ()
+    return tuple(cell.strip() for cell in stripped.strip("|").split("|"))
+
+
+def _is_table_separator(cells: tuple[str, ...]) -> bool:
+    return bool(cells) and all(
+        bool(_MARKDOWN_TABLE_SEPARATOR_RE.fullmatch(cell.replace(" ", ""))) for cell in cells
+    )
+
+
+def _render_readable_table(table_lines: list[str]) -> list[str]:
+    headers = _split_table_row(table_lines[0])
+    rows = [_split_table_row(line) for line in table_lines[2:]]
+    if not _table_is_wide(headers, rows):
+        return table_lines
+    rendered: list[str] = []
+    for row_number, row in enumerate(rows, start=1):
+        rendered.extend(_render_table_record(headers, row, row_number=row_number))
+    return rendered
+
+
+def _table_is_wide(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> bool:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row[: len(widths)]):
+            widths[index] = max(widths[index], len(cell))
+    estimated_width = sum(widths) + (3 * max(0, len(widths) - 1))
+    return estimated_width > _READABLE_TABLE_WIDTH or any(
+        len(cell) > _READABLE_TABLE_CELL_WIDTH for row in rows for cell in row
+    )
+
+
+def _render_table_record(
+    headers: tuple[str, ...],
+    row: tuple[str, ...],
+    *,
+    row_number: int,
+) -> list[str]:
+    cells = _normalized_table_cells(headers, row)
+    title_header, title_value = cells[0]
+    title_label = title_header or f"Row {row_number}"
+    title = title_value or f"Row {row_number}"
+    lines = [f"- **{title_label}:** {title}"]
+    for header, value in cells[1:]:
+        label = header or "Value"
+        lines.append(f"  - **{label}:** {value or 'not specified'}")
+    return lines
+
+
+def _normalized_table_cells(
+    headers: tuple[str, ...],
+    row: tuple[str, ...],
+) -> tuple[tuple[str, str], ...]:
+    cells: list[tuple[str, str]] = []
+    for index, header in enumerate(headers):
+        value = row[index] if index < len(row) else ""
+        cells.append((header, value))
+    return tuple(cells)
+
+
+def _restore_trailing_newline(original: str, rendered: str) -> str:
+    return f"{rendered}\n" if original.endswith("\n") else rendered
+
+
 def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
     if not evidence.items:
         return ""
@@ -133,7 +249,7 @@ def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:
     Replaces plain [E1] citations with styled badge markup and appends
     an evidence panel below the reply.
     """
-    enriched = normalize_math_output(text)
+    enriched = normalize_markdown_tables(normalize_math_output(text))
     if not evidence or not evidence.items:
         return EnrichedReply(markdown_text=enriched, evidence=evidence)
 

@@ -19,6 +19,7 @@ from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.events import TurnEvent, render_turn_event
 from hephaistos.chat.titles import derive_title as _derive_title
+from hephaistos.chat.turn_contract import TurnContract
 from hephaistos.chat.usage import SessionUsage
 from hephaistos.diagnostics.crashes import set_session_context
 from hephaistos.diagnostics.events import capture as capture_analytics
@@ -59,6 +60,7 @@ class ChatSession:
     live_cost_visible: bool = False
     last_turn_evidence: TurnEvidence | None = None
     last_plan_intent: str = ""
+    last_turn_contract: TurnContract | None = None
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     _tool_registry: ToolRegistry = field(
@@ -364,6 +366,9 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_files=tuple(context.source_files),
         learning_state=LearningState.from_dict(_session_learning_state_payload(metadata)),
         disabled_source_files=context.disabled_source_files,
+        last_plan_intent=_metadata_string(metadata, "last_plan_intent"),
+        last_turn_contract=TurnContract.from_dict(metadata.get("last_turn_contract")),
+        last_turn_evidence=TurnEvidence.from_dict(metadata.get("last_turn_evidence")),
         started_at=started_at,
         resumed_at=now,
         last_activity_at=now,
@@ -414,6 +419,11 @@ def _metadata_datetime(metadata: Mapping[str, object], key: str) -> datetime | N
         parsed = datetime.fromisoformat(value)
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
     return None
+
+
+def _metadata_string(metadata: Mapping[str, object], key: str) -> str:
+    value = metadata.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _session_learning_state_payload(metadata: Mapping[str, object]) -> object:
@@ -507,6 +517,13 @@ def save_session(session: ChatSession) -> Path:
         metadata={
             "learning_state": session.learning_state.to_dict(),
             "disabled_source_files": sorted(session.disabled_source_files),
+            "last_plan_intent": session.last_plan_intent,
+            "last_turn_contract": (
+                session.last_turn_contract.to_dict() if session.last_turn_contract else {}
+            ),
+            "last_turn_evidence": (
+                session.last_turn_evidence.to_dict() if session.last_turn_evidence else {}
+            ),
             "started_at": session.started_at.isoformat(),
             "last_activity_at": session.last_activity_at.isoformat(),
         },

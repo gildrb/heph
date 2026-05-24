@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 try:
@@ -14,6 +15,7 @@ else:
     except Exception:
         _encoder = None
 
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.retrieve import ScoredChunk
 
@@ -72,6 +74,28 @@ class TurnEvidence:
             )
             rendered_items.append(f"{header}\n{item.content}")
         return _EVIDENCE_PROMPT_PREFIX + "\n\n".join(rendered_items)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "items": [_evidence_chunk_to_dict(item) for item in self.items],
+            "sampled_source_count": self.sampled_source_count,
+            "total_source_count": self.total_source_count,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: object) -> TurnEvidence | None:
+        if not is_string_mapping(payload):
+            return None
+        items = tuple(
+            item
+            for raw_item in _payload_object_list(payload, "items")
+            if (item := _evidence_chunk_from_dict(raw_item)) is not None
+        )
+        return cls(
+            items=items,
+            sampled_source_count=_payload_int(payload, "sampled_source_count"),
+            total_source_count=_payload_int(payload, "total_source_count"),
+        )
 
 
 def build_turn_evidence(
@@ -150,6 +174,80 @@ def _prioritize_distinct_sources(scored_chunks: list[ScoredChunk]) -> list[Score
             tail.append(scored_chunk)
 
     return [*source_head, *tail]
+
+
+def _evidence_chunk_to_dict(item: EvidenceChunk) -> dict[str, object]:
+    chunk = item.chunk
+    return {
+        "evidence_id": item.evidence_id,
+        "score": item.score,
+        "content": item.content,
+        "chunk": {
+            "text": chunk.text,
+            "source": chunk.source,
+            "index": chunk.index,
+            "char_start": chunk.char_start,
+            "char_end": chunk.char_end,
+            "heading": chunk.heading,
+            "heading_level": chunk.heading_level,
+        },
+    }
+
+
+def _evidence_chunk_from_dict(payload: object) -> EvidenceChunk | None:
+    if not is_string_mapping(payload):
+        return None
+    raw_chunk = payload.get("chunk")
+    if not is_string_mapping(raw_chunk):
+        return None
+    evidence_id = _payload_string(payload, "evidence_id").upper()
+    content = _payload_string(payload, "content")
+    source = _payload_string(raw_chunk, "source")
+    if not evidence_id or not content or not source:
+        return None
+    chunk = Chunk(
+        text=_payload_string(raw_chunk, "text"),
+        source=source,
+        index=_payload_int(raw_chunk, "index"),
+        char_start=_payload_int(raw_chunk, "char_start"),
+        char_end=_payload_int(raw_chunk, "char_end"),
+        heading=_payload_string(raw_chunk, "heading"),
+        heading_level=_payload_int(raw_chunk, "heading_level"),
+    )
+    return EvidenceChunk(
+        evidence_id=evidence_id,
+        chunk=chunk,
+        score=_payload_float(payload, "score"),
+        content=content,
+    )
+
+
+def _payload_string(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _payload_int(payload: Mapping[str, object], key: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    return 0
+
+
+def _payload_float(payload: Mapping[str, object], key: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+def _payload_object_list(payload: Mapping[str, object], key: str) -> list[object]:
+    value = payload.get(key)
+    return value if is_object_list(value) else []
 
 
 def build_context(

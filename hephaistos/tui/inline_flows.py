@@ -47,6 +47,7 @@ from hephaistos.providers.keyring_store import (
 from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.terminal import current_palette, set_theme
 from hephaistos.terminal.palette import TRANSPARENT
+from hephaistos.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.session_state import TuiRuntimeState
 from hephaistos.tui.slash_completion import changed_highlight_indices
@@ -1102,7 +1103,7 @@ class TuiInlineFlowMixin:
         self._hide_completions()
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
+        composer.placeholder = COMPOSER_PLACEHOLDER
         if notice:
             self._append_notice(notice)
         composer.focus()

@@ -133,6 +133,7 @@ class ChatConfig:
     max_tokens: int = 4096
     rag_context_budget: int = 2000
     reasoning_level: str = DEFAULT_REASONING_LEVEL
+    temperature: float | None = 0.0
     feature_flags: frozenset[str] = field(default_factory=frozenset)
     _provider_slug: str = field(default="", repr=False)
     _provider_env: str = field(default="", repr=False)
@@ -142,6 +143,8 @@ class ChatConfig:
 
     def __post_init__(self) -> None:
         self.reasoning_level = normalize_reasoning_level(self.reasoning_level)
+        if self.temperature is not None:
+            self.temperature = min(2.0, max(0.0, self.temperature))
 
     @property
     def provider_slug(self) -> str:
@@ -1016,6 +1019,8 @@ def _request_kwargs(
         kwargs["tools"] = list(tools)
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
+    if config.temperature is not None:
+        kwargs["temperature"] = config.temperature
     if reasoning_effort := _model_reasoning_effort(config):
         kwargs["reasoning_effort"] = reasoning_effort
     return kwargs

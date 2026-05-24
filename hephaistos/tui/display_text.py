@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 39
+COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
 
 
 def require_rich_text() -> type[Text]:
@@ -164,11 +165,19 @@ def _material_panel_display_name(name: str) -> str:
     return f"{display_name[: _INFO_PANEL_MATERIAL_NAME_WIDTH - 3]}..."
 
 
+def _active_material_count(session: ChatSession) -> int:
+    return sum(1 for file in session.source_files if file not in session.disabled_source_files)
+
+
 def _info_panel_material_lines(session: ChatSession) -> list[str]:
     visible_materials = list(session.source_files[:8])
-    material_lines = ["materials"]
+    active_count = _active_material_count(session)
+    material_lines = [
+        "scope",
+        f"  {active_count}/{len(session.source_files)} materials active",
+    ]
     if not visible_materials:
-        material_lines.append("  none")
+        material_lines.append("  no materials attached")
         return material_lines
 
     material_lines.extend(f"  @{_material_panel_display_name(name)}" for name in visible_materials)
@@ -177,17 +186,35 @@ def _info_panel_material_lines(session: ChatSession) -> list[str]:
     return material_lines
 
 
-def _info_panel_lines(session: ChatSession, session_seconds: int) -> list[str]:
+def _info_panel_evidence_lines(
+    session: ChatSession,
+    *,
+    busy: bool,
+    progress: str,
+) -> list[str]:
+    if busy:
+        detail = progress or "working"
+        return ["grounding", f"  {detail}"]
+    evidence = session.last_turn_evidence
+    if evidence is None or not evidence.items:
+        return ["grounding", "  no evidence used yet"]
+    return ["grounding", f"  {evidence_summary_text(evidence)}", "  f8 or /evidence details"]
+
+
+def _info_panel_lines(
+    session: ChatSession,
+    session_seconds: int,
+    *,
+    busy: bool,
+    progress: str,
+) -> list[str]:
     return [
-        session.title or "Session",
+        session.title or "Grounding",
         f"time {_session_duration(session_seconds)}",
         "",
         *_info_panel_material_lines(session),
         "",
-        "next",
-        "  /exam active recall",
-        "  /priority plan focus",
-        "  /remind due review",
+        *_info_panel_evidence_lines(session, busy=busy, progress=progress),
     ]
 
 
@@ -213,7 +240,7 @@ def _stylize_first(text: Text, plain: str, label: str, style: str) -> None:
 
 def _stylize_info_panel_labels(text: Text, plain: str) -> None:
     palette = current_palette()
-    for label in ("time", "materials", "next"):
+    for label in ("time", "scope", "grounding"):
         _stylize_all(text, plain, label, palette.text_secondary)
 
 
@@ -245,10 +272,18 @@ def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession)
     text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
 
 
-def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
+def info_panel_default_text(
+    session: ChatSession,
+    *,
+    session_seconds: int = 0,
+    busy: bool = False,
+    progress: str = "",
+) -> Text:
     palette = current_palette()
-    title = session.title or "Session"
-    plain = _indented_panel_text(_info_panel_lines(session, session_seconds))
+    title = session.title or "Grounding"
+    plain = _indented_panel_text(
+        _info_panel_lines(session, session_seconds, busy=busy, progress=progress)
+    )
     text = require_rich_text()(plain, style=palette.text_muted)
     title_start = plain.index(title)
     text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
@@ -347,6 +382,7 @@ def _assistant_message_panel_lines(
         f"tokens  {usage['total_tokens']}",
         f"cost    ${usage['cost_usd']:.4f}",
         f"evidence {evidence_str}",
+        "details f8 or /evidence",
     ]
 
 
@@ -358,5 +394,5 @@ def _stylize_message_panel_title(text: Text, plain: str, title: str) -> None:
 
 def _stylize_message_panel_labels(text: Text, plain: str) -> None:
     palette = current_palette()
-    for label in ("model", "tokens", "cost", "evidence"):
+    for label in ("model", "tokens", "cost", "evidence", "details"):
         _stylize_first(text, plain, label, f"dim {palette.text_muted}")

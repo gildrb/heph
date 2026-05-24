@@ -56,6 +56,19 @@ from hephaistos.chat.evidence import (
     retrieval_audit_metadata as _retrieval_audit_metadata,
 )
 from hephaistos.chat.titles import derive_title
+from hephaistos.chat.turn_contract import (
+    ANSWER_FORMAT_TABLE,
+    ANSWER_MODE_REASON_FROM_PRIOR,
+    ANSWER_MODE_TRANSFORM_PRIOR,
+    RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    RETRIEVAL_STRATEGY_OVERVIEW,
+    RETRIEVAL_STRATEGY_RETRIEVE,
+    RETRIEVAL_STRATEGY_REUSE_PRIOR,
+    TurnContract,
+    TurnIntentResolution,
+    intent_resolution_from_payload,
+    turn_contract_from_resolution,
+)
 from hephaistos.chat.usage import save_usage
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger
@@ -125,6 +138,17 @@ _EVIDENCE_REQUIRED_ACTIONS = frozenset(
         LearningAction.ASSESS,
     }
 )
+_MATERIAL_ANSWER_CONVERSATION_ACTIONS = frozenset(
+    {
+        LearningAction.PRIORITY,
+        LearningAction.SOURCE_QA,
+        LearningAction.PRESENT,
+        LearningAction.CALIBRATE,
+        LearningAction.SIMPLIFY,
+        LearningAction.REVIEW,
+    }
+)
+_BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
 _TRACE_TASK_BY_ACTION = {
     LearningAction.PRIORITY: "priority",
     LearningAction.SOURCE_QA: "source-qa",
@@ -162,11 +186,21 @@ _EXACT_PHRASE_AFTER_LABEL_RE = re.compile(
 )
 _QUOTED_PHRASE_RE = re.compile(r"[\"“”'](?P<phrase>[^\"“”']{2,80})[\"“”']")
 _OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
+_MARKDOWN_TABLE_SEPARATOR_LINE_RE = re.compile(
+    r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
+)
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call\b[^>]*>.*?</tool_call>", re.IGNORECASE | re.DOTALL)
 _TOOL_CALL_OPEN_RE = re.compile(r"<tool_call\b[^>]*>", re.IGNORECASE)
 _TOOL_CALL_CLOSE_RE = re.compile(r"</tool_call>", re.IGNORECASE)
 _DETERMINISTIC_REPLY_LITERAL_RE = re.compile(r"`[^`]+`|/[\w-]+|\"[^\"]+\"")
 _ASSESSMENT_LABEL_RE = re.compile(r"^(?:CORRECT|PARTIAL|WRONG):")
+_UNSUPPORTED_ANSWER_PROCEDURE_RE = re.compile(
+    r"\b(?:matching|supporting|unsupported|missing)\b.{0,80}"
+    r"\b(?:answers?|evidence|phrase|source)\b|"
+    r"\b(?:answers?|evidence|phrase|source)\b.{0,80}"
+    r"\b(?:matching|supporting|unsupported|missing)\b",
+    re.IGNORECASE,
+)
 _READ_ALL_FILES_RE = re.compile(
     r"\b(?:"
     r"(?:read|scan|look|go|walk)\s+(?:through|over)?\s*(?:all|every)\s+"
@@ -177,8 +211,11 @@ _READ_ALL_FILES_RE = re.compile(
     re.IGNORECASE,
 )
 _OVERVIEW_MIN_WORDS = 24
+_OVERVIEW_MAX_WORDS = 260
 _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
+_OVERVIEW_MAX_LIST_ITEMS = 3
+_OVERVIEW_MAX_TABLE_ROWS = 8
 _OVERVIEW_TOPIC_LIMIT = 7
 _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
 _ENGLISH_TOPIC_MENU_CUE_WORDS = frozenset(
@@ -410,6 +447,24 @@ _LEARNING_INTENT_NORMALIZATION_SCHEMA = "\n".join(
         "{",
         f'  "intent": "{" | ".join(_MODEL_NORMALIZED_INTENTS)}",',
         '  "canonical_english_request": "concise English request preserving the user\'s intent",',
+        '  "is_followup": true,',
+        (
+            '  "followup_target": "what prior answer, cited claim, bullet, source, '
+            'or topic this refers to",'
+        ),
+        (
+            '  "answer_mode": "answer_from_evidence | transform_prior_answer | '
+            'reason_from_prior_evidence",'
+        ),
+        '  "answer_format": "plain | table | list",',
+        (
+            '  "retrieval_strategy": "retrieve | reuse_prior_evidence | '
+            'expand_prior_evidence | overview | none",'
+        ),
+        (
+            '  "retrieval_query": "semantic retrieval query derived from the '
+            'conversation, not filler words",'
+        ),
         '  "confidence": 0.0',
         "}",
     )
@@ -445,15 +500,52 @@ Intents:
 When a prior assistant intent is given, continue that intent unless the user clearly switches
 to a different one. Short, vague, or anaphoric follow-ups in any language continue the prior
 intent; do not classify them as literal keyword searches.
+When the user names a new topic, source, section, or source family and asks to move to it, treat
+that as a new source request rather than expanding broad prior evidence.
+When the user asks for one cited/source-backed point, detail, or example from a material area,
+classify it as source_qa even if the prior turn was a broad material overview. A request for one
+specific cited item is not a corpus overview.
+
+For retrieval_query, write the semantic source query Heph should use. Preserve the user's raw
+message separately by not copying vague continuation text unless the user explicitly asks for those
+words as source text. If the best next answer should reuse or expand the previous evidence, choose
+that retrieval_strategy and identify the prior target.
+If the user asks to translate, rephrase, shorten, restyle, reformat, or otherwise present the same
+prior answer differently without asking for new material facts, set answer_mode to
+transform_prior_answer, reuse prior evidence, and leave retrieval_query empty. Do not search for
+the prior answer, previous overview, or conversation wording as if it were source text.
+Do not set answer_mode to transform_prior_answer when the user asks a new source question, asks to
+choose one source, explain a definition or example, verify a citation, or compare evidence.
+If the user asks why a prior material answer matters, why it is useful, what it is relevant for,
+or how to use it, set answer_mode to reason_from_prior_evidence when prior cited evidence exists.
+Reuse the prior evidence when the requested explanation depends on the source-backed topics rather
+than on a new source fact. The answer may explain practical relevance as reasoning from cited
+premises, while making clear that the relevance explanation is an implication rather than a source
+quote unless the evidence explicitly states it.
+Set answer_format to table, list, or plain according to the user's requested presentation format.
+When a user asks to create, make, or show a table about the materials, keep material_overview
+unless they named one specific concept, and set answer_format to table.
+For source lookups of named items, search the stable name and source concept, not user-provided
+assumptions or unsupported descriptors around that name.
+When the user says previous, prior, before it, or similar relational language, interpret it as
+conversation order by default. Do not turn it into source, file, or material ordering unless the
+user explicitly asks about ordering inside the materials.
 
 Return JSON only, matching this schema:
 """.strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
 Write a user-facing corpus overview from cited material excerpts. Use only the supplied evidence;
-ignore any rejected draft as a source.
-Answer in the same language as the user's request. Cover the big picture in your own words and
-cite evidence IDs like [E1] for every claim. Do not infer from filenames, lecturers, or
-institutions, and do not lecture the user about retrieval or sampling.
+ignore any rejected draft as a source. If the rejected draft contains useful cited synthesis,
+compress and repair that synthesis instead of replacing it with a failure notice.
+Answer in the same language as the user's request. Keep it compact: one short paragraph plus at
+most 3 bullets. Cover substantive learnable content first: concepts, definitions, methods, problem
+types, examples, or tasks visible in the excerpts. Treat title pages, logistics, and boilerplate as
+context, not as the answer, unless the user asks for them. Cite evidence IDs like [E1] for every
+claim. Do not use markdown tables or exhaustive source/topic inventories unless the user explicitly
+asked for a table. Do not infer from filenames, lecturers, or institutions, and do not lecture the
+user about retrieval, truncation, validation, or sampling. Avoid claiming that a theme is central,
+recurring, or the overall pattern unless the evidence explicitly establishes that across sources;
+say what is visible in the retrieved evidence instead.
 """.strip()
 _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT = """
 Rewrite an internal English fallback message for the user. Use the same language as the user's
@@ -697,7 +789,11 @@ def _empty_material_index_reply() -> str:
     )
 
 
-def _no_matching_indexed_evidence_reply(session: ChatSession, plan: LearningTurnPlan) -> str:
+def _no_matching_indexed_evidence_reply(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+    contract: TurnContract | None = None,
+) -> str:
     index = session.rag_index
     if (
         not _requires_indexed_material(session, plan.action)
@@ -706,10 +802,23 @@ def _no_matching_indexed_evidence_reply(session: ChatSession, plan: LearningTurn
         or not _has_enabled_indexed_material(session, index)
     ):
         return ""
+    request_text = _no_match_request_text(contract)
     return (
         "The enabled materials are indexed, but this turn did not retrieve matching evidence "
-        f"for `{plan.retrieval_query}`. Ask a more specific material-backed question or ask "
-        "for another corpus overview."
+        f"for the resolved request `{request_text}` using retrieval query "
+        f"`{plan.retrieval_query}`. Ask a more specific material-backed question or ask for "
+        "another corpus overview."
+    )
+
+
+def _no_match_request_text(contract: TurnContract | None) -> str:
+    if contract is None:
+        return "this request"
+    return (
+        contract.canonical_request
+        or contract.followup_target
+        or contract.original_user_input
+        or "this request"
     )
 
 
@@ -759,9 +868,37 @@ def _repair_missing_evidence_citations(
         return reply
     assert evidence is not None
     cleaned_reply, verification = _remove_unverified_citation_refs(reply, evidence)
+    if appended_reply := _append_required_action_citation(
+        plan,
+        cleaned_reply,
+        evidence,
+        verification,
+    ):
+        return appended_reply
     if not _should_append_missing_evidence_bullets(plan, cleaned_reply, evidence, verification):
         return cleaned_reply
     return _append_evidence_bullets(cleaned_reply, evidence)
+
+
+def _append_required_action_citation(
+    plan: LearningTurnPlan,
+    reply: str,
+    evidence: TurnEvidence,
+    verification: VerificationResult,
+) -> str:
+    if not _should_append_required_action_citation(plan, verification):
+        return ""
+    first_item = evidence.items[0]
+    return f"{reply.rstrip()} [{first_item.evidence_id}]"
+
+
+def _should_append_required_action_citation(
+    plan: LearningTurnPlan,
+    verification: VerificationResult,
+) -> bool:
+    if verification.has_citations or not _plan_requires_citations(plan):
+        return False
+    return plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}
 
 
 def _can_repair_evidence_citations(reply: str, evidence: TurnEvidence | None) -> bool:
@@ -777,7 +914,10 @@ def _should_append_missing_evidence_bullets(
     if plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
         return False
     if plan.action is LearningAction.SOURCE_QA:
-        return not _reply_contains_evidence_bullet(cleaned_reply, evidence)
+        return not verification.has_citations and not _reply_contains_evidence_bullet(
+            cleaned_reply,
+            evidence,
+        )
     return not verification.has_citations
 
 
@@ -820,6 +960,17 @@ def _visible_turn_evidence(resolved: object) -> TurnEvidence | None:
     if plan is not None and plan.action is LearningAction.CALIBRATE:
         return None
     return resolved.turn_evidence
+
+
+def _stored_turn_evidence(resolved: object) -> TurnEvidence | None:
+    if not isinstance(resolved, ResolvedTurnPlan):
+        return None
+    if (
+        resolved.learning_plan is not None
+        and resolved.learning_plan.action is LearningAction.CALIBRATE
+    ):
+        return resolved.turn_evidence
+    return _visible_turn_evidence(resolved)
 
 
 def _evidence_notice(resolved: ResolvedTurnPlan) -> str:
@@ -1269,7 +1420,12 @@ def _isolated_recall_conversation(
     plan: LearningTurnPlan,
     original_learning_state: LearningState,
     user_input: str,
+    contract: TurnContract | None,
 ) -> Conversation | None:
+    if _should_isolate_material_answer_conversation(plan, contract):
+        conversation = Conversation()
+        conversation.add("user", user_input)
+        return conversation
     if plan.action in {
         LearningAction.PROMPT_RECALL,
         LearningAction.REFUSE_REVEAL,
@@ -1287,6 +1443,13 @@ def _isolated_recall_conversation(
         conversation.add("user", user_input)
         return conversation
     return None
+
+
+def _should_isolate_material_answer_conversation(
+    plan: LearningTurnPlan,
+    _contract: TurnContract | None,
+) -> bool:
+    return plan.action in _MATERIAL_ANSWER_CONVERSATION_ACTIONS
 
 
 def _learner_assessment_trace(
@@ -1378,16 +1541,134 @@ def _learning_extra_system_prompt(
     plan: LearningTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> str:
-    extra_system_prompt = plan.prompt
+    contract_context = _turn_contract_prompt_context(resolved.turn_contract)
+    extra_system_prompt = (
+        f"{plan.prompt}\n\n{contract_context}" if contract_context else plan.prompt
+    )
     if plan.action is LearningAction.PRIORITY:
         priority_context = _build_priority_context(session)
         if priority_context:
-            extra_system_prompt = f"{plan.prompt}\n\n{priority_context}"
+            extra_system_prompt = f"{extra_system_prompt}\n\n{priority_context}"
     elif plan.retrieval_query is not None and _is_overview_query(plan.retrieval_query):
         overview_context = _build_overview_context(session)
         if overview_context:
-            extra_system_prompt = f"{plan.prompt}\n\n{overview_context}"
+            extra_system_prompt = f"{extra_system_prompt}\n\n{overview_context}"
     return _append_evidence_assessment_prompt(extra_system_prompt, resolved)
+
+
+def _turn_contract_prompt_context(contract: TurnContract | None) -> str:
+    if contract is None:
+        return ""
+    lines = [
+        "Resolved turn contract:",
+        f"- Original user input: {contract.original_user_input}",
+        f"- Resolved intent: {contract.resolved_intent or 'unknown'}",
+        f"- Canonical semantic request: {contract.canonical_request or 'unspecified'}",
+        f"- Follow-up: {'yes' if contract.is_followup else 'no'}",
+        f"- Follow-up target: {contract.followup_target or 'none'}",
+        f"- Answer mode: {contract.answer_mode}",
+        f"- Answer format: {contract.answer_format}",
+        f"- Retrieval strategy: {contract.retrieval_strategy}",
+        f"- Retrieval query: {contract.retrieval_query or 'none'}",
+        f"- Evidence refs: {_contract_evidence_refs_text(contract)}",
+        f"- Citations required: {'yes' if contract.citation_required else 'no'}",
+        "Use this contract as turn state. Answer the original user input, but ground source "
+        "search and evidence use in the canonical semantic request and retrieval strategy.",
+        "When evidence is provided, every factual claim must be directly supported by that "
+        "evidence. Do not add purposes, priorities, ordering, source-type labels, comparisons, "
+        "or previous-topic claims unless the supplied evidence explicitly supports them.",
+        "Prefer terse extraction for source-grounded turns: one or two short sentences, or at "
+        "most three bullets when the user asks for a list. Do not paste source inventories or "
+        "long evidence excerpts into the answer.",
+        "When Answer format is table, use a compact markdown table with short cells and current "
+        "evidence citations in the relevant cells. Keep it small enough to read in a terminal.",
+        "When Answer mode is reason_from_prior_evidence, use cited evidence for the premises, "
+        "then explain practical importance or use cases as reasoned implications. Label those "
+        "implications plainly, and do not claim the source itself states them unless current "
+        "evidence explicitly says so.",
+        "Evidence IDs such as [E1] and [E7] are authoritative only in the current evidence "
+        "blocks. Reused prior evidence may keep its old ID, but new retrieval can also add "
+        "new IDs; always inspect the current evidence block with that exact ID before citing "
+        "or naming a source.",
+        "Before naming a source next to a citation, make sure the current evidence block with "
+        "that ID is from that source. If the source label and citation do not match, omit the "
+        "source label or choose the correct current evidence ID.",
+        "Use quotation marks only for words copied exactly from the current evidence block. "
+        "If you are compressing or paraphrasing source wording, do not present it as a quote.",
+        "Use 'direct evidence' only for details the source explicitly names as evidence or "
+        "direct evidence; otherwise say the detail supports the claim.",
+        "Do not generalize that the materials train, emphasize, are designed for, or consistently "
+        "teach a pattern unless the current evidence explicitly says that; name the specific "
+        "cited sources that show the pattern instead.",
+        "Do not combine multiple evidence blocks into a higher-level corpus pattern when the "
+        "sources merely contain separate examples. State small cited observations separately.",
+        "Do not describe a theme as central, recurring, or the overall pattern unless the "
+        "current evidence explicitly establishes that across sources. Prefer 'the retrieved "
+        "evidence shows' or 'several cited sources mention' when that is all the evidence can "
+        "support.",
+        "Do not discuss truncation, hidden continuation, or what a chunk might contain beyond "
+        "the visible evidence block.",
+        "Do not infer the purpose or learning effect of source variety, topic variety, "
+        "file coverage, or corpus design unless the evidence states that purpose.",
+        "Avoid universal wording such as each, every, all, always, only, merely, or the best "
+        "unless the evidence exhaustively supports it; use narrower wording such as several, "
+        "one example, or the cited source when that is all the evidence shows.",
+        "When compressing or summarizing a prior answer, do not say the source supports only "
+        "a selected fact unless the user asked about source scope and the evidence proves that "
+        "nothing else is supported. Prefer 'short version' or 'for this point' wording.",
+        "If the user asks which source or citation to check first, strongest, clearest, or "
+        "best, you may make an evidence-bundle judgement from visible directness and "
+        "specificity. Phrase it as your judgement about the retrieved evidence; do not claim "
+        "the sources themselves rank citations unless they do.",
+        "For source or citation selection, prefer 'my pick from the retrieved evidence' "
+        "style wording. Cite the selected evidence block, and avoid comparing another block "
+        "as weaker, clearer, broader, or more general unless the evidence itself supports "
+        "that comparison.",
+        "If the user asks for the most technical, most important, hardest, easiest, or another "
+        "superlative from a prior answer, you may choose a term or point from the current "
+        "evidence or prior-answer context and label it as your judgement. Do not claim the "
+        "sources rank items by that criterion unless they do.",
+        "If the user refers to a previous or prior topic, treat that as conversation state, "
+        "not material order. Say 'previously discussed topic' instead of implying the source "
+        "places one topic before another unless the evidence proves that order.",
+        "If the user asks about a prior answer, bullet, last point, or citation, do not claim "
+        "what the prior answer contained as a source fact. Use the current evidence to answer "
+        "the underlying source question, or say the current evidence does not establish that "
+        "prior-answer structure.",
+        "Do not characterize material difficulty or level, such as introductory, advanced, "
+        "easy, or hard, unless the evidence says so.",
+        "Do not characterize corpus size or scope with words such as small, large, broad, "
+        "or comprehensive unless the evidence says so.",
+        "Do not reinterpret administrative phrases such as budget review, request, approval, "
+        "or meeting minutes into a stronger process label unless the evidence says so.",
+        "Definitions must come from the current retrieved evidence. If the current evidence "
+        "does not define a term, say it is not defined in the retrieved evidence instead of "
+        "using general knowledge or conversation memory.",
+        "When naming a learner mistake, do not call it common unless the evidence says it is "
+        "common; frame it as a possible mistake grounded in the cited contrast.",
+        "Do not use conversation summaries or previous assistant wording as evidence for "
+        "source-material claims unless this turn also provides the matching evidence refs.",
+        "Do not introduce named procedures, quoted phrases, or method labels from prior "
+        "turns unless the current evidence contains those words or explicitly restates "
+        "the same method.",
+        "Concrete examples, numbers, list states, dates, or values invented during the "
+        "conversation are not source evidence. If continuing a hypothetical example, label "
+        "it as hypothetical and cite only the source rule it illustrates, not the invented "
+        "specifics.",
+        "When the evidence does not contain a requested named item, refer to the exact "
+        "requested name or quoted term without affirming user-provided descriptors about "
+        "what that item is unless the evidence supports those descriptors.",
+        "When no current evidence supports a requested named item, say you did not find direct "
+        "support in the retrieved evidence; do not claim the whole armory or all sources lack "
+        "the item unless every enabled source was exhaustively checked.",
+        "If the evidence is too thin for a requested comparison, definition, or recall prompt, "
+        "say what is not found instead of filling the gap from conversation memory.",
+    ]
+    return "\n".join(lines)
+
+
+def _contract_evidence_refs_text(contract: TurnContract) -> str:
+    return ", ".join(contract.evidence_refs) if contract.evidence_refs else "none"
 
 
 def _postprocess_learning_reply(
@@ -1399,13 +1680,19 @@ def _postprocess_learning_reply(
     user_input: str,
     config: ChatConfig,
 ) -> _ProcessedLearningReply:
-    if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
+    if _needs_overview_fallback(
+        plan,
+        raw_reply,
+        resolved.turn_evidence,
+        contract=resolved.turn_contract,
+    ):
         fallback_reply = _overview_fallback_reply(
             plan,
             resolved.turn_evidence,
             user_input=user_input,
             config=config,
             rejected_reply=raw_reply,
+            contract=resolved.turn_contract,
         )
         raw_reply = fallback_reply or _overview_unavailable_reply()
         visible_reply = raw_reply
@@ -1427,13 +1714,54 @@ def _deterministic_learning_reply(
     plan: LearningTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> _DeterministicLearningReply | None:
+    if abstain_reply := _source_qa_abstain_reply(plan, resolved):
+        return _DeterministicLearningReply(abstain_reply)
     if resolved.turn_evidence is not None and resolved.turn_evidence.items:
         return None
     if missing_reply := _missing_indexed_material_reply(session, plan.action):
         return _DeterministicLearningReply(missing_reply)
-    if no_match_reply := _no_matching_indexed_evidence_reply(session, plan):
+    if no_match_reply := _no_matching_indexed_evidence_reply(
+        session,
+        plan,
+        resolved.turn_contract,
+    ):
         return _DeterministicLearningReply(no_match_reply)
     return None
+
+
+def _source_qa_abstain_reply(
+    plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> str:
+    assessment = resolved.evidence_assessment
+    if (
+        plan.action is not LearningAction.SOURCE_QA
+        or resolved.turn_evidence is None
+        or not resolved.turn_evidence.items
+        or assessment is None
+        or assessment.sufficient
+        or assessment.recommended_action != "abstain"
+    ):
+        return ""
+    request_text = _no_match_request_text(resolved.turn_contract)
+    missing = ", ".join(assessment.missing_information)
+    support = _source_qa_abstain_support_sentence(resolved.turn_evidence)
+    base = f"This turn did not retrieve a direct cited answer for `{request_text.rstrip('.?!')}`"
+    if missing:
+        base = f"{base}; missing: {missing}"
+    return f"{base}.{support}"
+
+
+def _source_qa_abstain_support_sentence(evidence: TurnEvidence | None) -> str:
+    if evidence is None:
+        return ""
+    for item in evidence.items:
+        if _UNSUPPORTED_ANSWER_PROCEDURE_RE.search(item.content):
+            return (
+                " The cited evidence describes how to handle unsupported or missing "
+                f"source answers [{item.evidence_id}]."
+            )
+    return ""
 
 
 def _plain_empty_reply(user_input: str, config: ChatConfig) -> str:
@@ -1460,6 +1788,7 @@ def _empty_learning_reply(
             resolved.turn_evidence,
             user_input=user_input,
             config=config,
+            contract=resolved.turn_contract,
         )
         should_localize = not bool(fallback_reply)
     if not fallback_reply:
@@ -1687,7 +2016,9 @@ def _evidence_assessment_prompt_line(assessment: EvidenceAssessment) -> str:
         "Evidence gate: "
         f"partial/insufficient ({assessment.confidence:.0%}); action={action}; "
         f"refs={refs}; missing={missing}. "
-        "Do not fill gaps; scope any answer to cited evidence."
+        "Do not fill gaps; scope any answer to cited evidence. If action=abstain, say the "
+        "direct cited answer is missing for the resolved request; do not claim whole-corpus "
+        "absence unless the current turn exhaustively checked the corpus."
     )
 
 
@@ -1723,6 +2054,205 @@ def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
     return _PLAN_INTENT_BY_ACTION.get(plan.action, plan.action.value)
 
 
+def _apply_turn_contract_to_plan(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+) -> tuple[LearningTurnPlan, TurnContract]:
+    retrieval_query = _semantic_retrieval_query(plan, contract)
+    retrieval_strategy = contract.retrieval_strategy
+    retrieval_strategy, retrieval_query = _stabilized_followup_retrieval(
+        contract,
+        prior_contract=prior_contract,
+        retrieval_strategy=retrieval_strategy,
+        retrieval_query=retrieval_query,
+    )
+    if (
+        plan.action is LearningAction.PRIORITY
+        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+    ):
+        retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+        retrieval_query = plan.retrieval_query or contract.canonical_request or retrieval_query
+    evidence_refs = _prior_evidence_refs_for_strategy(retrieval_strategy, prior_contract)
+    if evidence_refs and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+        retrieval_query = None
+    elif retrieval_query and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+
+    updated_plan = replace(
+        plan,
+        retrieval_query=retrieval_query,
+        retrieval_strategy=retrieval_strategy,
+        evidence_refs=evidence_refs,
+    )
+    updated_contract = replace(
+        contract,
+        retrieval_strategy=retrieval_strategy,
+        retrieval_query=retrieval_query or "",
+        evidence_refs=evidence_refs,
+        citation_required=_plan_requires_citations(updated_plan),
+    )
+    return updated_plan, updated_contract
+
+
+def _stabilized_followup_retrieval(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    retrieval_query: str | None,
+) -> tuple[str, str | None]:
+    if (
+        prior_contract is not None
+        and prior_contract.evidence_refs
+        and contract.is_followup
+        and contract.answer_mode in {ANSWER_MODE_TRANSFORM_PRIOR, ANSWER_MODE_REASON_FROM_PRIOR}
+    ):
+        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
+    if (
+        prior_contract is not None
+        and contract.is_followup
+        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and len(prior_contract.evidence_refs) > _BROAD_PRIOR_EVIDENCE_REF_COUNT
+    ):
+        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
+        if semantic_query:
+            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
+    if (
+        contract.is_followup
+        and retrieval_query
+        and _same_normalized_text(retrieval_query, contract.original_user_input)
+    ):
+        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
+        if semantic_query:
+            if prior_contract is not None and prior_contract.evidence_refs:
+                return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
+            return RETRIEVAL_STRATEGY_RETRIEVE, semantic_query
+    if (
+        prior_contract is not None
+        and prior_contract.evidence_refs
+        and contract.is_followup
+        and retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
+        and retrieval_query
+    ):
+        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query
+    if (
+        prior_contract is None
+        or not prior_contract.evidence_refs
+        or not contract.is_followup
+        or retrieval_strategy != RETRIEVAL_STRATEGY_RETRIEVE
+        or not retrieval_query
+        or not _same_normalized_text(retrieval_query, contract.original_user_input)
+    ):
+        return retrieval_strategy, retrieval_query
+
+    semantic_query = _first_non_literal_followup_query(contract, prior_contract)
+    return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
+
+
+def _first_non_literal_followup_query(
+    contract: TurnContract,
+    prior_contract: TurnContract | None,
+) -> str | None:
+    candidates = [
+        contract.followup_target,
+        contract.canonical_request,
+        prior_contract.canonical_request if prior_contract is not None else "",
+        prior_contract.retrieval_query if prior_contract is not None else "",
+    ]
+    semantic_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate and not _same_normalized_text(candidate, contract.original_user_input)
+    ]
+    if not semantic_candidates:
+        return None
+    return max(semantic_candidates, key=_semantic_query_specificity)
+
+
+def _semantic_query_specificity(text: str) -> tuple[int, int]:
+    normalized = _normalized_query_text(text)
+    return (len(normalized.split()), len(normalized))
+
+
+def _same_normalized_text(left: str, right: str) -> bool:
+    return _normalized_query_text(left) == _normalized_query_text(right)
+
+
+def _normalized_query_text(text: str) -> str:
+    return re.sub(r"\W+", " ", text.casefold()).strip()
+
+
+def _semantic_retrieval_query(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
+    if not _plan_uses_material_retrieval(plan):
+        return plan.retrieval_query
+    if contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW:
+        return plan.retrieval_query
+    return contract.retrieval_query or contract.canonical_request or plan.retrieval_query
+
+
+def _plan_uses_material_retrieval(plan: LearningTurnPlan) -> bool:
+    return (
+        plan.action in _EVIDENCE_REQUIRED_ACTIONS
+        or plan.retrieval_query is not None
+        or plan.use_expected_source_refs
+    )
+
+
+def _prior_evidence_refs_for_strategy(
+    retrieval_strategy: str,
+    prior_contract: TurnContract | None,
+) -> tuple[str, ...]:
+    if retrieval_strategy not in {
+        RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    }:
+        return ()
+    if prior_contract is None:
+        return ()
+    return prior_contract.evidence_refs
+
+
+def _turn_contract_with_evidence(
+    contract: TurnContract,
+    plan: LearningTurnPlan,
+    turn_evidence: TurnEvidence | None,
+) -> TurnContract:
+    refs = tuple(_evidence_refs(turn_evidence)) or contract.evidence_refs
+    return replace(
+        contract,
+        retrieval_query=plan.retrieval_query or "",
+        retrieval_strategy=plan.retrieval_strategy or contract.retrieval_strategy,
+        evidence_refs=refs,
+        citation_required=_plan_requires_citations(plan),
+    )
+
+
+def _turn_contract_with_validation(
+    contract: TurnContract | None,
+    notice: str,
+) -> TurnContract | None:
+    if contract is None:
+        return None
+    return replace(contract, validation_result=notice or "ok")
+
+
+def _plan_requires_citations(plan: LearningTurnPlan | None) -> bool:
+    if plan is None:
+        return False
+    return plan.action in {
+        LearningAction.PRESENT,
+        LearningAction.SOURCE_QA,
+        LearningAction.PRIORITY,
+        LearningAction.REVIEW,
+        LearningAction.CALIBRATE,
+        LearningAction.ASSESS,
+        LearningAction.HINT,
+        LearningAction.SIMPLIFY,
+    }
+
+
 def _overview_fallback_reply(
     plan: LearningTurnPlan,
     evidence: TurnEvidence | None,
@@ -1730,18 +2260,25 @@ def _overview_fallback_reply(
     user_input: str = "",
     config: ChatConfig | None = None,
     rejected_reply: str = "",
+    contract: TurnContract | None = None,
 ) -> str:
-    if not _overview_turn(plan) or evidence is None or not evidence.items:
+    if not _material_overview_turn(plan, contract) or evidence is None or not evidence.items:
         return ""
 
+    allow_table = _contract_requests_table(contract)
     model_reply = _overview_model_fallback_reply(
         plan,
         evidence,
         user_input=user_input,
         config=config,
         rejected_reply=rejected_reply,
+        allow_table=allow_table,
     )
-    return model_reply or _deterministic_overview_fallback_reply(plan, evidence)
+    return model_reply or _deterministic_overview_fallback_reply(
+        plan,
+        evidence,
+        allow_table=allow_table,
+    )
 
 
 def _overview_unavailable_reply() -> str:
@@ -1754,32 +2291,50 @@ def _overview_unavailable_reply() -> str:
 def _deterministic_overview_fallback_reply(
     plan: LearningTurnPlan,
     evidence: TurnEvidence,
+    *,
+    allow_table: bool = False,
 ) -> str:
     cited_items = _overview_fallback_citation_items(evidence)
     if not cited_items:
         return ""
-    citations = _citation_group(cited_items)
-    source_count = len({item.source for item in cited_items})
-    lines = [
-        "I found indexed evidence for this material overview, but the generated overview was "
-        f"not reliable enough to show. Sample refs: {citations}.",
-        "I will not infer topics from filenames, metadata, or unsupported snippets; ask a "
-        f"narrower source-grounded question about {_count_label(source_count, 'sampled source')}, "
-        f"or retry the overview when the model can produce a valid cited synthesis {citations}.",
-    ]
+    if allow_table:
+        return _append_read_all_scope_disclosure(
+            plan,
+            _deterministic_overview_table(cited_items),
+            evidence,
+        )
+    lines = tuple(
+        f"- {_overview_cue_for_item(item)} [{item.evidence_id}]" for item in cited_items[:3]
+    )
     return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
+
+
+def _deterministic_overview_table(items: Sequence[EvidenceChunk]) -> str:
+    lines = [
+        "| Source | Grounded excerpt |",
+        "|---|---|",
+    ]
+    for item in items:
+        source = _escape_markdown_table_cell(item.source)
+        cue = _escape_markdown_table_cell(_overview_cue_for_item(item))
+        lines.append(f"| {source} | {cue} [{item.evidence_id}] |")
+    return "\n".join(lines)
+
+
+def _escape_markdown_table_cell(text: str) -> str:
+    return text.replace("|", "\\|")
 
 
 def _overview_fallback_citation_items(
     evidence: TurnEvidence,
     *,
-    limit: int = 2,
+    limit: int = 4,
 ) -> list[EvidenceChunk]:
     selected: list[EvidenceChunk] = []
     seen_keys: set[tuple[str, int]] = set()
     for item in evidence.items:
         key = (item.source, item.chunk_index)
-        if key in seen_keys:
+        if key in seen_keys or not _overview_cue_for_item(item):
             continue
         selected.append(item)
         seen_keys.add(key)
@@ -1788,8 +2343,45 @@ def _overview_fallback_citation_items(
     return selected
 
 
-def _citation_group(items: Sequence[EvidenceChunk]) -> str:
-    return "".join(f"[{item.evidence_id}]" for item in items)
+def _overview_cue_for_item(item: EvidenceChunk) -> str:
+    candidates = (*_overview_heading_candidates(item), *_overview_content_cue_candidates(item))
+    for candidate in candidates:
+        cue = _trim_overview_cue(_clean_overview_line(candidate))
+        if _overview_cue_is_useful(cue):
+            return cue
+    return ""
+
+
+def _overview_content_cue_candidates(item: EvidenceChunk) -> tuple[str, ...]:
+    candidates: list[str] = []
+    for line in _overview_content_lines(item.content):
+        cleaned = _clean_overview_line(line)
+        if not cleaned:
+            continue
+        candidates.extend(_overview_sentence_candidates(cleaned))
+    return tuple(candidates)
+
+
+def _overview_sentence_candidates(text: str) -> tuple[str, ...]:
+    parts = tuple(part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip())
+    return parts or (text,)
+
+
+def _overview_cue_is_useful(cue: str) -> bool:
+    normalized = " ".join(cue.casefold().split())
+    if not normalized:
+        return False
+    words = normalized.split()
+    if len(words) < 3 and not _overview_topic_is_useful(cue):
+        return False
+    if (
+        _overview_heading_looks_like_metadata(cue)
+        or _overview_topic_is_too_short_or_generic(normalized)
+        or _OVERVIEW_COURSE_TITLE_RE.search(cue) is not None
+        or _OVERVIEW_FORMULA_RE.search(cue) is not None
+    ):
+        return False
+    return not _looks_like_name_line(cue)
 
 
 def _should_append_english_topic_menu(user_input: str) -> bool:
@@ -1863,12 +2455,19 @@ def _overview_model_fallback_reply(
     user_input: str,
     config: ChatConfig | None,
     rejected_reply: str = "",
+    allow_table: bool = False,
 ) -> str:
     usable_config = _overview_fallback_config(config)
     if usable_config is None:
         return ""
     conversation = Conversation()
-    conversation.add("system", _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT)
+    system_prompt = _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT
+    if allow_table:
+        system_prompt = (
+            f"{system_prompt}\nThe user requested a table. Produce a compact markdown table "
+            "instead of prose, with concise cited cells and no source inventory."
+        )
+    conversation.add("system", system_prompt)
     conversation.add(
         "user",
         _overview_topic_normalization_context(
@@ -1878,7 +2477,7 @@ def _overview_model_fallback_reply(
         ),
     )
     reply = _clean_overview_model_reply(_stream_one_shot_model_text(usable_config, conversation))
-    if not _valid_overview_model_reply(reply, evidence):
+    if not _valid_overview_model_reply(reply, evidence, allow_table=allow_table):
         return ""
     return _append_read_all_scope_disclosure(plan, reply, evidence)
 
@@ -1896,14 +2495,19 @@ def _clean_overview_model_reply(model_text: str) -> str:
     return _strip_unsolicited_learning_followup(reply)
 
 
-def _valid_overview_model_reply(reply: str, evidence: TurnEvidence) -> bool:
+def _valid_overview_model_reply(
+    reply: str,
+    evidence: TurnEvidence,
+    *,
+    allow_table: bool = False,
+) -> bool:
     if not reply:
         return False
     verification = verify_citations(reply, evidence)
     return (
         verification.has_citations
         and verification.all_verified
-        and not _overview_answer_has_bad_shape(reply, evidence)
+        and not _overview_answer_has_bad_shape(reply, evidence, allow_table=allow_table)
     )
 
 
@@ -1949,9 +2553,10 @@ def _learning_agent_request(
     original_learning_state: LearningState,
     user_input: str,
     session: ChatSession,
+    contract: TurnContract | None,
 ) -> _LearningAgentRequest:
     conversation = (
-        _isolated_recall_conversation(plan, original_learning_state, user_input)
+        _isolated_recall_conversation(plan, original_learning_state, user_input, contract)
         or session.conversation
     )
     return _LearningAgentRequest(
@@ -2007,8 +2612,23 @@ def _classified_user_intent(
     conversation: Conversation | None = None,
     prior_intent: str = "",
 ) -> str:
+    return _resolved_user_intent(
+        user_input,
+        config=config,
+        conversation=conversation,
+        prior_intent=prior_intent,
+    ).intent
+
+
+def _resolved_user_intent(
+    user_input: str,
+    *,
+    config: ChatConfig | None,
+    conversation: Conversation | None = None,
+    prior_intent: str = "",
+) -> TurnIntentResolution:
     if not user_input.strip() or config is None or not config.base_url or not config.model:
-        return ""
+        return TurnIntentResolution()
     payload = _model_json_payload(
         config,
         system_prompt=(
@@ -2023,10 +2643,28 @@ def _classified_user_intent(
     )
     intent, confidence = _classifier_intent_from_payload(payload)
     if confidence >= _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD:
-        return intent
+        resolution = intent_resolution_from_payload(payload, intent=intent, confidence=confidence)
+        return _stabilized_followup_intent_resolution(
+            resolution,
+            prior_intent=prior_intent,
+        )
     if prior_intent in _CONTINUABLE_MATERIAL_INTENTS:
-        return prior_intent
-    return ""
+        return TurnIntentResolution(intent=prior_intent, confidence=confidence, is_followup=True)
+    return TurnIntentResolution(confidence=confidence)
+
+
+def _stabilized_followup_intent_resolution(
+    resolution: TurnIntentResolution,
+    *,
+    prior_intent: str,
+) -> TurnIntentResolution:
+    if (
+        resolution.is_followup
+        and prior_intent in _CONTINUABLE_MATERIAL_INTENTS
+        and resolution.intent in {"priority_request", "driven_learning_calibration"}
+    ):
+        return replace(resolution, intent=prior_intent)
+    return resolution
 
 
 def _intent_normalization_context(
@@ -2552,30 +3190,75 @@ def _needs_overview_fallback(
     plan: LearningTurnPlan,
     raw_reply: str,
     evidence: TurnEvidence | None,
+    *,
+    contract: TurnContract | None = None,
 ) -> bool:
-    if not _overview_turn(plan) or evidence is None or not evidence.items:
+    if not _material_overview_turn(plan, contract) or evidence is None or not evidence.items:
         return False
     verification = verify_citations(raw_reply, evidence)
     if not verification.has_citations or not verification.all_verified:
         return True
-    return _overview_answer_has_bad_shape(raw_reply, evidence)
+    return _overview_answer_has_bad_shape(
+        raw_reply,
+        evidence,
+        allow_table=_contract_requests_table(contract),
+    )
+
+
+def _material_overview_turn(
+    plan: LearningTurnPlan,
+    contract: TurnContract | None = None,
+) -> bool:
+    if contract is not None and contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
+        return False
+    return _overview_turn(plan) or (
+        contract is not None
+        and contract.resolved_intent == "material_overview"
+        and plan.action is LearningAction.PRESENT
+    )
 
 
 def _overview_answer_has_bad_shape(
     raw_reply: str,
     evidence: TurnEvidence | None = None,
+    *,
+    allow_table: bool = False,
 ) -> bool:
-    """Reject overview replies that are too thin or under-grounded.
-
-    The only guard rail Heph enforces here is groundedness: the model must cite
-    enough evidence IDs and span multiple sources. Style (bullets vs prose,
-    date references, phrasing) is guided in the prompt, not policed here.
-    """
+    """Reject overview replies that are too thin, too noisy, or under-grounded."""
     citation_ids = _overview_citation_ids(raw_reply)
     words = re.findall(r"\b[\w'-]+\b", raw_reply)
-    if len(words) < _OVERVIEW_MIN_WORDS or len(citation_ids) < _OVERVIEW_MIN_CITATIONS:
+    has_table = _contains_markdown_table(raw_reply)
+    if len(words) > _OVERVIEW_MAX_WORDS:
+        return True
+    if (
+        has_table
+        and not allow_table
+        and _markdown_table_row_count(raw_reply) > _OVERVIEW_MAX_TABLE_ROWS
+    ):
+        return True
+    if _list_item_count(raw_reply) > _OVERVIEW_MAX_LIST_ITEMS:
+        return True
+    if len(citation_ids) < _OVERVIEW_MIN_CITATIONS:
+        return True
+    if not has_table and len(words) < _OVERVIEW_MIN_WORDS:
         return True
     return evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence)
+
+
+def _contract_requests_table(contract: TurnContract | None) -> bool:
+    return contract is not None and contract.answer_format == ANSWER_FORMAT_TABLE
+
+
+def _contains_markdown_table(text: str) -> bool:
+    return any(_MARKDOWN_TABLE_SEPARATOR_LINE_RE.match(line) for line in text.splitlines())
+
+
+def _markdown_table_row_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if line.strip().startswith("|"))
+
+
+def _list_item_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+\S", line))
 
 
 def _overview_citation_ids(raw_reply: str) -> tuple[str, ...]:
@@ -2693,7 +3376,7 @@ class TurnOrchestrator:
     ) -> Generator[TurnEvent, None, ResolvedTurnPlan]:
         session = self.session
         due_reviews, memory_state = _learning_practice_context(session)
-        intent = _classified_user_intent(
+        intent_resolution = _resolved_user_intent(
             user_input,
             config=session.config,
             conversation=session.conversation,
@@ -2702,13 +3385,27 @@ class TurnOrchestrator:
         learning_plan = plan_turn(
             original_learning_state,
             user_input,
-            intent=intent,
+            intent=intent_resolution.intent,
             due_reviews=due_reviews,
             memory_state=memory_state,
+        )
+        turn_contract = turn_contract_from_resolution(user_input, intent_resolution)
+        learning_plan, turn_contract = _apply_turn_contract_to_plan(
+            learning_plan,
+            turn_contract,
+            prior_contract=session.last_turn_contract,
         )
         if notice := _reading_notice(learning_plan):
             yield NoticeEvent(notice, code="reading")
         resolved = self._resolve_timed_turn_plan(learning_plan)
+        resolved = replace(
+            resolved,
+            turn_contract=_turn_contract_with_evidence(
+                turn_contract,
+                learning_plan,
+                resolved.turn_evidence,
+            ),
+        )
         yield from self._iter_material_operation_events(learning_plan, resolved)
         if notice := _evidence_notice(resolved):
             yield NoticeEvent(
@@ -2767,7 +3464,13 @@ class TurnOrchestrator:
         plan = resolved.learning_plan
         assert plan is not None
         buffer = _LearningAgentBuffer()
-        request = _learning_agent_request(plan, original_learning_state, user_input, session)
+        request = _learning_agent_request(
+            plan,
+            original_learning_state,
+            user_input,
+            session,
+            resolved.turn_contract,
+        )
         for event in iter_agent_events(
             session.config,
             request.conversation,
@@ -3161,8 +3864,7 @@ class TurnOrchestrator:
             resolved = self._resolve_turn_plan(plan)
         if isinstance(resolved, ResolvedTurnPlan):
             resolved = replace(resolved, retrieval_latency_ms=rag_timer.ms)
-        visible_evidence = _visible_turn_evidence(resolved)
-        session.last_turn_evidence = visible_evidence
+        session.last_turn_evidence = _stored_turn_evidence(resolved)
         if resolved.turn_evidence is not None:
             rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
         rag_span.end()
@@ -3223,6 +3925,10 @@ class TurnOrchestrator:
             notice=notice,
         )
         self.session.last_plan_intent = _resolved_plan_intent(resolved.learning_plan)
+        self.session.last_turn_contract = _turn_contract_with_validation(
+            resolved.turn_contract,
+            notice,
+        )
         self._schedule_memory_extraction(user_input, visible_evidence)
         self._save_usage_if_armory_session()
         return notice
@@ -3300,6 +4006,9 @@ class TurnOrchestrator:
             material_task=_trace_task(resolved.learning_plan),
             retrieval_query=(
                 resolved.learning_plan.retrieval_query if resolved.learning_plan else ""
+            ),
+            turn_contract=(
+                resolved.turn_contract.to_dict() if resolved.turn_contract is not None else {}
             ),
             learning_feedback=session.learning_state.last_feedback_type.value,
             evidence_blocks=len(visible_evidence.items) if visible_evidence else 0,

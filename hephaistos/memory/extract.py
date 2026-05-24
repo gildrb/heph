@@ -14,6 +14,7 @@ from hephaistos.runtime import (
     ChatConfig,
     Conversation,
     build_client,
+    stream_reply,
     to_chat_completion_messages,
 )
 
@@ -89,6 +90,9 @@ def _extraction_conversation(prompt: str) -> Conversation:
 
 
 def _run_extraction_model(config: ChatConfig, conversation: Conversation, timer: Timer) -> str:
+    if config.provider_slug == "openai-codex":
+        with timer:
+            return "".join(stream_reply(config, conversation)).strip() or "[]"
     client = build_client(config)
     with timer:
         response: ChatCompletion = client.chat.completions.create(

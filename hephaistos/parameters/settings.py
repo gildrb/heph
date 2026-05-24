@@ -65,11 +65,13 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
     }
 )
 INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
+FLOAT_KEYS: Final[frozenset[str]] = frozenset({"temperature"})
 PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "base_url",
     "model",
     "max_tokens",
     "rag_context_budget",
+    "temperature",
     "feature_flags",
     "theme",
     "default_armory_path",
@@ -171,6 +173,10 @@ def _normalize_int(value: object) -> int:
     return int(str(value).strip())
 
 
+def _normalize_float(value: object) -> float:
+    return float(str(value).strip())
+
+
 def _normalize_choice(key: str, value: object, choices: tuple[str, ...]) -> str:
     normalized = str(value).strip().lower()
     if normalized not in choices:
@@ -213,6 +219,7 @@ def _setting_normalizers() -> dict[str, SettingNormalizer]:
     }
     normalizers.update(dict.fromkeys(BOOL_KEYS, _coerce_bool))
     normalizers.update(dict.fromkeys(INT_KEYS, _normalize_int))
+    normalizers.update(dict.fromkeys(FLOAT_KEYS, _normalize_float))
     normalizers.update(dict.fromkeys(STRING_KEYS - normalizers.keys(), str))
     return normalizers
 

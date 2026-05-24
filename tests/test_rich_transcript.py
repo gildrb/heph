@@ -13,6 +13,7 @@ from hephaistos.tui.rich_transcript import (
     enrich_reply,
     evidence_summary_text,
     extract_cited_ids,
+    normalize_markdown_tables,
 )
 from hephaistos.tui.transcript import _EvidenceMarkdown
 
@@ -72,6 +73,43 @@ def test_enrich_reply_with_no_evidence_returns_text_unchanged() -> None:
 def test_enrich_reply_with_empty_evidence_returns_text_unchanged() -> None:
     result = enrich_reply("Hello world", TurnEvidence())
     assert result.markdown_text == "Hello world"
+
+
+def test_normalize_markdown_tables_keeps_compact_tables() -> None:
+    markdown = "| Planet | Moons |\n|---|---:|\n| Earth | 1 |\n| Mars | 2 |\n"
+
+    assert normalize_markdown_tables(markdown) == markdown
+
+
+def test_normalize_markdown_tables_reflows_wide_tables() -> None:
+    markdown = (
+        "| Abschnitt | Inhalt | Nachgewiesene Quellen |\n"
+        "|---|---|---|\n"
+        "| Zahlensysteme & Elementare Funktionen | Grundlagen zu Zahlensystemen, "
+        "Einführung in elementare Funktionen und sehr lange erklärende Hinweise | "
+        "[E1] - Zahlensysteme, [E2] - Elementare Funktionen |\n"
+        "| Folgen | Definition einer Folge, Beispiele, Notation | [E3] - Folgen |\n"
+    )
+
+    rendered = normalize_markdown_tables(markdown)
+
+    assert "|---|---|---|" not in rendered
+    assert "- **Abschnitt:** Zahlensysteme & Elementare Funktionen" in rendered
+    assert "  - **Inhalt:** Grundlagen zu Zahlensystemen" in rendered
+    assert "  - **Nachgewiesene Quellen:** [E1]" in rendered
+    assert "- **Abschnitt:** Folgen" in rendered
+
+
+def test_normalize_markdown_tables_ignores_code_fences() -> None:
+    markdown = (
+        "```markdown\n"
+        "| Section | Content |\n"
+        "|---|---|\n"
+        "| A | A very long cell that should remain literal inside the code fence. |\n"
+        "```\n"
+    )
+
+    assert normalize_markdown_tables(markdown) == markdown
 
 
 def test_enrich_reply_appends_evidence_panel() -> None:

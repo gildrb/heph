@@ -9,6 +9,12 @@ import pytest
 
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
+from hephaistos.chat.turn_contract import (
+    ANSWER_FORMAT_TABLE,
+    ANSWER_MODE_TRANSFORM_PRIOR,
+    TurnContract,
+)
+from hephaistos.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaistos.rag.health import ExtractionHealthIssue
 from hephaistos.runtime import ChatConfig
 from hephaistos.study import (
@@ -60,6 +66,71 @@ def test_save_and_resume_preserves_learning_state(tmp_path: Path) -> None:
     assert resumed.learning_state.session_goal == "exam preparation"
     assert resumed.learning_state.time_budget_minutes == 45
     assert resumed.learning_state.practice_session_type == "exam"
+
+
+def test_save_and_resume_preserves_last_turn_contract(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.last_plan_intent = "source_qa"
+    session.last_turn_contract = TurnContract(
+        original_user_input="What else?",
+        resolved_intent="source_qa",
+        canonical_request="Explain another consequence from the prior cited answer.",
+        is_followup=True,
+        followup_target="previous answer",
+        answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+        answer_format=ANSWER_FORMAT_TABLE,
+        retrieval_strategy="reuse_prior_evidence",
+        retrieval_query="",
+        evidence_refs=("materials/exam.md#chunk=0",),
+        citation_required=True,
+        validation_result="ok",
+        confidence=0.92,
+    )
+
+    save_session(session)
+
+    resumed = resume_session(session.config, armory, session.session_id)
+    assert resumed.last_plan_intent == "source_qa"
+    assert resumed.last_turn_contract == session.last_turn_contract
+
+
+def test_save_and_resume_preserves_last_turn_evidence(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.last_turn_evidence = TurnEvidence(
+        items=(
+            EvidenceChunk(
+                evidence_id="E1",
+                chunk=Chunk(
+                    text="Q1 asks for the value four.",
+                    source="materials/exam.md",
+                    index=0,
+                    char_start=0,
+                    char_end=27,
+                    heading="Exam",
+                    heading_level=1,
+                ),
+                score=0.87,
+                content="Q1 asks for the value four.",
+            ),
+        ),
+        sampled_source_count=1,
+        total_source_count=1,
+    )
+
+    save_session(session)
+
+    resumed = resume_session(session.config, armory, session.session_id)
+    assert resumed.last_turn_evidence == session.last_turn_evidence
+    assert resumed.last_turn_evidence is not None
+    assert "[E1] materials/exam.md" in resumed.last_turn_evidence.render()
 
 
 def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:

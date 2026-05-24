@@ -58,6 +58,22 @@ _NO_UNSOLICITED_LEARNING_MENU_RULE = (
     "the user wants next unless the user asks for that."
 )
 _PRIORITY_RETRIEVAL_QUERY = "exam priority topics prerequisites past exams materials overview"
+_MATERIAL_OVERVIEW_ANSWER_RULES = (
+    "- Shape the final answer before sending it: concise, cited, and readable in a terminal.",
+    "- Prefer a valid compact synthesis over refusing when evidence is present.",
+    "- Use a short paragraph for the corpus-level answer, then up to 3 short bullets for "
+    "substantive topics if that helps readability.",
+    "- Prioritize learnable content from the excerpts: concepts, definitions, methods, "
+    "problem types, examples, or tasks. Treat title pages, logistics, and boilerplate as "
+    "context, not as the answer, unless the user asks for them.",
+    "- Cover the big picture: domain, document types, and only the most useful major topics.",
+    "- Cite evidence IDs like [E1] for every factual claim; cite multiple sources.",
+    "- Do not use markdown tables or exhaustive source/topic inventories unless the user "
+    "explicitly asks for a table.",
+    "- Do not infer from filenames, lecturers, institutions, or outside knowledge.",
+    "- If the first draft would be too long, uncited, or shaped like a source inventory, "
+    "rewrite it internally into the compact cited answer instead of explaining the failure.",
+)
 
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 _ASSESS_SECTION_RE = re.compile(
@@ -97,6 +113,8 @@ class LearningTurnPlan:
     phase: LearningPhase
     prompt: str
     retrieval_query: str | None = None
+    retrieval_strategy: str = ""
+    evidence_refs: tuple[str, ...] = ()
     use_expected_source_refs: bool = False
     allow_tools: bool = True
     buffer_response: bool = False
@@ -110,6 +128,8 @@ def _turn_plan(
     *,
     phase: LearningPhase = LearningPhase.PRESENTING,
     retrieval_query: str | None = None,
+    retrieval_strategy: str = "",
+    evidence_refs: tuple[str, ...] = (),
     use_expected_source_refs: bool = False,
     allow_tools: bool = False,
     buffer_response: bool = False,
@@ -121,6 +141,8 @@ def _turn_plan(
         phase=phase,
         prompt=prompt,
         retrieval_query=retrieval_query,
+        retrieval_strategy=retrieval_strategy,
+        evidence_refs=evidence_refs,
         use_expected_source_refs=use_expected_source_refs,
         allow_tools=allow_tools,
         buffer_response=buffer_response,
@@ -177,8 +199,8 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
             "- If the user asked for an exam-style or timed question, include one reasonable "
             "time limit and require them to reason their answer from memory.",
             "- Do not present the solution or method.",
-            "- Do not include evidence IDs, citations, source labels, or answer-location hints "
-            "in the question.",
+            "- End the question with the smallest relevant evidence citation, such as [E1]. "
+            "Do not include source labels, answer-location hints, or quoted answer text.",
             "- Internally preserve the source grounding for later assessment; never invent "
             "unsupported questions from general model knowledge.",
             "- End with one short learner-facing instruction in the user's language asking "
@@ -275,9 +297,7 @@ def _overview_prompt(query: str) -> str:
         f"User request: {query}",
         rules=(
             _SAME_LANGUAGE_REQUEST_RULE,
-            "- Cover the big picture: domain, document types, and major topics in your own words.",
-            "- Cite evidence IDs like [E1] for every factual claim; cite multiple sources.",
-            "- Do not infer from filenames, lecturers, institutions, or outside knowledge.",
+            *_MATERIAL_OVERVIEW_ANSWER_RULES,
         ),
     )
 
@@ -320,8 +340,7 @@ def material_topic_drill_plan(
         prompt = (
             f"{prompt}\n"
             "- This is an active-recall exam drill: do not show the result, answer key, "
-            "rubric, source explanation, source IDs, or citations until after the user's "
-            "attempt has been assessed."
+            "rubric, or source explanation until after the user's attempt has been assessed."
         )
     return _turn_plan(
         LearningAction.CALIBRATE,
@@ -396,8 +415,9 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
             "- Answer the user's question directly using only the retrieved source material.",
             "- If the user asks for an exact phrase, quote only the exact phrase plus citations.",
             _CITE_EVIDENCE_CLAIMS_RULE,
-            "- If no retrieved source material answers the question, say that the armory sources "
-            "do not contain the answer and ask for more specific material.",
+            "- If the retrieved source material does not directly answer the question, say what "
+            "direct cited answer is missing for the resolved request. Do not claim the whole "
+            "armory or all sources lack it unless this turn exhaustively checked every source.",
         ),
     )
 
@@ -467,7 +487,8 @@ def _practice_calibration_prompt(query: str, state: LearningState) -> str:
             "  * File names, folder names, or file paths.",
             "  * Headings or subheadings as standalone answers.",
             "- Internally preserve source grounding and never invent unsupported questions.",
-            "- Do not reveal the answer, method, answer key, source IDs, or citations.",
+            "- Do not reveal the answer, method, or answer key.",
+            "- End the question with the smallest relevant evidence citation, such as [E1].",
             "- Require the learner to answer from memory and include confidence from 0-100%.",
             "- If source material is unavailable or too thin, ask the smallest necessary "
             "clarifying question instead of inventing a task.",
@@ -583,6 +604,7 @@ def _hint_prompt(item: str, hint_level: int) -> str:
             level_instruction,
             leakage_rule,
             "- If no grounded material context is available, say no grounded hint is available.",
+            _CITE_EVIDENCE_CLAIMS_RULE,
             _SAME_LANGUAGE_ITEM_RULE,
             "- Do not hard-code an English hint when the learning exchange is in another "
             "language.",
@@ -709,9 +731,7 @@ def _with_learning_policy(
         due_reviews=due_reviews,
         memory_state=memory_state,
     )
-    skip_policy_prompt = (
-        _is_material_overview_plan(plan) or plan.action is LearningAction.SOURCE_QA
-    )
+    skip_policy_prompt = _material_answer_skips_learning_policy(plan)
     prompt = (
         plan.prompt
         if skip_policy_prompt
@@ -731,6 +751,16 @@ def _with_learning_policy(
 
 def _is_material_overview_plan(plan: LearningTurnPlan) -> bool:
     return plan.action is LearningAction.PRESENT and "Execute MATERIAL_OVERVIEW" in plan.prompt
+
+
+def _material_answer_skips_learning_policy(plan: LearningTurnPlan) -> bool:
+    return _is_material_overview_plan(plan) or plan.action in {
+        LearningAction.PRESENT,
+        LearningAction.SOURCE_QA,
+        LearningAction.PRIORITY,
+        LearningAction.REVIEW,
+        LearningAction.SIMPLIFY,
+    }
 
 
 def _plan_for_intent(

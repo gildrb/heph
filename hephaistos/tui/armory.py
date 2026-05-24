@@ -17,6 +17,7 @@ from hephaistos.tui.armory_browser import (
     default_armory_home,
     new_armory_path,
 )
+from hephaistos.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaistos.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
 )
@@ -235,7 +236,7 @@ class TuiArmoryMixin:
         self._schedule_transcript_reflow()
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
+        composer.placeholder = COMPOSER_PLACEHOLDER
         self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)

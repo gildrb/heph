@@ -153,6 +153,12 @@ def test_chat_config_defaults_to_low_reasoning() -> None:
     assert config.reasoning_level == "low"
 
 
+def test_chat_config_defaults_to_deterministic_temperature() -> None:
+    config = ChatConfig()
+
+    assert config.temperature == 0.0
+
+
 def test_request_kwargs_include_reasoning_for_reasoning_models() -> None:
     config = ChatConfig(
         base_url="https://api.openai.com/v1",
@@ -169,6 +175,38 @@ def test_request_kwargs_include_reasoning_for_reasoning_models() -> None:
     )
 
     assert kwargs["reasoning_effort"] == "high"
+    assert kwargs["temperature"] == 0.0
+
+
+def test_request_kwargs_can_omit_temperature() -> None:
+    config = ChatConfig(
+        base_url="https://api.openai.com/v1",
+        model="plain-model",
+        temperature=None,
+    )
+
+    kwargs = runtime_engine._request_kwargs(
+        config,
+        [{"role": "user", "content": "hello"}],
+        tools=None,
+        tool_choice=None,
+    )
+
+    assert "temperature" not in kwargs
+
+
+def test_codex_payload_omits_unsupported_temperature() -> None:
+    config = ChatConfig(
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.4-mini",
+    )
+
+    payload = runtime_engine._codex_payload(
+        config,
+        [{"role": "user", "content": "hello"}],
+    )
+
+    assert "temperature" not in payload
 
 
 def test_request_kwargs_clamp_reasoning_to_supported_tiers() -> None:

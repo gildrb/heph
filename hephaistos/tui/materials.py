@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Protocol, overload
 
 from hephaistos.materials import material_display_name
 from hephaistos.terminal import current_palette
+from hephaistos.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaistos.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
 )
@@ -209,7 +210,7 @@ class TuiMaterialsMixin:
         self._schedule_transcript_reflow()
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
+        composer.placeholder = COMPOSER_PLACEHOLDER
         self._sync_busy_to_current_session()
         self._update_info_panel()
         composer.focus()

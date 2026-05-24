@@ -3,7 +3,7 @@ name = "heph"
 version = "0.1.0"
 description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 authors = [
     { name = "Gil", email = "hi@gildrb.com" }
@@ -13,7 +13,6 @@ keywords = ["cli", "documents", "llm", "rag", "retrieval", "learning"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",

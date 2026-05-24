@@ -8,12 +8,18 @@ from dataclasses import dataclass, replace
 from html import unescape
 from typing import TYPE_CHECKING
 
+from hephaistos.chat.turn_contract import (
+    RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    RETRIEVAL_STRATEGY_REUSE_PRIOR,
+    TurnContract,
+)
 from hephaistos.chat.usage import ContextBudget
 from hephaistos.logging import Timer, get_logger
 from hephaistos.materials import infer_material_role_from_text
 from hephaistos.rag import (
     ArmoryIndex,
     Chunk,
+    EvidenceChunk,
     RetrievalMode,
     ScoredChunk,
     TransformStrategy,
@@ -51,6 +57,8 @@ _QUERY_NEIGHBOR_RADIUS = 1
 _QUERY_NEIGHBOR_LIMIT = 8
 _PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
+_DUPLICATE_LOW_CONTENT_MAX_CHARS = 240
+_DUPLICATE_LOW_CONTENT_MIN_SOURCES = 2
 _OVERVIEW_CHUNK_LIMIT = 48
 _OVERVIEW_CHUNKS_PER_DOCUMENT = 5
 _OVERVIEW_DOCUMENT_LIMIT = 48
@@ -59,6 +67,31 @@ _OVERVIEW_CONTEXT_TOKEN_BUDGET = 9000
 _LOW_CONTENT_CHUNK_RE = re.compile(
     r"^\s*(?:cite as:|for information about citing|downloaded on|terms of use\b|"
     r"copyright\b|http://ocw\.mit\.edu/terms)",
+    re.IGNORECASE,
+)
+_DIRECT_SUPPORT_MIN_TOKEN_LEN = 4
+_DIRECT_SUPPORT_MIN_COVERAGE = 0.34
+_DIRECT_SUPPORT_MIN_MATCHES = 2
+_SOURCE_QUESTION_RE = re.compile(
+    r"^User (?:question|request|follow-up):\s*(?P<text>.+)$",
+    re.MULTILINE,
+)
+_DEFINITION_REQUEST_RE = re.compile(
+    r"\b(?:define|definition|meaning|means|bedeutet|definition|definiere)\b",
+    re.IGNORECASE,
+)
+_DIRECT_LOOKUP_REQUEST_RE = re.compile(
+    r"\b(?:which|what|where|wo|welche|welcher|welches|was)\b"
+    r"(?=.{0,160}\b(?:"
+    r"citation|cite|contains?|date|define|definition|document|explains?|file|mentions?|"
+    r"page|quote|reference|section|source|states?|"
+    r"datum|datei|definier\w*|dokument|enthält|enthaelt|erklärt|erklaert|erwähnt|"
+    r"erwaehnt|quelle|seite|stelle|zitat"
+    r")\b)",
+    re.IGNORECASE,
+)
+_SOURCE_LOCATOR_REQUEST_RE = re.compile(
+    r"\b(?:citation|cite|document|file|reference|source|dokument|datei|quelle|zitat)\b",
     re.IGNORECASE,
 )
 _OVERVIEW_CONTEXT_POLICY = (
@@ -73,6 +106,7 @@ class ResolvedTurnPlan:
     learning_plan: LearningTurnPlan | None = None
     turn_evidence: TurnEvidence | None = None
     evidence_assessment: EvidenceAssessment | None = None
+    turn_contract: TurnContract | None = None
     priority_context: str = ""
     retrieval_latency_ms: float | None = None
 
@@ -170,7 +204,8 @@ def assess_turn_evidence(
         source_only=source_only,
         missing_hint=_missing_evidence_hint(plan, source_only=source_only),
     )
-    return _adjust_evidence_assessment(plan, assessment)
+    assessment = _adjust_evidence_assessment(plan, assessment)
+    return _direct_support_adjusted_assessment(plan, turn_evidence, assessment)
 
 
 def _plan_needs_source_only_answer(plan: LearningTurnPlan) -> bool:
@@ -196,6 +231,113 @@ def _adjust_evidence_assessment(
     if _should_ask_clarifying_query(plan, assessment):
         return replace(assessment, recommended_action="ask_clarifying_question")
     return assessment
+
+
+def _direct_support_adjusted_assessment(
+    plan: LearningTurnPlan,
+    turn_evidence: TurnEvidence | None,
+    assessment: EvidenceAssessment,
+) -> EvidenceAssessment:
+    if not _source_answer_requires_direct_support(plan, turn_evidence):
+        return assessment
+    query = _source_answer_query(plan)
+    support = _direct_support_score(query, turn_evidence)
+    if support >= _DIRECT_SUPPORT_MIN_COVERAGE:
+        if assessment.sufficient:
+            return assessment
+        return replace(
+            assessment,
+            sufficient=True,
+            confidence=max(assessment.confidence, support),
+            missing_information=(),
+            recommended_action="answer",
+        )
+    return replace(
+        assessment,
+        sufficient=False,
+        confidence=min(assessment.confidence, support),
+        missing_information=(f"direct source span for {_excerpt(query, limit=140)}",),
+        recommended_action="abstain",
+    )
+
+
+def _source_answer_requires_direct_support(
+    plan: LearningTurnPlan,
+    turn_evidence: TurnEvidence | None,
+) -> bool:
+    if plan.action is not LearningAction.SOURCE_QA:
+        return False
+    if turn_evidence is None or not turn_evidence.items:
+        return False
+    query = _source_answer_query(plan)
+    if plan.retrieval_query:
+        return (
+            _is_definition_request(query)
+            or _is_direct_lookup_request(query)
+            or _is_source_locator_request(query)
+        )
+    return _is_definition_request(query)
+
+
+def _source_answer_query(plan: LearningTurnPlan) -> str:
+    if plan.retrieval_query:
+        return plan.retrieval_query
+    if match := _SOURCE_QUESTION_RE.search(plan.prompt):
+        return match.group("text").strip()
+    return ""
+
+
+def _is_definition_request(query: str) -> bool:
+    return bool(_DEFINITION_REQUEST_RE.search(query))
+
+
+def _is_direct_lookup_request(query: str) -> bool:
+    return bool(_DIRECT_LOOKUP_REQUEST_RE.search(query))
+
+
+def _is_source_locator_request(query: str) -> bool:
+    return bool(_SOURCE_LOCATOR_REQUEST_RE.search(query))
+
+
+def _direct_support_score(query: str, turn_evidence: TurnEvidence | None) -> float:
+    if turn_evidence is None:
+        return 0.0
+    query_terms = _direct_support_terms(query)
+    if not query_terms:
+        return 1.0
+    min_matches = (
+        1 if len(query_terms) <= _DIRECT_SUPPORT_MIN_MATCHES else _DIRECT_SUPPORT_MIN_MATCHES
+    )
+    return max(
+        (
+            _direct_support_item_score(query_terms, item, min_matches=min_matches)
+            for item in turn_evidence.items
+        ),
+        default=0.0,
+    )
+
+
+def _direct_support_item_score(
+    query_terms: tuple[str, ...],
+    item: EvidenceChunk,
+    *,
+    min_matches: int,
+) -> float:
+    item_terms = set(_direct_support_terms(f"{item.chunk.heading}\n{item.content}"))
+    matches = sum(1 for term in query_terms if term in item_terms)
+    if matches < min_matches:
+        return 0.0
+    return matches / len(query_terms)
+
+
+def _direct_support_terms(text: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term
+            for term in re.findall(r"[\w+-]+", text.casefold())
+            if len(term) >= _DIRECT_SUPPORT_MIN_TOKEN_LEN and not term.isdigit()
+        )
+    )
 
 
 def _should_ask_clarifying_query(
@@ -500,7 +642,39 @@ def _trace_query_chunks(scored: Sequence[ScoredChunk]) -> list[Mapping[str, obje
 
 def _filter_low_content_chunks(scored: list[ScoredChunk]) -> list[ScoredChunk]:
     content_chunks = [item for item in scored if not _LOW_CONTENT_CHUNK_RE.search(item.chunk.text)]
+    content_chunks = _filter_repeated_short_duplicate_chunks(content_chunks)
     return content_chunks or scored
+
+
+def _filter_repeated_short_duplicate_chunks(scored: list[ScoredChunk]) -> list[ScoredChunk]:
+    duplicate_signatures = _repeated_short_duplicate_signatures(scored)
+    if not duplicate_signatures:
+        return scored
+    return [
+        item
+        for item in scored
+        if _short_duplicate_signature(item.chunk.text) not in duplicate_signatures
+    ]
+
+
+def _repeated_short_duplicate_signatures(scored: Sequence[ScoredChunk]) -> set[str]:
+    sources_by_signature: dict[str, set[str]] = {}
+    for item in scored:
+        signature = _short_duplicate_signature(item.chunk.text)
+        if signature:
+            sources_by_signature.setdefault(signature, set()).add(item.chunk.source)
+    return {
+        signature
+        for signature, sources in sources_by_signature.items()
+        if len(sources) >= _DUPLICATE_LOW_CONTENT_MIN_SOURCES
+    }
+
+
+def _short_duplicate_signature(text: str) -> str:
+    normalized = " ".join(unescape(text).casefold().split())
+    if not normalized or len(normalized) > _DUPLICATE_LOW_CONTENT_MAX_CHARS:
+        return ""
+    return normalized
 
 
 def _expand_with_neighbor_chunks(
@@ -641,11 +815,17 @@ def _append_overview_offset(
 
 
 def _overview_document_chunks(document: ChunkedDocument) -> tuple[Chunk, ...]:
-    return tuple(document.chunks)
+    return tuple(
+        chunk for chunk in document.chunks if not _LOW_CONTENT_CHUNK_RE.search(chunk.text)
+    )
 
 
 def _fallback_overview_chunks(chunks: Sequence[Chunk]) -> list[ScoredChunk]:
-    return [_overview_scored_chunk(chunk) for chunk in chunks[:_OVERVIEW_CHUNK_LIMIT]]
+    return [
+        _overview_scored_chunk(chunk)
+        for chunk in chunks
+        if not _LOW_CONTENT_CHUNK_RE.search(chunk.text)
+    ][:_OVERVIEW_CHUNK_LIMIT]
 
 
 def _overview_scored_chunk(chunk: Chunk) -> ScoredChunk:
@@ -749,7 +929,11 @@ def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[Sc
     analysis = analyze_priority(corpus.chunks, limit=12)
     scored = _priority_evidence_chunks(corpus.chunks, analysis)
     scored = _fill_priority_topic_chunks(corpus.chunks, analysis, scored)
-    return scored[:10] or [ScoredChunk(chunk=chunk, score=1.0) for chunk in corpus.chunks[:6]]
+    scored = _filter_low_content_chunks(scored)
+    fallback = _filter_low_content_chunks(
+        [ScoredChunk(chunk=chunk, score=1.0) for chunk in corpus.chunks[:6]]
+    )
+    return scored[:10] or fallback
 
 
 def _priority_evidence_chunks(
@@ -870,7 +1054,12 @@ def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
         return ""
 
 
-def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> TurnEvidence | None:
+def build_turn_evidence_from_refs(
+    session: ChatSession,
+    refs: list[str],
+    *,
+    max_tokens: int | None = None,
+) -> TurnEvidence | None:
     try:
         index = ensure_rag_index(session)
         if index is None or not refs:
@@ -883,7 +1072,7 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
         )
         if not scored:
             return None
-        return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
+        return build_turn_evidence(scored, max_tokens=max_tokens or adaptive_rag_budget(session))
     except Exception:
         _log.warning("turn evidence rebuild from refs failed", exc_info=True)
         return None
@@ -897,11 +1086,12 @@ def _scored_chunks_from_refs(
 ) -> list[ScoredChunk]:
     by_key = {(chunk.source, chunk.index): chunk for chunk in index.all_chunks}
     total = len(refs)
-    return [
+    scored = [
         ScoredChunk(chunk=chunk, score=float(total - pos))
         for pos, ref in enumerate(refs)
         if (chunk := _chunk_from_ref(by_key, ref, disabled_sources=disabled_sources)) is not None
     ]
+    return _filter_low_content_chunks(scored)
 
 
 def _chunk_from_ref(
@@ -924,6 +1114,8 @@ def resolve_turn_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnE
         return _calibration_turn_evidence(session, plan)
     if plan.action is LearningAction.PRIORITY:
         return build_priority_turn_evidence(session)
+    if expanded_evidence := _expanded_prior_query_evidence(session, plan):
+        return expanded_evidence
     if turn_evidence := _expected_source_ref_evidence(session, plan):
         return turn_evidence
     if plan.retrieval_query:
@@ -946,9 +1138,126 @@ def _expected_source_ref_evidence(
     session: ChatSession,
     plan: LearningTurnPlan,
 ) -> TurnEvidence | None:
+    if plan.evidence_refs and plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+        return build_turn_evidence_from_refs(session, list(plan.evidence_refs))
     if not plan.use_expected_source_refs or not session.learning_state.expected_source_refs:
         return None
     return build_turn_evidence_from_refs(session, session.learning_state.expected_source_refs)
+
+
+def _expanded_prior_query_evidence(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+) -> TurnEvidence | None:
+    if (
+        plan.retrieval_strategy != RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        or not plan.evidence_refs
+        or not plan.retrieval_query
+    ):
+        return None
+    try:
+        timer = Timer()
+        index = ensure_rag_index(session)
+        if index is None:
+            return None
+
+        prior_scored = _scored_chunks_from_refs(
+            index,
+            plan.evidence_refs,
+            disabled_sources=session.disabled_source_files,
+        )
+        with timer:
+            query_result = _retrieve_query_scored_chunks(session, plan.retrieval_query, index)
+        if query_result.scored:
+            _record_query_retrieval(
+                session,
+                plan.retrieval_query,
+                query_result,
+                latency_ms=timer.ms,
+            )
+        elif not prior_scored:
+            _log_empty_query_retrieval(plan.retrieval_query, timer.ms)
+            return None
+        scored = _merge_prior_and_query_scored_chunks(prior_scored, query_result.scored)
+        if not scored:
+            return None
+        return _build_expanded_turn_evidence(
+            scored,
+            prior_refs=plan.evidence_refs,
+            max_tokens=adaptive_rag_budget(session),
+        )
+    except Exception:
+        _log.warning("expanded prior evidence build failed", exc_info=True)
+        return None
+
+
+def _build_expanded_turn_evidence(
+    scored: Sequence[ScoredChunk],
+    *,
+    prior_refs: Sequence[str],
+    max_tokens: int,
+) -> TurnEvidence:
+    evidence = build_turn_evidence(list(scored), max_tokens=max_tokens)
+    prior_id_by_ref = {
+        ref: f"E{index}"
+        for index, ref in enumerate(prior_refs, start=1)
+        if parse_source_ref(ref) is not None
+    }
+    if not prior_id_by_ref:
+        return evidence
+    return _remap_prior_evidence_ids(evidence, prior_id_by_ref)
+
+
+def _remap_prior_evidence_ids(
+    evidence: TurnEvidence,
+    prior_id_by_ref: Mapping[str, str],
+) -> TurnEvidence:
+    used_ids = set(prior_id_by_ref.values())
+    next_id = _next_evidence_id(used_ids)
+    remapped_items: list[EvidenceChunk] = []
+    for item in evidence.items:
+        ref = EvidenceReference(item.source, item.chunk_index).render()
+        evidence_id = prior_id_by_ref.get(ref)
+        if evidence_id is None:
+            evidence_id = f"E{next_id}"
+            next_id += 1
+            while evidence_id in used_ids:
+                evidence_id = f"E{next_id}"
+                next_id += 1
+        used_ids.add(evidence_id)
+        remapped_items.append(
+            EvidenceChunk(
+                evidence_id=evidence_id,
+                chunk=item.chunk,
+                score=item.score,
+                content=item.content,
+            )
+        )
+    return TurnEvidence(
+        items=tuple(remapped_items),
+        sampled_source_count=evidence.sampled_source_count,
+        total_source_count=evidence.total_source_count,
+    )
+
+
+def _next_evidence_id(used_ids: set[str]) -> int:
+    numeric_ids = [
+        int(evidence_id[1:])
+        for evidence_id in used_ids
+        if evidence_id.startswith("E") and evidence_id[1:].isdigit()
+    ]
+    return max(numeric_ids, default=0) + 1
+
+
+def _merge_prior_and_query_scored_chunks(
+    prior_scored: Sequence[ScoredChunk],
+    query_scored: Sequence[ScoredChunk],
+) -> list[ScoredChunk]:
+    merged: list[ScoredChunk] = []
+    seen: set[tuple[str, int]] = set()
+    for item in (*query_scored, *prior_scored):
+        _append_scored_item(merged, seen, item)
+    return merged
 
 
 def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnEvidence | None:

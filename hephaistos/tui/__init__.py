@@ -13,7 +13,7 @@ from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from hephaistos.armory.search import SearchResult
 from hephaistos.parameters.settings import (
@@ -42,6 +42,7 @@ from hephaistos.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
 )
 from hephaistos.tui.display_text import (
+    COMPOSER_PLACEHOLDER,
     armory_footer_hints_text,
     footer_hints_text,
     info_panel_default_text,
@@ -55,9 +56,29 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
+from hephaistos.tui.ids import (
+    COMPLETION_POSITION_ID,
+    COMPLETION_STACK_ID,
+    COMPLETION_STACK_SELECTOR,
+    COMPOSER_FRAME_ID,
+    COMPOSER_FRAME_SELECTOR,
+    COMPOSER_ID,
+    COMPOSER_PROMPT_ID,
+    COMPOSER_SELECTOR,
+    FOOTER_HINTS_ID,
+    FOOTER_HINTS_SELECTOR,
+    INFO_PANEL_ID,
+    INFO_PANEL_SELECTOR,
+    SUGGESTIONS_ID,
+    SUGGESTIONS_SELECTOR,
+    TRANSCRIPT_ID,
+    TRANSCRIPT_SELECTOR,
+    TRANSCRIPT_SPACER_ID,
+)
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys
 from hephaistos.tui.materials import TuiMaterialsMixin
+from hephaistos.tui.render_state import DirtyRegion, TuiRenderCache
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
@@ -127,6 +148,7 @@ try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
+    from textual.css.query import NoMatches
     from textual.screen import Screen
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, RichLog, Static
@@ -139,6 +161,7 @@ except ImportError:
     events = None  # ty:ignore[invalid-assignment]
     App = object  # ty:ignore[invalid-assignment]
     ComposeResult = object  # ty:ignore[invalid-assignment]
+    NoMatches = Exception  # ty:ignore[invalid-assignment]
     Horizontal = object  # ty:ignore[invalid-assignment]
     Vertical = object  # ty:ignore[invalid-assignment]
     Screen = object  # ty:ignore[invalid-assignment]
@@ -182,6 +205,7 @@ _slash_suggestion = slash_suggestion
 
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
+_COMPLETION_DESCRIPTION_GAP = 4
 # Textual owns mouse events so widgets can be clicked, while ALLOW_SELECT on
 # individual widgets keeps selection scoped to rendered text.
 _TUI_ENABLE_MOUSE = True
@@ -298,7 +322,12 @@ class HephTui(
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
         self._transcript_reflow_pending = False
+        self._transcript_render_width: int | None = None
+        self._render_cache = TuiRenderCache()
+        self._resize_refresh_pending = False
         self._suggestions_mouse_hovering = False
+        self._completion_command_column_width = 22
+        self._side_panel_progress = ""
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
@@ -309,8 +338,8 @@ class HephTui(
         with w.horizontal(id="main-layout"):
             with w.vertical(id="shell"):
                 yield w.static(_status_text(self.session), id="status")
-                yield w.static("", id="transcript-spacer")
-                yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
+                yield w.static("", id=TRANSCRIPT_SPACER_ID)
+                yield w.rich_log(id=TRANSCRIPT_ID, markup=True, wrap=True, highlight=True)
                 with w.vertical(id="armory-inline"):
                     yield w.static("", id="armory-header")
                     yield w.static("", id="armory-breadcrumbs")
@@ -333,22 +362,24 @@ class HephTui(
                     yield w.static("", id="materials-footer")
                     yield w.static("", id="materials-bottom-gap")
                 yield w.static("", id="thinking-indicator")
-                with w.horizontal(id="composer-frame"):
-                    yield w.static("▸", id="composer-prompt")
+                with w.horizontal(id=COMPOSER_FRAME_ID):
+                    yield w.static("→", id=COMPOSER_PROMPT_ID)
                     yield w.input(
-                        placeholder='Ask anything... "Summarize the risks in this document set"',
-                        id="composer",
+                        placeholder=COMPOSER_PLACEHOLDER,
+                        id=COMPOSER_ID,
                     )
-                with w.vertical(id="completion-stack"):
-                    yield w.option_list(id="suggestions", markup=False)
-                    yield w.static("", id="completion-position")
-                    yield w.static(_footer_hints_text(self.session), id="footer-hints")
+                with w.vertical(id=COMPLETION_STACK_ID):
+                    yield w.option_list(id=SUGGESTIONS_ID, markup=False)
+                    yield w.static("", id=COMPLETION_POSITION_ID)
+                    yield w.static(_footer_hints_text(self.session), id=FOOTER_HINTS_ID)
             yield w.static(
                 _info_panel_default_text(
                     self.session,
                     session_seconds=self._tui_session_seconds(),
+                    busy=self.busy,
+                    progress=self._side_panel_progress,
                 ),
-                id="info-panel",
+                id=INFO_PANEL_ID,
             )
 
     def on_mount(self) -> None:
@@ -377,7 +408,7 @@ class HephTui(
             self._write_transcript_entry(entry)
 
     def _focus_composer(self) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         composer.select_on_focus = False
         composer.focus()
         self.set_focus(composer)
@@ -408,7 +439,7 @@ class HephTui(
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         if self._armory_inline_active or self._materials_inline_active:
-            composer = self.query_one("#composer", Input)
+            composer = self.query_one(COMPOSER_SELECTOR, Input)
             composer.focus()
             self.set_focus(composer)
             event.stop()
@@ -416,7 +447,7 @@ class HephTui(
     def on_click(self, event: events.Click) -> None:
         if isinstance(event.widget, OptionList):
             return
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         if self.focused is not composer:
             composer.focus()
             self.set_focus(composer)
@@ -430,19 +461,71 @@ class HephTui(
         target = visible and not self._armory_inline_active and not self._materials_inline_active
         self._set_sidebar_visible(target)
         self._refresh_compact_layout_class()
+        self._invalidate_after_resize()
+
+    def _invalidate_after_resize(self) -> None:
+        if self._completion_menu_visible() and not self._inline_flow.active:
+            self._hide_completions()
+        self._render_cache.forget(*DirtyRegion)
+        self._transcript_render_width = None
+        self._refresh_status()
+        self._refresh_footer_hints()
+        self._update_info_panel()
         self._schedule_transcript_reflow()
+        self.refresh(repaint=True, layout=True)
+        if not self._resize_refresh_pending:
+            self._resize_refresh_pending = True
+            self.set_timer(0.05, self._finish_resize_refresh)
+
+    def _finish_resize_refresh(self) -> None:
+        self._resize_refresh_pending = False
+        if not self._core_widgets_available():
+            return
+        self._render_cache.forget(*DirtyRegion)
+        self._transcript_render_width = None
+        self._refresh_status()
+        self._refresh_footer_hints()
+        self._update_info_panel()
+        self._schedule_transcript_reflow()
+        self.refresh(repaint=True, layout=True)
+
+    def _core_widgets_available(self) -> bool:
+        try:
+            self.query_one(COMPOSER_SELECTOR, Input)
+            self.query_one(SUGGESTIONS_SELECTOR, OptionList)
+            self.query_one(FOOTER_HINTS_SELECTOR, Static)
+        except NoMatches:
+            return False
+        return True
 
     def _set_sidebar_visible(self, visible: bool) -> None:
         if self._sidebar_actual_visible is visible:
             return
         self._sidebar_actual_visible = visible
         display = "block" if visible else "none"
-        self.query_one("#info-panel", Static).styles.display = display
+        self.query_one(INFO_PANEL_SELECTOR, Static).styles.display = display
+        self._transcript_render_width = None
         self._schedule_transcript_reflow()
 
+    def _update_static_region(
+        self,
+        selector: str,
+        widget_type: type[Static],
+        region: DirtyRegion,
+        renderable: object,
+    ) -> None:
+        plain = getattr(renderable, "plain", None)
+        snapshot = plain if isinstance(plain, str) else str(renderable)
+        if self._render_cache.should_update(region, snapshot):
+            content = renderable if isinstance(renderable, str) else cast("Text", renderable)
+            try:
+                self.query_one(selector, widget_type).update(content)
+            except NoMatches:
+                self._render_cache.forget(region)
+
     def _refresh_compact_layout_class(self) -> None:
-        stack = self.query_one("#completion-stack")
-        frame = self.query_one("#composer-frame")
+        stack = self.query_one(COMPLETION_STACK_SELECTOR)
+        frame = self.query_one(COMPOSER_FRAME_SELECTOR)
         if self.size.height <= _COMPACT_COMPLETION_STACK_MAX_HEIGHT:
             stack.add_class("compact")
             frame.add_class("compact")
@@ -451,7 +534,7 @@ class HephTui(
             frame.remove_class("compact")
 
     def on_key(self, event: events.Key) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         if self._handle_active_overlay_key(event):
             return
         if self._handle_composer_shortcut(event):
@@ -533,7 +616,7 @@ class HephTui(
         event.stop()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "composer":
+        if event.input.id == COMPOSER_ID:
             if self._inline_flow.active:
                 self._filter_inline_menu_options(event.value)
                 return
@@ -564,7 +647,7 @@ class HephTui(
                 event.option_index,
             )
             return
-        if event.option_list.id != "suggestions":
+        if event.option_list.id != SUGGESTIONS_ID:
             return
         if self._inline_flow.active:
             self._select_inline_flow_option(event.option_index)
@@ -591,7 +674,7 @@ class HephTui(
             )
 
     def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> None:
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         option_index = self._suggestions_hover_index(event, suggestions)
         if option_index is None:
             self._clear_suggestions_mouse_hovering(suggestions)
@@ -610,7 +693,7 @@ class HephTui(
         event: events.MouseMove,
         suggestions: OptionList,
     ) -> int | None:
-        if getattr(getattr(event, "widget", None), "id", None) != "suggestions":
+        if getattr(getattr(event, "widget", None), "id", None) != SUGGESTIONS_ID:
             return None
         if not suggestions.has_class("visible"):
             return None
@@ -639,7 +722,7 @@ class HephTui(
         if not self._suggestions_mouse_hovering:
             return
         if suggestions is None:
-            suggestions = self.query_one("#suggestions", OptionList)
+            suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         suggestions.remove_class("mouse-hovering")
         self._suggestions_mouse_hovering = False
 
@@ -649,22 +732,27 @@ class HephTui(
         suggestions: OptionList | None = None,
     ) -> None:
         if suggestions is None:
-            suggestions = self.query_one("#suggestions", OptionList)
+            suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         previous = suggestions.highlighted
         if previous == highlighted:
             return
-        for option_index in _changed_highlight_indices(
-            previous,
-            highlighted,
-            len(self.completion_candidates),
-        ):
-            suggestions.replace_option_prompt_at_index(
-                option_index,
-                self._format_completion_candidate(
-                    self.completion_candidates[option_index],
-                    selected=option_index == highlighted,
-                ),
-            )
+        command_width = self._completion_command_width(highlighted, suggestions.size.height)
+        if command_width != self._completion_command_column_width:
+            self._set_completion_options(highlighted=highlighted)
+        else:
+            for option_index in _changed_highlight_indices(
+                previous,
+                highlighted,
+                len(self.completion_candidates),
+            ):
+                suggestions.replace_option_prompt_at_index(
+                    option_index,
+                    self._format_completion_candidate(
+                        self.completion_candidates[option_index],
+                        selected=option_index == highlighted,
+                        command_width=command_width,
+                    ),
+                )
         suggestions.highlighted = highlighted
         self._refresh_completion_position()
 
@@ -673,7 +761,7 @@ class HephTui(
         self._submit_composer_value(apply_highlighted_completion=True)
 
     def _submit_composer_value(self, *, apply_highlighted_completion: bool) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         if self._inline_flow.active:
             self._submit_inline_flow(composer.value.strip())
             return
@@ -816,14 +904,14 @@ class HephTui(
 
     def action_clear_transcript(self) -> None:
         self.state.transcript.clear()
-        self.query_one("#transcript", RichLog).clear()
+        self.query_one(TRANSCRIPT_SELECTOR, RichLog).clear()
         self._append_notice("Screen cleared.")
 
     def action_open_search(self) -> None:
         self._open_search()
 
     def action_command_palette(self) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         composer.focus()
         self.set_focus(composer)
         if not composer.value.startswith("/"):
@@ -862,11 +950,11 @@ class HephTui(
         )
         self.session.dirty = True
         self.query_one("#status", Static).update(_status_text(self.session))
-        self.query_one("#footer-hints", Static).update(_footer_hints_text(self.session))
+        self.query_one(FOOTER_HINTS_SELECTOR, Static).update(_footer_hints_text(self.session))
         self._replace_last_notice(f"Reasoning {self.session.config.reasoning_level}.")
 
     def _apply_highlighted_completion(self) -> None:
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         highlighted = suggestions.highlighted
         self._apply_completion(highlighted if highlighted is not None else 0)
 
@@ -884,7 +972,7 @@ class HephTui(
             self.session = result.new_session
             self._turn_sessions[self._turn_key_for_session(self.session)] = self.session
             self.state.transcript.clear()
-            self.query_one("#transcript", RichLog).clear()
+            self.query_one(TRANSCRIPT_SELECTOR, RichLog).clear()
             self._append_entry(_new_chat_card_text(), "startup")
             self._append_notice("New chat started.")
             self._focused_msg_index = None
@@ -893,7 +981,7 @@ class HephTui(
 
     def _replace_transcript_from_session(self) -> None:
         self.state.transcript.clear()
-        self.query_one("#transcript", RichLog).clear()
+        self.query_one(TRANSCRIPT_SELECTOR, RichLog).clear()
         for message in self.session.conversation.messages:
             if message.role == "user":
                 self._append_entry(message.content, "user")
@@ -1089,19 +1177,19 @@ class HephTui(
         self._handle_external_input("/evidence")
 
     def _completion_menu_visible(self) -> bool:
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         return suggestions.has_class("visible") and (
             bool(self.completion_candidates) or self._inline_flow.active
         )
 
     def _refresh_completions(self) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         before_cursor = composer.value[: composer.cursor_position]
         self.completion_candidates = self.completion_engine.candidates(
             before_cursor,
             _tui_command_suggestions(),
         )
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         suggestions.remove_class("inline-menu")
         if not self.completion_candidates:
             suggestions.set_options([])
@@ -1118,7 +1206,7 @@ class HephTui(
 
     def _hide_completions(self) -> None:
         self.completion_candidates = []
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         suggestions.set_options([])
         suggestions.remove_class("inline-menu")
         suggestions.remove_class("visible")
@@ -1126,7 +1214,7 @@ class HephTui(
         self._refresh_footer_hints()
 
     def _move_completion(self, offset: int) -> None:
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         self._clear_suggestions_mouse_hovering(suggestions)
         flow = self._inline_flow
         options = flow.options if flow.active else self.completion_candidates
@@ -1148,7 +1236,7 @@ class HephTui(
     def _apply_completion(self, index: int) -> None:
         if not (0 <= index < len(self.completion_candidates)):
             return
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         candidate = self.completion_candidates[index]
         before_cursor = composer.value[: composer.cursor_position]
         after_cursor = composer.value[composer.cursor_position :]
@@ -1160,12 +1248,36 @@ class HephTui(
         self._refresh_completions()
 
     def _set_completion_options(self, *, highlighted: int | None) -> None:
-        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
+        command_width = self._completion_command_width(highlighted, suggestions.size.height)
+        self._completion_command_column_width = command_width
         suggestions.set_options(
             [
-                self._format_completion_candidate(candidate, selected=index == highlighted)
+                self._format_completion_candidate(
+                    candidate,
+                    selected=index == highlighted,
+                    command_width=command_width,
+                )
                 for index, candidate in enumerate(self.completion_candidates)
             ]
+        )
+
+    def _completion_command_width(self, highlighted: int | None, rendered_height: int) -> int:
+        candidates = self.completion_candidates
+        if not candidates:
+            return 0
+        highlighted_index = highlighted if highlighted is not None else 0
+        scroll_y = _completion_menu_scroll_y(highlighted_index, len(candidates), rendered_height)
+        visible_rows = rendered_height if rendered_height > 0 else 7
+        visible_rows = max(1, min(len(candidates), visible_rows, 7))
+        visible_candidates = candidates[scroll_y : scroll_y + visible_rows]
+        return max(
+            (
+                len(self._completion_preview(candidate).strip())
+                for candidate in visible_candidates
+                if candidate.description
+            ),
+            default=0,
         )
 
     def _format_completion_candidate(
@@ -1173,6 +1285,7 @@ class HephTui(
         candidate: CompletionCandidate,
         *,
         selected: bool = False,
+        command_width: int = 22,
     ) -> str | Text:
         if candidate.display_provider:
             return (
@@ -1184,21 +1297,27 @@ class HephTui(
         value = self._completion_preview(candidate).strip()
         if _RichText is None:
             if candidate.description:
-                return f"{value:<22} {candidate.description}  "
+                return (
+                    f"{value:<{command_width}}"
+                    f"{' ' * _COMPLETION_DESCRIPTION_GAP}{candidate.description}  "
+                )
             return f"{value}  "
         palette = current_palette()
         command_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
         description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
         text = _RichText()
         if candidate.description:
-            text.append(f"{value:<22} ", style=command_style)
+            text.append(
+                f"{value:<{command_width}}{' ' * _COMPLETION_DESCRIPTION_GAP}",
+                style=command_style,
+            )
             text.append(f"{candidate.description}  ", style=description_style)
             return text
         text.append(f"{value}  ", style=command_style)
         return text
 
     def _completion_preview(self, candidate: CompletionCandidate) -> str:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
         before_cursor = composer.value[: composer.cursor_position]
         replacement_start = len(before_cursor) + candidate.start_position
         return before_cursor[:replacement_start] + candidate.text

@@ -80,6 +80,7 @@ needs the explicit TUI subcommand.
 | `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
 | `HEPHAISTOS_RERANK_MODEL` | Override the reranker model when available. |
 | `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
+| `HEPHAISTOS_TEMPERATURE` | Override the generation temperature for chat responses. |
 | `HEPHAISTOS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaistos/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |

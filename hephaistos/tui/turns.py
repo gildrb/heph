@@ -20,6 +20,7 @@ class _TurnHost(Protocol):
     _active_turn_sessions: dict[str, ChatSession]
     _turn_sessions: dict[str, ChatSession]
     busy: bool
+    _side_panel_progress: str
 
     def call_from_thread(
         self,
@@ -41,6 +42,8 @@ class _TurnHost(Protocol):
 
     def _refresh_status(self) -> None: ...
 
+    def _update_info_panel(self) -> None: ...
+
     def _current_turn_key(self) -> str: ...
 
     def _finish_background_turn(self, turn_key: str, turn_session: ChatSession) -> None: ...
@@ -50,6 +53,8 @@ class _TurnHost(Protocol):
     def _handle_turn_error(self, turn_key: str, error: str) -> None: ...
 
     def _handle_turn_notice(self, turn_key: str, notice: str) -> None: ...
+
+    def _handle_turn_progress(self, turn_key: str, progress: str) -> None: ...
 
     def _handle_turn_reply(self, turn_key: str, reply: str) -> None: ...
 
@@ -92,6 +97,11 @@ class TuiTurnMixin:
     def _handle_turn_notice(self: _TurnHost, turn_key: str, notice: str) -> None:
         if self._turn_is_visible(turn_key):
             self._append_notice(notice)
+
+    def _handle_turn_progress(self: _TurnHost, turn_key: str, progress: str) -> None:
+        if self._turn_is_visible(turn_key):
+            self._side_panel_progress = progress
+            self._update_info_panel()
 
     def _handle_turn_activity(self: _TurnHost, turn_key: str, line: str) -> None:
         if self._turn_is_visible(turn_key):
@@ -139,6 +149,9 @@ class TuiTurnMixin:
             last_activity_line = line
             self.call_from_thread(self._handle_turn_activity, turn_key, line)
 
+        def on_progress(progress: str) -> None:
+            self.call_from_thread(self._handle_turn_progress, turn_key, progress)
+
         def on_error(error: str) -> None:
             self.call_from_thread(self._handle_turn_error, turn_key, error)
 
@@ -153,5 +166,6 @@ class TuiTurnMixin:
             on_notice=on_notice,
             on_error=on_error,
             on_finish=on_finish,
+            on_progress=on_progress,
             on_activity=on_activity,
         )
