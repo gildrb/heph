@@ -9,7 +9,7 @@
 | `heph` | Open your current armory or plain chat. |
 | `heph <name-or-path>` | Open a known armory by name, e.g. `heph gdp`, or by path. |
 | `hephaistos [path]` | Equivalent long entrypoint for `heph`. |
-| `heph armory <name> [parent]` | Create a named armory in ~/Armories or in <parent>/Armories. |
+| `heph armory <name>` | Create a named armory in `~/.armories`. |
 | `heph armory init <name-or-path>` | Create a new named armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
 | `heph materials list <path>` | List material files. |

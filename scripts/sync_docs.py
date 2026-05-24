@@ -102,7 +102,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
     "HEPHAISTOS_API_KEY": "Global API key override that applies to any provider.",
     "HEPHAISTOS_ARMORY_HOME": (
-        "Default parent folder for named armories (`~/Armories` by default)."
+        "Default parent folder for named armories (`~/.armories` by default)."
     ),
     "HEPHAISTOS_TRUST_ARMORY_PLUGINS": (
         "Allow trusted armories to load `.hephaistos/tools/*.py` plugins."
@@ -132,9 +132,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph": "Open your current armory or plain chat.",
     "heph <name-or-path>": "Open a known armory by name, e.g. `heph gdp`, or by path.",
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
-    "heph armory <name> [parent]": (
-        "Create a named armory in ~/Armories or in <parent>/Armories."
-    ),
+    "heph armory <name>": "Create a named armory in `~/.armories`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
     "heph chat ask --jsonl <path> [prompt]": (
@@ -256,8 +254,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             CLI_COMMAND_DESCRIPTIONS[f"{long_command} [path]"],
         ),
         CommandLine(
-            f"{short_command} armory <name> [parent]",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} armory <name> [parent]"],
+            f"{short_command} armory <name>",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} armory <name>"],
         ),
         CommandLine(f"{short_command} armory init <name-or-path>", armory_help["init"]),
         CommandLine(f"{short_command} armory open <path>", armory_help["open"]),
@@ -294,7 +292,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
     selected = (
         short_command,
         f"{short_command} <name-or-path>",
-        f"{short_command} armory <name> [parent]",
+        f"{short_command} armory <name>",
         f"{short_command} armory init <name-or-path>",
         f"{short_command} armory open <path>",
         f"{short_command} materials list <path>",
@@ -432,9 +430,9 @@ def render_pip_install_block() -> str:
 def render_create_armory_block(model: DocsModel) -> str:
     return (
         "```bash\n"
-        f"{model.short_command} armory init ~/armories/exams\n"
-        "# Add source files to ~/armories/exams/materials\n"
-        f"{model.short_command} ~/armories/exams\n"
+        f"{model.short_command} armory init exams\n"
+        "# Add source files to ~/.armories/exams/materials\n"
+        f"{model.short_command} exams\n"
         "```"
     )
 

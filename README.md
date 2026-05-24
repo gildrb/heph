@@ -47,16 +47,16 @@ uv tool install git+https://github.com/gildrb/hephaistos
 ## Start
 
 ```bash
-heph armory init ~/armories/exams
-# add documents to ~/armories/exams/materials
-heph ~/armories/exams
+heph armory init exams
+# add documents to ~/.armories/exams/materials
+heph exams
 ```
 
 You can also run:
 
 ```bash
 heph .
-heph ~/armories/exams
+heph ~/.armories/exams
 ```
 
 From a source checkout, use `uv run heph`.
@@ -82,7 +82,7 @@ heph update             Show the update command.
 ```
 
 Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/evidence`,
-`/memory`, `/settings`, and `/exit`.
+`/settings`, and `/exit`.
 
 ## Contributing
 
