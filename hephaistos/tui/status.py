@@ -14,6 +14,8 @@ from hephaistos.runtime import has_configured_access
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
+STATUS_FIELD_GAP = "  "
+
 
 def status_lines(session: ChatSession) -> str:
     armory = "none"
@@ -26,7 +28,11 @@ def status_lines(session: ChatSession) -> str:
         if len(armory) > 48:
             armory = f"...{armory[-45:]}"
     model = session.config.model or "none"
-    return f"Heph armory {armory} model {model} reasoning {session.config.reasoning_level}"
+    return (
+        f"Heph{STATUS_FIELD_GAP}armory {armory}"
+        f"{STATUS_FIELD_GAP}model {model}"
+        f"{STATUS_FIELD_GAP}reasoning {session.config.reasoning_level}"
+    )
 
 
 def config_error(session: ChatSession) -> str | None:

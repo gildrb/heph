@@ -11,7 +11,7 @@ from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_messa
 from hephaistos.tui.keymap import armory_shortcut_key
 from hephaistos.tui.rich_transcript import evidence_summary_text
 from hephaistos.tui.session_state import TuiTranscriptEntry
-from hephaistos.tui.status import status_lines
+from hephaistos.tui.status import STATUS_FIELD_GAP, status_lines
 
 try:
     from rich.text import Text as _RichText
@@ -62,9 +62,9 @@ def _stylize_status_values(text: Text, plain: str) -> None:
 
 def _status_value_end(plain: str, label: str, value_start: int) -> int:
     if label == "armory":
-        return plain.index(" model ", value_start)
+        return plain.index(f"{STATUS_FIELD_GAP}model ", value_start)
     if label == "model":
-        return plain.index(" reasoning ", value_start)
+        return plain.index(f"{STATUS_FIELD_GAP}reasoning ", value_start)
     return len(plain)
 
 
@@ -107,19 +107,15 @@ def footer_hints_text(
     key_ok = has_configured_access(session.config, refresh_oauth=False)
     shortcut = armory_shortcut_key()
     parts = [
-        "enter send",
-        "tab complete",
-        "shift+tab reasoning",
-        "ctrl+p commands",
         f"{shortcut} armory",
-        "ctrl+c exit",
-        "ctrl+d exit",
+        "ctrl+p commands",
+        "shift+tab reasoning",
     ]
     if not key_ok:
         parts.append("api missing")
     text = _shortcut_hints_text(
         parts,
-        ("enter", "tab", "shift+tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"),
+        (shortcut, "ctrl+p", "shift+tab"),
         footer_style=footer_style,
         shortcut_style=shortcut_style,
     )
@@ -138,7 +134,7 @@ def _shortcut_hints_text(
     shortcut_style: str,
     every_match: bool = False,
 ) -> Text:
-    plain = "  ".join(parts)
+    plain = STATUS_FIELD_GAP.join(parts)
     text = require_rich_text()(plain, style=footer_style)
     for label in labels:
         if every_match:

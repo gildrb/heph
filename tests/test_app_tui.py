@@ -123,7 +123,7 @@ def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())
 
-    assert status == "Heph armory none model test-model reasoning low"
+    assert status == "Heph  armory none  model test-model  reasoning low"
     assert "Heph" in status
     assert "test-model" in status
     assert "armory" in status
@@ -246,14 +246,15 @@ def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> No
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
 
-    assert "enter" in plain
-    assert "tab" in plain
-    assert "ctrl+p" in plain
     assert "ctrl+a" in plain
-    assert "ctrl+c" in plain
-    assert "ctrl+d" in plain
     assert "ctrl+a armory" in plain
-    assert "ctrl+c exit" in plain
+    assert "ctrl+p commands" in plain
+    assert "shift+tab reasoning" in plain
+    assert plain.startswith("ctrl+a armory  ctrl+p commands  shift+tab reasoning")
+    assert "enter" not in plain
+    assert "tab complete" not in plain
+    assert "ctrl+c" not in plain
+    assert "ctrl+d" not in plain
     assert "test-model" not in plain
 
 
@@ -321,7 +322,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
     palette = tui.current_palette()
     footer_label_style = palette.text_muted
     shortcut_style = palette.text_secondary
-    labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+c", "ctrl+d")
+    labels = ("ctrl+a", "ctrl+p", "shift+tab")
     shortcut_styles: dict[str, list[str]] = {}
     for label in labels:
         start = hints.plain.index(label)
@@ -351,7 +352,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
         (tui._info_panel_default_text(session), ("scope", "time", "grounding")),
         (
             tui._footer_hints_text(session),
-            ("enter", "tab", "ctrl+p", "ctrl+o", "ctrl+c", "ctrl+d"),
+            ("ctrl+o", "ctrl+p", "shift+tab"),
         ),
     )
 
@@ -385,11 +386,11 @@ def test_secondary_chrome_details_share_darker_tint(
         return str(text.style)
 
     footer = tui._footer_hints_text(session)
-    for label in ("send", "complete", "commands", "armory", "exit"):
+    for label in ("commands", "reasoning", "armory"):
         assert effective_style(footer, label) == palette.text_muted
 
     status = tui._status_text(session)
-    armory_value = status.plain.split("armory ", maxsplit=1)[1].split(" model ", maxsplit=1)[0]
+    armory_value = status.plain.split("armory ", maxsplit=1)[1].split("  model ", maxsplit=1)[0]
     assert effective_style(status, armory_value) == palette.text_muted
     assert effective_style(status, session.config.model) == palette.text_muted
 
@@ -1400,7 +1401,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert stack.region.y == stack_y
             assert frame.region.width == stack.region.width
             assert str(position.render()) == f"  (1/{suggestions.option_count})"
-            assert str(footer.render()).startswith("enter send")
+            assert str(footer.render()).startswith("ctrl+o armory")
             assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
             assert suggestions.size.height <= 7
@@ -3714,7 +3715,7 @@ def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
             assert "armory" in str(hints.render())
             await pilot.press("escape")
             await pilot.pause()
-            assert "enter send" in str(hints.render())
+            assert "ctrl+o armory" in str(hints.render())
 
     asyncio.run(check_footer_restore())
 
@@ -4609,7 +4610,7 @@ def test_models_command_shows_plain_suggestion() -> None:
             assert not suggestions.has_class("model-picker")
             position = app.query_one("#completion-position", tui.Static)
             assert str(position.render()) == "  (1/1)"
-            assert str(footer.render()).startswith("enter send")
+            assert str(footer.render()).startswith("ctrl+o armory")
 
     asyncio.run(check_models_suggestion())
 
@@ -4908,7 +4909,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 position = app.query_one("#completion-position", tui.Static)
                 expected_position = f"  ({highlighted + 1}/{suggestions.option_count})"
                 assert str(position.render()) == expected_position
-                assert str(footer.render()).startswith("enter send")
+                assert str(footer.render()).startswith("ctrl+o armory")
 
     asyncio.run(check_scroll_policy())
 
