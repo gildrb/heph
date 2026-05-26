@@ -2,15 +2,15 @@
 
 # Heph
 
-**Heph is an agentic local document harness for accurate, cited answers.**
+**Hephaion is an agentic local document harness for accurate, cited answers.**
 
-Heph helps you understand and work with document-heavy projects
+The agent (Heph) helps you understand and work with document-heavy projects
 without handing your files to a hosted workspace. Put materials in an **armory**,
 start Heph, and ask questions. Heph retrieves from your files before answering,
 checks citations against the retrieved evidence, and keeps memory scoped to that
 armory.
 
-The agent is there to reason over the material, ask follow-up questions, test your
+Heph is there to reason over the material, ask follow-up questions, test your
 understanding, and keep long sessions grounded. Accuracy, verification, and privacy
 come first; model choice stays swappable.
 
