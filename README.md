@@ -2,7 +2,7 @@
 
 # Heph
 
-**Heph is a local document harness for accurate, cited answers.**
+**Heph is an agentic local document harness for accurate, cited answers.**
 
 Heph helps you understand and work with document-heavy projects
 without handing your files to a hosted workspace. Put materials in an **armory**,
