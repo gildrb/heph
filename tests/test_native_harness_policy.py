@@ -118,7 +118,7 @@ def test_claim_policy_rejects_qrels_or_expected_answer_leakage() -> None:
 def test_claim_policy_redacts_seeded_secrets_before_report_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAISTOS_TEST_POLICY_TOKEN", "policy-secret-value")
+    monkeypatch.setenv("HEPHAION_TEST_POLICY_TOKEN", "policy-secret-value")
 
     finalized = claim_report_envelope.finalize_claim_report(
         _minimal_claim_report(warnings=["diagnostic token policy-secret-value must redact"]),
@@ -136,7 +136,7 @@ def test_claim_policy_redacts_seeded_secrets_before_report_output(
 def test_claim_policy_redacts_command_invocation_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAISTOS_TEST_POLICY_TOKEN", "policy-command-secret")
+    monkeypatch.setenv("HEPHAION_TEST_POLICY_TOKEN", "policy-command-secret")
 
     finalized = claim_report_envelope.finalize_claim_report(
         _minimal_claim_report(),
@@ -242,7 +242,7 @@ def test_repo_policy_rejects_product_runtime_imports_from_benchmark_only_code() 
                 "from benchmarks.academic import fixture",
             )
         ),
-        "hephaistos/chat/runtime_boundary_fixture.py",
+        "hephaion/chat/runtime_boundary_fixture.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -260,7 +260,7 @@ def test_repo_policy_rejects_allowlisted_runtime_dynamic_benchmark_imports() -> 
                 'importlib.import_module("benchmarks.academic.fixture")',
             )
         ),
-        "hephaistos/cli/main.py",
+        "hephaion/cli/main.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -278,7 +278,7 @@ def test_repo_policy_rejects_imported_runtime_dynamic_benchmark_imports() -> Non
                 'import_module("benchmarks.academic.fixture")',
             )
         ),
-        "hephaistos/cli/main.py",
+        "hephaion/cli/main.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -296,7 +296,7 @@ def test_repo_policy_rejects_aliased_runtime_dynamic_benchmark_imports() -> None
                 'il.import_module("benchmarks.academic.fixture")',
             )
         ),
-        "hephaistos/cli/main.py",
+        "hephaion/cli/main.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -310,10 +310,10 @@ def test_repo_policy_allows_allowlisted_runtime_dynamic_product_imports() -> Non
             (
                 "from __future__ import annotations",
                 "import importlib",
-                'importlib.import_module("hephaistos.commands")',
+                'importlib.import_module("hephaion.commands")',
             )
         ),
-        "hephaistos/cli/main.py",
+        "hephaion/cli/main.py",
     )
 
     assert violations == []
@@ -329,7 +329,7 @@ def test_repo_policy_rejects_literal_reply_assignment_without_reply_function_nam
                 "    return direct_reply",
             )
         ),
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -345,7 +345,7 @@ def test_repo_policy_rejects_literal_reply_attribute_assignment() -> None:
                 '    plan.reply = "If you want, I can give you a study plan next."',
             )
         ),
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -361,7 +361,7 @@ def test_repo_policy_rejects_literal_response_subscript_assignment() -> None:
                 '    payload["response"] = "Tell the user to choose one option from the menu."',
             )
         ),
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -375,11 +375,11 @@ def test_repo_policy_allows_allowlisted_aliased_runtime_dynamic_product_imports(
                 "from __future__ import annotations",
                 "from importlib import import_module as load_module",
                 "import importlib as il",
-                'load_module("hephaistos.commands")',
-                'il.import_module("hephaistos.commands")',
+                'load_module("hephaion.commands")',
+                'il.import_module("hephaion.commands")',
             )
         ),
-        "hephaistos/cli/main.py",
+        "hephaion/cli/main.py",
     )
 
     assert violations == []
@@ -394,7 +394,7 @@ def test_repo_policy_rejects_product_runtime_references_to_generated_artifacts()
                 'FIXTURE_PATH = "benchmarks/academic/rag.jsonl"',
             )
         ),
-        "hephaistos/rag/runtime_boundary_fixture.py",
+        "hephaion/rag/runtime_boundary_fixture.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -404,13 +404,13 @@ def test_repo_policy_rejects_product_runtime_references_to_generated_artifacts()
 def test_repo_policy_rejects_duplicate_model_facing_prompt_rules() -> None:
     first = check_repo_policies.PromptRuleLiteral(
         text="- answer in the same language as the user's request when clear.",
-        path="hephaistos/study/controller.py",
+        path="hephaion/study/controller.py",
         line=10,
         column=5,
     )
     duplicate = check_repo_policies.PromptRuleLiteral(
         text="- answer in the same language as the user's request when clear.",
-        path="hephaistos/chat/orchestrator.py",
+        path="hephaion/chat/orchestrator.py",
         line=20,
         column=9,
     )
@@ -419,7 +419,7 @@ def test_repo_policy_rejects_duplicate_model_facing_prompt_rules() -> None:
     rendered = "\n".join(violation.render() for violation in violations)
 
     assert "duplicate model-facing prompt rule" in rendered
-    assert "first seen at hephaistos/study/controller.py:10" in rendered
+    assert "first seen at hephaion/study/controller.py:10" in rendered
 
 
 def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
@@ -427,7 +427,7 @@ def test_repo_policy_rejects_hardcoded_chat_answers() -> None:
         [
             check_repo_policies.HardcodedAnswerLiteral(
                 text="Hey. I can help with your documents.",
-                path="hephaistos/study/controller.py",
+                path="hephaion/study/controller.py",
                 line=12,
                 column=8,
             )
@@ -448,7 +448,7 @@ def test_repo_policy_rejects_semantic_followup_regex_dispatch() -> None:
                 '_WHAT_ELSE_FOLLOWUP_RE = re.compile(r"what else|go on")',
             )
         ),
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -463,7 +463,7 @@ def test_repo_policy_rejects_semantic_phrase_tables() -> None:
                 'FOLLOWUP_PHRASES = {"what else": "reuse_prior_evidence"}',
             )
         ),
-        "hephaistos/study/controller.py",
+        "hephaion/study/controller.py",
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -472,7 +472,7 @@ def test_repo_policy_rejects_semantic_phrase_tables() -> None:
 
 def test_repo_policy_rejects_configured_private_corpus_terms_outside_tests() -> None:
     violations = check_repo_policies._private_corpus_identifier_hits(
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
         'SYSTEM_PROMPT = "Summarize Private University calculus notes."',
         ("Private University",),
     )
@@ -493,7 +493,7 @@ def _clarifying_question_reply(missing: str) -> str:
 
     violations = check_repo_policies._hardcoded_answer_literals(
         source,
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(
         violation.render()
@@ -514,7 +514,7 @@ def _product_answer() -> str:
 
     violations = check_repo_policies._hardcoded_answer_literals(
         source,
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(
         violation.render()
@@ -535,7 +535,7 @@ def _source_response() -> str:
 
     violations = check_repo_policies._hardcoded_answer_literals(
         source,
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(
         violation.render()
@@ -553,7 +553,7 @@ def _product_answer() -> str:
 
     violations = check_repo_policies._hardcoded_answer_literals(
         source,
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
     rendered = "\n".join(
         violation.render()
@@ -571,7 +571,7 @@ def _plain_empty_reply(user_input: str, config: object) -> str:
 
     violations = check_repo_policies._hardcoded_answer_literals(
         source,
-        "hephaistos/chat/orchestrator.py",
+        "hephaion/chat/orchestrator.py",
     )
 
     assert violations == []
@@ -579,7 +579,7 @@ def _plain_empty_reply(user_input: str, config: object) -> str:
 
 def test_repo_policy_rejects_tracked_generated_python_caches() -> None:
     violations = check_repo_policies._check_generated_caches(
-        ("hephaistos/__pycache__/removed_module.cpython-313.pyc",)
+        ("hephaion/__pycache__/removed_module.cpython-313.pyc",)
     )
     rendered = "\n".join(violation.render() for violation in violations)
 
@@ -589,7 +589,7 @@ def test_repo_policy_rejects_tracked_generated_python_caches() -> None:
 
 def test_current_product_runtime_has_no_benchmark_only_import_or_artifact_coupling() -> None:
     repo_root = Path(__file__).resolve().parent.parent
-    product_root = repo_root / "hephaistos"
+    product_root = repo_root / "hephaion"
     violations: list[str] = []
     for path in sorted(product_root.rglob("*.py")):
         if "__pycache__" in path.parts:

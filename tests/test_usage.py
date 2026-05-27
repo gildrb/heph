@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-import hephaistos.chat.usage as usage_module
-from hephaistos.chat.usage import (
+import hephaion.chat.usage as usage_module
+from hephaion.chat.usage import (
     ContextBudget,
     SessionUsage,
     TokenUsage,
@@ -17,7 +17,7 @@ from hephaistos.chat.usage import (
     get_context_window,
     save_usage,
 )
-from hephaistos.runtime import ApiMessage, UsagePayload
+from hephaion.runtime import ApiMessage, UsagePayload
 
 # ---------------------------------------------------------------------------
 # TokenUsage

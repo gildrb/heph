@@ -16,13 +16,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.materials import (
+from hephaion.materials import (
     MaterialFile,
     MaterialRole,
     infer_material_role_from_text,
     material_manifest,
 )
-from hephaistos.rag import load_or_build
+from hephaion.rag import load_or_build
 
 
 class ManifestDocument(TypedDict):

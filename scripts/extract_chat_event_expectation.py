@@ -10,7 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
-from hephaistos.agent.citation import extract_citations
+from hephaion.agent.citation import extract_citations
 
 _REF_RE = re.compile(r"^(?P<source>.+)#chunk=(?P<chunk>\d+)$")
 

@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.chat import orchestrator as chat_orchestrator
+from hephaion.chat import orchestrator as chat_orchestrator
 from scripts import (
     benchmark_academic_items,
     benchmark_answers,
@@ -129,9 +129,9 @@ def _learning_state_dataset_path(suite_path: Path) -> Path:
 
 
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
-    "hephaistos/chat/orchestrator.py",
-    "hephaistos/study/controller.py",
-    "hephaistos/tui/inline_flows.py",
+    "hephaion/chat/orchestrator.py",
+    "hephaion/study/controller.py",
+    "hephaion/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")
@@ -190,7 +190,7 @@ def _is_generated_armory_index_artifact(name: str) -> bool:
 
 
 def _ignore_generated_armory_index_artifacts(directory: str, names: list[str]) -> set[str]:
-    if Path(directory).name != ".hephaistos":
+    if Path(directory).name != ".hephaion":
         return set()
     return {name for name in names if _is_generated_armory_index_artifact(name)}
 

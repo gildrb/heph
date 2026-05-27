@@ -64,24 +64,24 @@ jobs:
         run: uv run ty check
 
       - name: Bandit
-        run: uv run bandit -r hephaistos -c pyproject.toml
+        run: uv run bandit -r hephaion -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture hephaistos tests vulture-whitelist.py
+        run: uv run vulture hephaion tests vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code hephaistos
+        run: uv run pylint --disable=all --enable=duplicate-code hephaion
 
       - name: Pytest
         run: uv run pytest
 
       - name: Inject edge privacy and diagnostics config
         env:
-          HEPHAISTOS_POSTHOG_HOST: ${{ secrets.HEPHAISTOS_POSTHOG_HOST }}
-          HEPHAISTOS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAISTOS_POSTHOG_PROJECT_TOKEN }}
-          HEPHAISTOS_SENTRY_DSN: ${{ secrets.HEPHAISTOS_SENTRY_DSN }}
-          HEPHAISTOS_RELEASE_CHANNEL: edge
-          HEPHAISTOS_RELEASE_VERSION: edge-${{ github.sha }}
+          HEPHAION_POSTHOG_HOST: ${{ secrets.HEPHAION_POSTHOG_HOST }}
+          HEPHAION_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAION_POSTHOG_PROJECT_TOKEN }}
+          HEPHAION_SENTRY_DSN: ${{ secrets.HEPHAION_SENTRY_DSN }}
+          HEPHAION_RELEASE_CHANNEL: edge
+          HEPHAION_RELEASE_VERSION: edge-${{ github.sha }}
         run: |
           uv run python - <<'PY'
           import json
@@ -92,7 +92,7 @@ jobs:
               stripped = value.strip()
               return json.dumps(stripped) if stripped else "None"
 
-          target = Path("hephaistos/privacy/release.py")
+          target = Path("hephaion/privacy/release.py")
           target.write_text(
               "\n".join(
                   [
@@ -100,14 +100,14 @@ jobs:
                       "",
                       "from __future__ import annotations",
                       "",
-                      f"POSTHOG_HOST: str | None = {literal(os.environ.get('HEPHAISTOS_POSTHOG_HOST', ''))}",
+                      f"POSTHOG_HOST: str | None = {literal(os.environ.get('HEPHAION_POSTHOG_HOST', ''))}",
                       (
                           "POSTHOG_PROJECT_TOKEN: str | None = "
-                          f"{literal(os.environ.get('HEPHAISTOS_POSTHOG_PROJECT_TOKEN', ''))}"
+                          f"{literal(os.environ.get('HEPHAION_POSTHOG_PROJECT_TOKEN', ''))}"
                       ),
-                      f"SENTRY_DSN: str | None = {literal(os.environ.get('HEPHAISTOS_SENTRY_DSN', ''))}",
-                      f"RELEASE_CHANNEL: str | None = {literal(os.environ.get('HEPHAISTOS_RELEASE_CHANNEL', ''))}",
-                      f"RELEASE_VERSION: str | None = {literal(os.environ.get('HEPHAISTOS_RELEASE_VERSION', ''))}",
+                      f"SENTRY_DSN: str | None = {literal(os.environ.get('HEPHAION_SENTRY_DSN', ''))}",
+                      f"RELEASE_CHANNEL: str | None = {literal(os.environ.get('HEPHAION_RELEASE_CHANNEL', ''))}",
+                      f"RELEASE_VERSION: str | None = {literal(os.environ.get('HEPHAION_RELEASE_VERSION', ''))}",
                       "",
                   ]
               ),

@@ -225,7 +225,7 @@ redact_text() {
   while IFS='=' read -r name value; do
     case "${name}" in
       *API_KEY*|*AUTH*|*CREDENTIAL*|*DSN*|*KEY*|*PASSWORD*|*SECRET*|*TOKEN*)
-        if [[ "${#value}" -ge 4 ]]; then
+        if [[ "${#value}" -ge 4 && "${text}" == *"${value}"* ]]; then
           text="${text//${value}/[REDACTED]}"
         fi
         ;;
@@ -403,7 +403,7 @@ create_fixture_inputs() {
     "${mteb_dir}/queries" \
     "${mteb_dir}/data" \
     "${public_suite}/armory/materials" \
-    "${public_suite}/armory/.hephaistos"
+    "${public_suite}/armory/.hephaion"
 
   cat > "${beir_dir}/corpus.jsonl" <<'JSONL'
 {"_id":"alpha","title":"Alpha Notes","text":"Alpha deterministic benchmark retrieval evidence."}
@@ -458,7 +458,7 @@ JSONL
 }
 JSON
 
-  cat > "${public_suite}/armory/.hephaistos/armory.toml" <<'TOML'
+  cat > "${public_suite}/armory/.hephaion/armory.toml" <<'TOML'
 version = 1
 created_at = "1970-01-01T00:00:00+00:00"
 TOML
@@ -1080,14 +1080,19 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
+prepare_output_dir
 run_dependency_checks
 if [[ "${DEPENDENCY_CHECK_ONLY}" -eq 1 ]]; then
+  write_status "success" "dependency-checks" "complete"
   exit 0
 fi
 
-PROMPT_PATH="$(resolve_existing_file "${PROMPT_PATH}")"
-prepare_output_dir
-PROMPT_HASH="$(prompt_hash "${PROMPT_PATH}")"
+if [[ "${FIXTURE_MODE}" -eq 1 && "${PROMPT_PATH}" == "${REPO_ROOT}/benchmarks/model-evaluation-prompt.md" && ! -f "${PROMPT_PATH}" ]]; then
+  PROMPT_HASH="fixture-prompt-hash"
+else
+  PROMPT_PATH="$(resolve_existing_file "${PROMPT_PATH}")"
+  PROMPT_HASH="$(prompt_hash "${PROMPT_PATH}")"
+fi
 snapshot_git_status
 mkdir -p "${OUTPUT_DIR}/reports" "${OUTPUT_DIR}/suites"
 

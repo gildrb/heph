@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.providers.model_support import (
+from hephaion.providers.model_support import (
     filter_supported_models,
     is_supported_model_for_endpoint,
     is_supported_model_for_provider,

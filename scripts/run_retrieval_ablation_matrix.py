@@ -22,8 +22,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
-from hephaistos.armory import storage
-from hephaistos.rag import (
+from hephaion.armory import storage
+from hephaion.rag import (
     ArmoryIndex,
     EvidenceReference,
     RetrievalMode,
@@ -33,7 +33,7 @@ from hephaistos.rag import (
     optional_backends,
     retrieve,
 )
-from hephaistos.rag.hybrid import (
+from hephaion.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
@@ -2787,7 +2787,7 @@ def _index_cache_state(
     loaded_existing_index: bool,
     stale_before_run: bool,
 ) -> dict[str, object]:
-    index_path = working_armory / ".hephaistos" / "rag_index.json"
+    index_path = working_armory / ".hephaion" / "rag_index.json"
     fresh_for_scored_corpus = not index.is_stale()
     cache_artifacts: list[dict[str, object]] = []
     if index_path.is_file():
@@ -3924,11 +3924,11 @@ def _excerpt(text: str, *, limit: int = 240) -> str:
 
 
 def _embedding_model_label(value: str | None) -> str:
-    return value or os.environ.get("HEPHAISTOS_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL)
+    return value or os.environ.get("HEPHAION_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL)
 
 
 def _rerank_model_label(value: str | None) -> str:
-    return value or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL)
+    return value or os.environ.get("HEPHAION_RERANK_MODEL", _DEFAULT_RERANK_MODEL)
 
 
 def _optional_cli_string(value: str | None) -> str | None:

@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import hephaistos.rag.sparse as sparse_module
-from hephaistos.rag.chunker import Chunk, ChunkedDocument
-from hephaistos.rag.index import ArmoryIndex
-from hephaistos.rag.query_transform import TransformStrategy
-from hephaistos.rag.retrieve import (
+import hephaion.rag.sparse as sparse_module
+from hephaion.rag.chunker import Chunk, ChunkedDocument
+from hephaion.rag.index import ArmoryIndex
+from hephaion.rag.query_transform import TransformStrategy
+from hephaion.rag.retrieve import (
     Bm25Retriever,
     CrossEncoderReranker,
     DocumentBm25Retriever,
@@ -30,7 +30,7 @@ from hephaistos.rag.retrieve import (
     _normalize_query_for_retrieval,
     retrieve,
 )
-from hephaistos.rag.scoring import (
+from hephaion.rag.scoring import (
     cosine_similarity,
     reciprocal_rank_fusion,
     tokenize,
@@ -257,7 +257,7 @@ def test_retrieve_promotes_each_compound_clause_head(
             physics_query: [physics],
         }
     )
-    retrieve_module = import_module("hephaistos.rag.retrieve")
+    retrieve_module = import_module("hephaion.rag.retrieve")
     monkeypatch.setattr(retrieve_module, "_create_retriever", lambda *_args, **_kwargs: retriever)
 
     results = retrieve(
@@ -417,8 +417,8 @@ class TestTfidfRetriever:
         index = _make_index_with_chunks(chunks)
 
         with (
-            patch("hephaistos.rag.optional_backends.HAS_SKLEARN", True),
-            patch("hephaistos.rag.optional_backends.SKLEARN_TFIDF_VECTORIZER", FakeVectorizer),
+            patch("hephaion.rag.optional_backends.HAS_SKLEARN", True),
+            patch("hephaion.rag.optional_backends.SKLEARN_TFIDF_VECTORIZER", FakeVectorizer),
         ):
             TfidfRetriever(index)
 
@@ -435,11 +435,11 @@ class TestTfidfRetriever:
             _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
         ]
         index = _make_index_with_chunks_at(tmp_path, chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "HAS_SKLEARN", False)
 
         TfidfRetriever(index)
-        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_tfidf_v7.json"
+        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_tfidf_v7.json"
 
         assert state_path.is_file()
         with patch.object(
@@ -475,7 +475,7 @@ class TestBm25Retriever:
             _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
 
         retriever = Bm25Retriever(index)
@@ -490,7 +490,7 @@ class TestBm25Retriever:
                 raise AssertionError("empty token corpus should not be indexed")
 
         index = _make_index_with_chunks([_make_chunk("a I to the", "empty.md", 0)])
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", ExplodingBm25)
 
         retriever = Bm25Retriever(index)
@@ -506,7 +506,7 @@ class TestBm25Retriever:
             _make_chunk("beta cache invalidation", "beta.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
 
         retriever = Bm25Retriever(index)
@@ -523,7 +523,7 @@ class TestBm25Retriever:
                 raise ValueError("max() iterable argument is empty")
 
         index = _make_index_with_chunks([_make_chunk("python", "python.md", 0)])
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FailingBm25)
 
         retriever = Bm25Retriever(index)
@@ -549,13 +549,11 @@ class TestBm25Retriever:
 
         chunks = [_make_chunk("Python is a programming language.", "python.md", 0)]
         index = _make_index_with_chunks_at(tmp_path, chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
 
         Bm25Retriever(index)
-        state_path = (
-            tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25_tokens_v7.json"
-        )
+        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_bm25_tokens_v7.json"
 
         assert state_path.is_file()
 
@@ -583,7 +581,7 @@ class TestBm25Retriever:
             ),
         ]
         index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
 
         retriever = Bm25Retriever(index)
@@ -606,7 +604,7 @@ class TestDocumentBm25Retriever:
             _make_chunk("alpha only", "other.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
 
         retriever = DocumentBm25Retriever(index)
@@ -627,7 +625,7 @@ class TestDocumentBm25Retriever:
         )
         chunk = _make_chunk("chunk text without sentinel", "materials/doc.md", 0)
         index = _make_index_with_chunks_at(tmp_path, [chunk])
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
 
         retriever = DocumentBm25Retriever(index)
@@ -657,9 +655,9 @@ class TestDocumentBm25Retriever:
 
         chunk = _make_chunk("alpha beta", "materials/doc.md", 0)
         index = _make_index_with_chunks_at(tmp_path, [chunk])
-        cache_dir = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25s_document_v1"
+        cache_dir = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_bm25s_document_v1"
         cache_dir.mkdir(parents=True)
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
         originaltokenize = sparse_module.tokenize
 
@@ -916,7 +914,7 @@ class TestEmbeddingRetriever:
         assert retriever._model_name == "all-MiniLM-L6-v2"
 
     def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_EMBED_MODEL", "custom-model-v2")
+        monkeypatch.setenv("HEPHAION_EMBED_MODEL", "custom-model-v2")
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index)
         assert retriever._model_name == "custom-model-v2"
@@ -1049,7 +1047,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -1065,7 +1063,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=True,
         ):
             hybrid = HybridRetriever(index)
@@ -1080,11 +1078,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 side_effect=ImportError("no torch"),
             ),
         ):
@@ -1100,7 +1098,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -1124,11 +1122,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -1241,11 +1239,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -1265,11 +1263,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -1372,7 +1370,7 @@ class TestCrossEncoderReranker:
         assert reranker.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_RERANK_MODEL", "my-custom-reranker")
+        monkeypatch.setenv("HEPHAION_RERANK_MODEL", "my-custom-reranker")
         reranker = CrossEncoderReranker()
         assert reranker.model_name == "my-custom-reranker"
 
@@ -1452,11 +1450,11 @@ class TestHybridRetrieverWithReranker:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -1483,7 +1481,7 @@ class TestHybridRetrieverWithReranker:
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
@@ -1507,7 +1505,7 @@ class TestHybridRetrieverWithReranker:
         ]
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
@@ -1533,7 +1531,7 @@ class TestHybridRetrieverWithReranker:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -1558,11 +1556,11 @@ class TestHybridRetrieverWithReranker:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -1580,7 +1578,7 @@ class TestCreateRetriever:
     def test_returns_tfidf_when_no_embeddings(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             r = _create_retriever(index)
@@ -1589,7 +1587,7 @@ class TestCreateRetriever:
     def test_returns_hybrid_when_embeddings_available(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=True,
         ):
             r = _create_retriever(index)
@@ -1599,7 +1597,7 @@ class TestCreateRetriever:
     def test_hybrid_prf_mode_enables_pseudo_feedback(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=True,
         ):
             r = _create_retriever(index, retrieval_mode=RetrievalMode.HYBRID_PRF)
@@ -1609,7 +1607,7 @@ class TestCreateRetriever:
     def test_hybrid_prf_can_run_sparse_only(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=True,
         ):
             r = _create_retriever(
@@ -1625,7 +1623,7 @@ class TestCreateRetriever:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         index = _make_index_with_chunks([_make_chunk("hello world", "doc.md", 0)])
-        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        retrieve_module = import_module("hephaion.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
 
         r = _create_retriever(index, retrieval_mode=RetrievalMode.BM25_DOCUMENT)
@@ -1637,11 +1635,11 @@ class TestCreateRetriever:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.retrieve.CrossEncoderReranker",
+                "hephaion.rag.retrieve.CrossEncoderReranker",
                 side_effect=ImportError("no cross-encoder"),
             ),
         ):
@@ -1653,11 +1651,11 @@ class TestCreateRetriever:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 side_effect=ImportError("nope"),
             ),
         ):
@@ -1677,7 +1675,7 @@ class TestRetrieveConvenience:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("binary search algorithm", index)
@@ -1702,15 +1700,15 @@ class TestRetrieveConvenience:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
             patch(
-                "hephaistos.rag.retrieve.CrossEncoderReranker",
+                "hephaion.rag.retrieve.CrossEncoderReranker",
                 return_value=mock_reranker,
             ),
         ):
@@ -1736,19 +1734,19 @@ class TestRetrieveConvenience:
 
         with (
             patch(
-                "hephaistos.rag.optional_backends.sentence_transformers_available",
+                "hephaion.rag.optional_backends.sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.retrieve._is_sentence_transformers_available",
+                "hephaion.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.rag.hybrid.EmbeddingRetriever",
+                "hephaion.rag.hybrid.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
             patch(
-                "hephaistos.rag.retrieve.CrossEncoderReranker",
+                "hephaion.rag.retrieve.CrossEncoderReranker",
                 return_value=reranker,
             ),
         ):
@@ -1783,7 +1781,7 @@ class TestRetrieveConvenience:
             return ordered_retriever
 
         with patch(
-            "hephaistos.rag.retrieve._create_retriever",
+            "hephaion.rag.retrieve._create_retriever",
             side_effect=fake_create_retriever,
         ):
             results = retrieve("Which method is standard?", index, top_k=1)
@@ -1851,11 +1849,11 @@ class TestRetrieveConvenience:
 
         with (
             patch(
-                "hephaistos.rag.retrieve.create_transformer",
+                "hephaion.rag.retrieve.create_transformer",
                 return_value=_StubTransformer("hyde"),
             ),
             patch(
-                "hephaistos.rag.retrieve._create_retriever",
+                "hephaion.rag.retrieve._create_retriever",
                 side_effect=fake_create_retriever,
             ) as mock_create_retriever,
         ):
@@ -1884,7 +1882,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             # TF-IDF: "python" only matches the first chunk, second scores 0
@@ -1900,7 +1898,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             # "quantum" shares no tokens with "cooking" — scores will be ~0
@@ -1913,7 +1911,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("python", index, min_score=0.0)
@@ -1925,7 +1923,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             # Default min_score=0.0 — all results returned
@@ -1938,7 +1936,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("python programming", index, min_score=0.05)
@@ -1959,7 +1957,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("digital systems project how-to", index, min_score=0.1)
@@ -1982,7 +1980,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(
@@ -2009,7 +2007,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(

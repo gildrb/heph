@@ -21,28 +21,28 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import cast
 
-from hephaistos.armory import storage
-from hephaistos.rag import EvidenceReference, RetrievalMode, TransformStrategy
-from hephaistos.rag.hybrid import (
+from hephaion.armory import storage
+from hephaion.rag import EvidenceReference, RetrievalMode, TransformStrategy
+from hephaion.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 )
-from hephaistos.rag.query_audit import (
+from hephaion.rag.query_audit import (
     QUERY_AUDIT_SCHEMA_VERSION,
     QUERY_EXCERPT_LIMIT,
     RetrievalAuditConfig,
 )
-from hephaistos.rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_class as audit_query_class,
 )
-from hephaistos.rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_classification_payload as audit_query_classification_payload,
 )
-from hephaistos.rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_excerpt as audit_query_excerpt,
 )
-from hephaistos.rag.query_audit import (
+from hephaion.rag.query_audit import (
     retrieval_strategy_payload as audit_retrieval_strategy_payload,
 )
 from scripts import benchmark_rag, claim_report_envelope, run_benchmark_suite
@@ -324,8 +324,7 @@ def _parameters(args: argparse.Namespace) -> RunnerParameters:
     rerank_model = _optional_cli_string(cast("str | None", args.rerank_model))
     if rerank_model is None and retrieval_mode == RetrievalMode.HYBRID_RERANK:
         rerank_model = (
-            _optional_cli_string(os.environ.get("HEPHAISTOS_RERANK_MODEL"))
-            or _DEFAULT_RERANK_MODEL
+            _optional_cli_string(os.environ.get("HEPHAION_RERANK_MODEL")) or _DEFAULT_RERANK_MODEL
         )
     return RunnerParameters(
         top_k=cast("int", args.top_k),
@@ -2357,11 +2356,11 @@ def _metadata(
             "randomness": "not-used",
             "network_access": "disabled-after-materialization",
             "embedding_model": parameters.embedding_model
-            or os.environ.get("HEPHAISTOS_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
+            or os.environ.get("HEPHAION_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
             "embedding_query_prefix": parameters.embedding_query_prefix,
             "embedding_document_prefix": parameters.embedding_document_prefix,
             "rerank_model": parameters.rerank_model
-            or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
+            or os.environ.get("HEPHAION_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
         "latency_scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
@@ -2599,11 +2598,11 @@ def _error_report(
             "randomness": "not-used",
             "network_access": "disabled-after-materialization",
             "embedding_model": parameters.embedding_model
-            or os.environ.get("HEPHAISTOS_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
+            or os.environ.get("HEPHAION_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
             "embedding_query_prefix": parameters.embedding_query_prefix,
             "embedding_document_prefix": parameters.embedding_document_prefix,
             "rerank_model": parameters.rerank_model
-            or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
+            or os.environ.get("HEPHAION_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
         "latency_scope": "not_executed",
@@ -2736,7 +2735,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--embedding-model",
         help=(
-            "Sentence-transformers embedding model. Defaults to HEPHAISTOS_EMBED_MODEL "
+            "Sentence-transformers embedding model. Defaults to HEPHAION_EMBED_MODEL "
             f"or {_DEFAULT_EMBEDDING_MODEL}."
         ),
     )
@@ -2753,7 +2752,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rerank-model",
         help=(
-            "Cross-encoder reranking model. Defaults to HEPHAISTOS_RERANK_MODEL "
+            "Cross-encoder reranking model. Defaults to HEPHAION_RERANK_MODEL "
             f"or {_DEFAULT_RERANK_MODEL}."
         ),
     )

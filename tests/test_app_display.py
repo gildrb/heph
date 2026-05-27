@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from hephaistos.terminal import _real_stdout, direct_input, direct_print
+from hephaion.terminal import _real_stdout, direct_input, direct_print
 
 
 class _ProxyStdout:

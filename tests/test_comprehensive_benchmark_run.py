@@ -52,7 +52,7 @@ if len(args) >= 4 and args[:3] == ["run", "python", "-c"]:
 
 module = args[args.index("-m") + 1] if "-m" in args else ""
 if os.environ.get("FAKE_UV_FAIL_MODULE") == module:
-    secret = os.environ.get("HEPHAISTOS_TEST_SECRET_COMPREHENSIVE", "")
+    secret = os.environ.get("HEPHAION_TEST_SECRET_COMPREHENSIVE", "")
     print(f"simulated failure token={secret}", file=sys.stderr)
     raise SystemExit(7)
 
@@ -421,7 +421,7 @@ def test_comprehensive_script_redacts_child_output_and_marks_failed_phase(
     _write_fake_uv(fake_uv)
     env = _base_env(tmp_path, fake_uv)
     env["FAKE_UV_FAIL_MODULE"] = "scripts.external_benchmarks.beir_adapter"
-    env["HEPHAISTOS_TEST_SECRET_COMPREHENSIVE"] = "super-secret-token"
+    env["HEPHAION_TEST_SECRET_COMPREHENSIVE"] = "super-secret-token"
 
     with tempfile.TemporaryDirectory(prefix="heph-comprehensive-", dir="/tmp") as temp_root:
         output_dir = Path(temp_root) / "artifacts"

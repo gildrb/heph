@@ -18,11 +18,11 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent / "hephaistos"
+ROOT = HERE.parent / "hephaion"
 
 
 def _module_imports(module_path: Path) -> list[str]:
-    """Parse a Python file and return all imported hephaistos module paths."""
+    """Parse a Python file and return all imported hephaion module paths."""
     source = module_path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source, filename=str(module_path))
@@ -31,9 +31,7 @@ def _module_imports(module_path: Path) -> list[str]:
     return [
         node.module
         for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        and node.module
-        and node.module.startswith("hephaistos")
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("hephaion")
     ]
 
 
@@ -54,7 +52,7 @@ def _private_imports_from_other_package(
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom):
             continue
-        if not node.module or not node.module.startswith("hephaistos."):
+        if not node.module or not node.module.startswith("hephaion."):
             continue
         import_parts = node.module.split(".")
         if len(import_parts) < 2:
@@ -74,8 +72,8 @@ def _private_imports_from_other_package(
 
 
 def _is_agent_or_rag_import(module_name: str) -> bool:
-    """Check if a module name refers to hephaistos.agent or hephaistos.rag."""
-    return module_name.startswith(("hephaistos.agent", "hephaistos.rag"))
+    """Check if a module name refers to hephaion.agent or hephaion.rag."""
+    return module_name.startswith(("hephaion.agent", "hephaion.rag"))
 
 
 # --- VAL-STRUCT-013: rag must not import agent, chat, or adapters ---
@@ -94,11 +92,11 @@ def test_rag_does_not_import_agent_chat_adapters(
 ) -> None:
     """VAL-STRUCT-013: No module under rag/ may import from agent, chat, or adapters."""
     forbidden_prefixes = (
-        "hephaistos.agent",
-        "hephaistos.chat",
-        "hephaistos.cli",
-        "hephaistos.commands",
-        "hephaistos.tui",
+        "hephaion.agent",
+        "hephaion.chat",
+        "hephaion.cli",
+        "hephaion.commands",
+        "hephaion.tui",
     )
     for imp in _module_imports(module_path):
         assert not imp.startswith(forbidden_prefixes), (
@@ -122,7 +120,7 @@ def test_agent_does_not_import_chat_session(
     module_path: Path,
 ) -> None:
     """VAL-STRUCT-014: No module under agent/ may import from chat.session."""
-    forbidden = "hephaistos.chat.session"
+    forbidden = "hephaion.chat.session"
     for imp in _module_imports(module_path):
         assert imp != forbidden, (
             f"{module_path.relative_to(ROOT)} imports {imp}, "
@@ -198,11 +196,11 @@ def test_no_private_cross_package_imports(
 def test_import_linter_config_references_new_packages() -> None:
     """pyproject.toml lint-imports config must reference rag, agent, chat."""
     pyproject = (HERE.parent / "pyproject.toml").read_text(encoding="utf-8")
-    assert "hephaistos.rag" in pyproject
-    assert "hephaistos.agent" in pyproject
-    assert "hephaistos.chat" in pyproject
-    assert "hephaistos.materials" in pyproject
-    assert "hephaistos.runtime" in pyproject
+    assert "hephaion.rag" in pyproject
+    assert "hephaion.agent" in pyproject
+    assert "hephaion.chat" in pyproject
+    assert "hephaion.materials" in pyproject
+    assert "hephaion.runtime" in pyproject
 
 
 def test_import_linter_exits_clean() -> None:
@@ -225,13 +223,13 @@ def test_import_linter_exits_clean() -> None:
 
 
 def test_no_harness_imports_remain() -> None:
-    """No file should reference hephaistos.harness (deleted in Phase 3)."""
+    """No file should reference hephaion.harness (deleted in Phase 3)."""
     if shutil.which("rg") is not None:
         result = subprocess.run(
             [
                 "rg",
-                "^from hephaistos\\.harness",
-                "hephaistos/",
+                "^from hephaion\\.harness",
+                "hephaion/",
                 "tests/",
                 "scripts/",
             ],
@@ -244,11 +242,11 @@ def test_no_harness_imports_remain() -> None:
         return
 
     matches: list[str] = []
-    for relative in ("hephaistos", "tests", "scripts"):
+    for relative in ("hephaion", "tests", "scripts"):
         base = HERE.parent / relative
         for path in sorted(base.rglob("*.py")):
             text = path.read_text(encoding="utf-8")
             for line_no, line in enumerate(text.splitlines(), start=1):
-                if line.startswith("from hephaistos.harness"):
+                if line.startswith("from hephaion.harness"):
                     matches.append(f"{path.relative_to(HERE.parent)}:{line_no}:{line}")
     assert not matches, "Stale harness imports found:\n" + "\n".join(matches)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from hephaistos.commands.suggestions import CommandSuggestion
-from hephaistos.providers.config import default_config
-from hephaistos.tui.slash_completion import SlashCompletionEngine
+from hephaion.commands.suggestions import CommandSuggestion
+from hephaion.providers.config import default_config
+from hephaion.tui.slash_completion import SlashCompletionEngine
 
 
 def test_command_suggestion_smoke() -> None:

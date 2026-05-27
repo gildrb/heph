@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaistos.rag import Chunk, EvidenceChunk, TurnEvidence
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from scripts import benchmark_answers
 
 

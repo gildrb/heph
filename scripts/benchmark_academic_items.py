@@ -10,8 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.rag import load_or_build
-from hephaistos.study.knowledge import (
+from hephaion.rag import load_or_build
+from hephaion.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
     GroundedQuestion,

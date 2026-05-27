@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.memory import MemoryEntry, MemoryStore, load_memory, save_memory
+from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 # ---------------------------------------------------------------------------
 # MemoryEntry
@@ -201,7 +201,7 @@ class TestMemoryPersistence:
         assert not store.load()
 
     def test_load_corrupt_file(self, tmp_path: Path):
-        path = tmp_path / ".hephaistos" / "memory.json"
+        path = tmp_path / ".hephaion" / "memory.json"
         path.parent.mkdir(parents=True)
         path.write_text("not json{{{")
         store = MemoryStore(tmp_path)
@@ -210,7 +210,7 @@ class TestMemoryPersistence:
     def test_save_only_when_dirty(self, tmp_path: Path):
         store = MemoryStore(tmp_path)
         store.save()  # Not dirty — should not create file
-        _path = tmp_path / ".hephaistos" / "memory.json"
+        _path = tmp_path / ".hephaion" / "memory.json"
         # Actually save() always writes, but save_memory() checks dirty
         store.add("test", "content")
         assert store._dirty
@@ -222,7 +222,7 @@ class TestMemoryPersistence:
     def test_save_memory_skips_unchanged(self, tmp_path: Path):
         store = load_memory(tmp_path)
         mtime_before = None
-        path = tmp_path / ".hephaistos" / "memory.json"
+        path = tmp_path / ".hephaion" / "memory.json"
         if path.exists():
             mtime_before = path.stat().st_mtime
 

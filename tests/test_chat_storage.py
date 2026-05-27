@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.chat.storage import (
+from hephaion.armory.storage import initialize
+from hephaion.chat.storage import (
     ChatStorageError,
     list_sessions,
     load,
@@ -16,7 +16,7 @@ from hephaistos.chat.storage import (
     new_session_id,
     save,
 )
-from hephaistos.runtime import Conversation
+from hephaion.runtime import Conversation
 
 
 def _init_armory(tmp_path: Path) -> Path:
@@ -60,7 +60,7 @@ def test_save_preserves_created_at(tmp_path: Path) -> None:
     conv.add("user", "First message")
     save(armory, session_id, conv, title="v1")
 
-    path = armory / ".hephaistos" / "chats" / f"{session_id}.json"
+    path = armory / ".hephaion" / "chats" / f"{session_id}.json"
     data = json.loads(path.read_text())
     original_created = data["created_at"]
 

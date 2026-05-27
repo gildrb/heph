@@ -144,7 +144,7 @@ def test_summary_aggregates_reports_without_mutating_sources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAISTOS_TEST_SECRET_SUMMARY", "summary-secret-token")
+    monkeypatch.setenv("HEPHAION_TEST_SECRET_SUMMARY", "summary-secret-token")
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
     output = tmp_path / "summary.md"

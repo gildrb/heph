@@ -146,7 +146,7 @@ def test_beir_adapter_maps_positive_qrels_to_expected_references(tmp_path: Path)
     assert report["counts"]["positive_references"] == 2
     assert report["deterministic_parameters"]["top_k"] == 7
     assert report["cache"]["enabled"] is False
-    assert (output / "armory" / ".hephaistos" / "armory.toml").is_file()
+    assert (output / "armory" / ".hephaion" / "armory.toml").is_file()
     assert (output / "armory" / "materials" / "doc-alpha.md").read_text(encoding="utf-8")
 
     cases = _read_jsonl(output / RAG_DATASET_NAME)

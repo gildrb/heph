@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import random
 
-from hephaistos.rag.chunker import Chunk
-from hephaistos.study.exam import select_exam_question, supporting_source_refs
+from hephaion.rag.chunker import Chunk
+from hephaion.study.exam import select_exam_question, supporting_source_refs
 
 
 def _chunk(source: str, text: str) -> Chunk:

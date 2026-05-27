@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.parameters import settings as settings_store
-from hephaistos.privacy import consent
+from hephaion.parameters import settings as settings_store
+from hephaion.privacy import consent
 
 
 def _clear_consent_envs(monkeypatch: pytest.MonkeyPatch) -> None:

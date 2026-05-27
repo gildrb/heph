@@ -30,14 +30,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos._types import is_string_mapping
-from hephaistos.study import (
+from hephaion._types import is_string_mapping
+from hephaion.study import (
     LearningAction,
     LearningState,
     apply_turn_result,
     plan_turn,
 )
-from hephaistos.study.schedule import RecallScheduleStore
+from hephaion.study.schedule import RecallScheduleStore
 
 
 class RawLearningTurn(TypedDict):

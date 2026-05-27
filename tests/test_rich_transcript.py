@@ -6,16 +6,16 @@ from rich.console import Console
 from rich.segment import Segment
 from rich.style import Style
 
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.context import EvidenceChunk, TurnEvidence
-from hephaistos.terminal import current_palette
-from hephaistos.tui.rich_transcript import (
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.terminal import current_palette
+from hephaion.tui.rich_transcript import (
     enrich_reply,
     evidence_summary_text,
     extract_cited_ids,
     normalize_markdown_tables,
 )
-from hephaistos.tui.transcript import _EvidenceMarkdown
+from hephaion.tui.transcript import _EvidenceMarkdown
 
 
 def _make_chunk(source: str, index: int, text: str) -> Chunk:

@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from hephaistos.chat.orchestrator import _MODEL_NORMALIZED_INTENTS
-from hephaistos.study import (
+from hephaion.chat.orchestrator import _MODEL_NORMALIZED_INTENTS
+from hephaion.study import (
     LearningAction,
     LearningFeedbackType,
     LearningMove,

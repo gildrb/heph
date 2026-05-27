@@ -8,19 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
-from hephaistos.vocab import drill
-from hephaistos.vocab.parser import (
+from hephaion.parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
+from hephaion.vocab import drill
+from hephaion.vocab.parser import (
     VocabCard,
     parse_vocab_file,
     scan_armory,
 )
-from hephaistos.vocab.scheduler import (
+from hephaion.vocab.scheduler import (
     Rating,
     schedule_card,
     select_due_cards,
 )
-from hephaistos.vocab.state import (
+from hephaion.vocab.state import (
     VocabCardState,
     VocabScheduleStore,
     load_schedule,
@@ -36,7 +36,7 @@ def vocab_armory(tmp_path: Path) -> Path:
     """Create an armory with vocabulary markdown files."""
     arm = tmp_path / "vocab-armory"
     (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaistos").mkdir(parents=True)
+    (arm / ".hephaion").mkdir(parents=True)
 
     (arm / "materials" / "french.md").write_text(
         "# French Vocabulary\n\n"
@@ -72,7 +72,7 @@ def empty_armory(tmp_path: Path) -> Path:
     """Create an armory with no vocab files."""
     arm = tmp_path / "empty-armory"
     (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaistos").mkdir(parents=True)
+    (arm / ".hephaion").mkdir(parents=True)
     (arm / "materials" / "notes.md").write_text("# Just notes\n\nNo tables here.\n")
     return arm
 
@@ -112,14 +112,14 @@ class TestVocabParser:
     def test_scan_armory_no_dirs(self, tmp_path: Path) -> None:
         arm = tmp_path / "bare-armory"
         arm.mkdir()
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         deck = scan_armory(arm)
         assert deck.size == 0
 
     def test_term_definition_columns(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         (arm / "materials" / "glossary.md").write_text(
             "| term | definition |\n"
             "|------|------------|\n"
@@ -133,7 +133,7 @@ class TestVocabParser:
     def test_source_target_columns(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         (arm / "materials" / "spanish.md").write_text(
             "| source | target |\n|--------|--------|\n| Hola | Hello |\n",
         )
@@ -144,7 +144,7 @@ class TestVocabParser:
     def test_skips_empty_cells(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         (arm / "materials" / "sparse.md").write_text(
             "| word | translation |\n"
             "|------|-------------|\n"
@@ -159,7 +159,7 @@ class TestVocabParser:
     def test_multiple_tables_in_one_file(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         (arm / "materials" / "multi.md").write_text(
             "# Part 1\n\n"
             "| word | translation |\n"
@@ -354,7 +354,7 @@ class TestVocabCardState:
 class TestVocabScheduleStore:
     def test_save_and_load(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         store = VocabScheduleStore(arm)
         store.cards["test.md:Hello"] = VocabCardState(
@@ -381,7 +381,7 @@ class TestVocabScheduleStore:
     def test_sync_with_deck_updates_and_removes_stale_cards(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         vocab_file = arm / "materials" / "vocab.md"
         vocab_file.write_text(
@@ -421,7 +421,7 @@ class TestVocabScheduleStore:
 
     def test_update_card(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         store = VocabScheduleStore(arm)
         state = VocabCardState(front="Hello", back="World", source_file="test.md")
@@ -440,7 +440,7 @@ class TestVocabScheduleStore:
 
     def test_reset_all(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         store = VocabScheduleStore(arm)
         state = VocabCardState(
@@ -465,7 +465,7 @@ class TestVocabScheduleStore:
 
     def test_stats(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         store = VocabScheduleStore(arm)
         store.cards["a"] = VocabCardState(front="a", back="b", source_file="t.md")
@@ -491,7 +491,7 @@ class TestVocabScheduleStore:
 
     def test_load_schedule_helper(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         store = load_schedule(arm)
         assert len(store.cards) == 0
 
@@ -600,7 +600,7 @@ class TestDrillIntegration:
         """Verify the saved JSON file has the expected structure."""
         arm = tmp_path / "arm"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         (arm / "materials" / "vocab.md").write_text(
             "| word | translation |\n"
@@ -624,7 +624,7 @@ class TestDrillIntegration:
         store.update_card(card)
         store.save()
 
-        data = json.loads((arm / ".hephaistos" / "vocab_schedule.json").read_text())
+        data = json.loads((arm / ".hephaion" / "vocab_schedule.json").read_text())
         assert data["version"] == 1
         assert "updated_at" in data
         assert len(data["cards"]) == 2

@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hephaistos import commands
-from hephaistos.armory.search import (
+from hephaion import commands
+from hephaion.armory.search import (
     add_known_armory,
     get_last_armory,
     load_known_armories,
@@ -17,22 +17,22 @@ from hephaistos.armory.search import (
     save_known_armories,
     set_last_armory,
 )
-from hephaistos.armory.storage import initialize
-from hephaistos.chat.session import (
+from hephaion.armory.storage import initialize
+from hephaion.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
 )
-from hephaistos.commands import CommandResult
-from hephaistos.runtime import ChatConfig
-from hephaistos.terminal.history import InputHistory
-from hephaistos.terminal.input import handle_input
-from hephaistos.tui.session_actions import (
+from hephaion.commands import CommandResult
+from hephaion.runtime import ChatConfig
+from hephaion.terminal.history import InputHistory
+from hephaion.terminal.input import handle_input
+from hephaion.tui.session_actions import (
     create_startup_session,
     get_history_path,
     save_on_exit,
 )
-from hephaistos.tui.startup_discovery import discover_startup_armory
+from hephaion.tui.startup_discovery import discover_startup_armory
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def initialized_armory(tmp_path: Path) -> Path:
 def clean_armory_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     save_known_armories([])
     return armory_home
 
@@ -227,7 +227,7 @@ class TestGetHistoryPath:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_plain_session(config)
         path = get_history_path(session)
-        assert path == Path.home() / ".cache" / "hephaistos" / "plain-history"
+        assert path == Path.home() / ".cache" / "hephaion" / "plain-history"
 
     def test_plain_session_uses_shared_system_prompt(self) -> None:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
@@ -242,7 +242,7 @@ class TestGetHistoryPath:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_session(config, initialized_armory)
         path = get_history_path(session)
-        assert path == initialized_armory / ".hephaistos" / "history"
+        assert path == initialized_armory / ".hephaion" / "history"
 
 
 # ---------------------------------------------------------------------------

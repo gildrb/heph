@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.search import KnownArmory
-from hephaistos.armory.storage import MARKER_FILE, initialize
-from hephaistos.tui import armory_browser
+from hephaion.armory.search import KnownArmory
+from hephaion.armory.storage import MARKER_FILE, initialize
+from hephaion.tui import armory_browser
 
 # Skip the entire module if Textual is not installed.
 pytestmark = pytest.mark.skipif(
@@ -89,7 +89,7 @@ def test_build_entries_include_recent_all_and_create(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     entries = armory_browser.build_entries(allow_create=True)
 
@@ -108,7 +108,7 @@ def test_build_entries_without_create_flag(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     _make_dirs(armory_home, "alpha", "beta")
     entries = armory_browser.build_entries(allow_create=False)
 
@@ -123,7 +123,7 @@ def test_build_entries_can_include_common_places(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     entries = armory_browser.build_entries(allow_create=True, show_places=True)
 
     place_entries = [entry for entry in entries if entry.is_place]
@@ -142,7 +142,7 @@ def test_build_entries_filters_outside_recent_armories(
     armory_home.mkdir()
     inside = _make_armory(armory_home, "inside")
     outside = _make_armory(tmp_path / "outside", "external")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     monkeypatch.setattr(
         armory_browser,
@@ -166,7 +166,7 @@ def test_build_entries_discovers_armories_in_home(
     armory_home.mkdir()
     first = _make_armory(armory_home, "alpha")
     second = _make_armory(armory_home, "beta")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     entries = armory_browser.build_entries(allow_create=True)
 
@@ -182,7 +182,7 @@ def test_build_entries_filters_symlink_escape(
     outside = tmp_path / "outside"
     armory_home.mkdir()
     outside.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
 
     entries = armory_browser.build_entries(allow_create=True)
@@ -197,7 +197,7 @@ def test_default_start_path_rejects_outside_start(
     armory_home.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     screen = armory_browser.ArmoryBrowserScreen(start=outside)
 
@@ -209,7 +209,7 @@ def test_build_entries_returns_sectioned_paths(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     alpha, beta = _make_dirs(armory_home, "alpha", "beta")
     entries = armory_browser.build_entries(allow_create=True)
 
@@ -227,7 +227,7 @@ def test_build_entries_returns_sectioned_paths(
 def test_browser_screen_compose_and_mount(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     _make_dirs(armory_home, "docs")
 
     async def run_screen() -> None:
@@ -259,7 +259,7 @@ def test_browser_arrow_keys_move_highlight(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     _make_dirs(armory_home, "alpha", "beta")
 
     async def run_keys() -> None:
@@ -289,7 +289,7 @@ def test_browser_enter_dismisses_with_selected_armory(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     child = _make_dirs(armory_home, "child")[0]
     result_path: Path | None = None
 
@@ -320,7 +320,7 @@ def test_browser_right_arrow_does_not_navigate_into_child(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     child = _make_dirs(armory_home, "child")[0]
 
     async def run_nav() -> None:
@@ -345,7 +345,7 @@ def test_browser_left_does_not_navigate_above_armory_home(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     async def run_nav() -> None:
         screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
@@ -366,7 +366,7 @@ def test_browser_enter_dismisses_with_current_armory(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     armory = _make_armory(armory_home, "selected")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     result_path: Path | None = None
 
     def on_result(path: Path | None) -> None:
@@ -395,7 +395,7 @@ def test_browser_cancel_dismisses_with_none(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
@@ -420,7 +420,7 @@ def test_browser_escape_key_dismisses_with_none(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
@@ -445,7 +445,7 @@ def test_browser_new_armory_creates_and_dismisses(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     result_path: Path | None = None
 
     def on_result(path: Path | None) -> None:
@@ -478,7 +478,7 @@ def test_browser_new_armory_submission_does_not_bubble_to_chat(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     async def run_new() -> None:
         screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
@@ -523,7 +523,7 @@ def test_browser_new_armory_refuses_unwritable_parent(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     def not_writable(_path: Path) -> bool:
         return False
@@ -555,7 +555,7 @@ def test_browser_new_armory_surfaces_creation_errors(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     def fail_initialize(_path: Path) -> None:
         raise OSError("permission denied")
@@ -588,7 +588,7 @@ def test_browser_new_armory_empty_name_cancels_create(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     async def run_empty() -> None:
         screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
@@ -615,7 +615,7 @@ def test_creation_parent_error_rejects_outside_armories_directory(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     outside = tmp_path / "outside" / "armory"
     outside.mkdir(parents=True)
@@ -631,7 +631,7 @@ def test_creation_parent_error_allows_inside_armories_directory(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
 
     inside = armory_home / "new-armory"
 

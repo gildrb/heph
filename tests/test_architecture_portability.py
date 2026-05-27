@@ -7,10 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
-from hephaistos import armory, materials, memory, providers, rag, runtime, study
+from hephaion import armory, materials, memory, providers, rag, runtime, study
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGE_ROOT = ROOT / "hephaistos"
+PACKAGE_ROOT = ROOT / "hephaion"
 
 
 def _imported_modules_after_import(module_name: str) -> set[str]:
@@ -36,19 +36,19 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
 
 def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
     forbidden = {
-        "hephaistos.terminal.input",
-        "hephaistos.tui",
-        "hephaistos.chat.session",
+        "hephaion.terminal.input",
+        "hephaion.tui",
+        "hephaion.chat.session",
     }
     module_names = (
-        "hephaistos.runtime",
-        "hephaistos.providers",
-        "hephaistos.materials",
-        "hephaistos.rag",
-        "hephaistos.memory",
-        "hephaistos.armory",
-        "hephaistos.study",
-        "hephaistos.vocab",
+        "hephaion.runtime",
+        "hephaion.providers",
+        "hephaion.materials",
+        "hephaion.rag",
+        "hephaion.memory",
+        "hephaion.armory",
+        "hephaion.study",
+        "hephaion.vocab",
     )
     with ThreadPoolExecutor(max_workers=len(module_names)) as pool:
         module_results = list(

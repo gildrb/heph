@@ -7,8 +7,8 @@ from pathlib import Path
 
 from conftest import make_tool_spec, message_text
 
-from hephaistos.agent.dispatch import ToolCall, execute_tool_calls
-from hephaistos.agent.tools import (
+from hephaion.agent.dispatch import ToolCall, execute_tool_calls
+from hephaion.agent.tools import (
     TOOL_SCHEMAS,
     ToolRegistry,
     ToolResult,
@@ -181,7 +181,7 @@ class TestPluginLoading:
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
         plugin_code = (
-            "from hephaistos.agent.tools import ToolSpec\n"
+            "from hephaion.agent.tools import ToolSpec\n"
             "def register(registry):\n"
             "    schema = {\n"
             "        'type': 'function',\n"
@@ -229,7 +229,7 @@ class TestPluginLoading:
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
         plugin_code = (
-            "from hephaistos.agent.tools import ToolSpec\n"
+            "from hephaion.agent.tools import ToolSpec\n"
             "def register(registry):\n"
             "    schema = {\n"
             "        'type': 'function',\n"

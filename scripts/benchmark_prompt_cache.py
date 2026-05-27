@@ -9,8 +9,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import cast
 
-from hephaistos.runtime._api_types import ApiMessage
-from hephaistos.runtime.prompt_cache import PromptCacheRequest, StablePrefixBuilder
+from hephaion.runtime._api_types import ApiMessage
+from hephaion.runtime.prompt_cache import PromptCacheRequest, StablePrefixBuilder
 
 
 @dataclass(frozen=True, slots=True)

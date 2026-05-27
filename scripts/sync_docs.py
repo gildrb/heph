@@ -10,22 +10,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
 
-from hephaistos.chat.session import ARMORY_PLUGINS_TRUST_ENV
-from hephaistos.cli.main import build_parser
-from hephaistos.commands import get_registry
-from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
-from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
-from hephaistos.parameters import cli as parameters_cli
-from hephaistos.privacy.consent import (
+from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
+from hephaion.cli.main import build_parser
+from hephaion.commands import get_registry
+from hephaion.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
+from hephaion.memory.extract import _EXTRACTION_MODEL_ENV
+from hephaion.parameters import cli as parameters_cli
+from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
     POSTHOG_HOST_ENV,
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
-from hephaistos.providers.config import default_config
-from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
-from hephaistos.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
+from hephaion.providers.config import default_config
+from hephaion.providers.keyring_store import GLOBAL_API_KEY_ENV
+from hephaion.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -94,34 +94,34 @@ class SyncTarget:
 
 
 ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
-    "HEPHAISTOS_BASE_URL": "Override the active API base URL.",
-    "HEPHAISTOS_MODEL": "Override the active model.",
-    "HEPHAISTOS_MAX_TOKENS": "Set the max output tokens per response.",
-    "HEPHAISTOS_RAG_CONTEXT_BUDGET": "Set the token budget for retrieved context.",
-    "HEPHAISTOS_FEATURE_FLAGS": "Comma-separated feature flags.",
-    "HEPHAISTOS_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
-    "HEPHAISTOS_API_KEY": "Global API key override that applies to any provider.",
-    "HEPHAISTOS_ARMORY_HOME": (
+    "HEPHAION_BASE_URL": "Override the active API base URL.",
+    "HEPHAION_MODEL": "Override the active model.",
+    "HEPHAION_MAX_TOKENS": "Set the max output tokens per response.",
+    "HEPHAION_RAG_CONTEXT_BUDGET": "Set the token budget for retrieved context.",
+    "HEPHAION_FEATURE_FLAGS": "Comma-separated feature flags.",
+    "HEPHAION_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
+    "HEPHAION_API_KEY": "Global API key override that applies to any provider.",
+    "HEPHAION_ARMORY_HOME": (
         "Default parent folder for named armories (`~/.armories` by default)."
     ),
-    "HEPHAISTOS_TRUST_ARMORY_PLUGINS": (
-        "Allow trusted armories to load `.hephaistos/tools/*.py` plugins."
+    "HEPHAION_TRUST_ARMORY_PLUGINS": (
+        "Allow trusted armories to load `.hephaion/tools/*.py` plugins."
     ),
-    "HEPHAISTOS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
-    "HEPHAISTOS_EMBED_MODEL": "Override the embedding model used by retrieval.",
-    "HEPHAISTOS_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
-    "HEPHAISTOS_LOG_FILE": "Append structured logs to a file when set.",
-    "HEPHAISTOS_LOG_FORMAT": "Choose `json` or `text` logging output.",
-    "HEPHAISTOS_LOG_LEVEL": (
+    "HEPHAION_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
+    "HEPHAION_EMBED_MODEL": "Override the embedding model used by retrieval.",
+    "HEPHAION_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
+    "HEPHAION_LOG_FILE": "Append structured logs to a file when set.",
+    "HEPHAION_LOG_FORMAT": "Choose `json` or `text` logging output.",
+    "HEPHAION_LOG_LEVEL": (
         "Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`)."
     ),
-    "HEPHAISTOS_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
-    "HEPHAISTOS_POSTHOG_PROJECT_TOKEN": (
+    "HEPHAION_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
+    "HEPHAION_POSTHOG_PROJECT_TOKEN": (
         "Supply a PostHog project token for a custom or forked build."
     ),
-    "HEPHAISTOS_RERANK_MODEL": "Override the reranker model when available.",
-    "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
-    "HEPHAISTOS_TEMPERATURE": "Override the generation temperature for chat responses.",
+    "HEPHAION_RERANK_MODEL": "Override the reranker model when available.",
+    "HEPHAION_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
+    "HEPHAION_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
@@ -150,7 +150,7 @@ LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
         "Use `heph` or `heph <path>` as the primary command.",
     ),
     (
-        re.compile(r"\bhephaistos\s+start\b"),
+        re.compile(r"\bhephaion\s+start\b"),
         "Use `hephaion` or `hephaion <name-or-path>` as the long-form harness command.",
     ),
     (

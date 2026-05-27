@@ -1,6 +1,6 @@
 """Convert Heph session traces into grounded-answer benchmark fixtures.
 
-Trace files live under ``<armory>/.hephaistos/traces/<session_id>.jsonl``.
+Trace files live under ``<armory>/.hephaion/traces/<session_id>.jsonl``.
 This helper extracts user/reply pairs plus the exact evidence metadata recorded
 for each reply and writes JSONL compatible with ``scripts.benchmark_answers``.
 It lets a bad live answer become a reproducible benchmark case without calling
@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.rag.retrieval_types import EvidenceReference
+from hephaion.rag.retrieval_types import EvidenceReference
 from scripts import benchmark_answers, replay_answer_benchmark
 
 _LEGACY_MATERIAL_TASK_KEY = "study_task"

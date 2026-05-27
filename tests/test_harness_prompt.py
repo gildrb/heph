@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sections
-from hephaistos.rag.context import estimate_tokens
-from hephaistos.rag.health import ExtractionHealthIssue
-from hephaistos.study import LearningPhase, LearningState, plan_turn
+from hephaion.agent.prompt import build_system_prompt, build_system_prompt_sections
+from hephaion.rag.context import estimate_tokens
+from hephaion.rag.health import ExtractionHealthIssue
+from hephaion.study import LearningPhase, LearningState, plan_turn
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
@@ -43,7 +43,7 @@ def test_default_prompt_and_common_steering_fit_token_budget() -> None:
 
 
 def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
-    prompt_file = armory / ".hephaistos" / "system_prompt.md"
+    prompt_file = armory / ".hephaion" / "system_prompt.md"
     prompt_file.write_text("Custom system prompt.", encoding="utf-8")
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
@@ -55,7 +55,7 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
 
 
 def test_blank_custom_system_prompt_falls_back_to_default_role_block(armory: Path) -> None:
-    prompt_file = armory / ".hephaistos" / "system_prompt.md"
+    prompt_file = armory / ".hephaion" / "system_prompt.md"
     prompt_file.write_text("   \n", encoding="utf-8")
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
@@ -174,7 +174,7 @@ def test_tool_docs_are_generated_from_registry_schema() -> None:
     assert "  - url: The URL to fetch" not in prompt
 
 
-def test_hephaistos_operations_teaches_armory_contract() -> None:
+def test_hephaion_operations_teaches_armory_contract() -> None:
     prompt = build_system_prompt()
 
     assert "Armory: portable workspace" in prompt

@@ -32,7 +32,7 @@ def test_replace_managed_block_updates_named_section() -> None:
 def test_lint_legacy_commands_flags_stale_refs(tmp_path: Path) -> None:
     doc = tmp_path / "guide.md"
     doc.write_text(
-        "Use `hephaistos start` if you want to launch the app.\nThen run `heph source reindex`.\n",
+        "Use `hephaion start` if you want to launch the app.\nThen run `heph source reindex`.\n",
         encoding="utf-8",
     )
 
@@ -57,7 +57,7 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     assert any(command.command == "/vocabulary" for command in model.slash_commands)
     assert not any(command.command == "/persona" for command in model.slash_commands)
     assert not any(command.command == "/edit" for command in model.slash_commands)
-    assert any(env.name == "HEPHAISTOS_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
+    assert any(env.name == "HEPHAION_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
 
 
 def test_repository_docs_are_synced() -> None:

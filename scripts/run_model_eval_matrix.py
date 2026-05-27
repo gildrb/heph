@@ -32,9 +32,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.providers.oauth import load_credentials
-from hephaistos.runtime import ChatConfig
-from hephaistos.runtime.engine import EngineError
+from hephaion.providers.oauth import load_credentials
+from hephaion.runtime import ChatConfig
+from hephaion.runtime.engine import EngineError
 from scripts import replay_answer_benchmark, run_replay_answer_eval
 
 DEFAULT_REQUIRED_GROUPS = ("local", "frontier")

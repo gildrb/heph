@@ -212,7 +212,7 @@ def _framework_policy_item() -> AuditItem:
 def _runtime_generality_item() -> AuditItem:
     offenders = [
         f"{path.relative_to(REPO_ROOT)} contains {match.group(0)!r}"
-        for path in sorted(_repo_file("hephaistos").rglob("*.py"))
+        for path in sorted(_repo_file("hephaion").rglob("*.py"))
         for match in FORBIDDEN_FIXTURE_COURSE_TERMS.finditer(
             path.read_text(encoding="utf-8").casefold()
         )
@@ -220,7 +220,7 @@ def _runtime_generality_item() -> AuditItem:
     requirement = "No fixture-specific course terms in runtime harness code"
     if offenders:
         return AuditItem(requirement, "missing", "; ".join(offenders[:20]))
-    return AuditItem(requirement, "covered", str(_repo_file("hephaistos")))
+    return AuditItem(requirement, "covered", str(_repo_file("hephaion")))
 
 
 def _script_generality_item() -> AuditItem:

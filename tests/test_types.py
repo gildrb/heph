@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hephaistos._types import parse_json_object_fragment
+from hephaion._types import parse_json_object_fragment
 
 
 def test_parse_json_object_fragment_accepts_plain_object() -> None:

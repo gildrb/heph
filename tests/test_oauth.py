@@ -13,10 +13,10 @@ from unittest.mock import patch
 
 import pytest
 
-from hephaistos.commands import LogoutCommand, get_registry
-from hephaistos.providers import oauth as oauth_mod
-from hephaistos.providers.keyring_store import get_volatile, resolve_key, set_volatile
-from hephaistos.providers.oauth import (
+from hephaion.commands import LogoutCommand, get_registry
+from hephaion.providers import oauth as oauth_mod
+from hephaion.providers.keyring_store import get_volatile, resolve_key, set_volatile
+from hephaion.providers.oauth import (
     OAuthCredentials,
     _CallbackHandler,
     _ssl_context,
@@ -297,7 +297,7 @@ class TestCredentialPersistence:
 
         save_credentials(expired)
         with patch(
-            "hephaistos.providers.oauth.refresh_credentials",
+            "hephaion.providers.oauth.refresh_credentials",
             return_value=refreshed,
         ) as mock_refresh:
             loaded = load_credentials("openai-codex")
@@ -317,7 +317,7 @@ class TestCredentialPersistence:
         )
 
         save_credentials(expired)
-        with patch("hephaistos.providers.oauth.refresh_credentials") as mock_refresh:
+        with patch("hephaion.providers.oauth.refresh_credentials") as mock_refresh:
             loaded = load_credentials("openai-codex", refresh_expired=False)
 
         mock_refresh.assert_not_called()
@@ -373,11 +373,11 @@ def test_logout_command_registered() -> None:
 
 def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.list_providers",
+        "hephaion.providers.oauth.list_providers",
         list,
     )
     monkeypatch.setattr(
-        "hephaistos.commands.auth.keyring_store.retrieve_key",
+        "hephaion.commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
     messages: list[tuple[str, str]] = []
@@ -386,7 +386,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("info", msg))
 
     monkeypatch.setattr(
-        "hephaistos.commands.auth.print_info",
+        "hephaion.commands.auth.print_info",
         _capture_info,
     )
     cmd = LogoutCommand()
@@ -397,11 +397,11 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.list_providers",
+        "hephaion.providers.oauth.list_providers",
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
-        "hephaistos.commands.auth.keyring_store.retrieve_key",
+        "hephaion.commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
 
@@ -409,12 +409,12 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "hephaistos.commands.auth.confirm",
+        "hephaion.commands.auth.confirm",
         _confirm,
     )
     cleared: list[str] = []
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.clear_credentials",
+        "hephaion.providers.oauth.clear_credentials",
         cleared.append,
     )
     messages: list[tuple[str, str]] = []
@@ -423,7 +423,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("success", msg))
 
     monkeypatch.setattr(
-        "hephaistos.commands.auth.print_success",
+        "hephaion.commands.auth.print_success",
         _capture_success,
     )
     cmd = LogoutCommand()

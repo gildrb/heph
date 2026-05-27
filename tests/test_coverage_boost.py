@@ -10,9 +10,9 @@ import time
 from threading import Event
 from unittest.mock import MagicMock, patch
 
-import hephaistos.__main__ as _main_mod
-from hephaistos.chat.compaction import compact_session
-from hephaistos.chat.events import (
+import hephaion.__main__ as _main_mod
+from hephaion.chat.compaction import compact_session
+from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
@@ -20,14 +20,14 @@ from hephaistos.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from hephaistos.chat.model_selection import switch_model
-from hephaistos.chat.titles import derive_title
-from hephaistos.memory.workflow import schedule_memory_extraction
-from hephaistos.parameters import settings as settings_store
-from hephaistos.providers.config import ProviderConfig
-from hephaistos.runtime import Conversation, EngineError
-from hephaistos.tui.routing import pending_input_requires_terminal
-from hephaistos.tui.streaming import run_tui_turn
+from hephaion.chat.model_selection import switch_model
+from hephaion.chat.titles import derive_title
+from hephaion.memory.workflow import schedule_memory_extraction
+from hephaion.parameters import settings as settings_store
+from hephaion.providers.config import ProviderConfig
+from hephaion.runtime import Conversation, EngineError
+from hephaion.tui.routing import pending_input_requires_terminal
+from hephaion.tui.streaming import run_tui_turn
 
 # ---------------------------------------------------------------------------
 # __main__.py — just ensures the module-level code executes
@@ -126,7 +126,7 @@ class TestRunTuiTurn:
             yield AssistantDeltaEvent(delta="Hello ")
             yield AssistantDeltaEvent(delta="world")
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "hi",
@@ -147,7 +147,7 @@ class TestRunTuiTurn:
         def fake_iter(session, user_input, *, abort):
             yield NoticeEvent(message="Thinking...")
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "hi",
@@ -182,7 +182,7 @@ class TestRunTuiTurn:
                 tokens_remaining=0,
             )
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "what can i use this for",
@@ -213,7 +213,7 @@ class TestRunTuiTurn:
             )
             yield AssistantDeltaEvent(delta="Grounded answer [E1].")
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "explain integration by parts",
@@ -246,7 +246,7 @@ class TestRunTuiTurn:
                 summary="file1.py\nfile2.py",
             )
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "list files",
@@ -289,7 +289,7 @@ class TestRunTuiTurn:
             )
             yield AssistantDeltaEvent(delta="Grounded answer [E1].")
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "explain integration by parts",
@@ -325,9 +325,9 @@ class TestRunTuiTurn:
             yield AssistantDeltaEvent(delta="Grounded answer [E1].")
 
         with (
-            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
+            patch("hephaion.tui.streaming.iter_chat_events", fake_iter),
             patch(
-                "hephaistos.tui.streaming.load_app_settings",
+                "hephaion.tui.streaming.load_app_settings",
                 lambda: settings_store.AppSettings(
                     activity_trace_mode=settings_store.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
                 ),
@@ -363,9 +363,9 @@ class TestRunTuiTurn:
             yield AssistantDeltaEvent(delta="Grounded answer [E1].")
 
         with (
-            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
+            patch("hephaion.tui.streaming.iter_chat_events", fake_iter),
             patch(
-                "hephaistos.tui.streaming.load_app_settings",
+                "hephaion.tui.streaming.load_app_settings",
                 lambda: settings_store.AppSettings(
                     activity_trace_mode=settings_store.ACTIVITY_TRACE_MINIMAL_TOOL_CALLS
                 ),
@@ -393,7 +393,7 @@ class TestRunTuiTurn:
         def fake_iter(session, user_input, *, abort):
             raise EngineError("model overloaded")
 
-        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+        with patch("hephaion.tui.streaming.iter_chat_events", fake_iter):
             run_tui_turn(
                 chat_session,
                 "hi",
@@ -413,8 +413,8 @@ class TestRunTuiTurn:
             raise EngineError("ConnectionError: network unreachable")
 
         with (
-            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
-            patch("hephaistos.tui.streaming.is_network_error", return_value=True),
+            patch("hephaion.tui.streaming.iter_chat_events", fake_iter),
+            patch("hephaion.tui.streaming.is_network_error", return_value=True),
         ):
             run_tui_turn(
                 chat_session,
@@ -473,10 +473,10 @@ class TestCompactSession:
 
         with (
             patch(
-                "hephaistos.chat.compaction.stream_reply",
+                "hephaion.chat.compaction.stream_reply",
                 return_value=iter(["A summary."]),
             ),
-            patch("hephaistos.chat.compaction.sys"),
+            patch("hephaion.chat.compaction.sys"),
         ):
             compact_session(chat_session)
 
@@ -496,10 +496,10 @@ class TestCompactSession:
 
         with (
             patch(
-                "hephaistos.chat.compaction.stream_reply",
+                "hephaion.chat.compaction.stream_reply",
                 return_value=iter(["Brief summary"]),
             ),
-            patch("hephaistos.chat.compaction.sys"),
+            patch("hephaion.chat.compaction.sys"),
         ):
             compact_session(chat_session)
 
@@ -537,7 +537,7 @@ class TestMemoryWorkflow:
 
     def test_launches_extraction_for_non_empty_exchange(self) -> None:
         memory = MagicMock()
-        with patch("hephaistos.memory.workflow.extract_and_store", return_value=3) as mock_extract:
+        with patch("hephaion.memory.workflow.extract_and_store", return_value=3) as mock_extract:
             schedule_memory_extraction(
                 config=MagicMock(),
                 memory=memory,

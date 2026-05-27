@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import (
+from hephaion.armory.storage import (
     ARMORY_DIRS,
     MARKER_FILE,
     ArmoryValidationError,

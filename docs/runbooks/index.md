@@ -17,9 +17,9 @@ Operational playbooks for diagnosing and resolving issues in Hephaion.
 - [GitHub Deployments](https://github.com/gildrb/heph/deployments) — history for manual edge publishes and releases
 
 **Primary diagnostics:**
-- Structured logs via `HEPHAISTOS_LOG_*`
-- Per-armory trace files in `.hephaistos/traces/`
-- CPU and memory profiles in `~/.cache/hephaistos/profiles/`
+- Structured logs via `HEPHAION_LOG_*`
+- Per-armory trace files in `.hephaion/traces/`
+- CPU and memory profiles in `~/.cache/hephaion/profiles/`
 
 **Monitoring:**
 - CI failures on main: auto-created GitHub Issue (via `ci-failure-issue.yml`)

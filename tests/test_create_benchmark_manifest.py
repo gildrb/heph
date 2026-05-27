@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaistos.armory.storage import initialize
+from hephaion.armory.storage import initialize
 from scripts import create_benchmark_manifest
 
 

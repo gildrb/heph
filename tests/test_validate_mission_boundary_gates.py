@@ -46,7 +46,7 @@ def _base_evidence(repo: Path) -> dict[str, object]:
         "temporary_armory_roots": [str(temp_armory)],
         "generated_artifacts": [
             str(artifacts / "summary.json"),
-            str(temp_armory / ".hephaistos" / "rag_index.json"),
+            str(temp_armory / ".hephaion" / "rag_index.json"),
         ],
         "artifact_publication": {
             "default_scope": "private/internal",

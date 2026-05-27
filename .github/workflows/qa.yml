@@ -20,7 +20,7 @@ jobs:
       contents: read
     env:
       FACTORY_DISABLE_KEYRING: "true"
-      HEPHAISTOS_DISABLE_LIVE_MODELS: "1"
+      HEPHAION_DISABLE_LIVE_MODELS: "1"
       CI: "true"
     steps:
       - name: Checkout

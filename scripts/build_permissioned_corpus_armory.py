@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from hephaistos.armory import storage
+from hephaion.armory import storage
 from scripts import create_benchmark_manifest
 
 _SUPPORTED_SUFFIXES = frozenset(

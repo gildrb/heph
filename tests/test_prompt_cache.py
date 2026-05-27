@@ -4,12 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hephaistos.agent.dispatch import _inject_turn_context
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.context import EvidenceChunk, TurnEvidence
-from hephaistos.runtime import prompt_cache as prompt_cache_mod
-from hephaistos.runtime._api_types import ApiMessage
-from hephaistos.runtime.prompt_cache import (
+from hephaion.agent.dispatch import _inject_turn_context
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.runtime import prompt_cache as prompt_cache_mod
+from hephaion.runtime._api_types import ApiMessage
+from hephaion.runtime.prompt_cache import (
     MetricsLogger,
     PromptCacheRequest,
     StablePrefixBuilder,

@@ -1,4 +1,4 @@
-"""Tests for hephaistos.diagnostics.events."""
+"""Tests for hephaion.diagnostics.events."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Self
 
 import pytest
 
-from hephaistos.diagnostics.events import capture, get_distinct_id, init_analytics
-from hephaistos.privacy import consent
+from hephaion.diagnostics.events import capture, get_distinct_id, init_analytics
+from hephaion.privacy import consent
 
 
 def test_get_distinct_id_is_stable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -23,7 +23,7 @@ def test_get_distinct_id_is_stable(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
 
 def test_capture_is_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_backend_available", lambda: False)
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_backend_available", lambda: False)
     capture("test_event", {"model": "gpt-5.4"})
 
 
@@ -43,18 +43,18 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
         responses.append(data)
         return _Response()
 
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_backend_available", lambda: True)
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_enabled", lambda: True)
-    monkeypatch.setattr("hephaistos.diagnostics.events.posthog_project_token", lambda: "phc_test")
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_enabled", lambda: True)
+    monkeypatch.setattr("hephaion.diagnostics.events.posthog_project_token", lambda: "phc_test")
     monkeypatch.setattr(
-        "hephaistos.diagnostics.events.posthog_host", lambda: "https://app.posthog.com"
+        "hephaion.diagnostics.events.posthog_host", lambda: "https://app.posthog.com"
     )
-    monkeypatch.setattr("hephaistos.diagnostics.events.get_distinct_id", lambda: "heph_test")
+    monkeypatch.setattr("hephaion.diagnostics.events.get_distinct_id", lambda: "heph_test")
     monkeypatch.setattr(
-        "hephaistos.diagnostics.events.runtime_context",
+        "hephaion.diagnostics.events.runtime_context",
         lambda: {"app_version": "0.1.0", "release_channel": "pypi"},
     )
-    monkeypatch.setattr("hephaistos.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr("hephaion.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
 
     capture(
         "session_created",
@@ -83,11 +83,11 @@ def test_capture_rejects_non_https_posthog_host(monkeypatch: pytest.MonkeyPatch)
         opened.append(request)
         raise AssertionError("urlopen should not be called")
 
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_backend_available", lambda: True)
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_enabled", lambda: True)
-    monkeypatch.setattr("hephaistos.diagnostics.events.posthog_project_token", lambda: "phc_test")
-    monkeypatch.setattr("hephaistos.diagnostics.events.posthog_host", lambda: "http://example.com")
-    monkeypatch.setattr("hephaistos.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_enabled", lambda: True)
+    monkeypatch.setattr("hephaion.diagnostics.events.posthog_project_token", lambda: "phc_test")
+    monkeypatch.setattr("hephaion.diagnostics.events.posthog_host", lambda: "http://example.com")
+    monkeypatch.setattr("hephaion.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
 
     capture("session_created")
 
@@ -97,9 +97,9 @@ def test_capture_rejects_non_https_posthog_host(monkeypatch: pytest.MonkeyPatch)
 def test_init_analytics_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """init_analytics() no longer eagerly warms install_id — deferred to capture()."""
     calls: list[str] = []
-    monkeypatch.setattr("hephaistos.diagnostics.events.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaion.diagnostics.events.analytics_backend_available", lambda: True)
     monkeypatch.setattr(
-        "hephaistos.diagnostics.events.install_id",
+        "hephaion.diagnostics.events.install_id",
         lambda: calls.append("install_id") or "heph_x",
     )
 

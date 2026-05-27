@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.source_mapping import (
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.source_mapping import (
     SourceMappingError,
     chunk_line_span,
     resolve_source_path,

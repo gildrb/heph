@@ -92,7 +92,7 @@ helpers.
 ## Package layout
 
 ```
-hephaistos/
+hephaion/
   cli/          Command and automation dispatcher; launches the TUI by default
   commands/     Slash-command handlers for TUI and automation adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
@@ -120,43 +120,43 @@ hephaistos/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
-`hephaistos.terminal.history` or `hephaistos.terminal.input`.
+`hephaion.cli`, `hephaion.commands`, `hephaion.tui`,
+`hephaion.terminal.history` or `hephaion.terminal.input`.
 
-- `hephaistos.chat`
-- `hephaistos.agent`
-- `hephaistos.providers`
-- `hephaistos.rag`
-- `hephaistos.armory`
-- `hephaistos.study`
-- `hephaistos.memory`
-- `hephaistos.parameters`
-- `hephaistos.materials`
-- `hephaistos.runtime`
-- `hephaistos.vocab`
-- `hephaistos.logging`
-- `hephaistos.terminal.palette`
-- `hephaistos.matching`
+- `hephaion.chat`
+- `hephaion.agent`
+- `hephaion.providers`
+- `hephaion.rag`
+- `hephaion.armory`
+- `hephaion.study`
+- `hephaion.memory`
+- `hephaion.parameters`
+- `hephaion.materials`
+- `hephaion.runtime`
+- `hephaion.vocab`
+- `hephaion.logging`
+- `hephaion.terminal.palette`
+- `hephaion.matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`hephaistos.logging` and `hephaistos.diagnostics.crashes` must not import from
-`hephaistos.cli`, `hephaistos.commands`, or `hephaistos.tui`.
+`hephaion.logging` and `hephaion.diagnostics.crashes` must not import from
+`hephaion.cli`, `hephaion.commands`, or `hephaion.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
-`hephaistos.chat.session` and `hephaistos.chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
+`hephaion.chat.session` and `hephaion.chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
 
 ### Independent: materials
 
-`hephaistos.materials` owns material discovery and ignore-policy parsing.
-It must not import `hephaistos.chat`, `hephaistos.agent`, or `hephaistos.rag`.
-`hephaistos.rag` may import `materials`, but that dependency
+`hephaion.materials` owns material discovery and ignore-policy parsing.
+It must not import `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
+`hephaion.rag` may import `materials`, but that dependency
 is one-way.
 
 ### Low level: runtime
 
-`hephaistos.runtime` owns shared LLM primitives such as `ChatConfig`,
+`hephaion.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
 and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
 `materials`, `memory`, or `armory`. Providers may be used by runtime, but
@@ -164,14 +164,14 @@ providers must not import product workflow packages.
 
 ### Core: providers
 
-`hephaistos.providers` owns provider configuration, model catalogs, registry
+`hephaion.providers` owns provider configuration, model catalogs, registry
 metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 `rag`, `study`, or `materials`.
 
 ### Domain: memory and study
 
-`hephaistos.memory` may use `runtime` to extract concepts, but it must not
-import adapters, `chat`, or `agent`. `hephaistos.study` stays a pure
+`hephaion.memory` may use `runtime` to extract concepts, but it must not
+import adapters, `chat`, or `agent`. `hephaion.study` stays a pure
 controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
 
 ## Armory layout
@@ -180,7 +180,7 @@ An armory is a normal directory with a fixed layout:
 
 ```
 my-armory/
-  .hephaistos/
+  .hephaion/
     armory.toml         # armory marker and metadata
     system_prompt.md    # optional custom system prompt (replaces the default role prompt)
     history             # input history for this armory (created on use)
@@ -199,7 +199,7 @@ the provenance path for a retrieved chunk.
 ## Study memory
 
 Hephaion is local-first by default: extracted study concepts are written to
-`<armory>/.hephaistos/memory.json` and injected into future prompts so the
+`<armory>/.hephaion/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
 Memory stays armory-scoped. `/memory status` reports the active local store and
@@ -219,19 +219,19 @@ graph TD
     Engine[runtime.engine] --> Logs
     Orchestrator[chat.orchestrator] --> Traces
 
-    Traces --> Armory[<armory>/.hephaistos/traces/]
-    Profiles --> Cache[~/.cache/hephaistos/profiles/]
+    Traces --> Armory[<armory>/.hephaion/traces/]
+    Profiles --> Cache[~/.cache/hephaion/profiles/]
 ```
 
 ### Structured logging
 
-- Configure with `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, and `HEPHAISTOS_LOG_FORMAT`
+- Configure with `HEPHAION_LOG_LEVEL`, `HEPHAION_LOG_FILE`, and `HEPHAION_LOG_FORMAT`
 - Secrets are scrubbed before logs or trace files are written
 - Interactive sessions default to human-readable output; non-interactive runs default to JSON
 
 ### Trace files
 
-- Each armory can keep append-only JSONL traces in `.hephaistos/traces/`
+- Each armory can keep append-only JSONL traces in `.hephaion/traces/`
 - Trace files capture session events, retrieval activity, tool calls, and LLM timing
 - Plain chat mode skips armory trace files unless a workspace is attached
 
@@ -240,23 +240,23 @@ graph TD
 - `--profile` flag: CPU profiling via cProfile (stdlib)
 - `--profile-memory` flag: memory profiling via tracemalloc (stdlib)
 - `py-spy` available in dev dependencies for flame graphs
-- Profiles saved to `~/.cache/hephaistos/profiles/`
+- Profiles saved to `~/.cache/hephaion/profiles/`
 
 <!-- sync-docs:privacy-diagnostics-architecture:start -->
 ## Privacy & Diagnostics
 
 Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
 
-- `hephaistos.diagnostics.events` sends anonymous PostHog events only when a backend is
+- `hephaion.diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.
-- `hephaistos.diagnostics.crashes` sends redacted Sentry crash reports only when a
+- `hephaion.diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `hephaistos/privacy/release.py` is committed as a safe stub in the public
+- `hephaion/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom
-  builds can wire their own endpoints with `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
-  `HEPHAISTOS_POSTHOG_HOST`, and `HEPHAISTOS_SENTRY_DSN`.
+  builds can wire their own endpoints with `HEPHAION_POSTHOG_PROJECT_TOKEN`,
+  `HEPHAION_POSTHOG_HOST`, and `HEPHAION_SENTRY_DSN`.
 - Agents and contributors should preserve this split: diagnostics exist only for
   opt-in maintainer visibility into usage/errors and is never a required product
   dependency.

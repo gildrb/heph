@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hephaistos.agent.tools import (
+from hephaion.agent.tools import (
     TOOL_SCHEMAS,
     BashResult,
     get_handler,
@@ -96,8 +96,8 @@ class TestRunBash:
     def test_rtk_disabled_uses_original_shell(self):
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
-            patch.dict("os.environ", {"HEPHAISTOS_RTK": "0"}, clear=False),
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch.dict("os.environ", {"HEPHAION_RTK": "0"}, clear=False),
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello")
 
@@ -110,8 +110,8 @@ class TestRunBash:
         completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {}, clear=True),
-            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -125,11 +125,11 @@ class TestRunBash:
         with (
             patch.dict(
                 "os.environ",
-                {"HEPHAISTOS_RTK": "1", "HEPHAISTOS_RTK_ULTRA": "1"},
+                {"HEPHAION_RTK": "1", "HEPHAION_RTK_ULTRA": "1"},
                 clear=False,
             ),
-            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             run_bash("git status")
 
@@ -138,9 +138,9 @@ class TestRunBash:
     def test_rtk_missing_falls_back_to_original_shell(self):
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
-            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
-            patch("hephaistos.agent.tools.shutil.which", return_value=None),
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
+            patch("hephaion.agent.tools.shutil.which", return_value=None),
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -151,10 +151,10 @@ class TestRunBash:
     def test_rtk_execution_failure_falls_back_with_marker(self):
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
-            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
-            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
+            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
             patch(
-                "hephaistos.agent.tools.subprocess.run",
+                "hephaion.agent.tools.subprocess.run",
                 side_effect=[OSError("missing"), completed],
             ) as run,
         ):
@@ -171,11 +171,11 @@ class TestRunBash:
         with (
             patch.dict(
                 "os.environ",
-                {"HEPHAISTOS_RTK": "1", "HEPHAISTOS_RTK_MIN_COMMAND_CHARS": "999"},
+                {"HEPHAION_RTK": "1", "HEPHAION_RTK_MIN_COMMAND_CHARS": "999"},
                 clear=False,
             ),
-            patch("hephaistos.agent.tools.shutil.which") as which,
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.tools.shutil.which") as which,
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("ls")
 
@@ -187,9 +187,9 @@ class TestRunBash:
     def test_rtk_skips_shell_metachar_commands(self):
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
-            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
-            patch("hephaistos.agent.tools.shutil.which") as which,
-            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+            patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
+            patch("hephaion.agent.tools.shutil.which") as which,
+            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello >&2")
 
@@ -216,8 +216,8 @@ class TestArmoryTools:
         assert result.success is True
         assert "materials/" in result.content
         assert (tmp_path / "linear-algebra" / "materials").is_dir()
-        assert (tmp_path / "linear-algebra" / ".hephaistos" / "armory.toml").is_file()
-        assert (tmp_path / "linear-algebra" / ".hephaistos" / "chats").is_dir()
+        assert (tmp_path / "linear-algebra" / ".hephaion" / "armory.toml").is_file()
+        assert (tmp_path / "linear-algebra" / ".hephaion" / "chats").is_dir()
         assert not (tmp_path / "linear-algebra" / "source").exists()
         assert not (tmp_path / "linear-algebra" / "library").exists()
         assert not (tmp_path / "linear-algebra" / "notes").exists()
@@ -299,7 +299,7 @@ class TestArmoryTools:
         assert added.success is True
         assert read.success is True
         assert "compact cited answers" in read.content
-        assert (tmp_path / ".hephaistos" / "memory.json").is_file()
+        assert (tmp_path / ".hephaion" / "memory.json").is_file()
 
     def test_memory_tool_replaces_by_unique_substring(self, tmp_path: Path) -> None:
         run_create_armory(".", workspace=tmp_path)
@@ -377,7 +377,7 @@ class TestWebFetch:
         assert "Error" in result
 
     def test_rejects_url_credentials(self):
-        with patch("hephaistos.agent.web_tools._open_without_redirect") as open_url:
+        with patch("hephaion.agent.web_tools._open_without_redirect") as open_url:
             result = run_web_fetch("https://user:pass@example.com/test")
 
         assert "must not include credentials" in result
@@ -396,7 +396,7 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaistos.agent.web_tools._open_without_redirect",
+            "hephaion.agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/test")
@@ -407,7 +407,7 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         with patch(
-            "hephaistos.agent.web_tools._open_without_redirect",
+            "hephaion.agent.web_tools._open_without_redirect",
             side_effect=urllib.error.HTTPError(
                 "url",
                 404,
@@ -426,7 +426,7 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaistos.agent.web_tools._open_without_redirect",
+            "hephaion.agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/image.png")
@@ -445,8 +445,8 @@ class TestWebFetch:
             return []
 
         with (
-            patch("hephaistos.agent.web_tools._resolve_hostname_ips", side_effect=resolve),
-            patch("hephaistos.agent.web_tools._open_without_redirect", side_effect=redirect),
+            patch("hephaion.agent.web_tools._resolve_hostname_ips", side_effect=resolve),
+            patch("hephaion.agent.web_tools._open_without_redirect", side_effect=redirect),
         ):
             result = run_web_fetch("https://example.com/start")
 
@@ -464,11 +464,11 @@ class TestWebFetch:
 
         with (
             patch(
-                "hephaistos.agent.web_tools._resolve_hostname_ips",
+                "hephaion.agent.web_tools._resolve_hostname_ips",
                 return_value=["93.184.216.34"],
             ),
             patch(
-                "hephaistos.agent.web_tools._open_without_redirect",
+                "hephaion.agent.web_tools._open_without_redirect",
                 side_effect=[redirect, mock_response],
             ),
         ):

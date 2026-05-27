@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from hephaistos.armory import storage
-from hephaistos.chat.events import AssistantDeltaEvent, TurnCompleteEvent
-from hephaistos.chat.session import ChatSession
-from hephaistos.chat.turn_contract import TurnContract
-from hephaistos.rag import Chunk, EvidenceChunk, TurnEvidence
-from hephaistos.runtime import ChatConfig, Conversation, EngineError
+from hephaion.armory import storage
+from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
+from hephaion.chat.session import ChatSession
+from hephaion.chat.turn_contract import TurnContract
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
+from hephaion.runtime import ChatConfig, Conversation, EngineError
 from scripts import create_chat_reliability_fixture as fixture
 from scripts import run_chat_reliability_gauntlet as gauntlet
 

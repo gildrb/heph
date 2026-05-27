@@ -63,25 +63,25 @@
 | Variable | Description |
 |---|---|
 | `CUSTOM_API_KEY` | API key for the custom provider entry. |
-| `HEPHAISTOS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
-| `HEPHAISTOS_API_KEY` | Global API key override that applies to any provider. |
-| `HEPHAISTOS_BASE_URL` | Override the active API base URL. |
-| `HEPHAISTOS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
-| `HEPHAISTOS_EMBED_MODEL` | Override the embedding model used by retrieval. |
-| `HEPHAISTOS_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
-| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags. |
-| `HEPHAISTOS_LOG_FILE` | Append structured logs to a file when set. |
-| `HEPHAISTOS_LOG_FORMAT` | Choose `json` or `text` logging output. |
-| `HEPHAISTOS_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `HEPHAISTOS_MAX_TOKENS` | Set the max output tokens per response. |
-| `HEPHAISTOS_MODEL` | Override the active model. |
-| `HEPHAISTOS_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
-| `HEPHAISTOS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
-| `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
-| `HEPHAISTOS_RERANK_MODEL` | Override the reranker model when available. |
-| `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
-| `HEPHAISTOS_TEMPERATURE` | Override the generation temperature for chat responses. |
-| `HEPHAISTOS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaistos/tools/*.py` plugins. |
+| `HEPHAION_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
+| `HEPHAION_API_KEY` | Global API key override that applies to any provider. |
+| `HEPHAION_BASE_URL` | Override the active API base URL. |
+| `HEPHAION_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
+| `HEPHAION_EMBED_MODEL` | Override the embedding model used by retrieval. |
+| `HEPHAION_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
+| `HEPHAION_FEATURE_FLAGS` | Comma-separated feature flags. |
+| `HEPHAION_LOG_FILE` | Append structured logs to a file when set. |
+| `HEPHAION_LOG_FORMAT` | Choose `json` or `text` logging output. |
+| `HEPHAION_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `HEPHAION_MAX_TOKENS` | Set the max output tokens per response. |
+| `HEPHAION_MODEL` | Override the active model. |
+| `HEPHAION_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
+| `HEPHAION_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
+| `HEPHAION_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
+| `HEPHAION_RERANK_MODEL` | Override the reranker model when available. |
+| `HEPHAION_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
+| `HEPHAION_TEMPERATURE` | Override the generation temperature for chat responses. |
+| `HEPHAION_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaion/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |
 | `ZAI_API_KEY` | API key for Z.AI / GLM. |

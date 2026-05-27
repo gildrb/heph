@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hephaistos.chat.events import AssistantDeltaEvent
-from hephaistos.chat.session import ChatSession
-from hephaistos.rag import Chunk, EvidenceChunk, TurnEvidence
-from hephaistos.runtime import ChatConfig, Conversation
+from hephaion.chat.events import AssistantDeltaEvent
+from hephaion.chat.session import ChatSession
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
+from hephaion.runtime import ChatConfig, Conversation
 from scripts import replay_answer_benchmark
 
 

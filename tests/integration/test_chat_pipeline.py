@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from openai import APITimeoutError, AuthenticationError
 
-from hephaistos.chat.session import ChatSession
-from hephaistos.runtime import (
+from hephaion.chat.session import ChatSession
+from hephaion.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -22,8 +22,8 @@ from hephaistos.runtime import (
     stream_completion,
     stream_reply,
 )
-from hephaistos.runtime._api_types import ApiMessage
-from hephaistos.runtime.engine import stream_completion as runtime_stream_completion
+from hephaion.runtime._api_types import ApiMessage
+from hephaion.runtime.engine import stream_completion as runtime_stream_completion
 
 
 def _make_config() -> ChatConfig:
@@ -196,7 +196,7 @@ class TestStreamReplyPipeline:
         ]
         client = _mock_client(*chunks)
 
-        with patch("hephaistos.runtime.engine.build_client", return_value=client):
+        with patch("hephaion.runtime.engine.build_client", return_value=client):
             result = list(
                 stream_reply(
                     config,
@@ -248,7 +248,7 @@ class TestConversationToPipeline:
             _mock_chunk(finish_reason="stop"),
         )
 
-        with patch("hephaistos.runtime.engine._prompt_cache_metrics") as metrics:
+        with patch("hephaion.runtime.engine._prompt_cache_metrics") as metrics:
             result = list(
                 runtime_stream_completion(
                     config,

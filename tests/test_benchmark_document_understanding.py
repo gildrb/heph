@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.rag.health import ExtractionHealthReport
-from hephaistos.rag.index import ArmoryIndex
+from hephaion.armory.storage import initialize
+from hephaion.rag.health import ExtractionHealthReport
+from hephaion.rag.index import ArmoryIndex
 from scripts import benchmark_document_understanding
 
 

@@ -6,32 +6,32 @@ from pathlib import Path
 
 import pytest
 
-import hephaistos.commands.display as _commands_display
-import hephaistos.commands.model as _commands_model
-import hephaistos.commands.study as _learning_commands
-import hephaistos.providers.model_choices as _model_choices
-from hephaistos import commands
-from hephaistos.armory.storage import initialize
-from hephaistos.chat import model_selection as _model_selection
-from hephaistos.chat.session import ChatSession, create_plain_session
-from hephaistos.providers import catalog
-from hephaistos.providers.catalog import LiveProviderCatalog
-from hephaistos.providers.config import Provider, default_config
-from hephaistos.providers.registry import ModelInfo
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.context import EvidenceChunk, TurnEvidence
-from hephaistos.runtime import ChatConfig, Conversation
-from hephaistos.study import LearningFeedbackType, LearningPhase, RecallRating
-from hephaistos.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
-from hephaistos.study.schedule import load_recall_schedule
-from hephaistos.terminal import MenuOption
-from hephaistos.terminal.source_open import SourceOpenResult
+import hephaion.commands.display as _commands_display
+import hephaion.commands.model as _commands_model
+import hephaion.commands.study as _learning_commands
+import hephaion.providers.model_choices as _model_choices
+from hephaion import commands
+from hephaion.armory.storage import initialize
+from hephaion.chat import model_selection as _model_selection
+from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.providers import catalog
+from hephaion.providers.catalog import LiveProviderCatalog
+from hephaion.providers.config import Provider, default_config
+from hephaion.providers.registry import ModelInfo
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.runtime import ChatConfig, Conversation
+from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
+from hephaion.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
+from hephaion.study.schedule import load_recall_schedule
+from hephaion.terminal import MenuOption
+from hephaion.terminal.source_open import SourceOpenResult
 
 
 class _FakePriorityPdfCompiler:
     def compile(self, tex_path: Path, pdf_path: Path) -> None:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path.write_bytes(b"%PDF-1.4\n% hephaistos fake test pdf\n")
+        pdf_path.write_bytes(b"%PDF-1.4\n% hephaion fake test pdf\n")
 
 
 def test_command_registry_has_unique_names_and_aliases() -> None:
@@ -265,7 +265,7 @@ def test_priority_command_prints_local_priority_scan(
     assert "exam marks" not in out
     assert "Priority sheet saved" in out
     assert "Downloads" in out
-    assert list((tmp_path / "Downloads").glob("hephaistos-priority-*.pdf"))
+    assert list((tmp_path / "Downloads").glob("hephaion-priority-*.pdf"))
 
 
 def test_command_registry_includes_memory_and_recommend() -> None:
@@ -495,7 +495,7 @@ def test_models_command_switches_selected_model(
 def test_models_command_shows_live_openrouter_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     pc = default_config()

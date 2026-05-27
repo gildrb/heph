@@ -12,7 +12,7 @@ When RAG search returns poor or missing results, follow this runbook.
 
 1. **Verify armory structure** — the armory must have a valid marker:
    ```bash
-   cat my-armory/.hephaistos/armory.toml
+   cat my-armory/.hephaion/armory.toml
    ```
 
 2. **Check material files exist** — only `materials/` is indexed:
@@ -23,7 +23,7 @@ When RAG search returns poor or missing results, follow this runbook.
 
 3. **Check the RAG index** — it should exist and be recent:
    ```bash
-   cat my-armory/.hephaistos/rag_index.json | python -m json.tool | head
+   cat my-armory/.hephaion/rag_index.json | python -m json.tool | head
    ```
 
 4. **Check trace logs** — each retrieval is logged with scores:
@@ -45,7 +45,7 @@ When RAG search returns poor or missing results, follow this runbook.
 | Low scores | Improve source document quality; split large files into focused sections |
 | No material files | Add documents to `materials/` |
 | Hidden files indexed | Move them out of `materials/` or rename without leading dot |
-| Memory not loaded | Check `my-armory/.hephaistos/memory.json` exists and is valid |
+| Memory not loaded | Check `my-armory/.hephaion/memory.json` exists and is valid |
 
 ## Rebuilding the Index
 
