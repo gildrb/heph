@@ -251,26 +251,7 @@ SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
         "semantic",
     }
 )
-QUARANTINED_SEMANTIC_DISPATCH_NAMES: Final[dict[str, frozenset[str]]] = {
-    "hephaion/chat/orchestrator.py": frozenset(
-        {
-            "_EXACT_PHRASE_AFTER_LABEL_RE",
-            "_INLINE_LEARNING_FOLLOWUP_SUFFIX_RE",
-            "_OVERVIEW_TOPIC_FRAGMENT_RE",
-            "_PLAN_INTENT_BY_ACTION",
-            "_PROMPT_USER_FOLLOWUP_RE",
-            "_QUOTED_PHRASE_RE",
-            "_UNSOLICITED_MENU_INTENT_RE",
-            "_UNSOLICITED_FOLLOWUP_SENTENCE_RE",
-            "_UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE",
-        }
-    ),
-    "hephaion/study/priority.py": frozenset(
-        {
-            "_TOPIC_PHRASE_RE",
-        }
-    ),
-}
+QUARANTINED_SEMANTIC_DISPATCH_NAMES: Final[dict[str, frozenset[str]]] = {}
 GENERATED_CACHE_MESSAGE: Final[str] = (
     "generated Python cache files must not live inside repository source roots"
 )

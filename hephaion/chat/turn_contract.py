@@ -47,6 +47,10 @@ class TurnIntentResolution:
     answer_format: str = ANSWER_FORMAT_PLAIN
     retrieval_strategy: str = RETRIEVAL_STRATEGY_RETRIEVE
     retrieval_query: str = ""
+    direct_evidence_required: bool = False
+    prior_answer_reference: bool = False
+    prior_answer_positions: tuple[int, ...] = ()
+    prior_answer_position_basis: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +68,10 @@ class TurnContract:
     retrieval_query: str = ""
     evidence_refs: tuple[str, ...] = ()
     citation_required: bool = False
+    direct_evidence_required: bool = False
+    prior_answer_reference: bool = False
+    prior_answer_positions: tuple[int, ...] = ()
+    prior_answer_position_basis: str = ""
     validation_result: str = ""
     confidence: float = 0.0
 
@@ -80,6 +88,10 @@ class TurnContract:
             "retrieval_query": self.retrieval_query,
             "evidence_refs": list(self.evidence_refs),
             "citation_required": self.citation_required,
+            "direct_evidence_required": self.direct_evidence_required,
+            "prior_answer_reference": self.prior_answer_reference,
+            "prior_answer_positions": list(self.prior_answer_positions),
+            "prior_answer_position_basis": self.prior_answer_position_basis,
             "validation_result": self.validation_result,
             "confidence": self.confidence,
         }
@@ -105,6 +117,13 @@ class TurnContract:
             retrieval_query=_payload_string(payload, "retrieval_query"),
             evidence_refs=tuple(_payload_string_sequence(payload, "evidence_refs")),
             citation_required=_payload_bool(payload, "citation_required"),
+            direct_evidence_required=_payload_bool(payload, "direct_evidence_required"),
+            prior_answer_reference=_payload_bool(payload, "prior_answer_reference"),
+            prior_answer_positions=tuple(_payload_int_sequence(payload, "prior_answer_positions")),
+            prior_answer_position_basis=_payload_string(
+                payload,
+                "prior_answer_position_basis",
+            ),
             validation_result=_payload_string(payload, "validation_result"),
             confidence=_payload_float(payload, "confidence"),
         )
@@ -124,6 +143,10 @@ def turn_contract_from_resolution(
         answer_format=resolution.answer_format,
         retrieval_strategy=resolution.retrieval_strategy,
         retrieval_query=resolution.retrieval_query,
+        direct_evidence_required=resolution.direct_evidence_required,
+        prior_answer_reference=resolution.prior_answer_reference,
+        prior_answer_positions=resolution.prior_answer_positions,
+        prior_answer_position_basis=resolution.prior_answer_position_basis,
         confidence=resolution.confidence,
     )
 
@@ -153,6 +176,10 @@ def intent_resolution_from_payload(
             or _payload_string(payload, "retrieval_strategy")
         ),
         retrieval_query=retrieval_query,
+        direct_evidence_required=_payload_bool(payload, "direct_evidence_required"),
+        prior_answer_reference=_payload_bool(payload, "prior_answer_reference"),
+        prior_answer_positions=tuple(_payload_int_sequence(payload, "prior_answer_positions")),
+        prior_answer_position_basis=_payload_string(payload, "prior_answer_position_basis"),
     )
 
 
@@ -177,6 +204,19 @@ def _payload_string_sequence(payload: Mapping[str, object], key: str) -> tuple[s
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return ()
     return tuple(item for item in value if isinstance(item, str) and item.strip())
+
+
+def _payload_int_sequence(payload: Mapping[str, object], key: str) -> tuple[int, ...]:
+    value = payload.get(key)
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    numbers: list[int] = []
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool):
+            continue
+        if item > 0 and item not in numbers:
+            numbers.append(item)
+    return tuple(numbers)
 
 
 def _normalized_retrieval_strategy(value: str) -> str:

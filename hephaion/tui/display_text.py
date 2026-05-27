@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaion.armory.search import load_known_armories
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 39
+_RECENT_ARMORY_NAME_WIDTH = 16
+_RECENT_ARMORY_PATH_WIDTH = 20
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
 
 
@@ -296,21 +299,44 @@ def startup_card_text() -> str:
     return "\n".join(
         [
             "Tips",
-            "  Put PDFs, notes, drafts, and references in the armory materials/ folder.",
-            "  Mention @file names to narrow the context for analysis or editing.",
-            "  Ask for summaries, contradictions, gaps, timelines, and action items.",
-            "  Use /priority to map what needs attention across the document set.",
-            "  Use /evidence after an answer to inspect retrieved source snippets.",
+            "  Add files to materials/.",
+            "  Use @file for focus.",
+            "  Ask for summaries or gaps.",
+            "  /priority finds next steps.",
+            "  /evidence shows sources.",
             "",
             "Warnings",
-            "  Answers are only as good as the indexed documents and citations.",
-            "  Verify important claims before relying on them in serious work.",
+            "  Verify important claims.",
         ]
     )
 
 
 def new_chat_card_text() -> str:
     return "Tip: use @file for focused document analysis; inspect citations with /evidence."
+
+
+def _ellipsize_middle(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    if max_length <= 3:
+        return "." * max_length
+    head_length = max(1, (max_length - 3) // 2)
+    tail_length = max_length - 3 - head_length
+    return f"{text[:head_length]}...{text[-tail_length:]}"
+
+
+def _compact_armory_path(path: Path) -> str:
+    resolved = path.expanduser()
+    try:
+        display = f"~/{resolved.relative_to(Path.home())}"
+    except ValueError:
+        display = str(path)
+    return _ellipsize_middle(display, _RECENT_ARMORY_PATH_WIDTH)
+
+
+def _recent_armory_line(path: Path) -> str:
+    name = _ellipsize_middle(path.name, _RECENT_ARMORY_NAME_WIDTH)
+    return f"  {name:<{_RECENT_ARMORY_NAME_WIDTH}}  {_compact_armory_path(path)}"
 
 
 def armory_home_text() -> str:
@@ -320,20 +346,20 @@ def armory_home_text() -> str:
             "No armory attached.",
             "",
             "Existing armories found.",
-            f"Press {armory_shortcut_key()} to choose an armory or create a new one.",
-            "Armories are saved locally in ~/.armories/",
-            "Add documents (PDFs, notes, drafts, references) to ~/.armories/<module>/materials/",
+            f"Press {armory_shortcut_key()} to open/create.",
+            "Saved in ~/.armories/.",
+            "Add docs to materials/.",
         ]
         lines.extend(["", "Recent armories:"])
-        lines.extend(f"  {path.name}  {path}" for path in recent)
+        lines.extend(_recent_armory_line(path) for path in recent)
         return "\n".join(lines)
     lines = [
         "No armory attached.",
         "",
         "What document set are you working on?",
-        f"Press {armory_shortcut_key()} to create or open an armory.",
-        "Armories are saved locally in ~/.armories/",
-        "Add documents (PDFs, notes, drafts, references) to ~/.armories/<module>/materials/",
+        f"Press {armory_shortcut_key()} to open/create.",
+        "Saved in ~/.armories/.",
+        "Add docs to materials/.",
     ]
     return "\n".join(lines)
 

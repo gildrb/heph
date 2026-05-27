@@ -38,7 +38,7 @@ _LETTER_RE = r"[^\W\d_]"
 _WORD_BODY_RE = r"[\w+-]"
 _TOKEN_RE = re.compile(rf"{_LETTER_RE}{_WORD_BODY_RE}{{2,}}")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+")
-_TOPIC_PHRASE_RE = re.compile(
+_TOPIC_SPAN_RE = re.compile(
     rf"\b{_LETTER_RE}{_WORD_BODY_RE}*(?:\s+{_LETTER_RE}{_WORD_BODY_RE}*){{1,5}}\b"
 )
 _QUESTION_START_RE = re.compile(
@@ -1180,7 +1180,7 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
     yield from _claim_web_prerequisite_terms(
         (
             _web_prerequisite_phrase_term(match.group(0), topic_words)
-            for match in _TOPIC_PHRASE_RE.finditer(text)
+            for match in _TOPIC_SPAN_RE.finditer(text)
         ),
         seen,
     )
@@ -1223,7 +1223,7 @@ def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     yield from _definition_head_candidates(topic_text)
     yield from _heading_candidates(topic_text)
     yield from _prompt_topic_candidates(topic_text)
-    for phrase_match in _TOPIC_PHRASE_RE.finditer(topic_text):
+    for phrase_match in _TOPIC_SPAN_RE.finditer(topic_text):
         phrase = phrase_match.group(0)
         parts = _split_topic_parts(phrase)
         if parts:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import random
 import re
 import sys
@@ -115,6 +116,11 @@ _llm_token_counter = _meter.create_counter(
 )
 
 _circuit_breaker = CircuitBreaker(name="llm-default")
+
+
+def reset_provider_circuit_breaker() -> None:
+    """Reset the shared provider circuit for diagnostics and retry harnesses."""
+    _circuit_breaker.reset()
 
 
 @dataclass
@@ -242,6 +248,7 @@ _PROVIDER_CAPACITY_HINT = (
     "Try again shortly, or use /login to connect your own provider and /models to switch."
 )
 _CODEX_BACKEND_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+_CODEX_BACKEND_TIMEOUT_SECONDS = 30
 _PROVIDER_IP_RE = re.compile(r"\bIP:\s*(?:\d{1,3}\.){3}\d{1,3}\b", re.IGNORECASE)
 _MAX_PROVIDER_DETAIL_CHARS = 260
 
@@ -913,12 +920,26 @@ def _open_codex_backend_response(
 ) -> _ByteStreamResponseProtocol:
     request = _codex_backend_request(config, api_messages, auth)
     try:
-        return urllib.request.urlopen(request, timeout=120)  # nosec B310
+        return urllib.request.urlopen(  # nosec B310
+            request,
+            timeout=_codex_backend_timeout_seconds(),
+        )
     except urllib.error.HTTPError as exc:
         detail = _codex_http_error_detail(exc)
         raise EngineError(f"ChatGPT Codex request failed: {detail}") from exc
     except urllib.error.URLError as exc:
         raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc.reason))}") from exc
+
+
+def _codex_backend_timeout_seconds() -> float:
+    raw = os.environ.get("HEPHAION_CODEX_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return _CODEX_BACKEND_TIMEOUT_SECONDS
+    with contextlib.suppress(ValueError):
+        value = float(raw)
+        if value > 0:
+            return value
+    return _CODEX_BACKEND_TIMEOUT_SECONDS
 
 
 def _codex_backend_request(

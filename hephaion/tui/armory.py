@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING, Protocol, overload
 from hephaion.armory.search import add_known_armory, set_last_armory
 from hephaion.armory.storage import ArmoryError, initialize
 from hephaion.armory.storage import validate as _validate_armory
+from hephaion.materials import count_material_files
 from hephaion.terminal import current_palette
 from hephaion.tui.armory_browser import (
     _creation_parent_error,
     _DirEntry,
+    _is_armory,
     _is_within_armory_home,
-    armory_detail,
     build_entries,
     default_armory_home,
     new_armory_path,
@@ -143,7 +144,7 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-_ACTIVE_TURN_BADGE = "  working"
+_ARMORY_DESCRIPTION_GAP = 4
 
 
 def _armory_selectable_count(entries: list[_DirEntry]) -> int:
@@ -156,9 +157,9 @@ def _armory_header_text(
     filter_query: str,
     entries: list[_DirEntry],
 ) -> str:
-    location = _display_path(current_path)
+    del current_path
     filter_hint = f"  {filter_query}" if filter_query else ""
-    return f"armory  {location}{filter_hint}  {_armory_selectable_count(entries)} item(s)"
+    return f"Armories{filter_hint}  {_armory_selectable_count(entries)} item(s)    files  state"
 
 
 def _armory_flow_hint(*, creating: bool) -> str:
@@ -167,28 +168,145 @@ def _armory_flow_hint(*, creating: bool) -> str:
     return "enter open  n new  esc close"
 
 
-def _armory_entry_text(entry: _DirEntry, *, selected: bool, active: bool = False) -> str | Text:
+def _armory_entry_label(entry: _DirEntry) -> str:
+    return entry.label.strip()
+
+
+def _armory_entry_description(entry: _DirEntry, *, active: bool = False) -> str:
+    if entry.is_section or not entry.label:
+        return ""
+    if entry.is_create:
+        return "  -    create"
+    return (
+        f"{_armory_entry_file_column(entry.path):>3}    "
+        f"{_armory_entry_state(entry.path, active=active)}"
+    )
+
+
+def _armory_entry_file_column(path: Path | None) -> str:
+    if path is None or not path.exists() or not _is_armory(path):
+        return "-"
+    return str(count_material_files(path))
+
+
+def _armory_entry_state(path: Path | None, *, active: bool = False) -> str:
+    if active:
+        return "working"
+    if path is None:
+        return ""
+    if not path.exists():
+        return "missing"
+    if not _is_armory(path):
+        return "folder"
+    if count_material_files(path) == 0:
+        return "empty"
+    return "ready"
+
+
+def _armory_sidebar_text(entry: _DirEntry | None, *, active: bool = False) -> str:
+    if entry is None:
+        return "No armory selected."
+    label = _armory_entry_label(entry)
+    if entry.is_create:
+        return (
+            "New armory\n\n"
+            "Create a local workspace for one document set.\n\n"
+            "Name it after the topic, project, or module. Add source files in materials/."
+        )
+    if entry.path is None:
+        return label
+    state = _armory_entry_state(entry.path, active=active)
+    if state == "missing":
+        return f"{label}\n\nMissing armory\n\nThis recent entry no longer exists."
+    if state == "folder":
+        return f"{label}\n\nFolder only\n\nInitialize it before using it as an armory."
+    if state == "empty":
+        return (
+            f"{label}\n\n"
+            "Empty armory\n\n"
+            "Add documents to materials/ before asking cited questions."
+        )
+    if state == "working":
+        return f"{label}\n\nAssistant working\n\nYou can switch back when the turn finishes."
+    return f"{label}\n\nReady\n\nEnter opens this as the active document context."
+
+
+def _armory_preview_text(entry: _DirEntry | None, *, filter_query: str, active: bool) -> str:
+    if entry is None:
+        if filter_query:
+            return f"No matches\n\nFilter: {filter_query}\n\nEsc clears the filter."
+        return "No selection"
+    content = _armory_sidebar_text(entry, active=active)
+    if active:
+        return f"{content}\n\nassistant working"
+    return content
+
+
+def _armory_visible_entries(
+    entries: list[_DirEntry],
+    *,
+    highlighted: int | None,
+    rendered_height: int,
+) -> list[_DirEntry]:
+    if not entries:
+        return []
+    visible_rows = rendered_height if rendered_height > 0 else len(entries)
+    visible_rows = max(1, min(len(entries), visible_rows))
+    highlighted_index = highlighted if highlighted is not None else 0
+    max_scroll_y = max(0, len(entries) - visible_rows)
+    scroll_y = min(max(highlighted_index - (visible_rows // 2), 0), max_scroll_y)
+    return entries[scroll_y : scroll_y + visible_rows]
+
+
+def _armory_label_width(
+    entries: list[_DirEntry],
+    *,
+    highlighted: int | None,
+    rendered_height: int,
+) -> int:
+    return max(
+        (
+            len(_armory_entry_label(entry))
+            for entry in _armory_visible_entries(
+                entries,
+                highlighted=highlighted,
+                rendered_height=rendered_height,
+            )
+            if _armory_entry_label(entry)
+        ),
+        default=0,
+    )
+
+
+def _armory_entry_text(
+    entry: _DirEntry,
+    *,
+    selected: bool,
+    active: bool = False,
+    label_width: int = 0,
+) -> str | Text:
+    label = _armory_entry_label(entry)
+    description = _armory_entry_description(entry, active=active)
     if _RichText is None:
-        return f"{entry.label}{_ACTIVE_TURN_BADGE if active else ''}"
-    if not entry.label:
+        if description:
+            padded_width = max(label_width, len(label))
+            return f"{label:<{padded_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
+        return label
+    if not label:
         return ""
 
     palette = current_palette()
     text = _RichText()
-    leading = entry.label[: len(entry.label) - len(entry.label.lstrip())]
-    label = entry.label.strip()
-    text.append(leading, style=palette.text_muted)
     if entry.is_section:
         text.append(label, style=f"dim {palette.text_muted}")
-    elif entry.is_create:
-        style = f"bold {palette.brand_primary}" if selected else palette.text_primary
-        text.append(label, style=style)
-    else:
-        style = f"bold {palette.brand_primary}" if selected else palette.text_primary
-        text.append(label, style=style)
-    if active:
-        badge_style = f"bold {palette.brand_primary}" if selected else palette.brand_primary
-        text.append(_ACTIVE_TURN_BADGE, style=badge_style)
+        return text
+    label_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
+    description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
+    padded_width = max(label_width, len(label))
+    text.append(f"{label:<{padded_width}}" if description else label, style=label_style)
+    if description:
+        text.append(" " * _ARMORY_DESCRIPTION_GAP, style=description_style)
+        text.append(description, style=description_style)
     return text
 
 
@@ -292,6 +410,11 @@ class TuiArmoryMixin:
         current = self.query_one("#armory-current-inline", OptionList)
         if highlighted is None:
             highlighted = current.highlighted
+        label_width = _armory_label_width(
+            self._armory_entries,
+            highlighted=highlighted,
+            rendered_height=current.size.height,
+        )
         current.set_options(
             [
                 _armory_entry_text(
@@ -302,6 +425,7 @@ class TuiArmoryMixin:
                         and self._turn_key_for_armory_path(entry.path)
                         in self._active_turn_sessions
                     ),
+                    label_width=label_width,
                 )
                 for index, entry in enumerate(self._armory_entries)
             ]
@@ -359,17 +483,12 @@ class TuiArmoryMixin:
         preview = self.query_one("#armory-preview-inline", Static)
         sidebar = self.query_one("#info-panel", Static)
         entry = self._armory_highlighted_entry()
-        if entry is None:
-            if self._armory_filter:
-                content = f"No matches\n\nFilter: {self._armory_filter}\n\nEsc clears the filter."
-            else:
-                content = "No selection"
-        elif entry.path is None:
-            content = entry.label or ""
-        else:
-            content = armory_detail(entry.path)
-            if self._turn_key_for_armory_path(entry.path) in self._active_turn_sessions:
-                content = f"{content}\n\nassistant working"
+        active = (
+            entry is not None
+            and entry.path is not None
+            and self._turn_key_for_armory_path(entry.path) in self._active_turn_sessions
+        )
+        content = _armory_preview_text(entry, filter_query=self._armory_filter, active=active)
         preview.update(content)
         sidebar.update(sidebar_text(content))
 

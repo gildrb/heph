@@ -54,25 +54,18 @@ _FORBIDDEN_RECALL_QUESTION_TYPES_HEADER = (
     "- FORBIDDEN question types (these never test knowledge):\n"
 )
 _NO_UNSOLICITED_LEARNING_MENU_RULE = (
-    "- Do not offer menus, next steps, drills, study plans, readiness prompts, or ask what "
-    "the user wants next unless the user asks for that."
+    "- No unsolicited menus, plans, drills, readiness prompts, or next-step questions."
 )
 _PRIORITY_RETRIEVAL_QUERY = "exam priority topics prerequisites past exams materials overview"
 _MATERIAL_OVERVIEW_ANSWER_RULES = (
-    "- Shape the final answer before sending it: concise, cited, and readable in a terminal.",
-    "- Prefer a valid compact synthesis over refusing when evidence is present.",
-    "- Use a short paragraph for the corpus-level answer, then up to 3 short bullets for "
-    "substantive topics if that helps readability.",
-    "- Prioritize learnable content from the excerpts: concepts, definitions, methods, "
-    "problem types, examples, or tasks. Treat title pages, logistics, and boilerplate as "
-    "context, not as the answer, unless the user asks for them.",
-    "- Cover the big picture: domain, document types, and only the most useful major topics.",
-    "- Cite evidence IDs like [E1] for every factual claim; cite multiple sources.",
-    "- Do not use markdown tables or exhaustive source/topic inventories unless the user "
-    "explicitly asks for a table.",
-    "- Do not infer from filenames, lecturers, institutions, or outside knowledge.",
-    "- If the first draft would be too long, uncited, or shaped like a source inventory, "
-    "rewrite it internally into the compact cited answer instead of explaining the failure.",
+    "- Compact terminal answer: 1 short overview paragraph, then <=3 bullets only if useful.",
+    "- Synthesize when evidence exists; do not refuse because the answer needs shaping.",
+    "- Prioritize learnable content: concepts, definitions, methods, problem types, "
+    "examples, tasks.",
+    "- Treat titles/logistics/boilerplate as context unless requested.",
+    "- Cite every factual claim with current evidence IDs; use multiple sources when needed.",
+    "- No tables or source inventories unless requested.",
+    "- No facts from filenames, metadata, institutions, people, or outside knowledge.",
 )
 
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
@@ -115,6 +108,7 @@ class LearningTurnPlan:
     retrieval_query: str | None = None
     retrieval_strategy: str = ""
     evidence_refs: tuple[str, ...] = ()
+    requires_direct_evidence: bool = False
     use_expected_source_refs: bool = False
     allow_tools: bool = True
     buffer_response: bool = False
@@ -130,6 +124,7 @@ def _turn_plan(
     retrieval_query: str | None = None,
     retrieval_strategy: str = "",
     evidence_refs: tuple[str, ...] = (),
+    requires_direct_evidence: bool = False,
     use_expected_source_refs: bool = False,
     allow_tools: bool = False,
     buffer_response: bool = False,
@@ -143,6 +138,7 @@ def _turn_plan(
         retrieval_query=retrieval_query,
         retrieval_strategy=retrieval_strategy,
         evidence_refs=evidence_refs,
+        requires_direct_evidence=requires_direct_evidence,
         use_expected_source_refs=use_expected_source_refs,
         allow_tools=allow_tools,
         buffer_response=buffer_response,
@@ -196,8 +192,9 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
             "- Prefer an introductory, concrete item a first-time user can attempt.",
             "- If the user asked for an easy question, make it genuinely easy and "
             "prerequisite-level.",
-            "- If the user asked for an exam-style or timed question, include one reasonable "
-            "time limit and require them to reason their answer from memory.",
+            "- If the user asked for an exam-style question, use only constraints visible in "
+            "the retrieved evidence; do not invent time limits, point values, labels, or "
+            "answer instructions.",
             "- Do not present the solution or method.",
             "- End the question with the smallest relevant evidence citation, such as [E1]. "
             "Do not include source labels, answer-location hints, or quoted answer text.",
@@ -220,10 +217,18 @@ def _priority_prompt(user_request: str = "") -> str:
         rules=(
             _SAME_LANGUAGE_USER_RULE,
             "- Analyze the retrieved materials and past exams only.",
-            "- Identify the highest-priority topics by recurrence, exam weighting signals, "
-            "and prerequisite value.",
+            "- Give up to 3 cited review candidates; rank them only when the evidence states "
+            "priority, weighting, order, or prerequisites.",
+            "- If requested ordering is not source-stated, do not use ranked/order labels; "
+            "give a non-ranked cited review candidate.",
+            "- Do not use source availability, filenames, or manifest entries as evidence for "
+            "what to review first.",
+            "- Do not create umbrella category names; name the cited concept or source wording "
+            "directly.",
+            "- If order is inferred from available evidence, label it as your cited review "
+            "candidate, not source-established priority.",
             "- Separate direct evidence from inference. Cite evidence IDs for direct claims.",
-            "- Include missing prerequisites the user should review first.",
+            "- Mention prerequisites only when retrieved evidence names them.",
             "- If the retrieved evidence is too thin to infer priorities, say so and list "
             "what materials are needed.",
         ),
@@ -452,6 +457,12 @@ def _heph_self_prompt(query: str) -> str:
         rules=(
             _SAME_LANGUAGE_USER_RULE,
             "- Answer from the Hephaion documentation excerpt above, not from armory material.",
+            "- Be operational: explain concrete Hephaion/Heph actions, commands, paths, or "
+            "settings when they help.",
+            "- For follow-ups, advance the answer with new specifics instead of repeating "
+            "the prior summary.",
+            "- When asked about configuring or using Heph, use the docs map to orient the "
+            "user through the relevant commands.",
             "- Do not treat the user message as a recall attempt, even during an active drill.",
             "- Do not grade the learner, require confidence, or reveal any active recall answer.",
             "- Do not use armory material, citations, retrieved evidence, or tool output.",
@@ -573,6 +584,7 @@ def _refusal_prompt(item: str) -> str:
         rules=(
             "- Do not reveal new solution content.",
             "- Briefly refuse and tell the user to attempt recall first.",
+            "- Do not include a confidence value; only the learner may report confidence.",
             _SAME_LANGUAGE_ITEM_RULE,
             "- Do not hard-code an English refusal when the learning exchange is in another "
             "language.",
@@ -647,6 +659,8 @@ def _review_prompt(item: str) -> str:
             "- Present the minimum cited-material explanation needed to restart.",
             _CITE_EVIDENCE_STEP_RULE,
             _NO_UNSOLICITED_LEARNING_MENU_RULE,
+            "- If cited evidence is available, give a concise review point from it; do not say "
+            "no grounded review is available.",
             "- If no grounded material context is available, say no grounded review is available.",
         ),
     )
@@ -676,6 +690,9 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
             "extra material.",
             "- WRONG: correct the misconception or first wrong step immediately, then give "
             "one focused retrieval prompt. Do not let the user continue with a false idea.",
+            "- Do not define or explain a term merely because the material uses it. If the "
+            "retrieved material does not define the term, assess only the source-stated "
+            "claim or say that the definition is still missing.",
             "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
             "corrections whenever IDs are available.",
             "- If the uploaded material does not contain enough evidence to assess "
@@ -1388,7 +1405,15 @@ def _apply_refuse_reveal_result(
 ) -> TurnResult:
     next_state.phase = state.phase
     next_state.last_feedback_type = LearningFeedbackType.REFUSED
-    return next_state, reply
+    return next_state, _strip_assistant_confidence_values(reply)
+
+
+def _strip_assistant_confidence_values(reply: str) -> str:
+    cleaned = _CONFIDENCE_RE.sub("", reply)
+    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"([.!?]){2,}", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return "\n".join(line.strip() for line in cleaned.splitlines()).strip()
 
 
 def _apply_hint_result(

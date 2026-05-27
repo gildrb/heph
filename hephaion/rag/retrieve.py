@@ -56,6 +56,9 @@ _MAX_QUERY_TOKENS = 160
 _QUERY_PREFIX_TOKENS = 40
 _QUERY_SUFFIX_TOKENS = 140
 _MAX_QUERY_TOKEN_REPEATS = 2
+_MIN_NEAR_TOKEN_LENGTH = 5
+_MAX_NEAR_TOKEN_VARIANTS = 12
+_MAX_NEAR_TOKEN_VARIANTS_PER_TOKEN = 2
 _NEGATION_PENALTY = 0.65
 _NEGATION_MARKERS = (
     " not ",
@@ -391,6 +394,102 @@ def _normalize_query_for_retrieval(query: str) -> str:
         counts[token] = count + 1
         deduped.append(token)
     return " ".join(deduped) if deduped else query
+
+
+def _expand_query_with_corpus_token_variants(query: str, index: ArmoryIndex) -> str:
+    query_tokens = _near_matchable_query_tokens(query)
+    if not query_tokens:
+        return query
+
+    variants: list[str] = []
+    variant_counts: dict[str, int] = {}
+    for corpus_token in _corpus_tokens(index):
+        if len(variants) >= _MAX_NEAR_TOKEN_VARIANTS:
+            break
+        if corpus_token in query_tokens or not _near_matchable_token(corpus_token):
+            continue
+        matched_query_token = _matching_query_token(corpus_token, query_tokens)
+        if matched_query_token is None:
+            continue
+        count = variant_counts.get(matched_query_token, 0)
+        if count >= _MAX_NEAR_TOKEN_VARIANTS_PER_TOKEN:
+            continue
+        variants.append(corpus_token)
+        variant_counts[matched_query_token] = count + 1
+
+    return f"{query} {' '.join(variants)}" if variants else query
+
+
+def _near_matchable_query_tokens(query: str) -> tuple[str, ...]:
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for token in tokenize(query):
+        if token in seen or not _near_matchable_token(token):
+            continue
+        seen.add(token)
+        tokens.append(token)
+    return tuple(tokens)
+
+
+def _near_matchable_token(token: str) -> bool:
+    return len(token) >= _MIN_NEAR_TOKEN_LENGTH
+
+
+def _corpus_tokens(index: ArmoryIndex) -> tuple[str, ...]:
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for chunk in index.all_chunks:
+        chunk_text = " ".join(part for part in (chunk.source, chunk.heading, chunk.text) if part)
+        for token in tokenize(chunk_text):
+            if token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def _matching_query_token(corpus_token: str, query_tokens: tuple[str, ...]) -> str | None:
+    return next(
+        (
+            query_token
+            for query_token in query_tokens
+            if _near_token_match(query_token, corpus_token)
+        ),
+        None,
+    )
+
+
+def _near_token_match(left: str, right: str) -> bool:
+    if left == right or abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return _same_length_token_distance_at_most_one(left, right)
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    return _single_insert_or_delete_token_match(shorter, longer)
+
+
+def _same_length_token_distance_at_most_one(left: str, right: str) -> bool:
+    mismatches = 0
+    for left_char, right_char in zip(left, right, strict=True):
+        if left_char == right_char:
+            continue
+        mismatches += 1
+        if mismatches > 1:
+            return False
+    return mismatches == 1
+
+
+def _single_insert_or_delete_token_match(shorter: str, longer: str) -> bool:
+    skipped = False
+    shorter_index = 0
+    for longer_char in longer:
+        if shorter_index < len(shorter) and shorter[shorter_index] == longer_char:
+            shorter_index += 1
+            continue
+        if skipped:
+            return False
+        skipped = True
+    return True
 
 
 def _compound_query_variants(query: str) -> list[str]:
@@ -799,8 +898,13 @@ def retrieve(
         pseudo_feedback_weight=pseudo_feedback_weight,
     )
     requested_top_k = max(0, top_k)
-    search_query = _normalize_query_for_retrieval(query)
-    query_variants = _compound_query_variants(search_query)
+    base_search_query = _normalize_query_for_retrieval(query)
+    search_query = _normalize_query_for_retrieval(
+        _expand_query_with_corpus_token_variants(base_search_query, index)
+    )
+    query_variants = _compound_query_variants(base_search_query)
+    if query_variants[0] != search_query:
+        query_variants = [search_query, *query_variants]
     retrieval_top_k = _retrieval_pool_size(
         index,
         retriever,

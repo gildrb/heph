@@ -50,7 +50,10 @@ from hephaion.terminal.palette import TRANSPARENT
 from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaion.tui.flow_state import InlineFlow
 from hephaion.tui.session_state import TuiRuntimeState
-from hephaion.tui.slash_completion import changed_highlight_indices
+from hephaion.tui.slash_completion import (
+    changed_highlight_indices,
+    completion_menu_visible_slice,
+)
 from hephaion.tui.style import _tui_css
 
 try:
@@ -81,6 +84,7 @@ _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_L
 _SESSION_LIST_COMMANDS = {"list", "recent"}
 _SESSION_BROWSE_COMMANDS = {"", "browse", "menu"}
 _SESSION_LATEST_COMMANDS = {"resume", "last", "latest"}
+_INLINE_MENU_DESCRIPTION_GAP = 4
 
 
 @dataclass(frozen=True)
@@ -313,18 +317,62 @@ def _inline_menu_option_text(
     description: str,
     *,
     selected: bool,
+    label_width: int = 0,
 ) -> str | Text:
+    padded_width = max(label_width, len(label))
     if _RichText is None:
-        return f"{label}  {description}" if description else label
+        if description:
+            return f"{label:<{padded_width}}{' ' * _INLINE_MENU_DESCRIPTION_GAP}{description}"
+        return label
     palette = current_palette()
     label_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
     description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
     text = _RichText()
-    text.append(label, style=label_style)
+    text.append(f"{label:<{padded_width}}" if description else label, style=label_style)
     if description:
-        text.append("  ", style=description_style)
+        text.append(" " * _INLINE_MENU_DESCRIPTION_GAP, style=description_style)
         text.append(description, style=description_style)
     return text
+
+
+def _inline_menu_label_width(options: list[tuple[str, str]]) -> int:
+    return max((len(label) for label, _description in options), default=0)
+
+
+def _inline_menu_visible_label_width(
+    options: list[tuple[str, str]],
+    *,
+    highlighted: int,
+    rendered_height: int,
+) -> int:
+    visible_options = options[
+        completion_menu_visible_slice(
+            highlighted,
+            len(options),
+            rendered_height,
+        )
+    ]
+    return _inline_menu_label_width(visible_options)
+
+
+def _inline_menu_scrolled_label_width(
+    options: list[tuple[str, str]],
+    *,
+    scroll_y: int,
+    rendered_height: int,
+) -> int:
+    if not options:
+        return 0
+    visible_count = len(
+        options[
+            completion_menu_visible_slice(
+                0,
+                len(options),
+                rendered_height,
+            )
+        ]
+    )
+    return _inline_menu_label_width(options[scroll_y : scroll_y + visible_count])
 
 
 def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
@@ -435,12 +483,18 @@ class TuiInlineFlowMixin:
         composer = self.query_one("#composer", Input)
         if options:
             selected = 0 if highlighted is None else min(highlighted, len(options) - 1)
+            label_width = _inline_menu_visible_label_width(
+                options,
+                highlighted=selected,
+                rendered_height=suggestions.size.height,
+            )
             suggestions.set_options(
                 [
                     _inline_menu_option_text(
                         label,
                         description,
                         selected=index == selected,
+                        label_width=label_width,
                     )
                     for index, (label, description) in enumerate(options)
                 ]
@@ -466,6 +520,11 @@ class TuiInlineFlowMixin:
         if previous == highlighted:
             return
         options = self._inline_flow.options
+        label_width = _inline_menu_scrolled_label_width(
+            options,
+            scroll_y=int(suggestions.scroll_y),
+            rendered_height=suggestions.size.height,
+        )
         for option_index in changed_highlight_indices(previous, highlighted, len(options)):
             label, description = options[option_index]
             suggestions.replace_option_prompt_at_index(
@@ -474,6 +533,7 @@ class TuiInlineFlowMixin:
                     label,
                     description,
                     selected=option_index == highlighted,
+                    label_width=label_width,
                 ),
             )
         suggestions.highlighted = highlighted

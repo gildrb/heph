@@ -209,6 +209,22 @@ def test_codex_payload_omits_unsupported_temperature() -> None:
     assert "temperature" not in payload
 
 
+def test_codex_backend_timeout_can_be_lowered_for_stress_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPHAION_CODEX_TIMEOUT_SECONDS", "12.5")
+
+    assert runtime_engine._codex_backend_timeout_seconds() == 12.5
+
+
+def test_codex_backend_default_timeout_fails_fast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAION_CODEX_TIMEOUT_SECONDS", raising=False)
+
+    assert runtime_engine._codex_backend_timeout_seconds() == 30
+
+
 def test_request_kwargs_clamp_reasoning_to_supported_tiers() -> None:
     get_registry().register(
         ModelInfo(

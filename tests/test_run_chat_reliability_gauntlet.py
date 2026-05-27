@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from hephaion.armory import storage
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
@@ -68,6 +71,44 @@ def _fake_events(
     ]
 
 
+def test_run_prompt_uses_completed_reply_over_streamed_deltas(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+
+    with patch(
+        "scripts.run_chat_reliability_gauntlet.iter_chat_events",
+        return_value=[
+            AssistantDeltaEvent("unrepaired verbose draft "),
+            TurnCompleteEvent("compact final", 0, 1.0, "stop", 100),
+        ],
+    ):
+        answer = gauntlet._run_prompt_once(session, "Summarize")
+
+    assert answer == "compact final"
+
+
+def test_claim_audit_retries_invalid_json() -> None:
+    with patch(
+        "scripts.run_chat_reliability_gauntlet._run_claim_audit_request",
+        side_effect=[
+            "not json",
+            '{"passed": true, "unsupported_claims": [], "reason": "ok"}',
+        ],
+    ) as request:
+        result = gauntlet._audit_answer_claims(
+            "Answer [E1]",
+            _evidence(),
+            ChatConfig(),
+        )
+
+    assert request.call_count == 2
+    assert result["passed"] is True
+    assert result["reason"] == "ok"
+
+
+def test_codex_backend_request_failure_is_transient() -> None:
+    assert gauntlet._transient_provider_error(EngineError("ChatGPT Codex backend request failed"))
+
+
 def test_built_in_full_script_meets_required_turn_mix() -> None:
     turns = gauntlet.built_in_turns(turns=100)
     counts = gauntlet._category_counts(turns)
@@ -84,10 +125,10 @@ def test_built_in_full_script_meets_required_turn_mix() -> None:
     assert failures == []
 
 
-def test_smoke_script_meets_smoke_required_turn_mix() -> None:
-    turns = gauntlet.smoke_turns()
+def test_stress_script_meets_stress_required_turn_mix() -> None:
+    turns = gauntlet.stress_turns()
     counts = gauntlet._category_counts(turns)
-    requirements = gauntlet.smoke_requirements(turns=len(turns))
+    requirements = gauntlet.stress_requirements(turns=len(turns))
 
     failures = gauntlet._requirement_failures(
         counts,
@@ -190,6 +231,43 @@ def test_trace_audit_rejects_reply_contract_for_wrong_user_message(tmp_path: Pat
     assert audit["failures"] == ["trace line 2: reply contract does not match user message"]
 
 
+def test_trace_audit_requires_final_validation_result(tmp_path: Path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text(
+        "\n".join(
+            json.dumps(payload)
+            for payload in (
+                {"type": "user_message", "content": "What else?"},
+                {
+                    "type": "session",
+                    "event": "reply",
+                    "reply_excerpt": "Grounded answer [E1].",
+                    "retrieval_query": "semantic query",
+                    "turn_contract": {
+                        "original_user_input": "What else?",
+                        "resolved_intent": "source_qa",
+                        "canonical_request": "continue the previous answer",
+                        "retrieval_strategy": "expand_prior_evidence",
+                        "retrieval_query": "semantic query",
+                        "validation_result": "",
+                    },
+                    "evidence_refs": ["materials/source.md#chunk=0"],
+                    "evidence_coverage": {"evidence_blocks": 1},
+                    "evidence_items": [],
+                    "verification_notice": "",
+                },
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = gauntlet._trace_audit(trace_path)
+
+    assert audit["replayable_turns"] == 0
+    assert audit["failures"] == ["trace line 2: reply lacks replay surface fields"]
+
+
 def test_trace_audit_skips_orphaned_user_messages_from_retried_turns(tmp_path: Path) -> None:
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text(
@@ -228,6 +306,53 @@ def test_trace_audit_skips_orphaned_user_messages_from_retried_turns(tmp_path: P
     assert audit["failures"] == []
 
 
+def test_trace_audit_pairs_retry_errors_before_same_prompt_retry(tmp_path: Path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text(
+        "\n".join(
+            json.dumps(payload)
+            for payload in (
+                {"type": "user_message", "content": "Retry me"},
+                {
+                    "type": "session",
+                    "event": "turn_error",
+                    "original_user_input": "Retry me",
+                    "error": "timed out",
+                },
+                {"type": "user_message", "content": "Retry me"},
+                {
+                    "type": "session",
+                    "event": "reply",
+                    "reply_excerpt": "Grounded answer [E1].",
+                    "retrieval_query": "semantic query",
+                    "turn_contract": {
+                        "original_user_input": "Retry me",
+                        "resolved_intent": "source_qa",
+                        "canonical_request": "answer retry request",
+                        "retrieval_strategy": "retrieve",
+                        "retrieval_query": "semantic query",
+                        "validation_result": "ok",
+                    },
+                    "evidence_refs": ["materials/source.md#chunk=0"],
+                    "evidence_coverage": {"evidence_blocks": 1},
+                    "evidence_items": [],
+                    "verification_notice": "",
+                },
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = gauntlet._trace_audit(trace_path)
+    failures = gauntlet._trace_failures(trace_path, audit, expected_turns=1)
+
+    assert audit["user_turns"] == 2
+    assert audit["reply_contracts"] == 1
+    assert audit["replayable_turns"] == 1
+    assert failures == []
+
+
 def test_config_from_args_can_select_openai_codex_subscription() -> None:
     parser = gauntlet._build_parser()
     args = parser.parse_args(
@@ -250,6 +375,39 @@ def test_config_from_args_can_select_openai_codex_subscription() -> None:
     assert config.reasoning_level == "low"
     assert config.is_feature_enabled("disable_memory_extraction")
     assert config.resolved_api_key == ""
+
+
+def test_config_from_args_defaults_openai_codex_to_spark() -> None:
+    parser = gauntlet._build_parser()
+    args = parser.parse_args(["armory", "--provider", "openai-codex"])
+
+    config = gauntlet._config_from_args(args)
+
+    assert config.provider_slug == "openai-codex"
+    assert config.model == "gpt-5.3-codex-spark"
+    assert config.resolved_api_key == ""
+
+
+def test_parser_defaults_to_stress_level() -> None:
+    parser = gauntlet._build_parser()
+    args = parser.parse_args(["armory"])
+
+    assert args.level == "stress"
+
+
+def test_configure_codex_timeout_sets_fast_stress_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPHAION_CODEX_TIMEOUT_SECONDS", "3")
+    parser = gauntlet._build_parser()
+    args = parser.parse_args(
+        ["armory", "--provider", "openai-codex", "--codex-timeout-seconds", "11"]
+    )
+    config = gauntlet._config_from_args(args)
+
+    gauntlet._configure_codex_timeout(args, config)
+
+    assert os.environ["HEPHAION_CODEX_TIMEOUT_SECONDS"] == "11.0"
 
 
 def test_prepare_fixture_armories_creates_seeded_gauntlet_armories(tmp_path: Path) -> None:
@@ -520,7 +678,10 @@ def test_claim_audit_retries_transient_provider_timeout() -> None:
             raise EngineError("ChatGPT Codex request failed: The read operation timed out")
         return ['{"passed":true,"unsupported_claims":[],"reason":"supported"}']
 
-    with patch("scripts.run_chat_reliability_gauntlet.stream_reply", side_effect=fake_stream):
+    with (
+        patch("scripts.run_chat_reliability_gauntlet.stream_reply", side_effect=fake_stream),
+        patch("scripts.run_chat_reliability_gauntlet.time.sleep"),
+    ):
         result = gauntlet._audit_answer_claims(
             "Supported answer [E1].",
             _evidence(),
@@ -571,6 +732,24 @@ def test_claim_audit_parser_treats_definitional_support_reason_as_passed() -> No
                 "passed": False,
                 "unsupported_claims": ["The source does not define an order."],
                 "reason": "E1 states a two-step checklist, which does define an order.",
+            }
+        )
+    )
+
+    assert parsed["passed"] is True
+    assert parsed["unsupported_claims"] == []
+
+
+def test_claim_audit_parser_treats_explicit_pass_reason_as_passed() -> None:
+    parsed = gauntlet._parse_claim_audit_reply(
+        json.dumps(
+            {
+                "passed": False,
+                "unsupported_claims": ["The quoted statement."],
+                "reason": (
+                    "No unsupported factual claim appears beyond the source-backed quote. "
+                    "Passed=true."
+                ),
             }
         )
     )
@@ -645,6 +824,7 @@ def test_reliability_conversation_retries_transient_provider_timeout(tmp_path: P
     with (
         patch("scripts.run_chat_reliability_gauntlet.create_session", return_value=session),
         patch("scripts.run_chat_reliability_gauntlet.iter_chat_events", side_effect=fake_events),
+        patch("scripts.run_chat_reliability_gauntlet.time.sleep"),
     ):
         report = gauntlet.run_reliability_conversation(
             tmp_path,
@@ -663,6 +843,12 @@ def test_reliability_conversation_retries_transient_provider_timeout(tmp_path: P
 
     assert calls == 3
     assert report["status"] == 0
+
+
+def test_reliability_conversation_treats_connection_reset_as_transient() -> None:
+    error = EngineError("ChatGPT Codex request failed: [Errno 54] Connection reset by peer")
+
+    assert gauntlet._transient_provider_error(error) is True
 
 
 def test_full_suite_requires_claim_audit_for_acceptance() -> None:

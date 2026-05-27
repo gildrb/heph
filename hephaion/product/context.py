@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import re
 from functools import lru_cache
 from pathlib import Path
 
 _MAX_CONTEXT_CHARS = 4000
-_SECTION_RE = re.compile(r"^##\s+", re.MULTILINE)
+_ASSISTANT_CONTEXT_PATH = Path("docs/heph-context.md")
 
 
 def _repo_readme_path() -> Path | None:
@@ -17,17 +16,19 @@ def _repo_readme_path() -> Path | None:
     return None
 
 
-def _trim_readme(text: str) -> str:
-    text = text.replace("<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->", "")
-    match = _SECTION_RE.search(text)
-    if match is not None:
-        text = text[: match.start()]
-    return text.strip()[:_MAX_CONTEXT_CHARS].strip()
+def _repo_root() -> Path | None:
+    readme_path = _repo_readme_path()
+    if readme_path is None:
+        return None
+    return readme_path.parent
 
 
 @lru_cache(maxsize=1)
 def heph_product_context() -> str:
-    readme_path = _repo_readme_path()
-    if readme_path is None:
+    repo_root = _repo_root()
+    if repo_root is None:
         return ""
-    return _trim_readme(readme_path.read_text(encoding="utf-8"))
+    context_path = repo_root / _ASSISTANT_CONTEXT_PATH
+    if not context_path.is_file():
+        return ""
+    return context_path.read_text(encoding="utf-8").strip()[:_MAX_CONTEXT_CHARS].strip()

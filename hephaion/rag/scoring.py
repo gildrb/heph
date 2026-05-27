@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections.abc import Sequence
 
 from hephaion.rag.retrieval_types import ScoredChunk
@@ -138,13 +139,18 @@ _RELATIVE_SCORE_EXP_FLOOR = -60.0
 
 def tokenize(text: str) -> list[str]:
     normalized: list[str] = []
-    for token in _WORD_RE.findall(text.lower()):
+    for token in _WORD_RE.findall(_fold_token_text(text)):
         if not _keep_token(token):
             continue
         normalized.append(token)
         if (plural_variant := _plural_variant(token)) is not None:
             normalized.append(plural_variant)
     return normalized
+
+
+def _fold_token_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
 def _keep_token(token: str) -> bool:

@@ -38,11 +38,49 @@ def completion_menu_scroll_y(
     rendered_height: int,
     max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
 ) -> int:
-    visible_rows = rendered_height if rendered_height > 0 else max_visible_rows
-    visible_rows = max(1, min(option_count, visible_rows, max_visible_rows))
+    visible_rows = completion_menu_visible_row_count(
+        option_count,
+        rendered_height,
+        max_visible_rows=max_visible_rows,
+    )
+    if visible_rows == 0:
+        return 0
     max_scroll_y = max(0, option_count - visible_rows)
     centered_scroll_y = highlighted - (visible_rows // 2)
     return min(max(centered_scroll_y, 0), max_scroll_y)
+
+
+def completion_menu_visible_row_count(
+    option_count: int,
+    rendered_height: int,
+    max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
+) -> int:
+    if option_count <= 0:
+        return 0
+    visible_rows = rendered_height if rendered_height > 0 else max_visible_rows
+    return max(1, min(option_count, visible_rows, max_visible_rows))
+
+
+def completion_menu_visible_slice(
+    highlighted: int,
+    option_count: int,
+    rendered_height: int,
+    max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
+) -> slice:
+    visible_rows = completion_menu_visible_row_count(
+        option_count,
+        rendered_height,
+        max_visible_rows=max_visible_rows,
+    )
+    if visible_rows == 0:
+        return slice(0, 0)
+    scroll_y = completion_menu_scroll_y(
+        highlighted,
+        option_count,
+        rendered_height,
+        max_visible_rows=max_visible_rows,
+    )
+    return slice(scroll_y, scroll_y + visible_rows)
 
 
 def changed_highlight_indices(

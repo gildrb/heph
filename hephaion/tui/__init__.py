@@ -126,6 +126,9 @@ from hephaion.tui.slash_completion import (
     completion_menu_scroll_y as _completion_menu_scroll_y,
 )
 from hephaion.tui.slash_completion import (
+    completion_menu_visible_slice as _completion_menu_visible_slice,
+)
+from hephaion.tui.slash_completion import (
     slash_command_name as _slash_command_name,
 )
 from hephaion.tui.status import config_error, status_lines
@@ -209,6 +212,7 @@ _slash_suggestion = slash_suggestion
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _COMPLETION_DESCRIPTION_GAP = 4
+_COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _LIVE_RESIZE_POLL_SECONDS = 1 / 60
 _RESIZE_REDRAW_DELAY_SECONDS = 0.075
 _TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
@@ -1447,21 +1451,20 @@ class HephTui(
             ]
         )
 
-    def _completion_command_width(self, highlighted: int | None, rendered_height: int) -> int:
+    def _completion_command_width(self, highlighted: int | None, _rendered_height: int) -> int:
         candidates = self.completion_candidates
         if not candidates:
             return 0
         highlighted_index = highlighted if highlighted is not None else 0
-        scroll_y = _completion_menu_scroll_y(highlighted_index, len(candidates), rendered_height)
-        visible_rows = rendered_height if rendered_height > 0 else 7
-        visible_rows = max(1, min(len(candidates), visible_rows, 7))
-        visible_candidates = candidates[scroll_y : scroll_y + visible_rows]
+        # OptionList height can lag one refresh behind after filtering narrows the menu.
+        visible_slice = _completion_menu_visible_slice(
+            highlighted_index,
+            len(candidates),
+            min(len(candidates), _COMPLETION_MENU_MAX_VISIBLE_ROWS),
+        )
+        visible_candidates = candidates[visible_slice]
         return max(
-            (
-                len(self._completion_preview(candidate).strip())
-                for candidate in visible_candidates
-                if candidate.description
-            ),
+            (len(self._completion_preview(candidate).strip()) for candidate in visible_candidates),
             default=0,
         )
 

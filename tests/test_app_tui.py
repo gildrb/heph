@@ -26,7 +26,9 @@ from hephaion.providers.config import ProviderConfig, default_config
 from hephaion.providers.registry import ModelInfo, get_registry
 from hephaion.runtime import ChatConfig, Conversation
 from hephaion.terminal import current_theme_name, set_theme
+from hephaion.tui import armory as tui_armory
 from hephaion.tui import keymap
+from hephaion.tui import transcript as tui_transcript
 from hephaion.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from hephaion.tui.inline_flows import (
     _dedupe_inline_options,
@@ -81,6 +83,53 @@ def _composited_screen_text(app: tui.HephTui) -> str:
                         rows[row_index][column] = char
                     column += 1
     return "\n".join("".join(row).rstrip() for row in rows)
+
+
+def _strip_plain_text(strip: Strip) -> str:
+    return "".join(segment.text for segment in strip)
+
+
+def _option_prompt_plain(option_list: object, index: int) -> str:
+    typed_list = cast("TextualOptionList", option_list)
+    return str(typed_list.get_option_at_index(index).prompt)
+
+
+def _completion_description_columns(app: tui.HephTui) -> list[int]:
+    suggestions = app.query_one("#suggestions", tui.OptionList)
+    columns: list[int] = []
+    for index, candidate in enumerate(app.completion_candidates):
+        if not candidate.description:
+            continue
+        prompt = _option_prompt_plain(suggestions, index)
+        columns.append(prompt.index(candidate.description))
+    return columns
+
+
+def _inline_description_columns(app: tui.HephTui) -> list[int]:
+    suggestions = app.query_one("#suggestions", tui.OptionList)
+    columns: list[int] = []
+    for index, (_label, description) in enumerate(app._inline_flow.options):
+        if not description:
+            continue
+        prompt = _option_prompt_plain(suggestions, index)
+        columns.append(prompt.index(description))
+    return columns
+
+
+def _armory_description_columns(app: tui.HephTui) -> list[int]:
+    armories = app.query_one("#armory-current-inline", tui.OptionList)
+    columns: list[int] = []
+    for index, entry in enumerate(app._armory_entries):
+        active = (
+            entry.path is not None
+            and app._turn_key_for_armory_path(entry.path) in app._active_turn_sessions
+        )
+        description = tui_armory._armory_entry_description(entry, active=active)
+        if not description:
+            continue
+        prompt = _option_prompt_plain(armories, index)
+        columns.append(prompt.index(description))
+    return columns
 
 
 def _plain_session() -> ChatSession:
@@ -2735,6 +2784,131 @@ def test_settings_inline_toggles_privacy_and_theme(
         set_theme("dark")
 
 
+def test_login_inline_menu_aligns_descriptions_after_filter_reset() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_login_columns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_login_flow()
+            await pilot.pause()
+
+            columns = _inline_description_columns(app)
+            assert columns
+            assert len(set(columns)) == 1
+
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "z"
+            app._filter_inline_menu_options(composer.value)
+            await pilot.pause()
+            assert [label for label, _description in app._inline_flow.options] == ["Z.AI"]
+
+            composer.value = ""
+            app._filter_inline_menu_options("")
+            await pilot.pause()
+
+            columns = _inline_description_columns(app)
+            assert len(set(columns)) == 1
+            assert columns[0] == len("Custom endpoint") + 4
+
+    asyncio.run(check_login_columns())
+
+
+def test_models_inline_menu_aligns_descriptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    choices = [
+        ("pollinations", "openai", "Pollinations", True),
+        ("zai", "glm-5-air", "Z.AI", False),
+        ("openrouter", "qwen/qwen3.6-plus:free", "OpenRouter", True),
+    ]
+
+    def fake_model_choices(
+        _config: ProviderConfig,
+        *,
+        refresh_live: bool = False,
+    ) -> list[tuple[str, str, str, bool]]:
+        del refresh_live
+        return choices
+
+    monkeypatch.setattr("hephaion.tui.inline_flows.configured_model_choices", fake_model_choices)
+    app = tui.HephTui(
+        _keyless_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    monkeypatch.setattr(app, "_refresh_models_flow_worker", lambda: None)
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_model_columns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_models_flow()
+            await pilot.pause()
+
+            columns = _inline_description_columns(app)
+            assert columns
+            assert len(set(columns)) == 1
+            assert columns[0] == len("qwen/qwen3.6-plus:free") + 4
+
+    asyncio.run(check_model_columns())
+
+
+def test_inline_menu_description_column_tracks_visible_rows_while_scrolling() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_scrolled_columns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_inline_menu(
+                name="test",
+                step="menu",
+                title="Choose",
+                options=[
+                    ("extra-wide-visible-first", "first option"),
+                    ("aa", "second option"),
+                    ("bb", "third option"),
+                    ("cc", "fourth option"),
+                    ("dd", "fifth option"),
+                    ("ee", "sixth option"),
+                    ("ff", "seventh option"),
+                    ("gg", "eighth option"),
+                ],
+            )
+            await pilot.pause()
+
+            columns = _inline_description_columns(app)
+            assert len(set(columns[:7])) == 1
+            assert columns[0] == len("extra-wide-visible-first") + 4
+
+            app._move_completion(7)
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert suggestions.scroll_y == 1
+            columns = _inline_description_columns(app)
+            assert len(set(columns[1:])) == 1
+            assert columns[1] == len("aa") + 4
+
+    asyncio.run(check_scrolled_columns())
+
+
 def test_settings_inline_keeps_selected_row_after_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2952,6 +3126,14 @@ def test_armory_home_text_includes_recent_armories(
     assert "Recent armories:" in text
     assert "linear-algebra" in text
     assert "algorithms" in text
+    assert max(len(line) for line in text.splitlines()) <= 40
+
+
+def test_startup_copy_stays_readable_in_narrow_panes() -> None:
+    startup_text = tui._startup_card_text()
+
+    assert "materials/" in startup_text
+    assert max(len(line) for line in startup_text.splitlines()) <= 31
 
 
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3004,7 +3186,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
             assert any(
                 "Existing armories found" in entry.content for entry in app.state.transcript
             )
-            assert any(str(armory.resolve()) in entry.content for entry in app.state.transcript)
+            assert any("known" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_armory_menu())
 
@@ -3630,6 +3812,62 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
             assert widest_after < widest_before
 
     asyncio.run(check_reflow())
+
+
+def test_transcript_wrap_preserves_continuation_indent() -> None:
+    wrapped = tui_transcript._wrap_transcript_plain_line(
+        "  Ask for summaries, contradictions, gaps, timelines, and action items.",
+        31,
+    )
+
+    assert wrapped[0] == "  Ask for summaries,"
+    assert len(wrapped) > 1
+    assert all(line.startswith("  ") for line in wrapped)
+    assert max(len(line) for line in wrapped) <= 31
+
+
+def test_transcript_wrap_uses_hanging_indent_for_lists() -> None:
+    wrapped = tui_transcript._wrap_transcript_plain_line(
+        "- Heph keeps transparent dark UI, resizes from actual PTY pane dimensions.",
+        32,
+    )
+
+    assert wrapped[0].startswith("- ")
+    assert len(wrapped) > 1
+    assert all(line.startswith("  ") for line in wrapped[1:])
+    assert max(len(line) for line in wrapped) <= 32
+
+
+def test_transcript_renders_indented_wrapped_lines_aligned() -> None:
+    if tui.Input is None or tui.RichLog is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_rendered_wrap() -> None:
+        async with typed_app.run_test(size=(32, 12)) as pilot:
+            await pilot.pause()
+            app._append_entry(
+                "  Ask for summaries, contradictions, gaps, timelines, and action items.",
+                "startup",
+            )
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            rendered = [_strip_plain_text(line).rstrip() for line in log.lines]
+            wrapped = [line for line in rendered if line]
+
+            assert len(wrapped) > 1
+            assert all(line.startswith("  ") for line in wrapped)
+            assert max(len(line) for line in wrapped) <= log.size.width
+
+    asyncio.run(check_rendered_wrap())
 
 
 def test_resize_preserves_completion_menu_at_current_width() -> None:
@@ -4310,6 +4548,89 @@ def test_armory_inline_preserves_selection_across_refresh(
             assert selected.path == beta
 
     asyncio.run(check_selection())
+
+
+def test_armory_inline_description_column_tracks_visible_rows(tmp_path: Path) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_armory_columns() -> None:
+        async with typed_app.run_test(size=(120, 12)) as pilot:
+            app._open_armory_inline("manage")
+            app._armory_entries = [
+                tui._DirEntry("extra-wide-visible-first", path=tmp_path / "wide"),
+                tui._DirEntry("aa", path=tmp_path / "aa"),
+                tui._DirEntry("bb", path=tmp_path / "bb"),
+                tui._DirEntry("cc", path=tmp_path / "cc"),
+                tui._DirEntry("dd", path=tmp_path / "dd"),
+                tui._DirEntry("ee", path=tmp_path / "ee"),
+                tui._DirEntry("ff", path=tmp_path / "ff"),
+                tui._DirEntry("gg", path=tmp_path / "gg"),
+            ]
+            app._render_armory_options(0)
+            await pilot.pause()
+
+            columns = _armory_description_columns(app)
+            assert len(set(columns[:6])) == 1
+            assert columns[0] == len("extra-wide-visible-first") + 4
+
+            app._render_armory_options(7)
+            await pilot.pause()
+
+            columns = _armory_description_columns(app)
+            assert len(set(columns[2:])) == 1
+            assert columns[2] == len("bb") + 4
+
+    asyncio.run(check_armory_columns())
+
+
+def test_armory_inline_rows_show_file_columns_without_duplicate_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory = tmp_path / "biology"
+    initialize(armory)
+    (armory / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_material_context() -> None:
+        async with typed_app.run_test(size=(120, 12)) as pilot:
+            app._open_armory_inline("manage")
+            await pilot.pause()
+
+            current = app.query_one("#armory-current-inline", tui.OptionList)
+            index = next(
+                index for index, entry in enumerate(app._armory_entries) if entry.path == armory
+            )
+            prompt = _option_prompt_plain(current, index)
+            header = app.query_one("#armory-header", tui.Static)
+            sidebar = app.query_one("#info-panel", tui.Static)
+
+            assert "files" in str(header.render())
+            assert "  1    ready" in prompt
+            assert "material file" not in prompt
+            assert str(tmp_path) not in prompt
+            assert str(tmp_path) not in str(header.render())
+            assert "Ready" in str(sidebar.render())
+            assert "material file" not in str(sidebar.render())
+
+    asyncio.run(check_material_context())
 
 
 def test_armory_inline_open_mode_disables_new_shortcut() -> None:
@@ -5149,6 +5470,75 @@ def test_command_completion_column_tracks_visible_commands() -> None:
             )
 
     asyncio.run(check_completion_width())
+
+
+def test_command_completion_column_ignores_stale_filtered_height() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_stale_height() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/"
+            composer.cursor_position = len("/")
+            app.completion_candidates = [
+                tui.CompletionCandidate(text=f"{name} ", description=description, start_position=0)
+                for name, description in (
+                    ("help", "Show available commands"),
+                    ("exit", "Leave Heph"),
+                    ("login", "Authenticate"),
+                    ("logout", "Clear credentials"),
+                    ("status", "Show status"),
+                    ("new", "Start a new chat"),
+                    ("armory", "Browse armories"),
+                )
+            ]
+
+            assert app._completion_command_width(0, 1) == len("/armory")
+
+    asyncio.run(check_stale_height())
+
+
+def test_command_completion_columns_restore_after_filter_reset() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_filter_reset_columns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/a"
+            composer.cursor_position = len("/a")
+            app._refresh_completions()
+            await pilot.pause()
+            assert [candidate.text.strip() for candidate in app.completion_candidates] == [
+                "armory"
+            ]
+
+            composer.value = "/"
+            composer.cursor_position = len("/")
+            app._refresh_completions()
+            await pilot.pause()
+
+            columns = _completion_description_columns(app)[:7]
+            assert columns
+            assert len(set(columns)) == 1
+            assert columns[0] == len("/armory") + 4
+
+    asyncio.run(check_filter_reset_columns())
 
 
 def test_busy_footer_keeps_exit_hint_with_completion_menu_visible() -> None:

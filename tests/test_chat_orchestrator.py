@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +34,9 @@ from hephaion.chat.orchestrator import (
     _deterministic_learning_reply,
     _evidence_notice,
     _evidence_notice_metadata,
+    _intent_source_catalog,
     _learning_agent_request,
+    _learning_extra_system_prompt,
     _learning_practice_context,
     _localize_deterministic_reply,
     _missing_indexed_material_reply,
@@ -42,16 +45,20 @@ from hephaion.chat.orchestrator import (
     _no_matching_indexed_evidence_reply,
     _overview_fallback_reply,
     _overview_topic_items_from_model_payload,
+    _prior_answer_cited_claims,
+    _prior_answer_prompt_context,
     _resolved_user_intent,
     _run_bounded_internal_repairs,
     _semantic_query_specificity,
     _stabilized_followup_intent_resolution,
+    _stabilized_intent_for_named_material,
     _stored_turn_evidence,
     _turn_contract_prompt_context,
     _user_visible_reply,
 )
 from hephaion.chat.session import ChatSession
 from hephaion.chat.turn_contract import (
+    ANSWER_FORMAT_LIST,
     ANSWER_FORMAT_TABLE,
     ANSWER_MODE_REASON_FROM_PRIOR,
     ANSWER_MODE_TRANSFORM_PRIOR,
@@ -126,6 +133,7 @@ def _plan(
     *,
     retrieval_query: str | None = "compactness",
     use_expected_source_refs: bool = False,
+    requires_direct_evidence: bool = False,
     allow_tools: bool = True,
     buffer_response: bool = False,
 ) -> LearningTurnPlan:
@@ -135,6 +143,7 @@ def _plan(
         prompt="test prompt",
         retrieval_query=retrieval_query,
         use_expected_source_refs=use_expected_source_refs,
+        requires_direct_evidence=requires_direct_evidence,
         allow_tools=allow_tools,
         buffer_response=buffer_response,
     )
@@ -151,6 +160,8 @@ def test_bounded_internal_repair_loop_does_not_append_english_pedagogy_scaffold(
         plan,
         "Definiere Kompaktheit und nenne deine Sicherheit von 0-100%.",
         None,
+        user_input="bereit",
+        config=ChatConfig(),
     )
 
     assert passes <= 3
@@ -167,25 +178,131 @@ def test_source_qa_repair_does_not_append_excerpts_when_reply_is_already_cited()
         plan,
         "Compactness is defined using open covers [E1].",
         evidence,
+        user_input="what is compactness?",
+        config=ChatConfig(),
     )
 
     assert passes <= 2
     assert repaired == "Compactness is defined using open covers [E1]."
 
 
-def test_source_qa_repair_appends_excerpts_when_reply_has_no_citations() -> None:
+def test_source_qa_repair_uses_compact_model_repair_when_reply_has_no_citations() -> None:
     plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="compactness")
     evidence = _turn_evidence(
         _evidence(content="Compactness is defined using open covers in this material.")
     )
+    config = ChatConfig(base_url="https://local.test/v1", model="repair")
+
+    with patch(
+        "hephaion.chat.orchestrator.stream_completion",
+        return_value=iter(
+            [CompletionDelta(content="Compactness uses open covers in this material [E1].")]
+        ),
+    ):
+        repaired, _passes = _run_bounded_internal_repairs(
+            plan,
+            "Compactness is defined using open covers.",
+            evidence,
+            user_input="what is compactness?",
+            config=config,
+        )
+
+    assert repaired == "Compactness uses open covers in this material [E1]."
+
+
+def test_repair_replaces_unverified_source_quotes_with_evidence_pointer() -> None:
+    evidence = _turn_evidence(
+        _evidence(
+            content="The procedure says to report that the material does not contain the answer."
+        )
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        _plan(action=LearningAction.SOURCE_QA),
+        (
+            "The source sentence is: "
+            '"The current evidence does not contain a direct source answer." [E1]'
+        ),
+        evidence,
+        user_input="Show the evidence.",
+        config=ChatConfig(),
+    )
+
+    assert "The current evidence does not contain a direct source answer" not in repaired
+    assert "The procedure says to report" in repaired
+
+
+def test_source_qa_repair_compacts_oversized_cited_reply_before_model_repair() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence(content="The source-backed point is short and directly cited.")
+    )
+    oversized = " ".join(["The source-backed point is short and directly cited [E1]."] * 30)
 
     repaired, _passes = _run_bounded_internal_repairs(
         plan,
-        "Compactness is defined using open covers.",
+        oversized,
         evidence,
+        user_input="make it concise",
+        config=ChatConfig(base_url="https://local.test/v1", model="repair"),
     )
 
-    assert "- notes: Compactness is defined using open covers in this material. [E1]" in repaired
+    assert len(repaired) < len(oversized)
+    assert len(repaired) <= 700
+    assert "The source-backed point is short and directly cited [E1]." in repaired
+
+
+def test_source_qa_repair_deterministically_compacts_oversized_cited_units() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence("E1", content="First supported point."),
+        _evidence("E2", content="Second supported point."),
+        _evidence("E3", content="Third supported point."),
+    )
+    oversized = "\n".join(
+        (
+            "First supported point. [E1]",
+            "Second supported point. [E2]",
+            "Third supported point. [E3]",
+            " ".join(["First supported point. [E1]"] * 80),
+        )
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        oversized,
+        evidence,
+        user_input="make it concise",
+        config=ChatConfig(),
+    )
+
+    assert len(repaired) < 700
+    assert "First supported point. [E1]" in repaired
+    assert "Second supported point. [E2]" in repaired
+    assert "Third supported point. [E3]" in repaired
+
+
+def test_transform_prior_repair_does_not_append_evidence_inventory() -> None:
+    plan = _plan(action=LearningAction.PRESENT)
+    evidence = _turn_evidence(
+        _evidence(content="The source-backed prompt asks for the shortest accurate version.")
+    )
+    contract = TurnContract(
+        original_user_input="What is the shortest accurate version?",
+        answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+        citation_required=True,
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        "Short version: identify the claim, then cite the supporting phrase.",
+        evidence,
+        user_input="What is the shortest accurate version?",
+        config=ChatConfig(),
+        contract=contract,
+    )
+
+    assert repaired == "Short version: identify the claim, then cite the supporting phrase."
 
 
 def test_calibration_repair_adds_minimal_evidence_citation() -> None:
@@ -196,6 +313,8 @@ def test_calibration_repair_adds_minimal_evidence_citation() -> None:
         plan,
         "What is the product rule idea? Answer from memory.",
         evidence,
+        user_input="review me",
+        config=ChatConfig(),
     )
 
     assert repaired == "What is the product rule idea? Answer from memory. [E1]"
@@ -209,6 +328,8 @@ def test_assessment_repair_adds_required_evidence_citation() -> None:
         plan,
         "PARTIAL: Name the missing source-backed point.",
         evidence,
+        user_input="assess",
+        config=ChatConfig(),
     )
 
     assert repaired == "PARTIAL: Name the missing source-backed point. [E1]"
@@ -218,6 +339,7 @@ def test_source_qa_assessment_requires_direct_support_for_resolved_query() -> No
     plan = _plan(
         action=LearningAction.SOURCE_QA,
         retrieval_query="Which source mentions the amber lattice theorem?",
+        requires_direct_evidence=True,
     )
     evidence = _turn_evidence(
         _evidence(
@@ -246,6 +368,7 @@ def test_source_qa_assessment_does_not_aggregate_generic_support_across_sources(
     plan = _plan(
         action=LearningAction.SOURCE_QA,
         retrieval_query="which document source contains the invented theorem phrase",
+        requires_direct_evidence=True,
     )
     evidence = _turn_evidence(
         _evidence(
@@ -269,6 +392,51 @@ def test_source_qa_assessment_does_not_aggregate_generic_support_across_sources(
     assert assessment.recommended_action == "abstain"
 
 
+def test_source_backed_summary_request_does_not_force_locator_support() -> None:
+    plan = LearningTurnPlan(
+        action=LearningAction.SOURCE_QA,
+        phase=LearningPhase.PRESENTING,
+        prompt="User request: Switch to history and summarize one source-backed point.",
+        retrieval_query="history Switch to history and summarize one source-backed point.",
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            "E1",
+            "history.md",
+            0,
+            (
+                "# History Source\nThe public library example describes a city choosing "
+                "longer opening hours after community groups asked for evening access. "
+                "The decision followed documented requests and a budget review."
+            ),
+        )
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.recommended_action != "abstain"
+
+
+def test_source_qa_direct_lookup_uses_original_request_when_query_is_condensed() -> None:
+    plan = LearningTurnPlan(
+        action=LearningAction.SOURCE_QA,
+        phase=LearningPhase.PRESENTING,
+        prompt="User question: Using only the sources, what is the amber forge retrieval phrase?",
+        retrieval_query="amber forge retrieval phrase",
+        requires_direct_evidence=True,
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            content="The source gives a procedure for reporting when no supporting phrase appears."
+        )
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
+
+
 def test_source_qa_assessment_accepts_direct_source_support() -> None:
     plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="product rule source")
     evidence = _turn_evidence(
@@ -278,6 +446,99 @@ def test_source_qa_assessment_accepts_direct_source_support() -> None:
     assessment = assess_turn_evidence(plan, evidence)
 
     assert assessment.sufficient is True
+
+
+def test_source_qa_assessment_accepts_dominant_retrieval_support() -> None:
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query="source with strongest procedural wording explain procedure",
+    )
+    evidence = _turn_evidence(
+        replace(
+            _evidence(
+                content=(
+                    "The procedure source has three steps: read the claim, locate the "
+                    "supporting phrase, and cite it."
+                )
+            ),
+            score=1.0,
+        ),
+        replace(
+            _evidence(
+                "E2",
+                content="A separate note describes a formula example.",
+                index=1,
+            ),
+            score=0.2,
+        ),
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is True
+    assert assessment.recommended_action == "answer"
+
+
+def test_source_qa_dominant_retrieval_support_requires_distinctive_terms() -> None:
+    plan = LearningTurnPlan(
+        action=LearningAction.SOURCE_QA,
+        phase=LearningPhase.PRESENTING,
+        prompt=(
+            "User question: Using only the armory, what date was the fictional launch ceremony?"
+        ),
+        retrieval_query="armory materials fictional launch ceremony date",
+        requires_direct_evidence=True,
+    )
+    evidence = _turn_evidence(
+        replace(
+            _evidence(
+                content=(
+                    "This generated armory contains generic public materials for algorithms, "
+                    "calculus, physics, learning methods, history, exercises, exams, formulas, "
+                    "and grounded answering."
+                )
+            ),
+            score=1.24,
+        ),
+        replace(
+            _evidence(
+                "E2",
+                content="A study method source describes retrieval practice and feedback.",
+                index=1,
+            ),
+            score=0.54,
+        ),
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
+
+
+def test_source_qa_quoted_phrase_lookup_requires_phrase_terms() -> None:
+    plan = LearningTurnPlan(
+        action=LearningAction.SOURCE_QA,
+        phase=LearningPhase.PRESENTING,
+        prompt='User question: Which source mentions the invented theorem called "silver cactus"?',
+        retrieval_query=(
+            'Find any source in the materials that mentions the phrase "silver cactus"; '
+            "identify which source contains it."
+        ),
+    )
+    evidence = _turn_evidence(
+        _evidence(content="The source gives a procedure for reporting unsupported answers."),
+        _evidence(
+            "E2",
+            "other.md",
+            content="A separate source discusses ordinary theorem statements.",
+        ),
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
 
 
 def test_source_qa_detail_request_does_not_require_exact_lookup_support() -> None:
@@ -292,6 +553,27 @@ def test_source_qa_detail_request_does_not_require_exact_lookup_support() -> Non
     assessment = assess_turn_evidence(plan, evidence)
 
     assert assessment.recommended_action != "abstain"
+
+
+def test_source_qa_reuse_prior_evidence_does_not_match_followup_words() -> None:
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query=None,
+    )
+    plan = replace(
+        plan,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        evidence_refs=("notes.md#chunk=0",),
+        requires_direct_evidence=True,
+    )
+    evidence = _turn_evidence(
+        _evidence(content="The prior source set contains the cited support span.")
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is True
+    assert assessment.recommended_action == "answer"
 
 
 def test_source_qa_definition_request_without_retrieval_query_requires_direct_support() -> None:
@@ -319,6 +601,7 @@ def test_source_qa_abstains_deterministically_when_direct_answer_is_missing() ->
     plan = _plan(
         action=LearningAction.SOURCE_QA,
         retrieval_query="Which source mentions the amber lattice theorem?",
+        requires_direct_evidence=True,
     )
     evidence = _turn_evidence(
         _evidence(content="The source explains how to report unsupported answers.")
@@ -338,10 +621,128 @@ def test_source_qa_abstains_deterministically_when_direct_answer_is_missing() ->
     deterministic = _deterministic_learning_reply(session, plan, resolved)
 
     assert deterministic is not None
-    assert "did not retrieve a direct cited answer" in deterministic.reply
-    assert "amber lattice theorem" in deterministic.reply
-    assert "[E1]" in deterministic.reply
+    assert "current evidence does not contain a direct source answer" in deterministic.reply
+    assert "amber lattice theorem" not in deterministic.reply
+    assert "[E1]" not in deterministic.reply
+    assert deterministic.citation_required is False
     assert "visible source chunks" not in deterministic.reply
+
+
+def test_broad_material_followup_uses_structural_evidence_overview() -> None:
+    session = _session()
+    plan = material_overview_plan("what else stands out")
+    evidence = _turn_evidence(
+        _evidence("E1", "algorithms.md", 0, "# Algorithms\nSelection sort picks items."),
+        _evidence("E2", "calculus.md", 0, "# Calculus\nThe product rule uses both factors."),
+        _evidence("E3", "exams.md", 0, "# Exams\nShort answers cite evidence."),
+    )
+    contract = TurnContract(
+        original_user_input="What else stands out?",
+        resolved_intent="material_overview",
+        canonical_request="Ask for another broad material takeaway.",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        retrieval_query="additional material overview details",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=plan,
+        turn_evidence=evidence,
+        evidence_assessment=assess_turn_evidence(plan, evidence),
+        turn_contract=contract,
+    )
+
+    deterministic = _deterministic_learning_reply(session, plan, resolved)
+
+    assert deterministic is not None
+    assert deterministic.reply.count("\n") <= 2
+    assert "[E1]" in deterministic.reply
+    assert "stands out" not in deterministic.reply
+
+
+def test_broad_material_followup_skips_recently_cited_overview_items() -> None:
+    session = _session()
+    session.conversation.add("user", "What is the material about?")
+    session.conversation.add(
+        "assistant",
+        "- Selection sort picks items [E1].\n"
+        "- The product rule uses both factors [E2].\n"
+        "- Exam answers cite evidence [E3].",
+    )
+    plan = material_overview_plan("what else stands out")
+    evidence = _turn_evidence(
+        _evidence("E1", "algorithms.md", 0, "# Algorithms\nSelection sort picks items."),
+        _evidence("E2", "calculus.md", 0, "# Calculus\nThe product rule uses both factors."),
+        _evidence("E3", "exams.md", 0, "# Exams\nShort answers cite evidence."),
+        _evidence("E4", "exercises.md", 0, "# Exercises\nLearners annotate answers."),
+        _evidence("E5", "formulas.md", 0, "# Formulas\nSlope measures rate of change."),
+    )
+    contract = TurnContract(
+        original_user_input="What else stands out?",
+        resolved_intent="material_overview",
+        canonical_request="Ask for another broad material takeaway.",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        retrieval_query="",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=plan,
+        turn_evidence=evidence,
+        evidence_assessment=assess_turn_evidence(plan, evidence),
+        turn_contract=contract,
+    )
+
+    deterministic = _deterministic_learning_reply(session, plan, resolved)
+
+    assert deterministic is not None
+    assert "[E4]" in deterministic.reply
+    assert "[E5]" in deterministic.reply
+    assert "[E1]" not in deterministic.reply
+    assert "[E2]" not in deterministic.reply
+    assert "[E3]" not in deterministic.reply
+    assert deterministic.source_refs == [
+        "algorithms.md#chunk=0",
+        "calculus.md#chunk=0",
+        "exams.md#chunk=0",
+        "exercises.md#chunk=0",
+        "formulas.md#chunk=0",
+    ]
+
+
+def test_source_followup_with_evidence_uses_model_prompt_not_canned_reply() -> None:
+    session = _session()
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query="supporting phrase report material does not contain the answer",
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            "E1",
+            "procedure.md",
+            0,
+            (
+                "# Procedure\nIf no supporting phrase appears, report that the material "
+                "does not contain the answer."
+            ),
+        )
+    )
+    contract = TurnContract(
+        original_user_input="Which evidence block backs up the comparison?",
+        resolved_intent="source_qa",
+        canonical_request="Which evidence block supports the comparison?",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        retrieval_query="supporting phrase report material does not contain the answer",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=plan,
+        turn_evidence=evidence,
+        evidence_assessment=assess_turn_evidence(plan, evidence),
+        turn_contract=contract,
+    )
+
+    deterministic = _deterministic_learning_reply(session, plan, resolved)
+
+    assert deterministic is None
 
 
 def test_expanded_prior_evidence_preserves_prior_ids_for_reused_refs() -> None:
@@ -414,6 +815,86 @@ def test_classified_user_intent_returns_empty_when_classifier_unavailable() -> N
     assert _classified_user_intent("Explain", config=ChatConfig()) == ""
 
 
+def test_resolved_user_intent_propagates_classifier_engine_errors() -> None:
+    config = ChatConfig(base_url="https://local.test/v1", model="classifier")
+
+    with (
+        patch(
+            "hephaion.chat.orchestrator.stream_completion",
+            side_effect=EngineError("timed out"),
+        ),
+        pytest.raises(EngineError, match="timed out"),
+    ):
+        _resolved_user_intent(
+            "Using only the sources, what does the material say?",
+            config=config,
+            conversation=Conversation(),
+            prior_intent="source_qa",
+        )
+
+
+def test_named_material_switch_uses_corpus_source_label_for_retrieval() -> None:
+    index = _index(_document(source="materials/study-methods.md"))
+    resolution = TurnIntentResolution(
+        intent="material_overview",
+        canonical_request="Switch to study methods and explain the learning advice.",
+        is_followup=True,
+        retrieval_strategy="overview",
+        retrieval_query="what is the material about",
+        confidence=0.9,
+    )
+
+    stabilized = _stabilized_intent_for_named_material(
+        resolution,
+        user_input="Switch to study methods and explain the learning advice.",
+        index=index,
+    )
+
+    assert stabilized.intent == "topic_presentation"
+    assert stabilized.retrieval_strategy == "retrieve"
+    assert "study methods" in stabilized.retrieval_query
+
+
+def test_named_material_switch_overrides_prior_followup_retrieval() -> None:
+    index = _index(_document(source="materials/physics.md"))
+    resolution = TurnIntentResolution(
+        intent="source_qa",
+        canonical_request="Ask what is decomposed in the named source.",
+        is_followup=True,
+        retrieval_strategy="expand_prior_evidence",
+        retrieval_query="the prior cited calculus claim",
+        confidence=0.9,
+    )
+
+    stabilized = _stabilized_intent_for_named_material(
+        resolution,
+        user_input="In the physics source, what is decomposed?",
+        index=index,
+    )
+
+    assert stabilized.intent == "source_qa"
+    assert stabilized.retrieval_strategy == "retrieve"
+    assert "physics" in stabilized.retrieval_query
+    assert "decomposed" in stabilized.retrieval_query
+
+
+def test_intent_source_catalog_summarizes_source_labels_without_content_inventory() -> None:
+    index = _index(
+        _document(
+            source="materials/history-source.md",
+            text="This source gives a historical claim and its evidence.",
+        ),
+        _document(source="materials/calculus-notes.md", text="A rule follows from limits."),
+    )
+
+    catalog = _intent_source_catalog(index)
+
+    assert "label=history source" in catalog
+    assert "path=materials/history-source.md" in catalog
+    assert "label=calculus notes" in catalog
+    assert "historical claim and its evidence" not in catalog
+
+
 def test_resolved_user_intent_preserves_semantic_followup_query() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
@@ -430,12 +911,13 @@ def test_resolved_user_intent_preserves_semantic_followup_query() -> None:
             "retrieval_query": "additional implications of compactness in the material",
             "confidence": 0.95,
         },
-    ):
+    ) as model_json:
         resolution = _resolved_user_intent(
             "what else?",
             config=config,
             conversation=Conversation(),
             prior_intent="source_qa",
+            source_catalog="- label=history source; path=materials/history.md",
         )
 
     assert resolution.intent == "source_qa"
@@ -443,6 +925,8 @@ def test_resolved_user_intent_preserves_semantic_followup_query() -> None:
     assert resolution.followup_target == "previous cited answer"
     assert resolution.retrieval_query == "additional implications of compactness in the material"
     assert resolution.retrieval_query != "what else?"
+    assert "Available source map:" in model_json.call_args.kwargs["user_prompt"]
+    assert "label=history source" in model_json.call_args.kwargs["user_prompt"]
 
 
 def test_resolved_user_intent_preserves_prior_answer_transform_mode() -> None:
@@ -472,6 +956,38 @@ def test_resolved_user_intent_preserves_prior_answer_transform_mode() -> None:
     assert resolution.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
     assert resolution.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
     assert resolution.retrieval_query == ""
+
+
+def test_resolved_user_intent_preserves_prior_answer_reference() -> None:
+    config = ChatConfig(base_url="https://local.test/v1", model="classifier")
+
+    with patch(
+        "hephaion.chat.orchestrator._model_json_payload",
+        return_value={
+            "intent": "source_qa",
+            "canonical_english_request": "Explain the source-backed claim in the prior answer.",
+            "is_followup": True,
+            "followup_target": "the prior cited claim",
+            "retrieval_strategy": "expand_prior_evidence",
+            "retrieval_query": "source-backed claim from the prior answer",
+            "prior_answer_reference": True,
+            "prior_answer_positions": [1, 3],
+            "prior_answer_position_basis": "cited_claims",
+            "confidence": 0.95,
+        },
+    ):
+        resolution = _resolved_user_intent(
+            "Where does the cited claim come from?",
+            config=config,
+            conversation=Conversation(),
+            prior_intent="source_qa",
+        )
+
+    assert resolution.intent == "source_qa"
+    assert resolution.is_followup is True
+    assert resolution.prior_answer_reference is True
+    assert resolution.prior_answer_positions == (1, 3)
+    assert resolution.prior_answer_position_basis == "cited_claims"
 
 
 def test_resolved_user_intent_preserves_table_format() -> None:
@@ -567,7 +1083,7 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
     assert session.learning_state.phase is LearningPhase.WAITING_FOR_READY
     assert session.last_plan_intent == "topic_presentation"
     assert any(isinstance(event, TurnCompleteEvent) for event in events)
-    assert session.conversation.messages[-1].content == "Answer [E1]"
+    assert session.conversation.messages[-1].content.startswith("Check [E1]")
 
 
 def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integration() -> None:
@@ -616,7 +1132,16 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
     assert session.last_turn_contract is not None
     assert session.last_turn_contract.original_user_input == "Where is compactness defined?"
     assert session.last_turn_contract.retrieval_query == "compactness definition"
-    assert session.conversation.messages[-1].content.startswith("Source answer [E1]")
+    assert session.last_turn_contract.validation_result == "ok"
+    record_session_event = cast("MagicMock", session.trace.record_session_event)
+    reply_trace_calls = [
+        call
+        for call in record_session_event.call_args_list
+        if call.args and call.args[0] == "reply"
+    ]
+    assert reply_trace_calls
+    assert reply_trace_calls[-1].kwargs["turn_contract"]["validation_result"] == "ok"
+    assert session.conversation.messages[-1].content.startswith("Check [E1]")
 
 
 def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> None:
@@ -1116,6 +1641,70 @@ def test_expand_prior_evidence_merges_prior_refs_with_query_results() -> None:
     ]
 
 
+def test_expand_prior_source_qa_filters_query_results_to_resolved_query() -> None:
+    session = _session()
+    prior_chunk = _chunk(
+        "materials/procedure.md",
+        0,
+        "Read the source claim, locate the smallest supporting phrase, and cite it.",
+    )
+    relevant_query_chunk = _chunk(
+        "materials/study.md",
+        0,
+        "Retrieval practice asks the learner to recall before rereading the source.",
+    )
+    adjacent_query_chunk = _chunk(
+        "materials/history.md",
+        0,
+        "A public library example describes evening access after a budget review.",
+    )
+    index = _index(
+        ChunkedDocument(
+            source=prior_chunk.source,
+            chunks=[prior_chunk],
+            content_hash="procedure",
+        ),
+        ChunkedDocument(
+            source=relevant_query_chunk.source,
+            chunks=[relevant_query_chunk],
+            content_hash="study",
+        ),
+        ChunkedDocument(
+            source=adjacent_query_chunk.source,
+            chunks=[adjacent_query_chunk],
+            content_hash="history",
+        ),
+    )
+    plan = replace(
+        _plan(
+            action=LearningAction.SOURCE_QA,
+            retrieval_query="example of retrieval practice from the materials",
+        ),
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        evidence_refs=("materials/procedure.md#chunk=0",),
+    )
+
+    with (
+        patch("hephaion.chat.evidence.ensure_rag_index", return_value=index),
+        patch(
+            "hephaion.chat.evidence._retrieve_query_scored_chunks",
+            return_value=MagicMock(
+                scored=[
+                    ScoredChunk(adjacent_query_chunk, 0.9),
+                    ScoredChunk(relevant_query_chunk, 0.8),
+                ]
+            ),
+        ),
+    ):
+        evidence = resolve_turn_evidence(session, plan)
+
+    assert evidence is not None
+    refs = evidence_refs(evidence)
+    assert "materials/study.md#chunk=0" in refs
+    assert "materials/procedure.md#chunk=0" in refs
+    assert "materials/history.md#chunk=0" not in refs
+
+
 def test_turn_evidence_filters_low_content_chunks_from_refs_and_overview() -> None:
     session = _session()
     content_chunk = _chunk(
@@ -1190,6 +1779,148 @@ def test_contract_specific_query_overrides_broad_overview_plan_query() -> None:
 
     assert updated_plan.retrieval_query == "requested source area key idea"
     assert updated_contract.retrieval_query == "requested source area key idea"
+
+
+def test_expand_prior_contract_preserves_direct_evidence_contract() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="requested detail")
+    contract = TurnContract(
+        original_user_input="Add one more detail.",
+        resolved_intent="source_qa",
+        canonical_request="Add one more cited detail from the prior source context.",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        retrieval_query="requested detail",
+        direct_evidence_required=True,
+    )
+
+    updated_plan, updated_contract = _apply_turn_contract_to_plan(
+        plan,
+        contract,
+        prior_contract=TurnContract(
+            original_user_input="prior request",
+            evidence_refs=("notes.md#chunk=0",),
+        ),
+    )
+
+    assert updated_plan.requires_direct_evidence is True
+    assert updated_contract.direct_evidence_required is True
+
+
+def test_prior_answer_reference_reuses_prior_evidence_before_direct_lookup() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="method source passage")
+    contract = TurnContract(
+        original_user_input="Where does the cited method claim come from?",
+        resolved_intent="source_qa",
+        canonical_request="Find the source for the method claim in the prior answer.",
+        is_followup=True,
+        followup_target="prior cited method claim",
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        retrieval_query="method source passage",
+        direct_evidence_required=True,
+        prior_answer_reference=True,
+    )
+
+    updated_plan, updated_contract = _apply_turn_contract_to_plan(
+        plan,
+        contract,
+        prior_contract=TurnContract(
+            original_user_input="prior request",
+            evidence_refs=("procedure.md#chunk=0",),
+        ),
+    )
+
+    assert updated_plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+    assert updated_plan.retrieval_query is None
+    assert updated_plan.evidence_refs == ("procedure.md#chunk=0",)
+    assert updated_plan.requires_direct_evidence is True
+    assert updated_contract.retrieval_query == ""
+    assert updated_contract.prior_answer_reference is True
+
+
+def test_source_qa_expanded_prior_direct_gate_accepts_source_coverage() -> None:
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query="history Switch to history and summarize one source-backed point.",
+        requires_direct_evidence=True,
+    )
+    plan = replace(
+        plan,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        evidence_refs=("history.md#chunk=0",),
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            source="history.md",
+            content=(
+                "# History Source\n"
+                "The public library example describes a city choosing longer opening "
+                "hours after community groups asked for evening access."
+            ),
+        )
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is True
+    assert assessment.recommended_action == "answer"
+
+
+def test_source_qa_expanded_prior_direct_gate_rejects_weak_coverage() -> None:
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query="amber forge retrieval phrase exact wording in the sources",
+        requires_direct_evidence=True,
+    )
+    plan = replace(
+        plan,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        evidence_refs=("procedure.md#chunk=0",),
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            source="procedure.md",
+            content=(
+                "The clearest procedure has three steps: read the source claim, "
+                "locate the smallest supporting phrase, and cite that phrase."
+            ),
+        )
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
+
+
+def test_source_qa_expanded_prior_rejects_direct_user_query_with_missing_terms() -> None:
+    plan = LearningTurnPlan(
+        action=LearningAction.SOURCE_QA,
+        phase=LearningPhase.PRESENTING,
+        prompt="User question: Using only the sources, what is the amber forge retrieval phrase?",
+        retrieval_query="amber forge retrieval phrase in the materials",
+    )
+    plan = replace(
+        plan,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        evidence_refs=("procedure.md#chunk=0",),
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            source="procedure.md",
+            content=(
+                "The quoted procedure says learners should cite the smallest supporting "
+                "phrase when a direct source span exists."
+            ),
+        )
+    )
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
+    assert assessment.missing_information == (
+        "direct source span for amber forge retrieval phrase in the materials",
+    )
 
 
 def test_priority_contract_does_not_reuse_stale_prior_evidence() -> None:
@@ -1528,6 +2259,35 @@ def test_overview_table_request_uses_table_fallback_instead_of_failure_notice() 
     assert "not reliable enough to show" not in reply
 
 
+def test_overview_list_request_uses_list_fallback_instead_of_prose() -> None:
+    plan = material_overview_plan("overview")
+    evidence = _turn_evidence(
+        _evidence(content="Topic A connects definitions to examples."),
+        _evidence("E2", "b.md", content="Topic B covers problem-solving procedures."),
+        sampled=2,
+        total=2,
+    )
+    contract = TurnContract(
+        original_user_input="make a checklist from the source evidence",
+        resolved_intent="material_overview",
+        canonical_request="Create a compact checklist from the material evidence.",
+        answer_format=ANSWER_FORMAT_LIST,
+    )
+
+    with patch("hephaion.chat.orchestrator._stream_one_shot_model_text", return_value=""):
+        reply = _overview_fallback_reply(
+            plan,
+            evidence,
+            user_input="make a checklist from the source evidence",
+            config=ChatConfig(base_url="https://local.test/v1", model="repair"),
+            contract=contract,
+        )
+
+    assert reply.startswith("1. Topic A connects definitions to examples. [E1]")
+    assert "\n2. Topic B covers problem-solving procedures. [E2]" in reply
+    assert "Visible material:" not in reply
+
+
 def test_material_overview_contract_uses_overview_shape_guard_for_continuations() -> None:
     plan = _plan(
         action=LearningAction.PRESENT,
@@ -1581,6 +2341,12 @@ def test_overview_fallback_needed_for_bad_shape() -> None:
     )
 
     assert _needs_overview_fallback(plan, "One vague sentence [E1].", evidence) is True
+    long_reply = " ".join(("supported",) * 161) + " [E1][E2]."
+    assert _needs_overview_fallback(plan, long_reply, evidence) is True
+    oversized_char_reply = (
+        "These materials discuss Topic A [E1] and Topic B [E2]. " + "Detail. " * 120
+    )
+    assert _needs_overview_fallback(plan, oversized_char_reply, evidence) is True
     table_reply = "| Topic | Detail |\n|---|---|\n| A | Topic A [E1] |\n| B | Topic B [E2] |\n"
     assert _needs_overview_fallback(plan, table_reply, evidence) is False
     oversized_table_reply = "| Topic | Detail |\n|---|---|\n" + "\n".join(
@@ -1604,6 +2370,113 @@ def test_overview_fallback_needed_for_bad_shape() -> None:
     )
 
     assert _needs_overview_fallback(plan, good_reply, evidence) is False
+
+
+def test_overview_shape_guard_requires_proportional_source_coverage() -> None:
+    plan = material_overview_plan("overview")
+    evidence = _turn_evidence(
+        _evidence("E1", "a.md", content="Topic A connects definitions to examples."),
+        _evidence("E2", "b.md", content="Topic B covers problem-solving procedures."),
+        _evidence("E3", "c.md", content="Topic C explains a formula relationship."),
+        _evidence("E4", "d.md", content="Topic D gives a historical case."),
+        _evidence("E5", "e.md", content="Topic E asks for a cited answer."),
+        _evidence("E6", "f.md", content="Topic F asks for feedback after recall."),
+        sampled=6,
+        total=6,
+    )
+    narrow_reply = (
+        "Topic A connects definitions to examples [E1], and Topic B has procedures [E2]."
+    )
+    covered_reply = (
+        "Topic A connects definitions to examples [E1], Topic B covers procedures [E2], "
+        "and Topic C explains a formula relationship [E3]. These cited points give a "
+        "compact overview without adding unsupported claims."
+    )
+
+    assert _needs_overview_fallback(plan, narrow_reply, evidence) is True
+    assert _needs_overview_fallback(plan, covered_reply, evidence) is False
+
+
+def test_overview_deterministic_fallback_covers_representative_source_slice() -> None:
+    plan = material_overview_plan("overview")
+    evidence = _turn_evidence(
+        _evidence("E1", "a.md", content="Topic A connects definitions to examples."),
+        _evidence("E2", "b.md", content="Topic B covers problem-solving procedures."),
+        _evidence("E3", "c.md", content="Topic C explains a formula relationship."),
+        _evidence("E4", "d.md", content="Topic D gives a historical case."),
+        _evidence("E5", "e.md", content="Topic E asks for a cited answer."),
+        _evidence("E6", "f.md", content="Topic F asks for feedback after recall."),
+        sampled=6,
+        total=6,
+    )
+
+    with patch("hephaion.chat.orchestrator._stream_one_shot_model_text", return_value=""):
+        reply = _overview_fallback_reply(
+            plan,
+            evidence,
+            user_input="overview",
+            config=ChatConfig(base_url="https://local.test/v1", model="repair"),
+        )
+
+    assert reply.count("[E") >= 3
+    assert "\n" not in reply
+    assert "Topic A connects definitions to examples. [E1]" in reply
+    assert "Topic C explains a formula relationship. [E3]" in reply
+
+
+def test_overview_deterministic_fallback_skips_repeated_cross_source_cues() -> None:
+    plan = material_overview_plan("overview")
+    evidence = _turn_evidence(
+        _evidence("E1", "a.md", content="Repeated corpus marker."),
+        _evidence("E2", "b.md", content="Repeated corpus marker."),
+        _evidence("E3", "c.md", content="Unique source content explains a task."),
+        sampled=3,
+        total=3,
+    )
+
+    with patch("hephaion.chat.orchestrator._stream_one_shot_model_text", return_value=""):
+        reply = _overview_fallback_reply(
+            plan,
+            evidence,
+            user_input="overview",
+            config=ChatConfig(base_url="https://local.test/v1", model="repair"),
+        )
+
+    assert "Repeated corpus marker" not in reply
+    assert "Unique source content explains a task. [E3]" in reply
+
+
+def test_overview_fallback_uses_substantive_content_not_heading_inventory() -> None:
+    plan = material_overview_plan("overview")
+    evidence = _turn_evidence(
+        _evidence(
+            content=(
+                "# Contents\n"
+                "Topic Alpha\n"
+                "Topic Beta\n"
+                "The first source explains how learners match claims to supporting evidence."
+            ),
+        ),
+        _evidence(
+            "E2",
+            "b.md",
+            content=(
+                "# Index\n"
+                "Topic Gamma\n"
+                "The second source explains why examples should stay tied to cited material."
+            ),
+        ),
+        sampled=2,
+        total=2,
+    )
+
+    reply = _overview_fallback_reply(plan, evidence)
+
+    assert "match claims to supporting evidence. [E1]" in reply
+    assert "examples should stay tied to cited material. [E2]" in reply
+    assert "- Contents [E1]" not in reply
+    assert "- Topic Alpha [E1]" not in reply
+    assert _needs_overview_fallback(plan, reply, evidence) is False
 
 
 def test_overview_topic_items_from_model_payload_requires_exact_quotes() -> None:
@@ -1651,7 +2524,171 @@ def test_user_visible_reply_strips_control_markup_and_unsolicited_followup() -> 
         == "Answer [E1]."
     )
     assert _user_visible_reply(chat_plan, '<tool_call name="x">hidden</tool_call>Hello') == "Hello"
-    assert _user_visible_reply(chat_plan, "Answer. Would you like a quiz next?") == "Answer."
+
+
+def test_source_visible_reply_strips_uncited_tail_after_cited_answer() -> None:
+    source_plan = _plan(action=LearningAction.SOURCE_QA)
+    reply = (
+        "The material prioritizes limits and continuity [E1].\n\n"
+        "Detached trailing sentence with no citation."
+    )
+
+    assert (
+        _user_visible_reply(source_plan, reply)
+        == "The material prioritizes limits and continuity [E1]."
+    )
+
+
+def test_overview_visible_reply_preserves_full_draft_for_shape_validation() -> None:
+    plan = material_overview_plan("what do you think about the material")
+    reply = (
+        "- First visible outline point [E1]\n\n"
+        "This longer uncited section should still be visible to the overview shape guard "
+        "instead of being silently clipped before validation."
+    )
+
+    assert _user_visible_reply(plan, reply) == reply
+
+
+def test_internal_repair_expands_citation_only_answer() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence(content="The procedure says to locate the smallest supporting phrase.")
+    )
+    config = ChatConfig(base_url="https://local.test/v1", model="repair")
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        "[E1]",
+        evidence,
+        user_input="what does it say?",
+        config=config,
+    )
+
+    assert (
+        repaired
+        == "Check [E1]: “The procedure says to locate the smallest supporting phrase.” [E1]."
+    )
+
+
+def test_internal_repair_expands_thin_source_pointer() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence(
+            "E3",
+            content=(
+                "# Procedure\n"
+                "The source claim should be matched to the smallest supporting phrase."
+            ),
+        )
+    )
+    config = ChatConfig(base_url="https://local.test/v1", model="repair")
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        "The last answer is supported by [E3],",
+        evidence,
+        user_input="Which citation supports the last answer?",
+        config=config,
+    )
+
+    assert repaired == (
+        "Check [E3]: “The source claim should be matched to the smallest supporting phrase.” [E3]."
+    )
+
+
+def test_internal_repair_replaces_thin_source_pointer_with_top_evidence() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence("E1", content="The procedure gives a directly relevant support phrase."),
+        _evidence("E2", content="An unrelated adjacent note."),
+    )
+    config = ChatConfig(base_url="https://local.test/v1", model="repair")
+
+    with patch(
+        "hephaion.chat.orchestrator.stream_completion",
+        return_value=iter(
+            [
+                CompletionDelta(
+                    content="The procedure gives a directly relevant support phrase [E1]."
+                )
+            ]
+        ),
+    ):
+        repaired, _passes = _run_bounded_internal_repairs(
+            plan,
+            "The comparison is backed by **[E2]",
+            evidence,
+            user_input="which source supports it?",
+            config=config,
+        )
+
+    assert repaired == "The procedure gives a directly relevant support phrase [E1]."
+
+
+def test_internal_repair_expands_table_to_cover_multiple_evidence_sources() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence(
+            "E1",
+            "first.md",
+            content="# First Source\nThe first source provides one visible grounded point.",
+        ),
+        _evidence(
+            "E2",
+            "second.md",
+            content="# Second Source\nThe second source provides another visible grounded point.",
+        ),
+    )
+    contract = TurnContract(
+        original_user_input="Put this in a table.",
+        resolved_intent="source_qa",
+        canonical_request="Represent the current source-backed answer as a table.",
+        answer_format=ANSWER_FORMAT_TABLE,
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        "| Source | Point |\n|---|---|\n| first.md | One visible grounded point [E1] |",
+        evidence,
+        user_input="Put this in a table.",
+        config=ChatConfig(),
+        contract=contract,
+    )
+
+    assert "first.md" in repaired
+    assert "second.md" in repaired
+    assert "[E1]" in repaired
+    assert "[E2]" in repaired
+
+
+def test_internal_table_repair_keeps_single_source_table_when_only_one_source_available() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+    evidence = _turn_evidence(
+        _evidence(
+            "E1",
+            "first.md",
+            content="# First Source\nThe first source provides one visible grounded point.",
+        )
+    )
+    reply = "| Source | Point |\n|---|---|\n| first.md | One visible grounded point [E1] |"
+    contract = TurnContract(
+        original_user_input="Put this in a table.",
+        resolved_intent="source_qa",
+        canonical_request="Represent the current source-backed answer as a table.",
+        answer_format=ANSWER_FORMAT_TABLE,
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        reply,
+        evidence,
+        user_input="Put this in a table.",
+        config=ChatConfig(),
+        contract=contract,
+    )
+
+    assert repaired == reply
 
 
 def test_source_qa_user_visible_reply_keeps_cited_active_recall_content() -> None:
@@ -1660,6 +2697,30 @@ def test_source_qa_user_visible_reply_keeps_cited_active_recall_content() -> Non
     reply = _user_visible_reply(plan, "The source asks an active recall question [E1].")
 
     assert reply == "The source asks an active recall question [E1]."
+
+
+def test_source_qa_user_visible_reply_normalizes_escaped_citation_brackets() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+
+    reply = _user_visible_reply(plan, r"The source says this \[E1\].")
+
+    assert reply == "The source says this [E1]."
+
+
+def test_source_qa_user_visible_reply_normalizes_private_use_citation_markup() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+
+    reply = _user_visible_reply(plan, "The source says this \ue200cite:E1\ue201.")
+
+    assert reply == "The source says this [E1]."
+
+
+def test_source_qa_user_visible_reply_normalizes_private_use_citation_event_markup() -> None:
+    plan = _plan(action=LearningAction.SOURCE_QA)
+
+    reply = _user_visible_reply(plan, "The source says this \ue200cite\ue202E1\ue201.")
+
+    assert reply == "The source says this [E1]."
 
 
 def test_source_grounded_agent_request_isolates_stale_citation_history() -> None:
@@ -1788,8 +2849,464 @@ def test_reasoned_relevance_mode_isolates_history_and_keeps_contract_guidance() 
 
     assert [message.role for message in request.conversation.messages] == ["user"]
     assert request.conversation.messages[0].content == "why is that important?"
-    assert "reasoned implications" in context
-    assert "practical importance or use cases" in context
+    assert "reason_from_prior_evidence" in context
+    assert "label them" in context
+
+
+def test_learning_extra_system_prompt_includes_prior_answer_for_followup() -> None:
+    session = _session()
+    session.conversation.add("user", "What is the material about?")
+    session.conversation.add("assistant", "It covers sequences and series [E1].")
+    session.conversation.add("user", "Define the most technical term from that answer.")
+    contract = TurnContract(
+        original_user_input="Define the most technical term from that answer.",
+        resolved_intent="source_qa",
+        canonical_request="Define a term from the prior assistant answer.",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        evidence_refs=("materials/current.md#chunk=0",),
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=_turn_evidence(_evidence()),
+        turn_contract=contract,
+    )
+
+    prompt = _learning_extra_system_prompt(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+        user_input="Define the most technical term from that answer.",
+    )
+
+    assert "Recent assistant answers" in prompt
+    assert "conversation context only; not source evidence" in prompt
+    assert "cited_claims=1" in prompt
+    assert "It covers sequences and series [prior E1]" in prompt
+    assert "Resolve ordinal references against recent answer structure" in prompt
+    assert "Prior citation IDs may be stale" in prompt
+    assert "sequences and series" in prompt
+
+
+def test_prior_answer_context_summarizes_cited_structure_without_source_status() -> None:
+    conversation = Conversation()
+    conversation.add("user", "What stands out?")
+    conversation.add(
+        "assistant",
+        "The source defines a sorted prefix [E1].\n- A component is not an extra force [E2].",
+    )
+    contract = TurnContract(
+        original_user_input="Compare the first and third cited ideas.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+    )
+
+    context = _prior_answer_prompt_context(
+        conversation,
+        user_input="Compare the first and third cited ideas.",
+        contract=contract,
+    )
+
+    assert "cited_claims=2" in context
+    assert "list_items=1" in context
+    assert "The source defines a sorted prefix [prior E1]" in context
+    assert "A component is not an extra force [prior E2]" in context
+    assert "Prior citation IDs may be stale" in context
+
+
+def test_prior_answer_reference_context_prefers_most_recent_answer() -> None:
+    conversation = Conversation()
+    conversation.add("user", "Explain slowly.")
+    conversation.add("assistant", "Older point A [E1]. Older point B [E1].")
+    conversation.add("user", "Give an example.")
+    conversation.add(
+        "assistant",
+        "- Recent point one [E1]\n- Recent point two [E1]",
+    )
+    contract = TurnContract(
+        original_user_input="Compare the last two points.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+    )
+
+    context = _prior_answer_prompt_context(
+        conversation,
+        user_input="Compare the last two points.",
+        contract=contract,
+    )
+
+    assert "Recent point one" in context
+    assert "Recent point two" in context
+    assert "Older point" not in context
+    assert "selected prior answer structure" in context
+    assert "cited_claims or list_items is lower than the requested position" in context
+
+
+def test_prior_answer_cited_claims_keep_sentence_before_adjacent_citations() -> None:
+    claims = _prior_answer_cited_claims(
+        "The first claim is separate [E1]. The second claim has two refs [E2][E3]."
+    )
+
+    assert claims == (
+        "The first claim is separate [prior E1]",
+        "The second claim has two refs [prior E3]",
+    )
+
+
+def test_prior_answer_cited_claims_allow_next_sentence_after_citation_group() -> None:
+    claims = _prior_answer_cited_claims(
+        "First supported sentence [E1][E2] Second supported sentence [E3]."
+    )
+
+    assert claims == (
+        "First supported sentence [prior E2]",
+        "Second supported sentence [prior E3]",
+    )
+
+
+def test_prior_answer_cited_claims_keep_sentence_before_post_punctuation_citation() -> None:
+    claims = _prior_answer_cited_claims("The cited sentence ends before the citation. [E4]")
+
+    assert claims == ("The cited sentence ends before the citation [prior E4]",)
+
+
+def test_prior_answer_cited_claims_do_not_split_inside_inline_paths() -> None:
+    claims = _prior_answer_cited_claims(
+        "It came from `materials/examples/history.md`, which contains the library example. [E1]"
+    )
+
+    assert claims == (
+        "It came from `materials/examples/history.md`, which contains the library example "
+        "[prior E1]",
+    )
+
+
+def test_prior_answer_reference_context_uses_latest_answer_without_requested_structure() -> None:
+    conversation = Conversation()
+    conversation.add("user", "Explain the source.")
+    conversation.add(
+        "assistant",
+        "First cited idea [E1]. Second cited idea [E2].",
+    )
+    conversation.add("user", "Compare the first and third cited ideas.")
+    conversation.add(
+        "assistant",
+        "That prior-answer position is absent: position 3 is not available.",
+    )
+    contract = TurnContract(
+        original_user_input="What assumption is behind the second cited claim?",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(2,),
+        prior_answer_position_basis="cited_claims",
+    )
+
+    context = _prior_answer_prompt_context(
+        conversation,
+        user_input="What assumption is behind the second cited claim?",
+        contract=contract,
+    )
+
+    assert "position 3 is not available" in context
+    assert "cited_claims=0" in context
+    assert "First cited idea" not in context
+    assert "Second cited idea" not in context
+
+
+def test_prior_answer_reference_missing_position_gets_deterministic_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Give a limitation.")
+    session.conversation.add(
+        "assistant",
+        "The simple approach is clear but not fastest for large lists [E1].",
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            source="algorithms.md",
+            content="The simple version is clear but not the fastest choice for large lists.",
+        )
+    )
+    contract = TurnContract(
+        original_user_input="Compare the first and third cited ideas.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(1, 3),
+        prior_answer_position_basis="cited_claims",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=evidence,
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "position 3 is not available" in reply.reply
+    assert "Available cited position 1" not in reply.reply
+    assert "[E1]" not in reply.reply
+    assert reply.source_refs is None
+
+
+def test_prior_answer_missing_list_position_uses_latest_cited_answer() -> None:
+    session = _session()
+    session.conversation.add("user", "Give two points.")
+    session.conversation.add(
+        "assistant",
+        "- Older point one [E1]\n- Older point two [E2]",
+    )
+    session.conversation.add("user", "Is that important?")
+    session.conversation.add(
+        "assistant",
+        "The latest answer contains one cited claim [E3].",
+    )
+    evidence = _turn_evidence(
+        _evidence(
+            source="latest.md",
+            content="The latest answer contains one cited claim.",
+        )
+    )
+    contract = TurnContract(
+        original_user_input="What does the second point mean?",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(2,),
+        prior_answer_position_basis="list_items",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=evidence,
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "position 2 is not available" in reply.reply
+    assert "Older point" not in reply.reply
+    assert "Available cited position 1" not in reply.reply
+    assert "[E1]" not in reply.reply
+
+
+def test_prior_answer_transform_with_available_cited_claim_does_not_emit_absence_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Explain it.")
+    session.conversation.add("assistant", "The latest answer has one cited sentence [E1].")
+    contract = TurnContract(
+        original_user_input="Explain the first point differently.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(1,),
+        prior_answer_position_basis="cited_claims",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=_turn_evidence(_evidence()),
+        turn_contract=contract,
+    )
+
+    assert (
+        _deterministic_learning_reply(
+            session,
+            _plan(action=LearningAction.SOURCE_QA),
+            resolved,
+        )
+        is None
+    )
+
+
+def test_prior_answer_transform_without_source_structure_gets_uncited_absence_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Try the lookup.")
+    session.conversation.add(
+        "assistant",
+        "The current evidence does not contain a direct source answer for this request.",
+    )
+    contract = TurnContract(
+        original_user_input="Restate the previous answer using only source-backed claims.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        citation_required=True,
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=_turn_evidence(_evidence()),
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "does not contain a cited material claim" in reply.reply
+    assert "[E1]" not in reply.reply
+    assert reply.citation_required is False
+
+
+def test_prior_answer_reasoning_missing_cited_claim_gets_uncited_absence_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Explain it.")
+    session.conversation.add("assistant", "The latest answer has one cited sentence [E1].")
+    evidence = _turn_evidence(_evidence(content="The latest answer has one cited sentence."))
+    contract = TurnContract(
+        original_user_input="What assumption is behind the second cited claim?",
+        resolved_intent="source_qa",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(2,),
+        prior_answer_position_basis="cited_claims",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=evidence,
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "position 2 is not available" in reply.reply
+    assert "Available cited position 1" not in reply.reply
+    assert "[E1]" not in reply.reply
+
+
+def test_prior_answer_missing_cited_claim_with_no_prior_structure_gets_uncited_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Explain the source.")
+    session.conversation.add(
+        "assistant",
+        "First cited idea [E1]. Second cited idea [E2].",
+    )
+    session.conversation.add("user", "Continue from it.")
+    session.conversation.add(
+        "assistant",
+        "The prior answer does not contain a cited material claim to extend.",
+    )
+    contract = TurnContract(
+        original_user_input="What assumption is behind the second cited claim?",
+        resolved_intent="source_qa",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(2,),
+        prior_answer_position_basis="cited_claims",
+        citation_required=True,
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=_turn_evidence(_evidence()),
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "0 cited claims" in reply.reply
+    assert "position 2 is not available" in reply.reply
+    assert "[E1]" not in reply.reply
+    assert reply.citation_required is False
+
+
+def test_prior_answer_list_reference_without_positions_gets_absence_reply() -> None:
+    session = _session()
+    session.conversation.add("user", "Give an example.")
+    session.conversation.add(
+        "assistant",
+        "The latest answer has one cited sentence [E1].",
+    )
+    evidence = _turn_evidence(_evidence(content="The latest answer has one cited sentence."))
+    contract = TurnContract(
+        original_user_input="Compare the last two points.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_position_basis="list_items",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=evidence,
+        turn_contract=contract,
+    )
+
+    reply = _deterministic_learning_reply(
+        session,
+        _plan(action=LearningAction.SOURCE_QA),
+        resolved,
+    )
+
+    assert reply is not None
+    assert "separate list/table point" in reply.reply
+    assert "position 2 is not available" in reply.reply
+    assert "list_items" not in reply.reply
+    assert "[E1]" not in reply.reply
+
+
+def test_prior_answer_position_guard_ignores_informal_point_positions() -> None:
+    session = _session()
+    session.conversation.add("user", "Give an example.")
+    session.conversation.add("assistant", "One sentence contains two informal points [E1].")
+    contract = TurnContract(
+        original_user_input="Compare the last two points.",
+        resolved_intent="source_qa",
+        is_followup=True,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        prior_answer_reference=True,
+        prior_answer_positions=(1, 2),
+        prior_answer_position_basis="none",
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        turn_evidence=_turn_evidence(_evidence()),
+        turn_contract=contract,
+    )
+
+    assert (
+        _deterministic_learning_reply(
+            session,
+            _plan(action=LearningAction.SOURCE_QA),
+            resolved,
+        )
+        is None
+    )
 
 
 def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> None:
@@ -1871,6 +3388,13 @@ def test_orchestrator_rolls_back_on_engine_error() -> None:
 
     assert session.conversation.messages == []
     assert session.learning_state.to_dict() == original_state.to_dict()
+    record_session_event = cast("MagicMock", session.trace.record_session_event)
+    record_session_event.assert_called_with(
+        "turn_error",
+        original_user_input="Explain compactness",
+        error="boom",
+        latency_ms=pytest.approx(0, abs=1000),
+    )
 
 
 def test_evidence_refs_renders_refs_from_turn_evidence() -> None:
@@ -1890,19 +3414,35 @@ def test_turn_contract_prompt_blocks_prior_quoted_phrases_without_current_eviden
         )
     )
 
-    assert "quoted phrases" in context
-    assert "unless the current evidence contains those words" in context
-    assert "without affirming user-provided descriptors" in context
-    assert "invented during the conversation are not source evidence" in context
-    assert "Do not infer the purpose or learning effect" in context
-    assert "Use 'direct evidence' only" in context
-    assert "not material order" in context
-    assert "Evidence IDs such as [E1] and [E7] are authoritative only" in context
-    assert "Reused prior evidence may keep its old ID" in context
-    assert "Answer mode: answer_from_evidence" in context
-    assert "one or two short sentences" in context
-    assert "Use quotation marks only for words copied exactly" in context
-    assert "the source label and citation do not match" in context
-    assert "do not claim the whole armory or all sources lack" in context
-    assert "evidence-bundle judgement" in context
-    assert "do not claim the sources themselves rank" in context
+    assert "mode=answer_from_evidence" in context
+    assert "prior_answer_reference=no" in context
+    assert "prior_answer_positions=none" in context
+    assert "prior_answer_position_basis=none" in context
+    assert "current evidence" in context
+    assert "User wording" in context
+    assert "not source facts" in context
+    assert "one source claim per sentence" in context
+    assert "Informal prior-answer points may be clauses" in context
+    assert "prose instead of a bullet or table row" in context
+    assert "do not add new reasons, benefits, implications, or use cases" in context
+    assert "Preserve source scope" in context
+    assert "no stronger quantities, order, purpose, level, ranking, or comparison" in context
+    assert "one non-ranked cited review candidate" in context
+    assert "Do not invent example values" in context
+    assert "omit bare yes/no lead-ins" in context
+    assert "For direct-vs-inferred requests" in context
+    assert "Definitions need current evidence" in context
+    assert "Do not answer with citation IDs alone" in context
+    assert "requested prior-answer object is absent" in context
+    assert "fewer cited claims or list items than requested" in context
+    assert "ordinal prior-answer reference is ambiguous" in context
+    assert "use the prior answer structure" in context
+    assert "evidence/citation reveal turns" in context
+    assert "Do not synthesize an across-source pattern" in context
+    assert "Avoid broad comparative wrap-ups" in context
+    assert "answer as an inference from cited premises" in context
+    assert "do not cite or deny the conversation label itself" in context
+    assert "If evidence is thin or missing" in context
+    assert "no offers, menus, or next-step prompts" in context
+    assert "visible specificity" in context
+    assert "do not claim sources rank themselves" in context

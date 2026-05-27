@@ -1024,13 +1024,23 @@ def test_public_plan_builders_emit_expected_action_and_prompt(
     assert expected_prompt in builder_plan.prompt
 
 
+def test_heph_help_prompt_uses_operational_product_context() -> None:
+    plan = heph_help_plan("tell me more")
+
+    assert "Heph Assistant Atlas" in plan.prompt
+    assert "heph armory init" in plan.prompt
+    assert "/models" in plan.prompt
+    assert "Be operational" in plan.prompt
+    assert "advance the answer with new specifics" in plan.prompt
+
+
 def test_material_overview_prompt_shapes_answer_before_validation() -> None:
     plan = material_overview_plan("What is in the files?")
 
-    assert "Shape the final answer before sending it" in plan.prompt
-    assert "Prefer a valid compact synthesis over refusing when evidence is present" in plan.prompt
-    assert "title pages, logistics, and boilerplate" in plan.prompt
-    assert "rewrite it internally" in plan.prompt
+    assert "Compact terminal answer" in plan.prompt
+    assert "Synthesize when evidence exists" in plan.prompt
+    assert "Treat titles/logistics/boilerplate as context" in plan.prompt
+    assert "No tables or source inventories unless requested" in plan.prompt
 
 
 def test_topic_drill_exam_builder_hides_answer_key() -> None:
@@ -1040,6 +1050,20 @@ def test_topic_drill_exam_builder_hides_answer_key() -> None:
 
     assert plan.action is LearningAction.CALIBRATE
     assert "do not show the result, answer key" in plan.prompt
+
+
+def test_calibration_prompt_does_not_invite_unsourced_exam_constraints() -> None:
+    plan = plan_turn(LearningState(), "Make an exam-style question", intent="topic_drill")
+
+    assert "do not invent time limits, point values, labels, or answer instructions" in plan.prompt
+    assert "include one reasonable" not in plan.prompt
+
+
+def test_priority_prompt_blocks_unsourced_rank_labels_and_category_names() -> None:
+    plan = plan_turn(LearningState(), "What should I review first?", intent="priority_request")
+
+    assert "do not use ranked/order labels" in plan.prompt
+    assert "Do not create umbrella category names" in plan.prompt
 
 
 def test_material_overview_result_does_not_enter_ready_loop() -> None:
@@ -1142,6 +1166,20 @@ def test_reveal_intent_is_refused_in_active_recall_loop(phase: LearningPhase) ->
     assert next_state.last_feedback_type is LearningFeedbackType.REFUSED
 
 
+def test_reveal_refusal_does_not_store_assistant_generated_confidence() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+    plan = plan_turn(state, "show answer", intent="reveal_request")
+
+    _, visible_reply = apply_turn_result(
+        state,
+        plan,
+        "Try the recall attempt first. Confidence: 96%.",
+        [],
+    )
+
+    assert visible_reply == "Try the recall attempt first."
+
+
 def test_recall_answer_intent_assesses_and_tracks_confidence() -> None:
     started = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
     state = _state(LearningPhase.RECALL, current_item=True)
@@ -1166,6 +1204,13 @@ def test_recall_answer_intent_assesses_and_tracks_confidence() -> None:
     assert next_state.last_recall_seconds == 20
     assert next_state.last_recall_rating is RecallRating.GOOD
     assert next_state.last_confidence == 0.8
+
+
+def test_recall_assessment_prompt_blocks_unsourced_term_definitions() -> None:
+    state = _state(LearningPhase.RECALL, current_item=True)
+    plan = plan_turn(state, "Add one concise cited detail.", intent="recall_answer_attempt")
+
+    assert "Do not define or explain a term merely because the material uses it" in plan.prompt
 
 
 def test_correct_assessment_clears_recall_target_and_keeps_attempt_count() -> None:
@@ -1285,6 +1330,14 @@ def test_chat_and_priority_results_do_not_enter_recall_loop() -> None:
     assert chat_state.last_feedback_type is LearningFeedbackType.NONE
     assert priority_state.phase is LearningPhase.PRESENTING
     assert priority_state.last_feedback_type is LearningFeedbackType.NONE
+
+
+def test_priority_prompt_avoids_unsupported_rankings_and_prerequisites() -> None:
+    plan = plan_turn(LearningState(), "what should I review first?", intent="priority_request")
+
+    assert "Give up to 3 cited review candidates" in plan.prompt
+    assert "rank them only when the evidence states" in plan.prompt
+    assert "Mention prerequisites only when retrieved evidence names them" in plan.prompt
 
 
 def test_practice_boundaries_return_chat_completion_plan() -> None:

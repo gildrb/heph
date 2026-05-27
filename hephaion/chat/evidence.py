@@ -37,6 +37,7 @@ from hephaion.rag.query_audit import (
 )
 from hephaion.rag.query_transform import PromptFn
 from hephaion.rag.retrieval_types import EvidenceReference
+from hephaion.rag.scoring import tokenize
 from hephaion.runtime import (
     ChatConfig,
     Conversation,
@@ -69,30 +70,20 @@ _LOW_CONTENT_CHUNK_RE = re.compile(
     r"copyright\b|http://ocw\.mit\.edu/terms)",
     re.IGNORECASE,
 )
+_QUOTE_CHARS = "'\"\u201c\u201d\u2018\u2019"
 _DIRECT_SUPPORT_MIN_TOKEN_LEN = 4
-_DIRECT_SUPPORT_MIN_COVERAGE = 0.34
+_DIRECT_SUPPORT_MIN_COVERAGE = 0.5
+_EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE = 0.3
 _DIRECT_SUPPORT_MIN_MATCHES = 2
+_DIRECT_SUPPORT_DISTINCTIVE_TOKEN_FLOOR = 0.5
+_DIRECT_SUPPORT_DISTINCTIVE_MIN_MISSING = 2
+_DIRECT_SUPPORT_QUERY_OVERLAP_FLOOR = 0.6
+_DIRECT_SUPPORT_DOMINANT_SCORE_FLOOR = 0.75
+_DIRECT_SUPPORT_DOMINANT_SCORE_RATIO = 2.0
+_DIRECT_SUPPORT_DOMINANT_MIN_MATCHES = 2
 _SOURCE_QUESTION_RE = re.compile(
     r"^User (?:question|request|follow-up):\s*(?P<text>.+)$",
     re.MULTILINE,
-)
-_DEFINITION_REQUEST_RE = re.compile(
-    r"\b(?:define|definition|meaning|means|bedeutet|definition|definiere)\b",
-    re.IGNORECASE,
-)
-_DIRECT_LOOKUP_REQUEST_RE = re.compile(
-    r"\b(?:which|what|where|wo|welche|welcher|welches|was)\b"
-    r"(?=.{0,160}\b(?:"
-    r"citation|cite|contains?|date|define|definition|document|explains?|file|mentions?|"
-    r"page|quote|reference|section|source|states?|"
-    r"datum|datei|definier\w*|dokument|enthält|enthaelt|erklärt|erklaert|erwähnt|"
-    r"erwaehnt|quelle|seite|stelle|zitat"
-    r")\b)",
-    re.IGNORECASE,
-)
-_SOURCE_LOCATOR_REQUEST_RE = re.compile(
-    r"\b(?:citation|cite|document|file|reference|source|dokument|datei|quelle|zitat)\b",
-    re.IGNORECASE,
 )
 _OVERVIEW_CONTEXT_POLICY = (
     "Use this overview only as deterministic corpus context. Cite retrieved evidence "
@@ -238,11 +229,55 @@ def _direct_support_adjusted_assessment(
     turn_evidence: TurnEvidence | None,
     assessment: EvidenceAssessment,
 ) -> EvidenceAssessment:
-    if not _source_answer_requires_direct_support(plan, turn_evidence):
+    if plan.action is not LearningAction.SOURCE_QA:
         return assessment
+    if _source_answer_reuses_prior_evidence(plan, turn_evidence):
+        return replace(
+            assessment,
+            sufficient=True,
+            confidence=max(assessment.confidence, _DIRECT_SUPPORT_MIN_COVERAGE),
+            missing_information=(),
+            recommended_action="answer",
+        )
     query = _source_answer_query(plan)
-    support = _direct_support_score(query, turn_evidence)
-    if support >= _DIRECT_SUPPORT_MIN_COVERAGE:
+    if not query:
+        return assessment
+    strict_source_match = plan.requires_direct_evidence or plan.retrieval_query is None
+    expanded_prior = _source_answer_expands_prior_evidence(plan)
+    support_floor = (
+        _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE if expanded_prior else _DIRECT_SUPPORT_MIN_COVERAGE
+    )
+    query_terms_missing = bool(
+        plan.retrieval_query
+        and turn_evidence is not None
+        and _distinctive_query_terms_missing(
+            _direct_support_terms(plan.retrieval_query),
+            turn_evidence,
+        )
+    )
+    expanded_prior_direct_query_missing = bool(
+        expanded_prior
+        and plan.retrieval_query
+        and query_terms_missing
+        and _query_preserves_user_terms(
+            plan.retrieval_query,
+            _source_answer_original_request(plan),
+        )
+    )
+    strict_terms_missing = bool(strict_source_match and not expanded_prior and query_terms_missing)
+    quoted_phrase_missing = bool(
+        plan.retrieval_query
+        and turn_evidence is not None
+        and _quoted_phrase_terms_missing(plan.retrieval_query, turn_evidence)
+    )
+    if strict_terms_missing or expanded_prior_direct_query_missing or quoted_phrase_missing:
+        support = 0.0
+    elif expanded_prior:
+        support = _direct_support_coverage_score(query, turn_evidence)
+    else:
+        support = _direct_support_score(query, turn_evidence)
+        support = max(support, _dominant_retrieval_support_score(query, turn_evidence))
+    if support >= support_floor:
         if assessment.sufficient:
             return assessment
         return replace(
@@ -252,6 +287,12 @@ def _direct_support_adjusted_assessment(
             missing_information=(),
             recommended_action="answer",
         )
+    if (
+        not strict_source_match
+        and not expanded_prior_direct_query_missing
+        and not quoted_phrase_missing
+    ):
+        return assessment
     return replace(
         assessment,
         sufficient=False,
@@ -261,42 +302,32 @@ def _direct_support_adjusted_assessment(
     )
 
 
-def _source_answer_requires_direct_support(
+def _source_answer_reuses_prior_evidence(
     plan: LearningTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> bool:
-    if plan.action is not LearningAction.SOURCE_QA:
-        return False
-    if turn_evidence is None or not turn_evidence.items:
-        return False
-    query = _source_answer_query(plan)
-    if plan.retrieval_query:
-        return (
-            _is_definition_request(query)
-            or _is_direct_lookup_request(query)
-            or _is_source_locator_request(query)
-        )
-    return _is_definition_request(query)
+    return bool(
+        plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and plan.evidence_refs
+        and turn_evidence is not None
+        and turn_evidence.items
+    )
+
+
+def _source_answer_expands_prior_evidence(plan: LearningTurnPlan) -> bool:
+    return bool(plan.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR and plan.evidence_refs)
 
 
 def _source_answer_query(plan: LearningTurnPlan) -> str:
     if plan.retrieval_query:
         return plan.retrieval_query
+    return _source_answer_original_request(plan)
+
+
+def _source_answer_original_request(plan: LearningTurnPlan) -> str:
     if match := _SOURCE_QUESTION_RE.search(plan.prompt):
         return match.group("text").strip()
     return ""
-
-
-def _is_definition_request(query: str) -> bool:
-    return bool(_DEFINITION_REQUEST_RE.search(query))
-
-
-def _is_direct_lookup_request(query: str) -> bool:
-    return bool(_DIRECT_LOOKUP_REQUEST_RE.search(query))
-
-
-def _is_source_locator_request(query: str) -> bool:
-    return bool(_SOURCE_LOCATOR_REQUEST_RE.search(query))
 
 
 def _direct_support_score(query: str, turn_evidence: TurnEvidence | None) -> float:
@@ -305,6 +336,8 @@ def _direct_support_score(query: str, turn_evidence: TurnEvidence | None) -> flo
     query_terms = _direct_support_terms(query)
     if not query_terms:
         return 1.0
+    if _distinctive_query_terms_missing(query_terms, turn_evidence):
+        return 0.0
     min_matches = (
         1 if len(query_terms) <= _DIRECT_SUPPORT_MIN_MATCHES else _DIRECT_SUPPORT_MIN_MATCHES
     )
@@ -315,6 +348,43 @@ def _direct_support_score(query: str, turn_evidence: TurnEvidence | None) -> flo
         ),
         default=0.0,
     )
+
+
+def _direct_support_coverage_score(query: str, turn_evidence: TurnEvidence | None) -> float:
+    if turn_evidence is None:
+        return 0.0
+    query_terms = _direct_support_terms(query)
+    if not query_terms:
+        return 0.0
+    min_matches = (
+        1 if len(query_terms) <= _DIRECT_SUPPORT_MIN_MATCHES else _DIRECT_SUPPORT_MIN_MATCHES
+    )
+    return max(
+        (
+            _direct_support_item_score(query_terms, item, min_matches=min_matches)
+            for item in turn_evidence.items
+        ),
+        default=0.0,
+    )
+
+
+def _dominant_retrieval_support_score(query: str, turn_evidence: TurnEvidence | None) -> float:
+    if turn_evidence is None or not turn_evidence.items:
+        return 0.0
+    query_terms = _direct_support_terms(query)
+    if not query_terms:
+        return 0.0
+    top_item = turn_evidence.items[0]
+    if top_item.score < _DIRECT_SUPPORT_DOMINANT_SCORE_FLOOR:
+        return 0.0
+    next_score = max((item.score for item in turn_evidence.items[1:]), default=0.0)
+    if next_score > 0 and top_item.score / next_score < _DIRECT_SUPPORT_DOMINANT_SCORE_RATIO:
+        return 0.0
+    top_terms = set(_direct_support_terms(f"{top_item.chunk.heading}\n{top_item.content}"))
+    matches = sum(1 for term in query_terms if term in top_terms)
+    if matches < _DIRECT_SUPPORT_DOMINANT_MIN_MATCHES:
+        return 0.0
+    return max(_DIRECT_SUPPORT_MIN_COVERAGE, matches / len(query_terms))
 
 
 def _direct_support_item_score(
@@ -330,14 +400,81 @@ def _direct_support_item_score(
     return matches / len(query_terms)
 
 
+def _query_preserves_user_terms(query: str, user_request: str) -> bool:
+    query_terms = set(_direct_support_terms(query))
+    request_terms = set(_direct_support_terms(user_request))
+    if not query_terms or not request_terms:
+        return False
+    return (
+        len(query_terms & request_terms) / len(query_terms) >= _DIRECT_SUPPORT_QUERY_OVERLAP_FLOOR
+    )
+
+
 def _direct_support_terms(text: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             term
-            for term in re.findall(r"[\w+-]+", text.casefold())
+            for term in tokenize(text)
             if len(term) >= _DIRECT_SUPPORT_MIN_TOKEN_LEN and not term.isdigit()
         )
     )
+
+
+def _distinctive_query_terms_missing(
+    query_terms: tuple[str, ...],
+    turn_evidence: TurnEvidence,
+) -> bool:
+    if len(query_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
+        return False
+    evidence_terms = _turn_evidence_terms(turn_evidence)
+    missing_terms = [term for term in query_terms if term not in evidence_terms]
+    if len(missing_terms) < _DIRECT_SUPPORT_DISTINCTIVE_MIN_MISSING:
+        return False
+    return len(missing_terms) / len(query_terms) >= _DIRECT_SUPPORT_DISTINCTIVE_TOKEN_FLOOR
+
+
+def _turn_evidence_terms(turn_evidence: TurnEvidence) -> set[str]:
+    terms: set[str] = set()
+    for item in turn_evidence.items:
+        terms.update(_direct_support_terms(f"{item.chunk.heading}\n{item.content}"))
+    return terms
+
+
+def _quoted_phrase_terms_missing(query: str, turn_evidence: TurnEvidence) -> bool:
+    evidence_terms = _turn_evidence_terms(turn_evidence)
+    for phrase in _quoted_phrases(query):
+        phrase_terms = _direct_support_terms(phrase)
+        if len(phrase_terms) >= _DIRECT_SUPPORT_MIN_MATCHES and not set(phrase_terms).issubset(
+            evidence_terms
+        ):
+            return True
+    return False
+
+
+def _quoted_phrases(text: str) -> tuple[str, ...]:
+    phrases: list[str] = []
+    opening_index: int | None = None
+    for index, character in enumerate(text):
+        if not _is_quote_delimiter(text, index, character):
+            continue
+        if opening_index is None:
+            opening_index = index
+            continue
+        phrase = text[opening_index + 1 : index].strip()
+        if len(phrase) >= 3:
+            phrases.append(phrase)
+        opening_index = None
+    return tuple(phrases)
+
+
+def _is_quote_delimiter(text: str, index: int, character: str) -> bool:
+    if character not in _QUOTE_CHARS:
+        return False
+    if character not in {"'", "\u2019"}:
+        return True
+    previous_is_word = index > 0 and text[index - 1].isalnum()
+    next_is_word = index + 1 < len(text) and text[index + 1].isalnum()
+    return not (previous_is_word and next_is_word)
 
 
 def _should_ask_clarifying_query(
@@ -1178,7 +1315,8 @@ def _expanded_prior_query_evidence(
         elif not prior_scored:
             _log_empty_query_retrieval(plan.retrieval_query, timer.ms)
             return None
-        scored = _merge_prior_and_query_scored_chunks(prior_scored, query_result.scored)
+        query_scored = _source_qa_relevant_query_scored(plan, query_result.scored)
+        scored = _merge_prior_and_query_scored_chunks(prior_scored, query_scored)
         if not scored:
             return None
         return _build_expanded_turn_evidence(
@@ -1189,6 +1327,42 @@ def _expanded_prior_query_evidence(
     except Exception:
         _log.warning("expanded prior evidence build failed", exc_info=True)
         return None
+
+
+def _source_qa_relevant_query_scored(
+    plan: LearningTurnPlan,
+    scored: Sequence[ScoredChunk],
+) -> Sequence[ScoredChunk]:
+    if plan.action is not LearningAction.SOURCE_QA or not plan.retrieval_query:
+        return scored
+    query_terms = _direct_support_terms(plan.retrieval_query)
+    if len(query_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
+        return scored
+    min_matches = (
+        1 if len(query_terms) <= _DIRECT_SUPPORT_MIN_MATCHES else _DIRECT_SUPPORT_MIN_MATCHES
+    )
+    relevant = [
+        item
+        for item in scored
+        if _scored_chunk_direct_support_score(query_terms, item, min_matches=min_matches)
+        >= _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE
+    ]
+    return tuple(relevant)
+
+
+def _scored_chunk_direct_support_score(
+    query_terms: tuple[str, ...],
+    item: ScoredChunk,
+    *,
+    min_matches: int,
+) -> float:
+    evidence_item = EvidenceChunk(
+        evidence_id="E0",
+        chunk=item.chunk,
+        score=item.score,
+        content=item.chunk.text,
+    )
+    return _direct_support_item_score(query_terms, evidence_item, min_matches=min_matches)
 
 
 def _build_expanded_turn_evidence(

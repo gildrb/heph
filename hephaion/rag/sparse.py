@@ -21,8 +21,8 @@ from hephaion.rag.retrieval_types import ScoredChunk
 from hephaion.rag.scoring import object_rows, sklearn_scores, tokenize
 
 _log = get_logger("rag.sparse")
-_TFIDF_CACHE_KEY = "tfidf_v7"
-_BM25_TOKEN_CACHE_KEY = "bm25_tokens_v7"
+_TFIDF_CACHE_KEY = "tfidf_v8"
+_BM25_TOKEN_CACHE_KEY = "bm25_tokens_v8"
 _BM25_BACKEND_CACHE_KEY = "bm25s_v2"
 _BM25_DOCUMENT_BACKEND_CACHE_KEY = "bm25s_document_v1"
 _SOURCE_PATH_WEIGHT = 1

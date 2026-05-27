@@ -27,6 +27,7 @@ from hephaion.rag.retrieve import (
     _apply_negation_precision_penalty,
     _compound_query_variants,
     _create_retriever,
+    _expand_query_with_corpus_token_variants,
     _normalize_query_for_retrieval,
     retrieve,
 )
@@ -83,6 +84,55 @@ def test_normalize_query_for_retrieval_preserves_long_prompt_tail_signal() -> No
     assert len(tokenize(normalized)) <= 180
     assert "exact sentinel phrase amber forge" in normalized
     assert normalized.count("filler") <= 2
+
+
+def test_tokenize_folds_lhopital_diacritic_and_spelling_variants() -> None:
+    assert "hopital" in tokenize("L'Hôpital")
+    assert "hospital" in tokenize("L'Hospital")
+
+
+def test_retrieve_matches_lhopital_without_accents_to_lhospital_source() -> None:
+    index = _make_index_with_chunks(
+        [
+            _make_chunk(
+                "Die Folien nennen die Regel von L'Hospital für Grenzwertaufgaben.",
+                "analysis.md",
+            ),
+            _make_chunk("Zahlensysteme und elementare Funktionen.", "basics.md"),
+        ]
+    )
+
+    results = retrieve("was ist l hopital?", index, top_k=2, min_score=0.1)
+
+    assert results
+    assert results[0].chunk.source == "analysis.md"
+
+
+def test_query_expansion_uses_near_matches_from_current_corpus() -> None:
+    index = _make_index_with_chunks(
+        [
+            _make_chunk("The frobnicate marker controls the example system.", "target.md"),
+            _make_chunk("A separate baseline note.", "other.md"),
+        ]
+    )
+
+    expanded = _expand_query_with_corpus_token_variants("frobncate marker", index)
+
+    assert "frobnicate" in expanded
+
+
+def test_retrieve_uses_near_corpus_token_match_without_static_synonyms() -> None:
+    index = _make_index_with_chunks(
+        [
+            _make_chunk("The frobnicate marker controls the example system.", "target.md"),
+            _make_chunk("A separate baseline note.", "other.md"),
+        ]
+    )
+
+    results = retrieve("frobncate marker", index, top_k=2, min_score=0.1)
+
+    assert results
+    assert results[0].chunk.source == "target.md"
 
 
 def test_retrieve_long_noisy_query_still_finds_tail_match() -> None:
@@ -439,7 +489,7 @@ class TestTfidfRetriever:
         monkeypatch.setattr(retrieve_module, "HAS_SKLEARN", False)
 
         TfidfRetriever(index)
-        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_tfidf_v7.json"
+        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_tfidf_v8.json"
 
         assert state_path.is_file()
         with patch.object(
@@ -553,7 +603,7 @@ class TestBm25Retriever:
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
 
         Bm25Retriever(index)
-        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_bm25_tokens_v7.json"
+        state_path = tmp_path / ".hephaion" / f"retriever_{index.content_hash}_bm25_tokens_v8.json"
 
         assert state_path.is_file()
 

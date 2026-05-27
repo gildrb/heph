@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
@@ -266,6 +267,50 @@ def _transcript_line_renderable(
     return line
 
 
+def _continuation_indent(line: str) -> str:
+    leading_width = len(line) - len(line.lstrip(" "))
+    remaining = line[leading_width:]
+    return " " * (leading_width + _list_marker_width(remaining))
+
+
+def _list_marker_width(text: str) -> int:
+    if text.startswith(("- ", "* ", "+ ", "• ")):
+        return 2
+    marker, separator, _rest = text.partition(" ")
+    if separator and marker.endswith((".", ")")) and marker[:-1].isdecimal():
+        return len(marker) + len(separator)
+    return 0
+
+
+def _wrap_transcript_plain_line(line: str, width: int) -> list[str]:
+    if not line:
+        return [""]
+    wrapper = textwrap.TextWrapper(
+        width=max(1, width),
+        subsequent_indent=_continuation_indent(line),
+        replace_whitespace=False,
+        drop_whitespace=True,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    return wrapper.wrap(line) or [line]
+
+
+def _transcript_line_renderables(
+    line: str,
+    *,
+    width: int,
+    style: _RichStyle | None = None,
+    ansi: bool = False,
+) -> list[object]:
+    if ansi:
+        return [_transcript_line_renderable(line, style=style, ansi=ansi)]
+    return [
+        _transcript_line_renderable(wrapped_line, style=style)
+        for wrapped_line in _wrap_transcript_plain_line(line, width)
+    ]
+
+
 def _panel_width(log: RichLog) -> int:
     return max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
 
@@ -471,8 +516,15 @@ class TuiTranscriptMixin:
     ) -> None:
         lines = text.splitlines() or [""]
         for line in lines:
-            renderable = _transcript_line_renderable(line, style=style, ansi=ansi)
-            self._write_transcript_renderable(log, renderable)
+            width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
+            renderables = _transcript_line_renderables(
+                line,
+                width=width,
+                style=style,
+                ansi=ansi,
+            )
+            for renderable in renderables:
+                self._write_transcript_renderable(log, renderable)
 
     def _write_padded_panel_lines(
         self: _TranscriptHost,

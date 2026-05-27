@@ -12,6 +12,7 @@ import argparse
 import fcntl
 import os
 import selectors
+import shlex
 import signal
 import struct
 import subprocess
@@ -24,7 +25,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import rmtree
+from shutil import rmtree, which
 
 from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
 
@@ -59,6 +60,13 @@ NARROW_RESIZE_SEQUENCE = (
     (121, 18),
     (79, 9),
     (74, 10),
+)
+TMUX_RESIZE_SEQUENCE = (
+    (120, 30),
+    (90, 20),
+    (150, 38),
+    (80, 14),
+    (135, 32),
 )
 
 
@@ -468,6 +476,107 @@ def _run_smoke(
         rmtree(armory_home, ignore_errors=True)
 
 
+def _tmux_command(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ("tmux", *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _launch_tmux_heph(session: str, armory: Path, armory_home: Path) -> str:
+    command = " ".join(
+        (
+            "TERM=xterm-256color",
+            "COLUMNS=240",
+            "LINES=60",
+            f"HEPHAION_ARMORY_HOME={shlex.quote(str(armory_home))}",
+            "uv run heph",
+            shlex.quote(str(armory)),
+        )
+    )
+    result = _tmux_command(
+        "new-session",
+        "-d",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "-s",
+        session,
+        "-x",
+        "180",
+        "-y",
+        "40",
+        "-c",
+        str(ROOT),
+        command,
+    )
+    return result.stdout.strip()
+
+
+def _tmux_capture(session: str, pane: str) -> str:
+    _tmux_command("split-window", "-h", "-p", "25", "-t", session, "sleep 60")
+    time.sleep(1.0)
+    _tmux_command("send-keys", "-t", pane, "/")
+    time.sleep(1.0)
+    for width, height in TMUX_RESIZE_SEQUENCE:
+        _tmux_command("resize-pane", "-t", pane, "-x", str(width), "-y", str(height))
+        time.sleep(0.25)
+    time.sleep(1.0)
+    return _tmux_command("capture-pane", "-p", "-t", pane, "-S", "-").stdout
+
+
+def _tmux_failure_reasons(capture: str) -> list[str]:
+    failures: list[str] = []
+    max_width = max((len(line) for line in capture.splitlines()), default=0)
+    checks = (
+        ("composer prompt", _composer_prompt_count(capture), 1),
+        ("slash help row", capture.count("/help"), 1),
+        ("footer", capture.count("ctrl+o armory"), 1),
+        ("grounding panel", capture.count("Grounding"), 1),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            failures.append(
+                f"tmux split ended with {actual} {label} instances, expected {expected}"
+            )
+    if COMPOSER_PLACEHOLDER in capture:
+        failures.append("tmux split left stale composer placeholder while slash menu was active")
+    if max_width > 135:
+        failures.append(f"tmux split captured a line wider than the Heph pane: {max_width}")
+    return failures
+
+
+def _run_tmux_smoke() -> int:
+    if which("tmux") is None:
+        print("tmux smoke skipped: tmux is not installed")
+        return 0
+    armory_home, armory = _prepare_armories()
+    session = f"heph-resize-{os.getpid()}"
+    try:
+        pane = _launch_tmux_heph(session, armory, armory_home)
+        time.sleep(3.0)
+        capture = _tmux_capture(session, pane)
+        max_width = max((len(line) for line in capture.splitlines()), default=0)
+        print(
+            "tmux-split/slash-completion: "
+            f"composer_prompt={_composer_prompt_count(capture)} "
+            f"slash_help={capture.count('/help')} "
+            f"footer={capture.count('ctrl+o armory')} "
+            f"grounding={capture.count('Grounding')} "
+            f"max_width={max_width}"
+        )
+        reasons = _tmux_failure_reasons(capture)
+        for reason in reasons:
+            print(f"  - {reason}")
+        return 1 if reasons else 0
+    finally:
+        with suppress(subprocess.CalledProcessError):
+            _tmux_command("kill-session", "-t", session)
+        rmtree(armory_home, ignore_errors=True)
+
+
 def main() -> int:
     warnings.filterwarnings(
         "ignore",
@@ -477,11 +586,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
+    parser.add_argument("--tmux", action="store_true", help="also run a tmux split-pane smoke")
     args = parser.parse_args()
-    return _run_smoke(
+    status = _run_smoke(
         _default_cases(),
         _default_resize_runs(wide_width=args.width, wide_height=args.height),
     )
+    if args.tmux:
+        status = max(status, _run_tmux_smoke())
+    return status
 
 
 if __name__ == "__main__":

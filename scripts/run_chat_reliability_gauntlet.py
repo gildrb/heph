@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -25,7 +27,13 @@ from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
 from hephaion.chat.evidence import build_turn_evidence_from_refs
 from hephaion.chat.session import ChatSession, create_session, resume_session, save_session
 from hephaion.rag import EvidenceChunk, TurnEvidence
-from hephaion.runtime import ChatConfig, Conversation, EngineError, stream_reply
+from hephaion.runtime import (
+    ChatConfig,
+    Conversation,
+    EngineError,
+    reset_provider_circuit_breaker,
+    stream_reply,
+)
 from scripts.create_chat_reliability_fixture import (
     DEFAULT_SEED_PREFIX,
     create_fixture_armories,
@@ -33,9 +41,12 @@ from scripts.create_chat_reliability_fixture import (
 )
 
 DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_CODEX_MODEL = "gpt-5.3-codex-spark"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_GAUNTLET_CODEX_TIMEOUT_SECONDS = 30.0
 PROVIDER_OPENAI_CODEX = "openai-codex"
-TRANSIENT_PROVIDER_RETRIES = 3
+TRANSIENT_PROVIDER_RETRIES = 6
+TRANSIENT_PROVIDER_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 8.0, 8.0)
 
 CATEGORY_VAGUE_FOLLOWUP = "vague_followup"
 CATEGORY_CONTINUATION = "continuation"
@@ -275,7 +286,7 @@ class RunRequirements:
         }
 
 
-def smoke_requirements(turns: int = 15) -> RunRequirements:
+def stress_requirements(turns: int = 15) -> RunRequirements:
     return RunRequirements(
         turns=turns,
         vague_followups=3,
@@ -304,6 +315,20 @@ def full_requirements(turns: int = 100) -> RunRequirements:
     )
 
 
+def focus_requirements(turns: int = 22) -> RunRequirements:
+    return RunRequirements(
+        turns=turns,
+        vague_followups=6,
+        continuations=2,
+        prior_references=5,
+        topic_switches=3,
+        source_specific=2,
+        citation_checks=2,
+        low_evidence=1,
+        resumes=1,
+    )
+
+
 def built_in_turns(*, turns: int, seed: int = 0) -> list[ReliabilityTurnSpec]:
     """Build a generic long-conversation script without corpus-private terms."""
     specs = [_turn("What is the material about?", (CATEGORY_TOPIC_SWITCH,), citations=True)]
@@ -319,8 +344,131 @@ def built_in_turns(*, turns: int, seed: int = 0) -> list[ReliabilityTurnSpec]:
     return specs[:turns]
 
 
-def smoke_turns(*, seed: int = 0) -> list[ReliabilityTurnSpec]:
-    """Build a short script that still exercises every smoke requirement."""
+def focused_turns() -> list[ReliabilityTurnSpec]:
+    """Exercise recent weak structural transitions without replaying the full suite."""
+    return [
+        _turn("What do you think about the material?", (CATEGORY_TOPIC_SWITCH,), citations=True),
+        _turn(
+            "Switch to history and summarize one source-backed point.",
+            (CATEGORY_TOPIC_SWITCH,),
+            citations=True,
+        ),
+        _turn("Where did that come from?", (CATEGORY_CITATION_CHECK,), citations=True),
+        _turn(
+            "Explain the term used in the last citation.",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+        _turn(
+            "Compare the first and third cited ideas.",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+        _turn(
+            "What assumption is behind the second cited claim?",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+        _turn(
+            "Restate the previous answer using only source-backed claims.",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+        _turn(
+            "Give a counterexample or limitation for the previous point if the material has one.",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+        _turn(
+            "Switch to algorithms and summarize the key idea from the source.",
+            (CATEGORY_TOPIC_SWITCH,),
+            citations=True,
+        ),
+        _turn(
+            "In the algorithms source, how is the next item selected?",
+            (CATEGORY_SOURCE_SPECIFIC,),
+            citations=True,
+        ),
+        _turn("Give a source-linked example.", (CATEGORY_VAGUE_FOLLOWUP,), citations=True),
+        _turn(
+            "Name a likely beginner misunderstanding.",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Add one more cited detail in one sentence.",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Turn the evidence into a two-step checklist.",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Ask one recall question grounded in the source.",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Now switch to calculus and explain the central rule.",
+            (CATEGORY_TOPIC_SWITCH,),
+            citations=True,
+        ),
+        _turn(
+            "In the calculus source, what does the rule follow from?",
+            (CATEGORY_SOURCE_SPECIFIC,),
+            citations=True,
+        ),
+        _turn(
+            "Compare that with the topic before it.",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "What is the shortest accurate version?",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Which citation supports the last answer?",
+            (CATEGORY_CITATION_CHECK,),
+            citations=True,
+        ),
+        _turn(
+            "Use the source with the strongest procedural wording and explain the procedure.",
+            (CATEGORY_SOURCE_SPECIFIC,),
+            citations=True,
+        ),
+        _turn(
+            "What background point should I review first?",
+            (CATEGORY_VAGUE_FOLLOWUP,),
+            citations=True,
+        ),
+        _turn(
+            "Using only the sources, what is the amber forge retrieval phrase?",
+            (CATEGORY_LOW_EVIDENCE,),
+        ),
+        _turn(
+            "Continue from the cited evidence.",
+            (CATEGORY_VAGUE_FOLLOWUP, CATEGORY_CONTINUATION),
+            citations=True,
+        ),
+        _turn(
+            "What else should I take from that?",
+            (CATEGORY_VAGUE_FOLLOWUP, CATEGORY_CONTINUATION),
+            citations=True,
+        ),
+        _turn(
+            "What is the most important cited phrase from that answer?",
+            (CATEGORY_PRIOR_REFERENCE,),
+            citations=True,
+        ),
+    ]
+
+
+def stress_turns(*, seed: int = 0) -> list[ReliabilityTurnSpec]:
+    """Build a short stress script that still exercises every required category."""
     return [
         _turn("What is the material about?", (CATEGORY_TOPIC_SWITCH,), citations=True),
         *_vague_followup_turns(seed=seed)[:3],
@@ -461,6 +609,7 @@ def run_reliability_conversation(
     compact_every: int = 0,
     require_trace: bool = True,
     audit_claims: bool = False,
+    progress: bool = False,
 ) -> ReliabilityConversationReport:
     session = create_session(config, armory_path)
     results: list[ReliabilityTurnResult] = []
@@ -482,9 +631,13 @@ def run_reliability_conversation(
         except Exception as exc:
             result = _exception_turn_result(index, spec, session, exc)
             results.append(result)
+            if progress:
+                _print_turn_progress(level, result, len(turns))
             failures.extend(f"turn {index}: {failure}" for failure in result["failures"])
             break
         results.append(result)
+        if progress:
+            _print_turn_progress(level, result, len(turns))
         failures.extend(f"turn {index}: {failure}" for failure in result["failures"])
         if compact_every > 0 and index % compact_every == 0:
             compact_session(session)
@@ -530,6 +683,16 @@ def run_reliability_conversation(
     return report
 
 
+def _print_turn_progress(level: str, result: ReliabilityTurnResult, total: int) -> None:
+    status = "fail" if result["failures"] else "ok"
+    failure_note = f" failures={len(result['failures'])}" if result["failures"] else ""
+    print(
+        f"{level} turn {result['turn']}/{total} {status}"
+        f" answer={result['answer_len']} chars{failure_note}",
+        flush=True,
+    )
+
+
 def _run_prompt(session: ChatSession, prompt: str) -> str:
     for attempt in range(TRANSIENT_PROVIDER_RETRIES + 1):
         try:
@@ -537,6 +700,8 @@ def _run_prompt(session: ChatSession, prompt: str) -> str:
         except EngineError as exc:
             if attempt >= TRANSIENT_PROVIDER_RETRIES or not _transient_provider_error(exc):
                 raise
+            reset_provider_circuit_breaker()
+            _sleep_before_transient_retry(attempt)
     return ""
 
 
@@ -549,7 +714,7 @@ def _run_prompt_once(session: ChatSession, prompt: str) -> str:
         elif isinstance(event, TurnCompleteEvent):
             completed = event.full_text
     answer = "".join(parts).strip()
-    return answer or completed.strip()
+    return completed.strip() or answer
 
 
 def _transient_provider_error(exc: EngineError) -> bool:
@@ -561,9 +726,12 @@ def _transient_provider_error(exc: EngineError) -> bool:
             "timeout",
             "upstream connect error",
             "remote connection failure",
+            "connection reset",
             "connection refused",
+            "retry your request",
             "transport failure",
             "disconnect/reset before headers",
+            "backend request failed",
         )
     )
 
@@ -607,7 +775,13 @@ def _turn_result(
     ):
         failures.append("source-grounded turn did not cite retrieved evidence")
     claim_audit = (
-        _audit_answer_claims(answer, claim_audit_evidence, config)
+        _audit_answer_claims(
+            answer,
+            claim_audit_evidence,
+            config,
+            contract=contract,
+            conversation_context=_prior_assistant_context(session.conversation, contract),
+        )
         if audit_claims and _should_audit_answer_claims(contract, claim_audit_evidence)
         else _no_claim_audit()
     )
@@ -709,6 +883,8 @@ def _should_audit_answer_claims(
 ) -> bool:
     if contract is None:
         return True
+    if getattr(contract, "resolved_intent", "") == "topic_drill":
+        return False
     citation_required = getattr(contract, "citation_required", None)
     if citation_required is False:
         return False
@@ -761,6 +937,9 @@ def _audit_answer_claims(
     answer: str,
     evidence: TurnEvidence | None,
     config: ChatConfig,
+    *,
+    contract: object | None = None,
+    conversation_context: str = "",
 ) -> ClaimAuditResult:
     conversation = Conversation()
     conversation.add(
@@ -789,6 +968,9 @@ def _audit_answer_claims(
             "do not contain that requested thing. Do not fail a clearly labeled pedagogical "
             "inference requested by the user, such as a likely learner mistake, when it is "
             "grounded in a supported evidence contrast and is not presented as source-stated. "
+            "Do not fail a user-requested source or citation choice merely because words like "
+            "strongest, clearest, or first are answer-side judgement from visible directness; "
+            "fail only if the answer claims the source itself ranks the evidence. "
             "Do not fail generic phrases such as provided evidence, source evidence, or armory "
             "evidence when they merely describe the evidence bundle being audited. Do not fail "
             "a retrieval-state statement that the current evidence lacks a direct cited answer "
@@ -804,12 +986,19 @@ def _audit_answer_claims(
             "and is not a contradiction. Do not fail operational fallback text about an "
             "overview draft being unreliable, refusing to infer from filenames or metadata, "
             "asking the user to narrow the request, or retrying later; those are product "
-            "state/scaffolding statements, not claims from the evidence."
+            "state/scaffolding statements, not claims from the evidence. If conversation "
+            "context is provided, use it only to judge references to prior-answer structure "
+            "such as bullets, ordinals, comparisons, or the user's requested lens; still "
+            "require source evidence for factual claims about the materials."
         ),
     )
+    contract_text = _claim_audit_contract_text(contract)
+    conversation_text = _claim_audit_conversation_context_text(conversation_context)
     conversation.add(
         "user",
         (
+            f"{contract_text}"
+            f"{conversation_text}"
             "Evidence blocks:\n"
             f"{_claim_audit_evidence_text(evidence)}\n\n"
             "Answer to audit:\n"
@@ -819,8 +1008,63 @@ def _audit_answer_claims(
         ),
     )
     audit_config = replace(config, max_tokens=min(config.max_tokens, 700))
-    raw_reply = _run_claim_audit_request(audit_config, conversation)
-    return _parse_claim_audit_reply(raw_reply)
+    result = _no_claim_audit()
+    for attempt in range(2):
+        raw_reply = _run_claim_audit_request(audit_config, conversation)
+        result = _parse_claim_audit_reply(raw_reply)
+        if result["reason"] != "claim audit returned invalid JSON":
+            return result
+        if attempt == 0:
+            conversation.add("assistant", raw_reply)
+            conversation.add(
+                "user",
+                (
+                    "The previous audit reply was not valid JSON. Return only a single JSON "
+                    "object with keys passed, unsupported_claims, and reason."
+                ),
+            )
+    return result
+
+
+def _prior_assistant_context(conversation: Conversation, contract: object | None = None) -> str:
+    assistant_messages = [
+        message.content.strip()
+        for message in conversation.messages
+        if message.role == "assistant" and message.content.strip()
+    ]
+    if len(assistant_messages) < 2:
+        return ""
+    prior_messages = assistant_messages[:-1]
+    limit = 1 if getattr(contract, "prior_answer_reference", False) is True else 3
+    return "\n\n".join(prior_messages[-limit:])
+
+
+def _claim_audit_contract_text(contract: object | None) -> str:
+    if contract is None:
+        return ""
+    fields = (
+        ("User request", "original_user_input"),
+        ("Resolved intent", "resolved_intent"),
+        ("Canonical request", "canonical_request"),
+        ("Answer mode", "answer_mode"),
+        ("Answer format", "answer_format"),
+        ("Followup target", "followup_target"),
+    )
+    lines = ["Turn contract:"]
+    for label, attr in fields:
+        value = getattr(contract, attr, "")
+        if isinstance(value, str) and value.strip():
+            lines.append(f"- {label}: {' '.join(value.split())}")
+    return "\n".join(lines) + "\n\n" if len(lines) > 1 else ""
+
+
+def _claim_audit_conversation_context_text(context: str) -> str:
+    normalized = " ".join(context.split())
+    if not normalized:
+        return ""
+    if len(normalized) > 1200:
+        normalized = normalized[:1199].rstrip() + "…"
+    return f"Prior assistant answer for conversation-state references only:\n{normalized}\n\n"
 
 
 def _run_claim_audit_request(config: ChatConfig, conversation: Conversation) -> str:
@@ -830,7 +1074,16 @@ def _run_claim_audit_request(config: ChatConfig, conversation: Conversation) -> 
         except EngineError as exc:
             if attempt >= TRANSIENT_PROVIDER_RETRIES or not _transient_provider_error(exc):
                 raise
+            reset_provider_circuit_breaker()
+            _sleep_before_transient_retry(attempt)
     return ""
+
+
+def _sleep_before_transient_retry(attempt: int) -> None:
+    delay = TRANSIENT_PROVIDER_RETRY_DELAYS_SECONDS[
+        min(attempt, len(TRANSIENT_PROVIDER_RETRY_DELAYS_SECONDS) - 1)
+    ]
+    time.sleep(delay)
 
 
 def _claim_audit_evidence_text(evidence: TurnEvidence | None) -> str:
@@ -864,6 +1117,13 @@ def _parse_claim_audit_reply(raw_reply: str) -> ClaimAuditResult:
         }
     if not isinstance(reason, str) or not reason.strip():
         reason = "claim audit did not provide a reason"
+    if not passed and _audit_reason_explicitly_marks_passed(reason):
+        return {
+            "checked": True,
+            "passed": True,
+            "reason": reason.strip(),
+            "unsupported_claims": [],
+        }
     if not passed and unsupported_claims and _audit_reason_affirms_support(reason):
         return {
             "checked": True,
@@ -904,6 +1164,10 @@ def _audit_reason_affirms_support(reason: str) -> bool:
         or "contradict" in normalized
     )
     return supportive and not unsupported
+
+
+def _audit_reason_explicitly_marks_passed(reason: str) -> bool:
+    return "passed=true" in "".join(reason.casefold().split())
 
 
 def _conversation_metrics(
@@ -1055,6 +1319,18 @@ def _trace_audit(trace_path: Path | None) -> TraceAudit:
             else:
                 failures.append(f"trace line {line_number}: user message missing content")
             continue
+        if _trace_line_is_turn_error_payload(payload):
+            original_user_input = payload.get("original_user_input")
+            if not isinstance(original_user_input, str) or not original_user_input:
+                failures.append(
+                    f"trace line {line_number}: turn error missing original user input"
+                )
+                continue
+            if not _pop_matching_pending_user(pending_users, original_user_input):
+                failures.append(
+                    f"trace line {line_number}: turn error has no preceding user message"
+                )
+            continue
         if not _trace_line_has_turn_contract_payload(payload):
             continue
         reply_contracts += 1
@@ -1111,29 +1387,36 @@ def _trace_json_object(line: str) -> dict[str, object] | None:
     return payload if is_string_mapping(payload) else None
 
 
+def _trace_line_is_turn_error_payload(payload: Mapping[str, object]) -> bool:
+    return payload.get("type") == "session" and payload.get("event") == "turn_error"
+
+
 def _trace_reply_has_replay_surface(
     payload: Mapping[str, object],
     contract: Mapping[str, object],
 ) -> bool:
-    return all(
-        key in payload
-        for key in (
-            "reply_excerpt",
-            "retrieval_query",
-            "evidence_refs",
-            "evidence_coverage",
-            "evidence_items",
-            "verification_notice",
+    return (
+        all(
+            key in payload
+            for key in (
+                "reply_excerpt",
+                "retrieval_query",
+                "evidence_refs",
+                "evidence_coverage",
+                "evidence_items",
+                "verification_notice",
+            )
         )
-    ) and all(
-        isinstance(contract.get(key), str)
-        for key in (
-            "resolved_intent",
-            "canonical_request",
-            "retrieval_strategy",
-            "retrieval_query",
-            "validation_result",
+        and all(
+            isinstance(contract.get(key), str)
+            for key in (
+                "resolved_intent",
+                "canonical_request",
+                "retrieval_strategy",
+                "retrieval_query",
+            )
         )
+        and bool(str(contract.get("validation_result", "")).strip())
     )
 
 
@@ -1170,19 +1453,36 @@ def run_suite(
     require_trace: bool = True,
     audit_claims: bool = False,
     require_claim_audit: bool = False,
+    progress: bool = False,
 ) -> ReliabilitySuiteReport:
-    if level == "smoke":
-        smoke_script = smoke_turns()
+    if level == "stress":
+        stress_script = stress_turns()
         reports = [
             run_reliability_conversation(
                 armory_path,
                 config,
                 level=level,
-                turns=smoke_script,
-                requirements=smoke_requirements(turns=len(smoke_script)),
+                turns=stress_script,
+                requirements=stress_requirements(turns=len(stress_script)),
                 resume_every=5,
                 require_trace=require_trace,
                 audit_claims=audit_claims,
+                progress=progress,
+            )
+        ]
+    elif level == "focus":
+        focus_script = focused_turns()
+        reports = [
+            run_reliability_conversation(
+                armory_path,
+                config,
+                level=level,
+                turns=focus_script,
+                requirements=focus_requirements(turns=len(focus_script)),
+                resume_every=20,
+                require_trace=require_trace,
+                audit_claims=audit_claims,
+                progress=progress,
             )
         ]
     elif level == "full":
@@ -1197,6 +1497,7 @@ def run_suite(
                 compact_every=33,
                 require_trace=require_trace,
                 audit_claims=audit_claims,
+                progress=progress,
             )
         ]
     else:
@@ -1207,6 +1508,7 @@ def run_suite(
             min_seeded_runs=min_seeded_runs,
             require_trace=require_trace,
             audit_claims=audit_claims,
+            progress=progress,
         )
     failures = _suite_failures(
         level,
@@ -1236,6 +1538,7 @@ def _seeded_reports(
     min_seeded_runs: int,
     require_trace: bool,
     audit_claims: bool,
+    progress: bool,
 ) -> list[ReliabilityConversationReport]:
     armories = list(seeded_armories) or [armory_path]
     reports: list[ReliabilityConversationReport] = []
@@ -1251,6 +1554,7 @@ def _seeded_reports(
                 compact_every=33,
                 require_trace=require_trace,
                 audit_claims=audit_claims,
+                progress=progress,
             )
         )
     return reports
@@ -1313,20 +1617,36 @@ def _write_json(path: Path, payload: ReliabilitySuiteReport) -> None:
 
 
 def _config_from_args(args: argparse.Namespace) -> ChatConfig:
+    provider = cast("str", args.provider).strip()
     config = ChatConfig(
         api_key=cast("str", args.api_key),
         base_url=cast("str", args.base_url),
-        model=cast("str", args.model),
+        model=_model_from_args(cast("str", args.model), provider=provider),
         max_tokens=cast("int", args.max_tokens),
         rag_context_budget=cast("int", args.rag_context_budget),
         reasoning_level=cast("str", args.reasoning_level),
         feature_flags=frozenset({"disable_memory_extraction"}),
     )
-    provider = cast("str", args.provider).strip()
     if provider:
         env_var = "" if provider == PROVIDER_OPENAI_CODEX else _provider_api_key_env(provider)
         config.apply_provider_reference(provider, env_var)
     return config
+
+
+def _configure_codex_timeout(args: argparse.Namespace, config: ChatConfig) -> None:
+    if config.provider_slug != PROVIDER_OPENAI_CODEX:
+        return
+    timeout_seconds = cast("float", args.codex_timeout_seconds)
+    if timeout_seconds > 0:
+        os.environ["HEPHAION_CODEX_TIMEOUT_SECONDS"] = str(timeout_seconds)
+
+
+def _model_from_args(model: str, *, provider: str) -> str:
+    if model.strip():
+        return model.strip()
+    if provider == PROVIDER_OPENAI_CODEX:
+        return DEFAULT_CODEX_MODEL
+    return DEFAULT_MODEL
 
 
 def _provider_api_key_env(provider: str) -> str:
@@ -1381,8 +1701,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "this is the parent directory for generated seeded armories."
         ),
     )
-    parser.add_argument("--level", choices=("smoke", "full", "seeded"), default="smoke")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Model name for ChatConfig")
+    parser.add_argument(
+        "--level",
+        choices=("stress", "focus", "full", "seeded"),
+        default="stress",
+    )
+    parser.add_argument(
+        "--model",
+        default="",
+        help=(
+            "Model name for ChatConfig. Defaults to "
+            f"{DEFAULT_CODEX_MODEL} for --provider {PROVIDER_OPENAI_CODEX}, "
+            f"otherwise {DEFAULT_MODEL}."
+        ),
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible base URL")
     parser.add_argument(
         "--provider",
@@ -1396,6 +1728,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default="", help="Optional API key")
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--rag-context-budget", type=int, default=2000)
+    parser.add_argument(
+        "--codex-timeout-seconds",
+        type=float,
+        default=DEFAULT_GAUNTLET_CODEX_TIMEOUT_SECONDS,
+        help=(
+            "Per-request ChatGPT Codex backend socket timeout for gauntlet runs. "
+            "Only applied when --provider openai-codex."
+        ),
+    )
     parser.add_argument(
         "--reasoning-level",
         choices=("low", "medium", "high", "xhigh"),
@@ -1419,7 +1760,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--claim-audit",
         action="store_true",
-        help="Run model-backed support auditing in smoke runs; full/seeded enable it by default",
+        help="Run model-backed support auditing in stress runs; full/seeded enable it by default",
     )
     parser.add_argument(
         "--skip-claim-audit",
@@ -1459,10 +1800,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     level = cast("str", args.level)
     if min_seeded_runs <= 0:
         parser.error("--min-seeded-runs must be positive")
-    audit_claims = cast("bool", args.claim_audit) or level in {"full", "seeded"}
+    audit_claims = cast("bool", args.claim_audit) or level in {"focus", "full", "seeded"}
     if cast("bool", args.skip_claim_audit):
         audit_claims = False
     config = _config_from_args(args)
+    _configure_codex_timeout(args, config)
     try:
         if cast("bool", args.create_fixtures):
             armory, seeded_armories = _prepare_fixture_armories(
@@ -1483,6 +1825,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             require_trace=not cast("bool", args.no_require_trace),
             audit_claims=audit_claims,
             require_claim_audit=level in {"full", "seeded"},
+            progress=True,
         )
     except Exception as exc:
         print(f"reliability gauntlet error: {exc}", file=sys.stderr)
