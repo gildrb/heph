@@ -62,7 +62,7 @@ models available to those credentials.
 Heph works with Pollinations AI, OpenRouter, OpenAI API keys, OpenAI Codex
 subscription login, Z.AI, and custom OpenAI-compatible endpoints. You can also use
 environment variables such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`,
-`CUSTOM_API_KEY`, `HEPHAISTOS_BASE_URL`, and `HEPHAISTOS_MODEL`.
+`CUSTOM_API_KEY`, `HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
 
 ## Commands
 

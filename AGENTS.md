@@ -50,7 +50,7 @@ uv run heph armory init PATH    # create a new armory
 <!-- sync-docs:privacy-diagnostics-docs-contract:start -->
 - Privacy and diagnostics rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
   is redacted opt-in crash reporting only.
-- Preserve the public safe-stub split in `hephaistos/privacy/release.py`.
+- Preserve the public safe-stub split in `hephaion/privacy/release.py`.
   Official release builds inject privacy and diagnostics backend values in CI; source, editable, and
   Git installs must stay bare by default.
 - When CLI commands, privacy or diagnostics surfaces, or README-adjacent docs change, run
@@ -75,7 +75,7 @@ uv run heph armory init PATH    # create a new armory
 ## Type Checking Policy
 
 - Use `ty` strict mode. `pyproject.toml` targets Python 3.13 and includes
-  `hephaistos` and `tests`; all rules are errors except configured import handling.
+  `hephaion` and `tests`; all rules are errors except configured import handling.
 - Explicit `Any` is forbidden, including imports from `typing` or `typing_extensions`,
   bare `Any`, attribute references (`typing.Any`, `typing_extensions.Any`), and
   `cast()` string arguments that mention `Any`.
@@ -146,8 +146,8 @@ uv run ty check  # type-check the project
 
 ## Dead Code / Architecture / Quality Gates
 ```bash
-uv run vulture hephaistos tests vulture-whitelist.py  # dead-code detection
-uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos  # duplicate code
+uv run vulture hephaion tests vulture-whitelist.py  # dead-code detection
+uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaion  # duplicate code
 uv run lint-imports        # verify import boundaries
 uv run python scripts/check_tech_debt.py --strict  # TODO/FIXME issue links
 uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command validation
@@ -155,7 +155,7 @@ uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command valida
 
 Additional configured gates:
 
-- Vulture scans `hephaistos`, `tests`, and `vulture-whitelist.py` at 80% confidence.
+- Vulture scans `hephaion`, `tests`, and `vulture-whitelist.py` at 80% confidence.
 - Pylint duplicate-code uses an 8-line similarity threshold and ignores comments,
   docstrings, and imports.
 - Pre-commit also runs check-large-files, gitleaks, docs sync, deptry, and radon.
@@ -174,7 +174,7 @@ uv run pytest -m flaky                     # flaky-marked tests only
 Testing rules:
 
 - Pytest uses strict markers, short tracebacks, top-10 duration reporting,
-  xdist auto/worksteal, and a 75% coverage gate on `hephaistos`.
+  xdist auto/worksteal, and a 75% coverage gate on `hephaion`.
 - Test files: `test_<module>.py` or `*_test.py`; test classes: `Test<Feature>`;
   test functions: `test_<verb>_<object>_<condition_or_expectation>`.
 - Parametrize with tuple names, list values, and tuple rows.
@@ -212,8 +212,8 @@ Testing rules:
 
 ## Diagnostics
 
-- Structured logging: `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, `HEPHAISTOS_LOG_FORMAT`
-- Session traces: per-armory JSONL files under `.hephaistos/traces/`
+- Structured logging: `HEPHAION_LOG_LEVEL`, `HEPHAION_LOG_FILE`, `HEPHAION_LOG_FORMAT`
+- Session traces: per-armory JSONL files under `.hephaion/traces/`
 - Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
 
 ## Build & Release

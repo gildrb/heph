@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from hephaistos.cli.main import build_parser, run_argv
-from hephaistos.parameters import cli as params_cli
-from hephaistos.parameters import settings as settings_store
-from hephaistos.runtime import ChatConfig
+from hephaion.cli.main import build_parser, run_argv
+from hephaion.parameters import cli as params_cli
+from hephaion.parameters import settings as settings_store
+from hephaion.runtime import ChatConfig
 
 
 def test_config_show_uses_registered_handler(
@@ -97,14 +97,14 @@ def test_load_config_precedence(
             config.max_tokens = 1500
 
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
-    monkeypatch.setenv("HEPHAISTOS_BASE_URL", "https://env.example/v1")
-    monkeypatch.setenv("HEPHAISTOS_MODEL", "env-model")
-    monkeypatch.setenv("HEPHAISTOS_MAX_TOKENS", "4000")
-    monkeypatch.setenv("HEPHAISTOS_RAG_CONTEXT_BUDGET", "5000")
-    monkeypatch.setenv("HEPHAISTOS_TEMPERATURE", "0")
+    monkeypatch.setenv("HEPHAION_BASE_URL", "https://env.example/v1")
+    monkeypatch.setenv("HEPHAION_MODEL", "env-model")
+    monkeypatch.setenv("HEPHAION_MAX_TOKENS", "4000")
+    monkeypatch.setenv("HEPHAION_RAG_CONTEXT_BUDGET", "5000")
+    monkeypatch.setenv("HEPHAION_TEMPERATURE", "0")
 
     config = params_cli.load_config()
 
@@ -124,7 +124,7 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
@@ -200,7 +200,7 @@ def test_load_config_warns_when_provider_config_load_fails(
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(_raise),
     )
 
@@ -223,15 +223,15 @@ def test_invalid_integer_overrides_are_ignored(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
             )
         ),
     )
-    monkeypatch.setenv("HEPHAISTOS_MAX_TOKENS", "not-an-int")
-    monkeypatch.setenv("HEPHAISTOS_RAG_CONTEXT_BUDGET", "still-not-an-int")
+    monkeypatch.setenv("HEPHAION_MAX_TOKENS", "not-an-int")
+    monkeypatch.setenv("HEPHAION_RAG_CONTEXT_BUDGET", "still-not-an-int")
 
     config = params_cli.load_config()
 
@@ -395,14 +395,14 @@ def test_load_config_feature_flags_env_overrides_user(
         json.dumps({"feature_flags": "user_flag"}), encoding="utf-8"
     )
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
             )
         ),
     )
-    monkeypatch.setenv("HEPHAISTOS_FEATURE_FLAGS", "env_flag")
+    monkeypatch.setenv("HEPHAION_FEATURE_FLAGS", "env_flag")
 
     config = params_cli.load_config()
 
@@ -437,12 +437,12 @@ def test_load_config_falls_back_when_active_provider_has_no_key(
             config.apply_provider_reference("openrouter", "OPENROUTER_API_KEY")
 
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
     # Ensure no key is resolved for openrouter.
     monkeypatch.setattr(
-        "hephaistos.runtime.engine.resolve_key",
+        "hephaion.runtime.engine.resolve_key",
         lambda _slug, _env="": "",
     )
 
@@ -470,7 +470,7 @@ def test_load_config_no_fallback_when_keyless(
             config.apply_provider_reference("pollinations", "")
 
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
 
@@ -497,11 +497,11 @@ def test_load_config_no_fallback_when_key_present(
             config.apply_provider_reference("openai", "OPENAI_API_KEY")
 
     monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
+        "hephaion.providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
     monkeypatch.setattr(
-        "hephaistos.runtime.engine.resolve_key",
+        "hephaion.runtime.engine.resolve_key",
         lambda _slug, _env="": "sk-test-key",
     )
 

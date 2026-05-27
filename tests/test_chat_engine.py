@@ -10,8 +10,8 @@ from typing import Never, Self
 
 import pytest
 
-from hephaistos.providers.registry import ModelInfo, get_registry
-from hephaistos.runtime import (
+from hephaion.providers.registry import ModelInfo, get_registry
+from hephaion.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -19,7 +19,7 @@ from hephaistos.runtime import (
     build_client,
     missing_api_key_message,
 )
-from hephaistos.runtime import engine as runtime_engine
+from hephaion.runtime import engine as runtime_engine
 
 
 class _Span:
@@ -52,7 +52,7 @@ class _StreamingResponse:
 
 
 def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
+    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
     config = ChatConfig(
         api_key="",
         base_url="https://text.pollinations.ai/openai",
@@ -65,7 +65,7 @@ def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.Mo
 
 
 def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
+    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ChatConfig(api_key="", base_url="http://localhost/v1", model="test")
     with pytest.raises(EngineError, match="No API key found"):
@@ -80,7 +80,7 @@ def test_keyless_provider_does_not_resolve_key(monkeypatch: pytest.MonkeyPatch) 
         raise AssertionError("resolved key")
 
     monkeypatch.setattr(
-        "hephaistos.runtime.engine.resolve_key",
+        "hephaion.runtime.engine.resolve_key",
         fail_resolve,
     )
 

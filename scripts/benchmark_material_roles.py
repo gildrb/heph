@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.materials import MaterialRole, infer_material_role_from_text
+from hephaion.materials import MaterialRole, infer_material_role_from_text
 
 _MIN_DEFAULT_PASS_RATE = 1.0
 

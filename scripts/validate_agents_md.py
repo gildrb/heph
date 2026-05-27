@@ -35,7 +35,7 @@ SKIP_COMMANDS = {
 REQUIRED_TOOLS = ["uv"]
 PROJECT_RUN_TOOLS = {
     "heph",
-    "hephaistos",
+    "hephaion",
     "lint-imports",
     "pylint",
     "pytest",

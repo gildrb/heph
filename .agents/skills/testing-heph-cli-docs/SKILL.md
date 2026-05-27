@@ -41,7 +41,7 @@ Use a small Python assertion script when validating docs/model synchronization:
 ```python
 from pathlib import Path
 
-from hephaistos.cli.main import build_parser
+from hephaion.cli.main import build_parser
 from scripts import sync_docs
 
 root = Path.cwd()

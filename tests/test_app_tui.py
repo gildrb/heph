@@ -16,27 +16,27 @@ from rich.segment import Segment
 from rich.text import Text
 from textual.strip import Strip
 
-from hephaistos import tui
-from hephaistos.armory.search import KnownArmory, add_known_armory
-from hephaistos.armory.storage import initialize
-from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.session import ChatSession
-from hephaistos.parameters import settings as settings_store
-from hephaistos.providers.config import ProviderConfig, default_config
-from hephaistos.providers.registry import ModelInfo, get_registry
-from hephaistos.runtime import ChatConfig, Conversation
-from hephaistos.terminal import current_theme_name, set_theme
-from hephaistos.tui import keymap
-from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
-from hephaistos.tui.inline_flows import (
+from hephaion import tui
+from hephaion.armory.search import KnownArmory, add_known_armory
+from hephaion.armory.storage import initialize
+from hephaion.chat import storage as chat_storage
+from hephaion.chat.session import ChatSession
+from hephaion.parameters import settings as settings_store
+from hephaion.providers.config import ProviderConfig, default_config
+from hephaion.providers.registry import ModelInfo, get_registry
+from hephaion.runtime import ChatConfig, Conversation
+from hephaion.terminal import current_theme_name, set_theme
+from hephaion.tui import keymap
+from hephaion.tui.armory_browser import armory_detail, build_entries, default_armory_home
+from hephaion.tui.inline_flows import (
     _dedupe_inline_options,
     _duplicate_model_names,
     _inline_menu_option_text,
     _model_choice_from_label,
     _model_choice_label,
 )
-from hephaistos.tui.transparent import Region as _Region
-from hephaistos.tui.transparent import style_without_black_background
+from hephaion.tui.transparent import Region as _Region
+from hephaion.tui.transparent import style_without_black_background
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -135,7 +135,7 @@ def _keyless_session() -> ChatSession:
 
 def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
-        "HEPHAISTOS_API_KEY",
+        "HEPHAION_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
@@ -283,7 +283,7 @@ def test_resize_redraw_state_tracks_follow_up_frame_after_resize_spam() -> None:
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
@@ -358,7 +358,7 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
 def test_footer_command_shortcuts_share_neutral_shortcut_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
@@ -384,7 +384,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 def test_status_sidebar_and_footer_chrome_labels_share_one_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
@@ -411,7 +411,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 def test_secondary_chrome_details_share_darker_tint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.armory_path = Path.home() / ".armories" / "sample-course"
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
@@ -530,7 +530,7 @@ def test_tui_config_error_allows_openai_codex_oauth(
         session_id="session-test",
     )
     monkeypatch.setattr(
-        "hephaistos.runtime.engine.load_credentials",
+        "hephaion.runtime.engine.load_credentials",
         lambda _provider, **_kwargs: object(),
     )
 
@@ -551,7 +551,7 @@ def test_tui_config_error_names_missing_openai_codex_oauth(
         session_id="session-test",
     )
     monkeypatch.setattr(
-        "hephaistos.runtime.engine.load_credentials",
+        "hephaion.runtime.engine.load_credentials",
         lambda _provider, **_kwargs: None,
     )
 
@@ -855,7 +855,7 @@ def test_resize_preserves_armory_inline_without_duplicate_chrome(
         pytest.skip("Textual is not installed")
 
     (tmp_path / "math").mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(armory_home_shown=True),
@@ -2518,12 +2518,12 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     existing = armory_home / "exam-prep"
     initialize(existing)
     missing = armory_home / "missing"
     monkeypatch.setattr(
-        "hephaistos.tui.armory_browser.load_known_armory_entries",
+        "hephaion.tui.armory_browser.load_known_armory_entries",
         lambda: [
             KnownArmory(existing, exists=True, valid=True),
             KnownArmory(missing, exists=False, valid=False),
@@ -2548,7 +2548,7 @@ def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None
     assert "valid armory" in detail
     assert "1 material file" in detail
     assert "User files: materials/" in detail
-    assert "Internal state: .hephaistos/" in detail
+    assert "Internal state: .hephaion/" in detail
 
 
 def test_ctrl_p_opens_command_palette() -> None:
@@ -2788,11 +2788,11 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
         pytest.skip("Textual is not installed")
 
     _clear_credential_env(monkeypatch)
-    monkeypatch.setenv("HEPHAISTOS_API_KEY", "sk-global")
+    monkeypatch.setenv("HEPHAION_API_KEY", "sk-global")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
     monkeypatch.setattr(
-        "hephaistos.tui.inline_flows.oauth.list_providers",
+        "hephaion.tui.inline_flows.oauth.list_providers",
         lambda: ["openai-codex"],
     )
 
@@ -2802,8 +2802,8 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
     def fake_get_volatile(slug: str) -> str | None:
         return "sk-session" if slug == "zai" else None
 
-    monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", fake_retrieve_key)
-    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", fake_get_volatile)
+    monkeypatch.setattr("hephaion.tui.inline_flows.retrieve_key", fake_retrieve_key)
+    monkeypatch.setattr("hephaion.tui.inline_flows.get_volatile", fake_get_volatile)
 
     app = tui.HephTui(
         _plain_session(),
@@ -2839,7 +2839,7 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
             ]
             assert len(set(configured_columns)) == 1
             assert any(
-                "HEPHAISTOS_API_KEY global override" in entry.content
+                "HEPHAION_API_KEY global override" in entry.content
                 for entry in app.state.transcript
             )
             assert any(
@@ -2859,9 +2859,9 @@ def test_logout_inline_names_environment_credentials_when_none_clearable(
     _clear_credential_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
-    monkeypatch.setattr("hephaistos.tui.inline_flows.oauth.list_providers", list)
-    monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", lambda _slug: None)
-    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", lambda _slug: None)
+    monkeypatch.setattr("hephaion.tui.inline_flows.oauth.list_providers", list)
+    monkeypatch.setattr("hephaion.tui.inline_flows.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("hephaion.tui.inline_flows.get_volatile", lambda _slug: None)
 
     app = tui.HephTui(
         _plain_session(),
@@ -2895,21 +2895,21 @@ def test_logout_inline_clears_selected_credential_kind_for_duplicate_slug(
     _clear_credential_env(monkeypatch)
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
     monkeypatch.setattr(
-        "hephaistos.tui.inline_flows.oauth.list_providers",
+        "hephaion.tui.inline_flows.oauth.list_providers",
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
-        "hephaistos.tui.inline_flows.retrieve_key",
+        "hephaion.tui.inline_flows.retrieve_key",
         lambda slug: "sk-keychain" if slug == "openai-codex" else None,
     )
-    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", lambda _slug: None)
+    monkeypatch.setattr("hephaion.tui.inline_flows.get_volatile", lambda _slug: None)
     cleared_oauth: list[str] = []
     cleared_keys: list[str] = []
     monkeypatch.setattr(
-        "hephaistos.tui.inline_flows.oauth.clear_credentials",
+        "hephaion.tui.inline_flows.oauth.clear_credentials",
         cleared_oauth.append,
     )
-    monkeypatch.setattr("hephaistos.tui.inline_flows.clear_key", cleared_keys.append)
+    monkeypatch.setattr("hephaion.tui.inline_flows.clear_key", cleared_keys.append)
 
     app = tui.HephTui(
         _plain_session(),
@@ -2939,8 +2939,8 @@ def test_armory_home_text_includes_recent_armories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
-    monkeypatch.setattr("hephaistos.tui.display_text.load_known_armories", lambda: known)
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaion.tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui._armory_home_text()
 
@@ -2957,7 +2957,7 @@ def test_armory_home_text_includes_recent_armories(
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaion.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     app = tui.HephTui(
         _plain_session(),
@@ -2986,7 +2986,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     armory_home.mkdir()
     armory = armory_home / "known"
     initialize(armory)
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     add_known_armory(armory)
 
     app = tui.HephTui(
@@ -3833,7 +3833,7 @@ def test_armory_inline_composer_filters_without_chat_transcript(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     _make_child = tmp_path / "biology"
     _make_child.mkdir()
     app = tui.HephTui(
@@ -3863,7 +3863,7 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -3893,7 +3893,7 @@ def test_armory_inline_create_starts_in_default_armory_home(
         pytest.skip("Textual is not installed")
 
     default_home = Path.home() / ".armories"
-    monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
+    monkeypatch.delenv("HEPHAION_ARMORY_HOME", raising=False)
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -3910,12 +3910,12 @@ def test_armory_inline_create_starts_in_default_armory_home(
 
 
 def test_default_armory_home_honors_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armory-home"))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path / ".armory-home"))
     assert default_armory_home() == (tmp_path / ".armory-home").resolve()
 
 
 def test_default_armory_home_falls_back_to_dot_armory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
+    monkeypatch.delenv("HEPHAION_ARMORY_HOME", raising=False)
     assert default_armory_home() == (Path.home() / ".armories").resolve()
 
 
@@ -3927,7 +3927,7 @@ def test_armory_inline_place_entries_stay_inside_armory_home(
 
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -3958,7 +3958,7 @@ def test_armory_inline_left_does_not_navigate(
     armory_home = tmp_path / ".armories"
     child = armory_home / "child"
     child.mkdir(parents=True)
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -3991,7 +3991,7 @@ def test_armory_inline_rejects_open_outside_armory_home(
     outside = tmp_path / "outside"
     armory_home.mkdir()
     initialize(outside)
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -4015,7 +4015,7 @@ def test_armory_inline_create_rejects_existing_folder(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
 
     (tmp_path / "existing").mkdir()
     app = tui.HephTui(
@@ -4035,7 +4035,7 @@ def test_armory_inline_create_rejects_existing_folder(
             await pilot.pause()
             error = app.query_one("#armory-error-inline", tui.Static)
             assert "already exists" in str(error.render())
-            assert not (tmp_path / "existing" / ".hephaistos").exists()
+            assert not (tmp_path / "existing" / ".hephaion").exists()
             assert app._armory_inline_active is True
 
     asyncio.run(check_reject_existing())
@@ -4047,7 +4047,7 @@ def test_armory_inline_create_rejects_path_escape(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -4107,7 +4107,7 @@ def test_armory_inline_escape_cancels_create_then_exits(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -4284,7 +4284,7 @@ def test_armory_inline_preserves_selection_across_refresh(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     alpha = tmp_path / "alpha"
     beta = tmp_path / "beta"
     alpha.mkdir()
@@ -4390,7 +4390,7 @@ def test_handle_armory_browser_rejects_invalid_directory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -4415,7 +4415,7 @@ def test_armory_inline_enter_opens_highlighted_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "study"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
@@ -4449,7 +4449,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "study"
     initialize(armory_path)
     session = _plain_session()
@@ -4488,7 +4488,7 @@ def test_busy_turn_allows_switching_armories_and_starting_another_prompt(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     armory_a = tmp_path / "alpha"
     armory_b = tmp_path / "beta"
     initialize(armory_a)
@@ -4552,7 +4552,7 @@ def test_finished_background_turn_is_restored_when_reopening_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     armory_a = tmp_path / "alpha"
     armory_b = tmp_path / "beta"
     initialize(armory_a)
@@ -4597,7 +4597,7 @@ def test_armory_inline_marks_armories_with_running_turns(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
     armory = tmp_path / "study"
     initialize(armory)
     session = _plain_session()
@@ -5451,7 +5451,7 @@ def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPa
         return session, True
 
     monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
-    monkeypatch.setattr("hephaistos.terminal.input.handle_input", fake_handle_input)
+    monkeypatch.setattr("hephaion.terminal.input.handle_input", fake_handle_input)
 
     app._run_external_command("/priority")
 
@@ -5485,7 +5485,7 @@ def test_external_command_indents_streamed_activity_lines(
         return session, True
 
     monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
-    monkeypatch.setattr("hephaistos.terminal.input.handle_input", fake_handle_input)
+    monkeypatch.setattr("hephaion.terminal.input.handle_input", fake_handle_input)
 
     app._run_external_command("/priority")
 

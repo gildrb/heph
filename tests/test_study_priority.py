@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.rag.chunker import Chunk, ChunkedDocument
-from hephaistos.rag.index import ArmoryIndex
-from hephaistos.study.priority import (
+from hephaion.rag.chunker import Chunk, ChunkedDocument
+from hephaion.rag.index import ArmoryIndex
+from hephaion.study.priority import (
     PriorityWebSearchResult,
     analyze_priority,
     generate_priority_report,
@@ -25,7 +25,7 @@ def _chunk(source: str, text: str, index: int = 0, heading: str = "") -> Chunk:
 class _FakePdfCompiler:
     def compile(self, tex_path: Path, pdf_path: Path) -> None:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path.write_bytes(b"%PDF-1.4\n% hephaistos fake test pdf\n")
+        pdf_path.write_bytes(b"%PDF-1.4\n% hephaion fake test pdf\n")
 
 
 def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:
@@ -379,7 +379,7 @@ def test_priority_report_writes_printable_pdf_latex_from_local_evidence(tmp_path
     assert "recursion" in tex
     assert "Past-exam pattern table" in tex
     assert "Explain dynamic programming recurrence tables" in tex
-    assert "HEPHAISTOS PRIORITY" not in tex
+    assert "HEPHAION PRIORITY" not in tex
     assert "Score " not in tex
     assert "exam hits" not in tex
 

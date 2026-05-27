@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hephaistos.rag.context as rag_context_module
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.context import build_context, build_turn_evidence, estimate_tokens
-from hephaistos.rag.retrieve import ScoredChunk
+import hephaion.rag.context as rag_context_module
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import build_context, build_turn_evidence, estimate_tokens
+from hephaion.rag.retrieve import ScoredChunk
 
 
 def _make_scored(text: str, source: str = "test.md", score: float = 1.0) -> ScoredChunk:

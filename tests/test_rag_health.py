@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.rag.health import scan_extraction_health
+from hephaion.rag.health import scan_extraction_health
 
 
 def _write_material(path: Path, text: str) -> None:

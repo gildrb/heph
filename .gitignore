@@ -73,7 +73,7 @@ benchmarks/
 
 # Project-specific
 /*-armory/
-**/.hephaistos/
+**/.hephaion/
 
 # Autoresearch (local experiment state, not for upload)
 autoresearch.md

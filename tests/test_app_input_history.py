@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaistos.terminal.history import InputHistory
+from hephaion.terminal.history import InputHistory
 
 
 def test_add_trims_skips_blank_and_skips_consecutive_duplicates() -> None:

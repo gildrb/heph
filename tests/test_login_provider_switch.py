@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-import hephaistos.commands.auth as _commands_auth
-from hephaistos import commands
-from hephaistos.chat.session import ChatSession
-from hephaistos.providers.config import ProviderConfig
-from hephaistos.providers.oauth import OAuthCredentials
-from hephaistos.runtime import ChatConfig, Conversation
+import hephaion.commands.auth as _commands_auth
+from hephaion import commands
+from hephaion.chat.session import ChatSession
+from hephaion.providers.config import ProviderConfig
+from hephaion.providers.oauth import OAuthCredentials
+from hephaion.runtime import ChatConfig, Conversation
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -41,11 +41,11 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.login_openai_codex",
+        "hephaion.providers.oauth.login_openai_codex",
         lambda: fake_creds,
     )
     monkeypatch.setattr(
-        "hephaistos.providers.keyring_store.set_volatile",
+        "hephaion.providers.keyring_store.set_volatile",
         lambda _slug, _key: None,
     )
 
@@ -200,7 +200,7 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.login_openai_codex",
+        "hephaion.providers.oauth.login_openai_codex",
         lambda: (_ for _ in ()).throw(RuntimeError("OAuth failed")),
     )
 
@@ -258,7 +258,7 @@ def test_login_openai_codex_generic_failure_is_reported(monkeypatch: pytest.Monk
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "hephaistos.providers.oauth.login_openai_codex",
+        "hephaion.providers.oauth.login_openai_codex",
         lambda: (_ for _ in ()).throw(ValueError("boom")),
     )
     monkeypatch.setattr(_commands_auth, "print_error", errors.append)
@@ -327,8 +327,8 @@ def test_login_api_key_falls_back_to_volatile_storage(monkeypatch: pytest.Monkey
 def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[str] = []
 
-    monkeypatch.setattr("hephaistos.providers.oauth.list_providers", list)
-    monkeypatch.setattr("hephaistos.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("hephaion.providers.oauth.list_providers", list)
+    monkeypatch.setattr("hephaion.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "get_volatile", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -341,8 +341,8 @@ def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyP
 def test_logout_single_provider_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[str] = []
 
-    monkeypatch.setattr("hephaistos.providers.oauth.list_providers", lambda: ["openai-codex"])
-    monkeypatch.setattr("hephaistos.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("hephaion.providers.oauth.list_providers", lambda: ["openai-codex"])
+    monkeypatch.setattr("hephaion.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "confirm", lambda *_a, **_kw: False)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)
 

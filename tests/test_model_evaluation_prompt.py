@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 
-from hephaistos.armory.storage import initialize
+from hephaion.armory.storage import initialize
 from scripts import run_external_benchmarks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,7 +61,7 @@ def _make_suite(root: Path) -> Path:
 def test_model_evaluation_prompt_defines_identity_and_protocol_sections() -> None:
     text = _prompt_text()
 
-    assert "Prompt-ID: hephaistos-benchmark-evaluation" in text
+    assert "Prompt-ID: hephaion-benchmark-evaluation" in text
     assert "Prompt-Version:" in text
     assert "## Evaluation Protocol" in text
     assert "## Required Inputs" in text

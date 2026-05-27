@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.cli.main import build_parser, run_argv
+from hephaion.armory.storage import initialize
+from hephaion.cli.main import build_parser, run_argv
 
 
 def _make_armory(tmp_path: Path) -> Path:
@@ -132,7 +132,7 @@ def test_source_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture
     assert "Indexed" in out
     assert "documents" in out
     assert "chunks" in out
-    assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
+    assert (armory_path / ".hephaion" / "rag_index.json").is_file()
 
 
 def test_materials_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -145,7 +145,7 @@ def test_materials_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "Indexed" in out
     assert "documents" in out
     assert "chunks" in out
-    assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
+    assert (armory_path / ".hephaion" / "rag_index.json").is_file()
 
 
 def test_source_index_fails_for_invalid_armory(
@@ -182,7 +182,7 @@ def test_source_list_respects_armory_ignore(
 ) -> None:
     armory_path = tmp_path / "ignored-armory"
     initialize(armory_path)
-    (armory_path / ".hephaistosignore").write_text("materials/ignored.md\nmaterials/private/\n")
+    (armory_path / ".hephaionignore").write_text("materials/ignored.md\nmaterials/private/\n")
     (armory_path / "materials" / "visible.md").write_text("# Visible\n")
     (armory_path / "materials" / "ignored.md").write_text("# Ignored\n")
     private = armory_path / "materials" / "private"

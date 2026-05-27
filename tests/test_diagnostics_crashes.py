@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from hephaistos.diagnostics.crashes import (
+from hephaion.diagnostics.crashes import (
     _REDACTED,
     _parse_sentry_dsn,
     _scrub_value,

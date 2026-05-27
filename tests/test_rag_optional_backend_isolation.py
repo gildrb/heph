@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.rag import chunker, optional_backends
+from hephaion.rag import chunker, optional_backends
 
 
 def test_default_tests_pin_optional_rag_backends_off() -> None:

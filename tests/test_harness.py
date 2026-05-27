@@ -9,16 +9,16 @@ from pathlib import Path
 import pytest
 from conftest import message_text
 
-import hephaistos.agent.dispatch as dispatch_mod
-import hephaistos.agent.model_stream as model_stream_mod
-from hephaistos.agent.dispatch import summarize_result
-from hephaistos.agent.tool_execution import (
+import hephaion.agent.dispatch as dispatch_mod
+import hephaion.agent.model_stream as model_stream_mod
+from hephaion.agent.dispatch import summarize_result
+from hephaion.agent.tool_execution import (
     ToolCall,
     execute_tool_calls,
     format_tool_args,
     merge_tool_call_deltas,
 )
-from hephaistos.agent.tools import (
+from hephaion.agent.tools import (
     TOOL_SCHEMAS,
     get_handler,
     run_bash,
@@ -29,7 +29,7 @@ from hephaistos.agent.tools import (
     run_write_file,
     safe_path,
 )
-from hephaistos.chat.events import (
+from hephaion.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
     NoticeEvent,
@@ -37,7 +37,7 @@ from hephaistos.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from hephaistos.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
+from hephaion.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 
 # ---------------------------------------------------------------------------
 # safe_path
@@ -191,7 +191,7 @@ class TestSearchFiles:
         assert 'print("hello")' in result
 
     def test_search_skips_hidden_and_binary_document_files(self, workspace: Path) -> None:
-        hidden_dir = workspace / ".hephaistos"
+        hidden_dir = workspace / ".hephaion"
         hidden_dir.mkdir()
         (hidden_dir / "trace.txt").write_text("needle\n")
         (workspace / "slides.pdf").write_text("needle\n")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
+from hephaion.armory.storage import initialize
 from scripts import (
     benchmark_material_roles,
     benchmark_rag,
@@ -159,7 +159,7 @@ def test_public_academic_case_generation_rejects_missing_provenance(
     tmp_path: Path,
 ) -> None:
     manifest, armory = _write_public_academic_fixture(tmp_path)
-    (armory / ".hephaistos" / "public_corpus_provenance.json").unlink()
+    (armory / ".hephaion" / "public_corpus_provenance.json").unlink()
 
     with pytest.raises(ValueError, match="public corpus provenance metadata is missing"):
         generate_public_academic_benchmark_cases.generate_cases(
@@ -356,7 +356,7 @@ def _write_public_academic_fixture(tmp_path: Path) -> tuple[Path, Path]:
             }
         )
         del document["_body"]
-    (armory / ".hephaistos" / "public_corpus_provenance.json").write_text(
+    (armory / ".hephaion" / "public_corpus_provenance.json").write_text(
         json.dumps(
             {
                 "schema_version": 1,

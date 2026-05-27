@@ -5,12 +5,12 @@ from typing import Self
 
 import pytest
 
-from hephaistos.providers import catalog
-from hephaistos.providers.catalog import LiveProviderCatalog
-from hephaistos.providers.config import default_config
-from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
-from hephaistos.providers.reasoning import reasoning_levels_for_model
-from hephaistos.providers.registry import ModelInfo, get_registry
+from hephaion.providers import catalog
+from hephaion.providers.catalog import LiveProviderCatalog
+from hephaion.providers.config import default_config
+from hephaion.providers.model_choices import configured_model_choices, model_picker_columns
+from hephaion.providers.reasoning import reasoning_levels_for_model
+from hephaion.providers.registry import ModelInfo, get_registry
 
 
 def _openrouter_live_catalog() -> LiveProviderCatalog:
@@ -81,7 +81,7 @@ def test_model_picker_columns_use_readable_labels() -> None:
 def test_configured_choices_uses_cached_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(
@@ -106,7 +106,7 @@ def test_configured_choices_uses_cached_openrouter_live_catalog(
 def test_configured_choices_schedules_refresh_without_waiting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     scheduled: list[str] = []
@@ -132,7 +132,7 @@ def test_configured_choices_schedules_refresh_without_waiting(
 def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
     monkeypatch.setattr(
         catalog,
@@ -158,7 +158,7 @@ def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
 def test_live_catalog_failure_keeps_static_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
 
     def fail_fetch(_endpoint: str) -> LiveProviderCatalog:
@@ -180,7 +180,7 @@ def test_live_catalog_failure_keeps_static_models(
 def test_hydrate_provider_models_resets_invalid_current_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     config = default_config()
     provider = config.providers["openrouter"]
     provider.current_model = "stale-model"
@@ -295,7 +295,7 @@ def test_fetch_openrouter_catalog_parses_models(monkeypatch: pytest.MonkeyPatch)
 def test_models_dev_metadata_registers_openai_xhigh_and_non_openai_standard_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
     monkeypatch.setattr(catalog, "_models_dev_cache_fresh", lambda: False)
     payload = {

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from hephaistos.runtime import ChatConfig
+from hephaion.runtime import ChatConfig
 from scripts import replay_answer_benchmark, run_replay_answer_eval
 
 

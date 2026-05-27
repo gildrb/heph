@@ -10,11 +10,11 @@ import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
-from hephaistos.agent.dispatch import iter_agent_events
-from hephaistos.chat.events import AssistantDeltaEvent, render_turn_event
-from hephaistos.chat.orchestrator import TurnOrchestrator
-from hephaistos.chat.session import ChatSession, send_user_message
-from hephaistos.runtime import (
+from hephaion.agent.dispatch import iter_agent_events
+from hephaion.chat.events import AssistantDeltaEvent, render_turn_event
+from hephaion.chat.orchestrator import TurnOrchestrator
+from hephaion.chat.session import ChatSession, send_user_message
+from hephaion.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -22,7 +22,7 @@ from hephaistos.runtime import (
     StreamRecoveryError,
     stream_reply,
 )
-from hephaistos.runtime.engine import _wait_backoff, get_reply, is_retryable_error
+from hephaion.runtime.engine import _wait_backoff, get_reply, is_retryable_error
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -242,7 +242,7 @@ class TestStreamReplyRetry:
         mock_client.chat.completions.create.return_value = iter(chunks)
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Hi ", "there"]
@@ -259,7 +259,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Recovered"]
@@ -276,7 +276,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["OK"]
@@ -288,7 +288,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -303,7 +303,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -317,7 +317,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -336,7 +336,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -354,7 +354,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -372,7 +372,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Retry OK"]
@@ -384,7 +384,7 @@ class TestStreamReplyRetry:
         abort.set()
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), abort=abort, retry=retry))
 
         assert result == []
@@ -400,7 +400,7 @@ class TestStreamReplyRetry:
         threading.Timer(0.01, abort.set).start()
 
         retry = RetryConfig(max_retries=5, base_delay=10.0, max_delay=30.0)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), abort=abort, retry=retry))
 
         assert result == []
@@ -415,7 +415,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM stream failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -436,7 +436,7 @@ class TestGetReply:
         mock_client.chat.completions.create.return_value = iter(chunks)
 
         retry = RetryConfig(max_retries=0, base_delay=0.01)
-        with patch("hephaistos.runtime.engine.build_client", return_value=mock_client):
+        with patch("hephaion.runtime.engine.build_client", return_value=mock_client):
             result = get_reply(_config(), _conv(), retry=retry)
 
         assert result == "Hello world"
@@ -447,7 +447,7 @@ class TestGetReply:
 
         retry = RetryConfig(max_retries=0, base_delay=0.01)
         with (
-            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            patch("hephaion.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             get_reply(_config(), _conv(), retry=retry)
@@ -476,11 +476,11 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "hephaistos.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                "hephaion.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
                 return_value=MagicMock(),
             ),
             patch(
-                "hephaistos.chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "hephaion.chat.orchestrator.TurnOrchestrator._iter_learning_events",
                 side_effect=EngineError("boom"),
             ),
             pytest.raises(EngineError),
@@ -506,11 +506,11 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "hephaistos.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                "hephaion.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
                 return_value=MagicMock(),
             ),
             patch(
-                "hephaistos.chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "hephaion.chat.orchestrator.TurnOrchestrator._iter_learning_events",
                 side_effect=StreamRecoveryError("Partial reply"),
             ),
             pytest.raises(StreamRecoveryError) as exc_info,
@@ -548,7 +548,7 @@ class TestConversationConsistency:
             yield AssistantDeltaEvent("Hello!")
 
         with patch(
-            "hephaistos.chat.orchestrator.TurnOrchestrator.iter_events",
+            "hephaion.chat.orchestrator.TurnOrchestrator.iter_events",
             fake_iter_events,
         ):
             result = send_user_message(session, "Hi")
@@ -584,7 +584,7 @@ class TestConversationConsistency:
             yield AssistantDeltaEvent("Hello!")
 
         with patch(
-            "hephaistos.chat.orchestrator.TurnOrchestrator.iter_events",
+            "hephaion.chat.orchestrator.TurnOrchestrator.iter_events",
             fake_iter_events,
         ):
             result = send_user_message(session, "Hi", reply_prefix="Assistant: ")
@@ -609,7 +609,7 @@ class TestAgentLoopRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("hephaistos.agent.model_stream.build_client", return_value=mock_client):
+        with patch("hephaion.agent.model_stream.build_client", return_value=mock_client):
             events = list(
                 iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry)
             )
@@ -626,7 +626,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("hephaistos.agent.model_stream.build_client", return_value=mock_client),
+            patch("hephaion.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))
@@ -640,7 +640,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
         with (
-            patch("hephaistos.agent.model_stream.build_client", return_value=mock_client),
+            patch("hephaion.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))

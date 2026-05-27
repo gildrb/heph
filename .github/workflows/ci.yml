@@ -136,7 +136,7 @@ jobs:
       - name: Bandit
         run: |
           start=$(date +%s%N)
-          uv run bandit -r hephaistos -c pyproject.toml
+          uv run bandit -r hephaion -c pyproject.toml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -161,7 +161,7 @@ jobs:
       - name: Vulture
         run: |
           start=$(date +%s%N)
-          uv run vulture hephaistos tests vulture-whitelist.py
+          uv run vulture hephaion tests vulture-whitelist.py
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| dead-code vulture | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -186,7 +186,7 @@ jobs:
       - name: Pylint duplicate-code
         run: |
           start=$(date +%s%N)
-          uv run pylint --disable=all --enable=duplicate-code hephaistos
+          uv run pylint --disable=all --enable=duplicate-code hephaion
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| duplicate-code pylint | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -359,7 +359,7 @@ jobs:
       - name: Deptry
         run: |
           start=$(date +%s%N)
-          uv run deptry hephaistos
+          uv run deptry hephaion
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| unused-deps deptry | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -384,7 +384,7 @@ jobs:
       - name: Radon complexity check
         run: |
           start=$(date +%s%N)
-          uv run radon cc hephaistos -a -nc --total-average
+          uv run radon cc hephaion -a -nc --total-average
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| complexity radon | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -464,7 +464,7 @@ jobs:
         run: |
           mkdir -p .artifacts
           start=$(date +%s%N)
-          FINDINGS=$(uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
+          FINDINGS=$(uv run bandit -r hephaion -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
           echo "$FINDINGS" | tee .artifacts/security-findings.txt
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))

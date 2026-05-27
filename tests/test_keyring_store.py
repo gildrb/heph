@@ -8,7 +8,7 @@ import keyring
 import pytest
 from keyring.errors import KeyringError
 
-from hephaistos.providers.keyring_store import (
+from hephaion.providers.keyring_store import (
     _SERVICE_PREFIX,
     _USERNAME,
     _keychain_cache,
@@ -22,7 +22,7 @@ from hephaistos.providers.keyring_store import (
 )
 
 # Use a unique test prefix to avoid colliding with real keys
-_TEST_SLUG = "__test_hephaistos_unit__"
+_TEST_SLUG = "__test_hephaion_unit__"
 
 
 @pytest.fixture(autouse=True)

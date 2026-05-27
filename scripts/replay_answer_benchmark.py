@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos.chat.automation import iter_chat_events
-from hephaistos.chat.events import AssistantDeltaEvent
-from hephaistos.chat.session import create_session
-from hephaistos.rag import TurnEvidence
-from hephaistos.runtime import ChatConfig
+from hephaion.chat.automation import iter_chat_events
+from hephaion.chat.events import AssistantDeltaEvent
+from hephaion.chat.session import create_session
+from hephaion.rag import TurnEvidence
+from hephaion.runtime import ChatConfig
 
 
 class RawReplayCase(TypedDict):

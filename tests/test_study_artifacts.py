@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from hephaistos.study.artifacts import (
+from hephaion.study.artifacts import (
     LearningArtifact,
     LearningArtifactDifficulty,
     LearningArtifactKind,
@@ -16,7 +16,7 @@ from hephaistos.study.artifacts import (
     validate_learning_artifact,
     validate_learning_artifacts,
 )
-from hephaistos.study.state import RecallRating
+from hephaion.study.state import RecallRating
 
 SOURCE_REF = "materials/lecture.md#chunk=2"
 SOURCE_TEXT = (

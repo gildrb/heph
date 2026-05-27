@@ -17,15 +17,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaistos._types import is_string_mapping, parse_json_object_fragment
-from hephaistos.agent.citation import verify_citations, verify_response
-from hephaistos.chat.automation import iter_chat_events
-from hephaistos.chat.compaction import compact_session
-from hephaistos.chat.events import AssistantDeltaEvent, TurnCompleteEvent
-from hephaistos.chat.evidence import build_turn_evidence_from_refs
-from hephaistos.chat.session import ChatSession, create_session, resume_session, save_session
-from hephaistos.rag import EvidenceChunk, TurnEvidence
-from hephaistos.runtime import ChatConfig, Conversation, EngineError, stream_reply
+from hephaion._types import is_string_mapping, parse_json_object_fragment
+from hephaion.agent.citation import verify_citations, verify_response
+from hephaion.chat.automation import iter_chat_events
+from hephaion.chat.compaction import compact_session
+from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
+from hephaion.chat.evidence import build_turn_evidence_from_refs
+from hephaion.chat.session import ChatSession, create_session, resume_session, save_session
+from hephaion.rag import EvidenceChunk, TurnEvidence
+from hephaion.runtime import ChatConfig, Conversation, EngineError, stream_reply
 from scripts.create_chat_reliability_fixture import (
     DEFAULT_SEED_PREFIX,
     create_fixture_armories,

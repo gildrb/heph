@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
-from hephaistos.armory import storage
+from hephaion.armory import storage
 
 _ALLOWED_URL_SCHEMES = frozenset({"https"})
 _DOWNLOAD_TIMEOUT_SECONDS = 60
@@ -372,7 +372,7 @@ def _request_validated_https_address(
             skip_accept_encoding=True,
         )
         connection.putheader("Host", _host_header(validated.parsed))
-        connection.putheader("User-Agent", "hephaistos-benchmark/1")
+        connection.putheader("User-Agent", "hephaion-benchmark/1")
         connection.putheader("Accept", "*/*")
         connection.putheader("Accept-Encoding", "identity")
         connection.putheader("Connection", "close")

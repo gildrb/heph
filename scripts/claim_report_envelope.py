@@ -53,7 +53,7 @@ _REQUIRED_ENVIRONMENT_FIELDS = (
     "background_load_assumption",
 )
 _DEPENDENCY_DISTRIBUTIONS = (
-    "hephaistos",
+    "hephaion",
     "bm25s",
     "sentence-transformers",
     "scikit-learn",

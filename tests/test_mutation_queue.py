@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.agent.mutation_queue import FileMutationQueue, get_queue
+from hephaion.agent.mutation_queue import FileMutationQueue, get_queue
 
 
 class TestFileMutationQueue:

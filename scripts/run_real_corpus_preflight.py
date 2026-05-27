@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from hephaistos.materials import MaterialRole, material_manifest
+from hephaion.materials import MaterialRole, material_manifest
 from scripts import benchmark_document_understanding, validate_benchmark_manifest
 
 DEFAULT_MIN_DOCUMENTS = 40
@@ -217,16 +217,16 @@ class _IndexFileTimeoutEnv:
     def __enter__(self) -> None:
         if self._seconds <= 0:
             return
-        self._previous = os.environ.get("HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS")
-        os.environ["HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"] = str(self._seconds)
+        self._previous = os.environ.get("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS")
+        os.environ["HEPHAION_INDEX_FILE_TIMEOUT_SECONDS"] = str(self._seconds)
 
     def __exit__(self, *_exc: object) -> None:
         if self._seconds <= 0:
             return
         if self._previous is None:
-            os.environ.pop("HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS", None)
+            os.environ.pop("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", None)
         else:
-            os.environ["HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"] = self._previous
+            os.environ["HEPHAION_INDEX_FILE_TIMEOUT_SECONDS"] = self._previous
 
 
 def _manifest_sources(manifest_path: Path) -> set[str]:

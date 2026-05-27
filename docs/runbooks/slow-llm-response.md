@@ -15,7 +15,7 @@ identify the bottleneck.
 
 3. **Check logs** — each LLM request logs latency:
    ```
-   hephaistos.runtime.engine: stream_completion complete  model=gpt-5.4 latency_ms=1234
+   hephaion.runtime.engine: stream_completion complete  model=gpt-5.4 latency_ms=1234
    ```
 
 ## Profiling
@@ -27,12 +27,12 @@ Run the CLI with the `--profile` flag to generate a CPU profile:
 ```bash
 uv run heph --profile
 # ... interact with the CLI ...
-# Profile saved to ~/.cache/hephaistos/profiles/<timestamp>.prof on exit
+# Profile saved to ~/.cache/hephaion/profiles/<timestamp>.prof on exit
 ```
 
 Analyze the profile:
 ```bash
-python -m pstats ~/.cache/hephaistos/profiles/<timestamp>.prof
+python -m pstats ~/.cache/hephaion/profiles/<timestamp>.prof
 ```
 
 ### Memory Profiling with tracemalloc
@@ -50,7 +50,7 @@ For flame graphs without modifying the runtime:
 
 ```bash
 # Install py-spy (already in dev dependencies)
-uv run py-spy record -o profile.svg -- python -m hephaistos
+uv run py-spy record -o profile.svg -- python -m hephaion
 ```
 
 ## Common Causes
@@ -65,7 +65,7 @@ uv run py-spy record -o profile.svg -- python -m hephaistos
 ## Local Trace Files
 
 If the session is attached to an armory, inspect
-`<armory>/.hephaistos/traces/<session_id>.jsonl` for:
+`<armory>/.hephaion/traces/<session_id>.jsonl` for:
 - request timing and retrieval latency
 - tool-call timing
 - the sequence of user and assistant turns leading up to the slowdown

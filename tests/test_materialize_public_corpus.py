@@ -503,7 +503,7 @@ def test_materialize_corpus_writes_offline_provenance_metadata(
 
     report = materialize_public_corpus.materialize_corpus(manifest, armory)
 
-    provenance_path = armory / ".hephaistos" / "public_corpus_provenance.json"
+    provenance_path = armory / ".hephaion" / "public_corpus_provenance.json"
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     document = report.documents[0]
     assert report.status == 0
@@ -556,4 +556,4 @@ def test_materialize_corpus_failure_is_not_benchmark_ready(
     assert report.benchmark_ready is False
     assert report.provenance_path == ""
     assert "sha256 mismatch" in report.failures[0]
-    assert not (armory / ".hephaistos" / "public_corpus_provenance.json").exists()
+    assert not (armory / ".hephaion" / "public_corpus_provenance.json").exists()

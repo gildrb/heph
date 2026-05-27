@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.rag import index as rag_index
-from hephaistos.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
-from hephaistos.rag.index import (
+from hephaion.rag import index as rag_index
+from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
+from hephaion.rag.index import (
     ArmoryIndex,
     _documents_digest,
     build_index,
@@ -27,7 +27,7 @@ def armory(tmp_path: Path) -> Path:
     """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
     (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaistos").mkdir(parents=True)
+    (arm / ".hephaion").mkdir(parents=True)
 
     (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"
@@ -87,7 +87,7 @@ def test_cache_signing_key_uses_private_permissions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     key_path = tmp_path / "config" / "rag_cache.key"
-    monkeypatch.setenv("HEPHAISTOS_RAG_CACHE_KEY_FILE", str(key_path))
+    monkeypatch.setenv("HEPHAION_RAG_CACHE_KEY_FILE", str(key_path))
 
     key = rag_index._cache_signing_key()
 
@@ -127,7 +127,7 @@ class TestArmoryIndexBuild:
     ) -> None:
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir()
+        (arm / ".hephaion").mkdir()
         pdf = arm / "materials" / "slow.pdf"
         pdf.write_bytes(b"%PDF-1.4\n\x00")
 
@@ -138,9 +138,9 @@ class TestArmoryIndexBuild:
                 return None
             return None
 
-        monkeypatch.setenv("HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS", "1")
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", slow_chunk_file)
+        monkeypatch.setenv("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", "1")
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", slow_chunk_file)
         index = ArmoryIndex(arm)
 
         index.build()
@@ -192,7 +192,7 @@ class TestArmoryIndexPersist:
         def fail_chunk_file(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("load must not rebuild chunks")
 
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", fail_chunk_file)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", fail_chunk_file)
 
         loaded = ArmoryIndex(armory)
         assert loaded.load()
@@ -217,7 +217,7 @@ class TestArmoryIndexPersist:
         assert not index.load()
 
     def test_load_corrupt_returns_false(self, armory: Path) -> None:
-        index_file = armory / ".hephaistos" / "rag_index.json"
+        index_file = armory / ".hephaion" / "rag_index.json"
         index_file.parent.mkdir(parents=True, exist_ok=True)
         index_file.write_text("not valid json{{{")
 
@@ -231,14 +231,14 @@ class TestArmoryIndexPersist:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv(
-            "HEPHAISTOS_RAG_CACHE_KEY_FILE",
+            "HEPHAION_RAG_CACHE_KEY_FILE",
             str(tmp_path / "config" / "rag_cache.key"),
         )
-        monkeypatch.setenv("HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
+        monkeypatch.setenv("HEPHAION_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
         index = ArmoryIndex(armory)
         index.build()
         index.save()
-        index_file = armory / ".hephaistos" / "rag_index.json"
+        index_file = armory / ".hephaion" / "rag_index.json"
         data = json.loads(index_file.read_text(encoding="utf-8"))
         data["documents"][0]["chunks"][0]["text"] = "hidden forged theorem"
         index_file.write_text(json.dumps(data), encoding="utf-8")
@@ -281,7 +281,7 @@ class TestArmoryIndexStaleness:
     ) -> None:
         index = ArmoryIndex(armory)
         index.build()
-        monkeypatch.setenv("HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
+        monkeypatch.setenv("HEPHAION_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT", "0")
 
         (armory / "materials" / "python.md").write_text("# Changed content\n")
 
@@ -305,7 +305,7 @@ class TestArmoryIndexStaleness:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
 
         index = ArmoryIndex(armory)
@@ -325,13 +325,13 @@ class TestArmoryIndexStaleness:
     ) -> None:
         pdf = armory / "materials" / "scan.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
 
         index = ArmoryIndex(armory)
         index.build()
         assert not index.is_stale()
 
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: True)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: True)
 
         assert index.is_stale()
 
@@ -344,7 +344,7 @@ class TestBuildIndex:
 
     def test_build_index_persists(self, armory: Path) -> None:
         build_index(armory)
-        assert (armory / ".hephaistos" / "rag_index.json").exists()
+        assert (armory / ".hephaion" / "rag_index.json").exists()
 
 
 class TestLoadOrBuild:
@@ -461,7 +461,7 @@ class TestLoadOrBuild:
 
     def test_rebuilds_poisoned_cached_chunks(self, armory: Path) -> None:
         build_index(armory)
-        index_path = armory / ".hephaistos" / "rag_index.json"
+        index_path = armory / ".hephaion" / "rag_index.json"
         data = json.loads(index_path.read_text())
         data["documents"][0]["chunks"][0]["text"] = "hidden poisoned evidence"
         data["documents_digest"] = _documents_digest(data["documents"])
@@ -476,15 +476,15 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
+        (arm / ".hephaion" / "rag_index.json").write_text(
             json.dumps(
                 {
                     "version": 6,
@@ -509,11 +509,11 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -540,11 +540,11 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -571,10 +571,10 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -595,7 +595,7 @@ class TestLoadOrBuild:
                 ],
             }
         ]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
+        (arm / ".hephaion" / "rag_index.json").write_text(
             json.dumps(
                 {
                     "version": 6,
@@ -619,11 +619,11 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -650,11 +650,11 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -681,10 +681,10 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00old theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
@@ -711,14 +711,14 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
+        (arm / ".hephaion" / "rag_index.json").write_text(
             json.dumps(
                 {
                     "version": 6,
@@ -757,7 +757,7 @@ class TestLoadOrBuild:
                 ],
             )
 
-        monkeypatch.setattr("hephaistos.rag.index.chunk_file", fake_chunk_file)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", fake_chunk_file)
 
         index = load_or_build(arm)
 
@@ -775,7 +775,7 @@ class TestArmoryIndexSkips:
         assert "materials/.hidden.md" not in sources
 
     def test_skips_armory_ignore_patterns(self, armory: Path) -> None:
-        (armory / ".hephaistosignore").write_text("materials/ignored.md\nmaterials/private/\n")
+        (armory / ".hephaionignore").write_text("materials/ignored.md\nmaterials/private/\n")
         (armory / "materials" / "ignored.md").write_text("ignored content\n")
         private = armory / "materials" / "private"
         private.mkdir()
@@ -832,7 +832,7 @@ class TestArmoryIndexSkips:
     def test_handles_empty_dirs(self, tmp_path: Path) -> None:
         arm = tmp_path / "empty-armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         index = ArmoryIndex(arm)
         index.build()
@@ -929,7 +929,7 @@ class TestArmoryIndexStrategy:
         index.save()
 
         # Manually downgrade to v1 format (strip heading fields)
-        index_path = armory / ".hephaistos" / "rag_index.json"
+        index_path = armory / ".hephaion" / "rag_index.json"
         data = json.loads(index_path.read_text())
         data["version"] = 1
         for doc in data["documents"]:
@@ -952,7 +952,7 @@ class TestArmoryIndexStrategy:
         index.build()
         index.save()
 
-        index_path = armory / ".hephaistos" / "rag_index.json"
+        index_path = armory / ".hephaion" / "rag_index.json"
         data = json.loads(index_path.read_text())
         for document in data["documents"]:
             if document["source"] == "materials/python.md":
@@ -981,7 +981,7 @@ class TestArmoryIndexUnindexable:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -998,7 +998,7 @@ class TestArmoryIndexUnindexable:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -1017,11 +1017,11 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         (arm / "materials" / "notes.md").write_text("# Notes")
         (arm / "materials" / "slides.pdf").write_bytes(b"%PDF-1.4\x00fake")
 
@@ -1034,11 +1034,11 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: True)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: True)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         (arm / "materials" / "slides.pdf").write_bytes(b"%PDF-1.4\x00fake")
 
         assert scan_unindexable_files(arm) == {}
@@ -1046,7 +1046,7 @@ class TestScanUnindexableFiles:
     def test_returns_empty_when_all_text(self, tmp_path: Path) -> None:
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         (arm / "materials" / "notes.md").write_text("# Notes")
 
         assert scan_unindexable_files(arm) == {}
@@ -1054,7 +1054,7 @@ class TestScanUnindexableFiles:
     def test_skips_symlinked_unindexable_materials(self, tmp_path: Path) -> None:
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
         outside = tmp_path / "secret.pdf"
         outside.write_bytes(b"%PDF-1.4\x00outside")
         link = arm / "materials" / "linked.pdf"
@@ -1070,11 +1070,11 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials" / "private").mkdir(parents=True)
-        (arm / ".hephaistos").mkdir(parents=True)
-        (arm / ".hephaistosignore").write_text("materials/private/\n", encoding="utf-8")
+        (arm / ".hephaion").mkdir(parents=True)
+        (arm / ".hephaionignore").write_text("materials/private/\n", encoding="utf-8")
         (arm / "materials" / "private" / "secret.pdf").write_bytes(b"%PDF-1.4\x00secret")
         (arm / "materials" / "public.pdf").write_bytes(b"%PDF-1.4\x00public")
 
@@ -1085,6 +1085,6 @@ class TestScanUnindexableFiles:
 
     def test_returns_empty_when_no_materials_dir(self, tmp_path: Path) -> None:
         arm = tmp_path / "armory"
-        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaion").mkdir(parents=True)
 
         assert scan_unindexable_files(arm) == {}

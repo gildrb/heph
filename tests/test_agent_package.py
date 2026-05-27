@@ -1,4 +1,4 @@
-"""Tests that the new hephaistos.agent package imports resolve correctly.
+"""Tests that the new hephaion.agent package imports resolve correctly.
 
 These verify the structural correctness of the agent/ package created
 from the former harness/ modules.
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 
-import hephaistos.agent as agent_pkg
-from hephaistos.agent import (
+import hephaion.agent as agent_pkg
+from hephaion.agent import (
     citation,
     compact,
     dispatch,
@@ -21,7 +21,7 @@ from hephaistos.agent import (
 
 
 class TestAgentPackageImports:
-    """Verify every module in hephaistos.agent is importable."""
+    """Verify every module in hephaion.agent is importable."""
 
     def test_import_dispatch(self) -> None:
         assert hasattr(dispatch, "iter_agent_events")
@@ -68,6 +68,6 @@ class TestNoHarnessReferences:
 
     def test_no_harness_imports_in_source(self) -> None:
         """This is a structural test — it will pass once harness/ is deleted."""
-        spec = importlib.util.find_spec("hephaistos.harness")
+        spec = importlib.util.find_spec("hephaion.harness")
         # After harness/ is deleted, this should be None
-        assert spec is None, "hephaistos.harness package still exists"
+        assert spec is None, "hephaion.harness package still exists"

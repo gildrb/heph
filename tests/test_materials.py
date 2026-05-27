@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.materials import (
+from hephaion.armory.storage import initialize
+from hephaion.materials import (
     count_material_files,
     infer_material_role,
     infer_material_role_from_text,
@@ -25,7 +25,7 @@ def test_iter_material_files_discovers_materials(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
     (armory / "materials" / "exam.md").write_text("# Exam\n", encoding="utf-8")
     (armory / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
-    (armory / ".hephaistos" / "generated" / "draft.md").write_text("# Draft\n", encoding="utf-8")
+    (armory / ".hephaion" / "generated" / "draft.md").write_text("# Draft\n", encoding="utf-8")
 
     rels = [str(path.relative_to(armory)) for path in iter_material_files(armory)]
 
@@ -58,7 +58,7 @@ def test_hidden_files_are_skipped(tmp_path: Path) -> None:
 
 def test_armory_ignore_is_respected(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
-    (armory / ".hephaistosignore").write_text(
+    (armory / ".hephaionignore").write_text(
         "materials/ignored.md\nmaterials/private/\n",
         encoding="utf-8",
     )
@@ -111,7 +111,7 @@ def test_empty_armory_has_no_materials(tmp_path: Path) -> None:
 
 def test_material_kind_from_relative_path() -> None:
     assert material_kind("materials/exam.md") == "materials"
-    assert material_kind(".hephaistos/generated/ref.md") is None
+    assert material_kind(".hephaion/generated/ref.md") is None
 
 
 def test_infer_material_role_uses_path_hints() -> None:

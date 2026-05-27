@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from hephaistos.runtime import ContentPart
-from hephaistos.runtime.messages import api_content_text, message_content_text
+from hephaion.runtime import ContentPart
+from hephaion.runtime.messages import api_content_text, message_content_text
 
 
 def test_api_content_text_preserves_agent_part_concatenation() -> None:

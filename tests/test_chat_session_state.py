@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
-from hephaistos.chat.turn_contract import (
+from hephaion.armory.storage import initialize
+from hephaion.chat.session import SessionError, create_session, resume_session, save_session
+from hephaion.chat.turn_contract import (
     ANSWER_FORMAT_TABLE,
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
-from hephaistos.rag import Chunk, EvidenceChunk, TurnEvidence
-from hephaistos.rag.health import ExtractionHealthIssue
-from hephaistos.runtime import ChatConfig
-from hephaistos.study import (
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
+from hephaion.rag.health import ExtractionHealthIssue
+from hephaion.runtime import ChatConfig
+from hephaion.study import (
     LearningFeedbackType,
     LearningPhase,
     RecallRating,
@@ -158,7 +158,7 @@ def test_resume_refreshes_stale_system_prompt(tmp_path: Path) -> None:
     )
     save_session(session)
 
-    session_file = armory / ".hephaistos" / "chats" / f"{session.session_id}.json"
+    session_file = armory / ".hephaion" / "chats" / f"{session.session_id}.json"
     saved = session_file.read_text(encoding="utf-8")
     session_file.write_text(
         saved.replace(session.conversation.messages[0].content, "stale system prompt"),
@@ -186,7 +186,7 @@ def test_create_session_includes_extraction_health_warning(
             ),
         )
 
-    monkeypatch.setattr("hephaistos.chat.session._scan_extraction_health_issues", fake_scan)
+    monkeypatch.setattr("hephaion.chat.session._scan_extraction_health_issues", fake_scan)
 
     session = create_session(
         ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
@@ -203,7 +203,7 @@ def test_create_session_includes_extraction_health_warning(
 def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)
-    (armory / ".hephaistosignore").write_text(
+    (armory / ".hephaionignore").write_text(
         "materials/ignored.md\nmaterials/private/\n",
         encoding="utf-8",
     )
@@ -229,7 +229,7 @@ def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
 def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)
-    (armory / ".hephaistosignore").write_text("materials/ignored.md\n", encoding="utf-8")
+    (armory / ".hephaionignore").write_text("materials/ignored.md\n", encoding="utf-8")
     (armory / "materials" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
 
     with pytest.raises(SessionError) as exc_info:
@@ -248,10 +248,10 @@ def test_create_session_does_not_auto_execute_armory_plugins(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAISTOS_TRUST_ARMORY_PLUGINS", raising=False)
+    monkeypatch.delenv("HEPHAION_TRUST_ARMORY_PLUGINS", raising=False)
     armory = _make_armory(tmp_path)
     marker = armory / "plugin_executed"
-    plugin = armory / ".hephaistos" / "tools" / "probe.py"
+    plugin = armory / ".hephaion" / "tools" / "probe.py"
     plugin.write_text(
         "from pathlib import Path\n"
         f"Path({str(marker)!r}).write_text('executed')\n"
@@ -273,13 +273,13 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAISTOS_TRUST_ARMORY_PLUGINS", "1")
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PLUGINS", "1")
     armory = _make_armory(tmp_path)
     marker = armory / "plugin_executed"
-    plugin = armory / ".hephaistos" / "tools" / "probe.py"
+    plugin = armory / ".hephaion" / "tools" / "probe.py"
     plugin.write_text(
         "from pathlib import Path\n"
-        "from hephaistos.agent.tools import ToolSpec\n"
+        "from hephaion.agent.tools import ToolSpec\n"
         f"Path({str(marker)!r}).write_text('executed')\n"
         "def register(registry):\n"
         "    registry.register(ToolSpec(\n"

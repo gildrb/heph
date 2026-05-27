@@ -14,7 +14,7 @@ from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 SCAN_ROOTS: Final[tuple[Path, ...]] = (
-    REPO_ROOT / "hephaistos",
+    REPO_ROOT / "hephaion",
     REPO_ROOT / "tests",
     REPO_ROOT / "scripts",
     REPO_ROOT / "vulture-whitelist.py",
@@ -64,48 +64,48 @@ DYNAMIC_IMPORT_MODULE_TARGET_CALLS: Final[frozenset[str]] = frozenset(
     }
 )
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
-    "hephaistos/app/cli.py": frozenset(
+    "hephaion/app/cli.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/app/workspace.py": frozenset(
+    "hephaion/app/workspace.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/agent/tools.py": frozenset(
+    "hephaion/agent/tools.py": frozenset(
         {
             "importlib.util.module_from_spec",
             "importlib.util.spec_from_file_location",
         }
     ),
-    "hephaistos/parameters/cli.py": frozenset(
+    "hephaion/parameters/cli.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/armory/cli.py": frozenset(
+    "hephaion/armory/cli.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/cli/main.py": frozenset(
+    "hephaion/cli/main.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/materials/cli.py": frozenset(
+    "hephaion/materials/cli.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/rag/chunker.py": frozenset(
+    "hephaion/rag/chunker.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaistos/rag/optional_backends.py": frozenset(
+    "hephaion/rag/optional_backends.py": frozenset(
         {
             "importlib.import_module",
         }
@@ -117,67 +117,67 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
     ),
 }
 ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
-    "hephaistos/agent/__init__.py": frozenset(
+    "hephaion/agent/__init__.py": frozenset(
         {
-            "hephaistos.agent.dispatch",
-            "hephaistos.agent.prompt",
-            "hephaistos.agent.tool_execution",
-            "hephaistos.agent.tools",
+            "hephaion.agent.dispatch",
+            "hephaion.agent.prompt",
+            "hephaion.agent.tool_execution",
+            "hephaion.agent.tools",
         }
     ),
-    "hephaistos/chat/session.py": frozenset(
+    "hephaion/chat/session.py": frozenset(
         {
-            "hephaistos.chat.events",
-            "hephaistos.chat.orchestrator",
+            "hephaion.chat.events",
+            "hephaion.chat.orchestrator",
         }
     ),
-    "hephaistos/runtime/engine.py": frozenset(
+    "hephaion/runtime/engine.py": frozenset(
         {
             "openai",
         }
     ),
-    "hephaistos/terminal/input.py": frozenset(
+    "hephaion/terminal/input.py": frozenset(
         {
-            "hephaistos.chat.session",
-            "hephaistos.runtime",
+            "hephaion.chat.session",
+            "hephaion.runtime",
         }
     ),
-    "hephaistos/tui/__init__.py": frozenset(
+    "hephaion/tui/__init__.py": frozenset(
         {
-            "hephaistos.chat.cli",
-            "hephaistos.commands",
-            "hephaistos.terminal.input",
+            "hephaion.chat.cli",
+            "hephaion.commands",
+            "hephaion.terminal.input",
         }
     ),
-    "hephaistos/tui/slash_command.py": frozenset(
+    "hephaion/tui/slash_command.py": frozenset(
         {
-            "hephaistos.commands",
+            "hephaion.commands",
         }
     ),
-    "hephaistos/tui/status.py": frozenset(
+    "hephaion/tui/status.py": frozenset(
         {
-            "hephaistos.runtime",
+            "hephaion.runtime",
         }
     ),
-    "hephaistos/tui/streaming.py": frozenset(
+    "hephaion/tui/streaming.py": frozenset(
         {
-            "hephaistos.chat.automation",
-            "hephaistos.runtime",
+            "hephaion.chat.automation",
+            "hephaion.runtime",
         }
     ),
 }
 PROMPT_RULE_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaistos/agent/",
-    "hephaistos/chat/",
-    "hephaistos/study/",
+    "hephaion/agent/",
+    "hephaion/chat/",
+    "hephaion/study/",
 )
 PROMPT_RULE_DUPLICATE_MESSAGE: Final[str] = (
     "duplicate model-facing prompt rule; define the rule once as a named policy constant"
 )
 HARDCODED_ANSWER_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaistos/chat/",
-    "hephaistos/study/",
-    "hephaistos/tui/",
+    "hephaion/chat/",
+    "hephaion/study/",
+    "hephaion/tui/",
 )
 HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
     {
@@ -237,8 +237,8 @@ SEMANTIC_DISPATCH_MESSAGE: Final[str] = (
     "phrase tables; use serialized turn state and model-resolved intent"
 )
 SEMANTIC_DISPATCH_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaistos/chat/",
-    "hephaistos/study/",
+    "hephaion/chat/",
+    "hephaion/study/",
 )
 SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
     {
@@ -252,7 +252,7 @@ SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
     }
 )
 QUARANTINED_SEMANTIC_DISPATCH_NAMES: Final[dict[str, frozenset[str]]] = {
-    "hephaistos/chat/orchestrator.py": frozenset(
+    "hephaion/chat/orchestrator.py": frozenset(
         {
             "_EXACT_PHRASE_AFTER_LABEL_RE",
             "_INLINE_LEARNING_FOLLOWUP_SUFFIX_RE",
@@ -265,7 +265,7 @@ QUARANTINED_SEMANTIC_DISPATCH_NAMES: Final[dict[str, frozenset[str]]] = {
             "_UNSOLICITED_LEARNING_FOLLOWUP_LINE_RE",
         }
     ),
-    "hephaistos/study/priority.py": frozenset(
+    "hephaion/study/priority.py": frozenset(
         {
             "_TOPIC_PHRASE_RE",
         }
@@ -278,7 +278,7 @@ PRIVATE_CORPUS_TERMS_FILES: Final[tuple[Path, ...]] = (
     REPO_ROOT / ".git" / "info" / "heph-private-corpus-terms",
     REPO_ROOT / ".heph-private-corpus-terms",
 )
-PRIVATE_CORPUS_TERMS_ENV_VAR: Final[str] = "HEPHAISTOS_PRIVATE_CORPUS_TERMS"
+PRIVATE_CORPUS_TERMS_ENV_VAR: Final[str] = "HEPHAION_PRIVATE_CORPUS_TERMS"
 PRIVATE_CORPUS_TEXT_SUFFIXES: Final[frozenset[str]] = frozenset(
     {
         ".cfg",
@@ -458,7 +458,7 @@ class PolicyVisitor(ast.NodeVisitor):
         )
 
     def _is_product_runtime_file(self) -> bool:
-        return self.rel_path.startswith("hephaistos/")
+        return self.rel_path.startswith("hephaion/")
 
     def _check_runtime_benchmark_import(self, node: ast.AST, module: str) -> None:
         if not self._is_product_runtime_file():

@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaistos.armory.storage import initialize
-from hephaistos.rag import ScoredChunk
-from hephaistos.rag.chunker import Chunk
+from hephaion.armory.storage import initialize
+from hephaion.rag import ScoredChunk
+from hephaion.rag.chunker import Chunk
 from scripts import benchmark_rag
 
 

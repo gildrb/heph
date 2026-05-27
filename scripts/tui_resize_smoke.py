@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree
 
-from hephaistos.tui.display_text import COMPOSER_PLACEHOLDER
+from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WIDTH = 150
@@ -265,11 +265,11 @@ def _run_heph(
     pid, fd = os.forkpty()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
-        os.environ["HEPHAISTOS_ARMORY_HOME"] = str(armory_home)
+        os.environ["HEPHAION_ARMORY_HOME"] = str(armory_home)
         os.environ["COLUMNS"] = "240"
         os.environ["LINES"] = "60"
         os.chdir(ROOT)
-        os.execvp(sys.executable, [sys.executable, "-m", "hephaistos", str(armory)])
+        os.execvp(sys.executable, [sys.executable, "-m", "hephaion", str(armory)])
     selector = selectors.DefaultSelector()
     selector.register(fd, selectors.EVENT_READ)
     _resize_terminal(fd, 130, 24)
@@ -388,9 +388,9 @@ def _failure_reasons(result: SmokeResult) -> list[str]:
 
 def _init_armory(path: Path, armory_home: Path) -> None:
     env = os.environ.copy()
-    env["HEPHAISTOS_ARMORY_HOME"] = str(armory_home)
+    env["HEPHAION_ARMORY_HOME"] = str(armory_home)
     subprocess.run(
-        [sys.executable, "-m", "hephaistos", "armory", "init", str(path)],
+        [sys.executable, "-m", "hephaion", "armory", "init", str(path)],
         cwd=ROOT,
         env=env,
         check=True,

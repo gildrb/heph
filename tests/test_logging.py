@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.logging import (
+from hephaion.logging import (
     Timer,
     TraceWriter,
     _JsonFormatter,
@@ -27,7 +27,7 @@ from hephaistos.logging import (
 def trace_dir(tmp_path: Path) -> Path:
     armory = tmp_path / "armory"
     armory.mkdir()
-    (armory / ".hephaistos").mkdir()
+    (armory / ".hephaion").mkdir()
     return armory
 
 
@@ -40,7 +40,7 @@ class TestJsonFormatter:
     def test_basic_message(self) -> None:
         fmt = _JsonFormatter()
         record = logging.LogRecord(
-            name="hephaistos.test",
+            name="hephaion.test",
             level=logging.INFO,
             pathname="",
             lineno=0,
@@ -52,13 +52,13 @@ class TestJsonFormatter:
         data = json.loads(output)
         assert data["msg"] == "hello world"
         assert data["level"] == "INFO"
-        assert data["logger"] == "hephaistos.test"
+        assert data["logger"] == "hephaion.test"
         assert "ts" in data
 
     def test_structured_fields(self) -> None:
         fmt = _JsonFormatter()
         record = logging.LogRecord(
-            name="hephaistos.test",
+            name="hephaion.test",
             level=logging.DEBUG,
             pathname="",
             lineno=0,
@@ -79,7 +79,7 @@ class TestJsonFormatter:
         except ValueError:
             exc_info = sys.exc_info()
         record = logging.LogRecord(
-            name="hephaistos.test",
+            name="hephaion.test",
             level=logging.ERROR,
             pathname="",
             lineno=0,
@@ -102,7 +102,7 @@ class TestTextFormatter:
     def test_basic_message(self) -> None:
         fmt = _TextFormatter()
         record = logging.LogRecord(
-            name="hephaistos.test",
+            name="hephaion.test",
             level=logging.INFO,
             pathname="",
             lineno=0,
@@ -117,7 +117,7 @@ class TestTextFormatter:
     def test_fields_on_separate_lines(self) -> None:
         fmt = _TextFormatter()
         record = logging.LogRecord(
-            name="hephaistos.test",
+            name="hephaion.test",
             level=logging.DEBUG,
             pathname="",
             lineno=0,
@@ -139,18 +139,18 @@ class TestGetLogger:
     def test_returns_logger(self) -> None:
         log = get_logger("test.module")
         assert isinstance(log, logging.Logger)
-        assert log.name == "hephaistos.test.module"
+        assert log.name == "hephaion.test.module"
 
     def test_prepends_namespace(self) -> None:
-        log = get_logger("hephaistos.custom")
-        assert log.name == "hephaistos.custom"
+        log = get_logger("hephaion.custom")
+        assert log.name == "hephaion.custom"
 
     def test_stderr_handler_added(self) -> None:
         get_logger("test")
-        hephaistos_logger = logging.getLogger("hephaistos")
-        assert len(hephaistos_logger.handlers) >= 1
-        assert isinstance(hephaistos_logger.handlers[0], logging.StreamHandler)
-        assert hephaistos_logger.propagate is False
+        hephaion_logger = logging.getLogger("hephaion")
+        assert len(hephaion_logger.handlers) >= 1
+        assert isinstance(hephaion_logger.handlers[0], logging.StreamHandler)
+        assert hephaion_logger.propagate is False
 
     def test_file_handler_when_env_set(
         self,
@@ -158,33 +158,33 @@ class TestGetLogger:
         tmp_path: Path,
     ) -> None:
         log_file = tmp_path / "test.log"
-        monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
         get_logger("test")
-        hephaistos_logger = logging.getLogger("hephaistos")
-        assert any(isinstance(h, logging.FileHandler) for h in hephaistos_logger.handlers)
+        hephaion_logger = logging.getLogger("hephaion")
+        assert any(isinstance(h, logging.FileHandler) for h in hephaion_logger.handlers)
 
     def test_level_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
         get_logger("test")
-        hephaistos_logger = logging.getLogger("hephaistos")
-        assert hephaistos_logger.level == logging.DEBUG
+        hephaion_logger = logging.getLogger("hephaion")
+        assert hephaion_logger.level == logging.DEBUG
 
     def test_text_format_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_LOG_FORMAT", "text")
+        monkeypatch.setenv("HEPHAION_LOG_FORMAT", "text")
         get_logger("test")
-        hephaistos_logger = logging.getLogger("hephaistos")
-        assert isinstance(hephaistos_logger.handlers[0].formatter, _TextFormatter)
+        hephaion_logger = logging.getLogger("hephaion")
+        assert isinstance(hephaion_logger.handlers[0].formatter, _TextFormatter)
 
     def test_json_format_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HEPHAISTOS_LOG_FORMAT", raising=False)
+        monkeypatch.delenv("HEPHAION_LOG_FORMAT", raising=False)
         get_logger("test")
-        hephaistos_logger = logging.getLogger("hephaistos")
-        assert isinstance(hephaistos_logger.handlers[0].formatter, _JsonFormatter)
+        hephaion_logger = logging.getLogger("hephaion")
+        assert isinstance(hephaion_logger.handlers[0].formatter, _JsonFormatter)
 
     def test_file_logging(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         log_file = tmp_path / "output.log"
-        monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
-        monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
         log = get_logger("test.file")
         log.info("test message", extra={"fields": {"key": "value"}})
 
@@ -233,7 +233,7 @@ class TestTraceWriter:
         tw.record_user_message("hello world")
         tw.close()
 
-        trace_path = trace_dir / ".hephaistos" / "traces" / "sess1.jsonl"
+        trace_path = trace_dir / ".hephaion" / "traces" / "sess1.jsonl"
         assert trace_path.exists()
         lines = trace_path.read_text().strip().split("\n")
         assert len(lines) == 1
@@ -260,9 +260,7 @@ class TestTraceWriter:
         )
         tw.close()
 
-        data = json.loads(
-            (trace_dir / ".hephaistos" / "traces" / "sess6.jsonl").read_text().strip()
-        )
+        data = json.loads((trace_dir / ".hephaion" / "traces" / "sess6.jsonl").read_text().strip())
         assert data["type"] == "rag_retrieve"
         assert data["retrieved"] == 3
         assert data["scores"] == [0.95, 0.82, 0.71]
@@ -286,7 +284,7 @@ class TestTraceWriter:
         )
         tw.close()
 
-        raw = (trace_dir / ".hephaistos" / "traces" / "sess6-secret.jsonl").read_text()
+        raw = (trace_dir / ".hephaion" / "traces" / "sess6-secret.jsonl").read_text()
         assert "AKIAIOSFODNN7EXAMPLE" not in raw
         assert "***REDACTED***" in raw
 
@@ -297,7 +295,7 @@ class TestTraceWriter:
         tw.close()
 
         lines = (
-            (trace_dir / ".hephaistos" / "traces" / "sess7.jsonl").read_text().strip().split("\n")
+            (trace_dir / ".hephaion" / "traces" / "sess7.jsonl").read_text().strip().split("\n")
         )
         assert len(lines) == 2
         assert json.loads(lines[0])["event"] == "created"
@@ -315,7 +313,7 @@ class TestTraceWriter:
         tw2.close()
 
         lines = (
-            (trace_dir / ".hephaistos" / "traces" / "sess8.jsonl").read_text().strip().split("\n")
+            (trace_dir / ".hephaion" / "traces" / "sess8.jsonl").read_text().strip().split("\n")
         )
         assert len(lines) == 2
         assert json.loads(lines[0])["content"] == "first"
@@ -340,9 +338,9 @@ class TestLoggingIntegration:
         tmp_path: Path,
     ) -> None:
         log_file = tmp_path / "integration.log"
-        monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
-        monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
-        monkeypatch.setenv("HEPHAISTOS_LOG_FORMAT", "json")
+        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HEPHAION_LOG_FORMAT", "json")
 
         log = get_logger("integration")
         log.info(
@@ -364,9 +362,9 @@ class TestLoggingIntegration:
         assert data["level"] == "INFO"
 
     def test_multiple_loggers_share_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
         get_logger("module1")
         get_logger("module2")
-        hephaistos_logger = logging.getLogger("hephaistos")
+        hephaion_logger = logging.getLogger("hephaion")
         # Both share the same root handler
-        assert len(hephaistos_logger.handlers) == 1  # only stderr, no file
+        assert len(hephaion_logger.handlers) == 1  # only stderr, no file

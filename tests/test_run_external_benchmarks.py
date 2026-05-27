@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 
-from hephaistos.armory.storage import initialize
+from hephaion.armory.storage import initialize
 from scripts import benchmark_rag, claim_report_envelope, run_external_benchmarks
 
 ORACLE_KEYS_TO_REJECT = (
@@ -232,7 +232,7 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
 ) -> None:
     suite = _make_external_suite(tmp_path, _passing_cases())
     report_path = tmp_path / "reports" / "external.json"
-    monkeypatch.setenv("HEPHAISTOS_TEST_SECRET", "sentinel-secret-value")
+    monkeypatch.setenv("HEPHAION_TEST_SECRET", "sentinel-secret-value")
 
     status = run_external_benchmarks.main(
         [

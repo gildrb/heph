@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from hephaistos.study.schedule import load_recall_schedule
-from hephaistos.study.state import RecallRating
+from hephaion.study.schedule import load_recall_schedule
+from hephaion.study.state import RecallRating
 
 
 def test_recall_schedule_records_fast_easy_review(tmp_path) -> None:
@@ -71,7 +71,7 @@ def test_recall_schedule_persists_reviews(tmp_path) -> None:
 
     loaded = load_recall_schedule(tmp_path)
 
-    assert (tmp_path / ".hephaistos" / "recall_schedule.json").is_file()
+    assert (tmp_path / ".hephaion" / "recall_schedule.json").is_file()
     assert len(loaded.item_list) == 1
     item = loaded.item_list[0]
     assert item.item == "Explain recurrence relations"
@@ -96,7 +96,7 @@ def test_recall_schedule_persists_reviews(tmp_path) -> None:
 
 
 def test_recall_schedule_loads_legacy_study_reviews_without_mastery_fields(tmp_path) -> None:
-    schedule_path = tmp_path / ".hephaistos" / "study_schedule.json"
+    schedule_path = tmp_path / ".hephaion" / "study_schedule.json"
     schedule_path.parent.mkdir()
     schedule_path.write_text(
         (

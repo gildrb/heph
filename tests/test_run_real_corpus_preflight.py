@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from hephaistos.armory.storage import initialize
+from hephaion.armory.storage import initialize
 from scripts import run_real_corpus_preflight
 
 

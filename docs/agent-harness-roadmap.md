@@ -9,13 +9,13 @@ control across repeatable academic tasks.
 
 The project already has useful primitives:
 
-- `hephaistos.agent.dispatch` owns the model/tool loop, streaming events,
+- `hephaion.agent.dispatch` owns the model/tool loop, streaming events,
   compaction, tool execution, and per-turn evidence injection.
-- `hephaistos.chat.orchestrator` owns turn planning, rollback, learning state,
+- `hephaion.chat.orchestrator` owns turn planning, rollback, learning state,
   citation verification, memory extraction, and trace/usage recording.
-- `hephaistos.rag` owns local chunking, indexing, hybrid retrieval, query
+- `hephaion.rag` owns local chunking, indexing, hybrid retrieval, query
   transformation, re-ranking, and citable evidence rendering.
-- `hephaistos.study` owns a deterministic study-loop state machine.
+- `hephaion.study` owns a deterministic study-loop state machine.
 
 The weakness is that these pieces are not yet expressed as a benchmarked agent
 runtime contract. The harness can work, but it cannot yet prove that a change

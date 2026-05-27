@@ -10,15 +10,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import hephaistos.rag.context as rag_context_module
-from hephaistos.agent.compact import (
+import hephaion.rag.context as rag_context_module
+from hephaion.agent.compact import (
     KEEP_RECENT,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.agent.dispatch import _sync_conversation
-from hephaistos.runtime import ApiMessage, Conversation, ToolCallDelta
+from hephaion.agent.dispatch import _sync_conversation
+from hephaion.runtime import ApiMessage, Conversation, ToolCallDelta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -221,17 +221,17 @@ class TestAutoCompact:
         return config, mock_client
 
     def test_saves_transcript(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A JSONL transcript file is created under .hephaistos/transcripts/."""
+        """A JSONL transcript file is created under .hephaion/transcripts/."""
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
         auto_compact(messages, config, tmp_path)
 
-        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
+        transcript_dir = tmp_path / ".hephaion" / "transcripts"
         assert transcript_dir.is_dir()
         files = list(transcript_dir.glob("transcript_*.jsonl"))
         assert len(files) == 1
@@ -261,7 +261,7 @@ class TestAutoCompact:
 
         auto_compact(messages, MagicMock(), tmp_path)
 
-        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
+        transcript_dir = tmp_path / ".hephaion" / "transcripts"
         transcript_path = next(transcript_dir.glob("transcript_*.jsonl"))
         serialized = transcript_path.read_text(encoding="utf-8")
         assert stat.S_IMODE(transcript_dir.stat().st_mode) == 0o700
@@ -278,7 +278,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -303,7 +303,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -323,7 +323,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=4)
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -339,13 +339,13 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="Cached summary.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
         compressed = auto_compact(messages, config, tmp_path)
 
-        cache_files = list((tmp_path / ".hephaistos" / "compaction_cache").glob("*.txt"))
+        cache_files = list((tmp_path / ".hephaion" / "compaction_cache").glob("*.txt"))
         assert len(cache_files) == 1
         assert cache_files[0].read_text(encoding="utf-8") == "Cached summary."
         assert any("Cached summary." in _message_text(message) for message in compressed)
@@ -361,13 +361,13 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="summary token=compact-secret")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
         auto_compact(messages, config, tmp_path)
 
-        cache_dir = tmp_path / ".hephaistos" / "compaction_cache"
+        cache_dir = tmp_path / ".hephaion" / "compaction_cache"
         cache_path = next(cache_dir.glob("*.txt"))
         serialized = cache_path.read_text(encoding="utf-8")
         assert stat.S_IMODE(cache_dir.stat().st_mode) == 0o700
@@ -383,19 +383,19 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, empty_client = self._mock_config_and_client(summary="")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: empty_client,
         )
 
         compressed = auto_compact(messages, config, tmp_path)
 
         assert any("(summary unavailable)" in _message_text(message) for message in compressed)
-        cache_dir = tmp_path / ".hephaistos" / "compaction_cache"
+        cache_dir = tmp_path / ".hephaion" / "compaction_cache"
         assert not list(cache_dir.glob("*.txt"))
 
         _config, retry_client = self._mock_config_and_client(summary="Recovered summary.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: retry_client,
         )
 
@@ -415,7 +415,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="Cached summary.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
         auto_compact(messages, config, tmp_path)
@@ -423,7 +423,7 @@ class TestAutoCompact:
         failing_client = MagicMock()
         failing_client.chat.completions.create.side_effect = AssertionError("unexpected LLM call")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: failing_client,
         )
 
@@ -440,7 +440,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, first_client = self._mock_config_and_client(summary="First summary.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: first_client,
         )
         auto_compact(messages, config, tmp_path)
@@ -449,14 +449,14 @@ class TestAutoCompact:
         changed[1]["content"] = "changed_exchange_0"
         _config, second_client = self._mock_config_and_client(summary="Second summary.")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: second_client,
         )
 
         compressed = auto_compact(changed, config, tmp_path)
 
         second_client.chat.completions.create.assert_called_once()
-        cache_files = list((tmp_path / ".hephaistos" / "compaction_cache").glob("*.txt"))
+        cache_files = list((tmp_path / ".hephaion" / "compaction_cache").glob("*.txt"))
         assert len(cache_files) == 2
         assert any("Second summary." in _message_text(message) for message in compressed)
 
@@ -473,7 +473,7 @@ class TestAutoCompact:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
         monkeypatch.setattr(
-            "hephaistos.agent.compact.build_client",
+            "hephaion.agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -483,7 +483,7 @@ class TestAutoCompact:
         assert len(result) == len(messages)
 
         # Transcript still saved even though summarisation failed
-        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
+        transcript_dir = tmp_path / ".hephaion" / "transcripts"
         assert transcript_dir.is_dir()
         assert len(list(transcript_dir.glob("transcript_*.jsonl"))) == 1
 

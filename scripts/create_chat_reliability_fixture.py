@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, cast
 
-from hephaistos.armory import storage
+from hephaion.armory import storage
 
 FIXTURE_MATERIALS_DIR = "chat-reliability-fixture"
 DEFAULT_SEED_PREFIX = "fixture-seed"

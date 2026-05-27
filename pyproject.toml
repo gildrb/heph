@@ -56,8 +56,8 @@ visualization = [
 ]
 
 [project.scripts]
-hephaion = "hephaistos.cli.main:main"
-heph = "hephaistos.cli.main:main"
+hephaion = "hephaion.cli.main:main"
+heph = "hephaion.cli.main:main"
 
 [build-system]
 requires = ["uv_build>=0.10.1,<0.11.0"]
@@ -139,8 +139,8 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
-"hephaistos/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
-"hephaistos/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"hephaion/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
+"hephaion/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
@@ -152,14 +152,14 @@ mark-parentheses = false
 raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeError", "OSError"]
 
 [tool.uv.build-backend]
-module-name = "hephaistos"
+module-name = "hephaion"
 module-root = ""
 
 [tool.ty.environment]
 python-version = "3.13"
 
 [tool.ty.src]
-include = ["hephaistos", "tests"]
+include = ["hephaion", "tests"]
 exclude = ["vulture-whitelist.py", ".venv"]
 
 [tool.ty.rules]
@@ -183,7 +183,7 @@ score = false
 
 [tool.vulture]
 min_confidence = 80
-paths = ["hephaistos", "tests", "vulture-whitelist.py"]
+paths = ["hephaion", "tests", "vulture-whitelist.py"]
 
 [tool.bandit]
 severity = "low"
@@ -192,164 +192,164 @@ exclude_dirs = ["tests"]
 skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
-root_packages = ["hephaistos"]
+root_packages = ["hephaion"]
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
 name = "logging must not import adapters"
 type = "forbidden"
-source_modules = ["hephaistos.logging"]
+source_modules = ["hephaion.logging"]
 forbidden_modules = [
-    "hephaistos.cli",
-    "hephaistos.commands",
-    "hephaistos.tui",
+    "hephaion.cli",
+    "hephaion.commands",
+    "hephaion.tui",
 ]
 
 [[tool.importlinter.contracts]]
 name = "reusable packages must not import adapters"
 type = "forbidden"
 source_modules = [
-    "hephaistos.chat",
-    "hephaistos.agent",
-    "hephaistos.rag",
-    "hephaistos.providers",
-    "hephaistos.armory",
-    "hephaistos.study",
-    "hephaistos.memory",
-    "hephaistos.materials",
-    "hephaistos.parameters",
-    "hephaistos.runtime",
-    "hephaistos.logging",
-    "hephaistos.terminal.palette",
-    "hephaistos.matching",
-    "hephaistos.privacy",
-    "hephaistos.diagnostics",
-    "hephaistos.vocab",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
+    "hephaion.providers",
+    "hephaion.armory",
+    "hephaion.study",
+    "hephaion.memory",
+    "hephaion.materials",
+    "hephaion.parameters",
+    "hephaion.runtime",
+    "hephaion.logging",
+    "hephaion.terminal.palette",
+    "hephaion.matching",
+    "hephaion.privacy",
+    "hephaion.diagnostics",
+    "hephaion.vocab",
 ]
 forbidden_modules = [
-    "hephaistos.cli",
-    "hephaistos.commands",
-    "hephaistos.terminal.history",
-    "hephaistos.terminal.input",
-    "hephaistos.tui",
+    "hephaion.cli",
+    "hephaion.commands",
+    "hephaion.terminal.history",
+    "hephaion.terminal.input",
+    "hephaion.tui",
 ]
 
 [[tool.importlinter.contracts]]
 name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
-source_modules = ["hephaistos.materials"]
+source_modules = ["hephaion.materials"]
 forbidden_modules = [
-    "hephaistos.tui",
-    "hephaistos.chat",
-    "hephaistos.agent",
-    "hephaistos.rag",
-    "hephaistos.study",
+    "hephaion.tui",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
+    "hephaion.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "rag must not import agent, chat, or adapters"
 type = "forbidden"
-source_modules = ["hephaistos.rag"]
+source_modules = ["hephaion.rag"]
 forbidden_modules = [
-    "hephaistos.agent",
-    "hephaistos.chat",
-    "hephaistos.tui",
-    "hephaistos.study",
+    "hephaion.agent",
+    "hephaion.chat",
+    "hephaion.tui",
+    "hephaion.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "runtime must stay below product workflows"
 type = "forbidden"
-source_modules = ["hephaistos.runtime"]
+source_modules = ["hephaion.runtime"]
 forbidden_modules = [
-    "hephaistos.tui",
-    "hephaistos.chat",
-    "hephaistos.agent",
-    "hephaistos.rag",
-    "hephaistos.study",
-    "hephaistos.materials",
-    "hephaistos.memory",
-    "hephaistos.armory",
+    "hephaion.tui",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
+    "hephaion.study",
+    "hephaion.materials",
+    "hephaion.memory",
+    "hephaion.armory",
 ]
 
 [[tool.importlinter.contracts]]
 name = "providers must stay below product workflows"
 type = "forbidden"
-source_modules = ["hephaistos.providers"]
+source_modules = ["hephaion.providers"]
 forbidden_modules = [
-    "hephaistos.tui",
-    "hephaistos.chat",
-    "hephaistos.agent",
-    "hephaistos.rag",
-    "hephaistos.runtime",
-    "hephaistos.study",
-    "hephaistos.materials",
+    "hephaion.tui",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
+    "hephaion.runtime",
+    "hephaion.study",
+    "hephaion.materials",
 ]
 
 [[tool.importlinter.contracts]]
 name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
-source_modules = ["hephaistos.memory"]
-forbidden_modules = ["hephaistos.tui", "hephaistos.chat", "hephaistos.agent"]
+source_modules = ["hephaion.memory"]
+forbidden_modules = ["hephaion.tui", "hephaion.chat", "hephaion.agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
-source_modules = ["hephaistos.study"]
+source_modules = ["hephaion.study"]
 forbidden_modules = [
-    "hephaistos.tui",
-    "hephaistos.chat",
-    "hephaistos.agent",
-    "hephaistos.rag",
+    "hephaion.tui",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
 ]
 
 [[tool.importlinter.contracts]]
 name = "agent must not import chat.session"
 type = "forbidden"
-source_modules = ["hephaistos.agent"]
-forbidden_modules = ["hephaistos.chat.session"]
+source_modules = ["hephaion.agent"]
+forbidden_modules = ["hephaion.chat.session"]
 
 [[tool.importlinter.contracts]]
 name = "chat.session and chat.orchestrator are independent (no runtime imports)"
 type = "independence"
-modules = ["hephaistos.chat.session", "hephaistos.chat.orchestrator"]
-ignore_imports = ["hephaistos.chat.session -> hephaistos.chat.orchestrator"]
+modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
+ignore_imports = ["hephaion.chat.session -> hephaion.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
 name = "diagnostics must not import adapters"
 type = "forbidden"
-source_modules = ["hephaistos.diagnostics"]
+source_modules = ["hephaion.diagnostics"]
 forbidden_modules = [
-    "hephaistos.cli",
-    "hephaistos.commands",
-    "hephaistos.tui",
+    "hephaion.cli",
+    "hephaion.commands",
+    "hephaion.tui",
 ]
 
 [[tool.importlinter.contracts]]
 name = "commands must not import workspace"
 type = "forbidden"
-source_modules = ["hephaistos.commands"]
+source_modules = ["hephaion.commands"]
 forbidden_modules = []
 
 [[tool.importlinter.contracts]]
 name = "commands must not import tui"
 type = "forbidden"
-source_modules = ["hephaistos.commands"]
-forbidden_modules = ["hephaistos.tui"]
+source_modules = ["hephaion.commands"]
+forbidden_modules = ["hephaion.tui"]
 
 [tool.deptry]
 extend_exclude = ["tests"]
 # Optional RAG/docling deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
-# DEP003 on "hephaistos" is a false positive — the project imports its own subpackages.
+# DEP003 on "hephaion" is a false positive — the project imports its own subpackages.
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
 # DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaion", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=hephaion --cov-report=term-missing --cov-fail-under=75"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]

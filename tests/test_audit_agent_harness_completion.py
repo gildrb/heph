@@ -784,7 +784,7 @@ def test_completion_audit_reports_missing_private_suite_without_skipping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = tmp_path / "repo"
-    (repo / "hephaistos").mkdir(parents=True)
+    (repo / "hephaion").mkdir(parents=True)
     scripts = repo / "scripts"
     scripts.mkdir()
     for script_name in (
@@ -912,7 +912,7 @@ def test_completion_audit_rejects_fixture_terms_in_runtime_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runtime = tmp_path / "hephaistos"
+    runtime = tmp_path / "hephaion"
     runtime.mkdir()
     (runtime / "bad.py").write_text('EXAMPLE = "fixture_private_course"\n', encoding="utf-8")
     monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)

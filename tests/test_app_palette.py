@@ -5,9 +5,9 @@ import re
 from dataclasses import fields
 from pathlib import Path
 
-import hephaistos.terminal as palette
-import hephaistos.terminal.palette as theme_tokens
-from hephaistos.parameters.settings import THEME_PRESETS
+import hephaion.terminal as palette
+import hephaion.terminal.palette as theme_tokens
+from hephaion.parameters.settings import THEME_PRESETS
 
 _AA_NORMAL_TEXT_CONTRAST = 4.5
 _AA_LARGE_TEXT_CONTRAST = 3.0
@@ -16,7 +16,7 @@ _NAMED_COLOR_RE = re.compile(
     r"(?<![A-Za-z])(?:black|white|red|green|blue|yellow|cyan|magenta|transparent)(?![A-Za-z])",
     re.IGNORECASE,
 )
-_COLOR_TOKEN_SOURCE = Path("hephaistos/terminal/palette.py")
+_COLOR_TOKEN_SOURCE = Path("hephaion/terminal/palette.py")
 
 
 def _linear_channel(value: int) -> float:
@@ -259,7 +259,7 @@ def test_app_source_has_no_loose_color_literals_outside_theme_tokens() -> None:
     allowed_paths = {repo_root / _COLOR_TOKEN_SOURCE}
     failures: list[str] = []
 
-    for path in (repo_root / "hephaistos").rglob("*.py"):
+    for path in (repo_root / "hephaion").rglob("*.py"):
         if path in allowed_paths:
             continue
         for line_number, literal in _iter_string_literals(path):

@@ -13,24 +13,24 @@ import pytest
 # Avoid writing .pyc files during test runs
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-import hephaistos.chat.orchestrator as _orch_mod
-import hephaistos.diagnostics.crashes as _obs_mod
-import hephaistos.logging as _log_mod
-import hephaistos.parameters.settings as _settings_mod
-import hephaistos.privacy.consent as _privacy_mod
-import hephaistos.providers.catalog as _provider_catalog_mod
-import hephaistos.providers.config as _provider_config_mod
-import hephaistos.providers.keyring_store as _ks
-import hephaistos.providers.oauth as _oauth_mod
-import hephaistos.rag.chunker as _rag_chunker_mod
-import hephaistos.rag.optional_backends as _rag_optional_mod
-import hephaistos.runtime.engine as _engine_mod
-import hephaistos.runtime.resilience as _res_mod
-from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
-from hephaistos.armory.storage import initialize
-from hephaistos.chat.session import create_session
-from hephaistos.runtime import ApiMessage, ChatConfig
-from hephaistos.terminal import set_theme
+import hephaion.chat.orchestrator as _orch_mod
+import hephaion.diagnostics.crashes as _obs_mod
+import hephaion.logging as _log_mod
+import hephaion.parameters.settings as _settings_mod
+import hephaion.privacy.consent as _privacy_mod
+import hephaion.providers.catalog as _provider_catalog_mod
+import hephaion.providers.config as _provider_config_mod
+import hephaion.providers.keyring_store as _ks
+import hephaion.providers.oauth as _oauth_mod
+import hephaion.rag.chunker as _rag_chunker_mod
+import hephaion.rag.optional_backends as _rag_optional_mod
+import hephaion.runtime.engine as _engine_mod
+import hephaion.runtime.resilience as _res_mod
+from hephaion.agent.tools import ToolHandlerResult, ToolSpec
+from hephaion.armory.storage import initialize
+from hephaion.chat.session import create_session
+from hephaion.runtime import ApiMessage, ChatConfig
+from hephaion.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
 _NOOP_TRACER = _obs_mod._NoopTracer()
@@ -75,13 +75,13 @@ def _pin_optional_rag_backends_off() -> None:
 @pytest.fixture(autouse=True)
 def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
-    config_dir = tmp_path / "hephaistos_config"
+    config_dir = tmp_path / "hephaion_config"
     config_file = config_dir / "config.json"
     providers_file = config_dir / "providers.toml"
-    auth_dir = tmp_path / "hephaistos_auth"
+    auth_dir = tmp_path / "hephaion_auth"
     auth_file = auth_dir / "auth.json"
     _ks._volatile.clear()
-    _log_mod._hephaistos_logger_initialised = False
+    _log_mod._hephaion_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -101,15 +101,15 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
         "_INSTALL_ID_PATH",
         config_dir / "install_id.json",
     )
-    monkeypatch.setenv("HEPHAISTOS_DISABLE_LIVE_MODELS", "1")
-    root = logging.getLogger("hephaistos")
+    monkeypatch.setenv("HEPHAION_DISABLE_LIVE_MODELS", "1")
+    root = logging.getLogger("hephaion")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 
     yield
 
     _ks._volatile.clear()
-    _log_mod._hephaistos_logger_initialised = False
+    _log_mod._hephaion_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -125,12 +125,12 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
 @pytest.fixture
 def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Redirect user-config paths to a temp directory."""
-    config_dir = tmp_path / "hephaistos_config"
+    config_dir = tmp_path / "hephaion_config"
     config_file = config_dir / "config.json"
     defaults_file = tmp_path / "default.toml"
-    monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr("hephaistos.parameters.settings._DEFAULTS_FILE", defaults_file)
+    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr("hephaion.parameters.settings._DEFAULTS_FILE", defaults_file)
     return SimpleNamespace(
         config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
     )
@@ -142,8 +142,8 @@ def isolated_auth_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simple
     auth_dir = tmp_path / "auth_test"
     auth_dir.mkdir(parents=True, exist_ok=True)
     auth_file = auth_dir / "auth.json"
-    monkeypatch.setattr("hephaistos.providers.oauth._AUTH_DIR", auth_dir)
-    monkeypatch.setattr("hephaistos.providers.oauth._AUTH_FILE", auth_file)
+    monkeypatch.setattr("hephaion.providers.oauth._AUTH_DIR", auth_dir)
+    monkeypatch.setattr("hephaion.providers.oauth._AUTH_FILE", auth_file)
     return SimpleNamespace(auth_dir=auth_dir, auth_file=auth_file)
 
 
@@ -196,7 +196,7 @@ def armory(tmp_path: Path) -> Path:
     """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
     (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaistos").mkdir(parents=True)
+    (arm / ".hephaion").mkdir(parents=True)
 
     (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"

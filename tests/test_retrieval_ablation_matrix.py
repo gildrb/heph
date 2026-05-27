@@ -7,9 +7,9 @@ from typing import cast
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.rag.chunker import Chunk
-from hephaistos.rag.retrieval_types import ScoredChunk
+from hephaion.armory.storage import initialize
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.retrieval_types import ScoredChunk
 from scripts import claim_report_envelope, run_retrieval_ablation_matrix
 
 
@@ -169,7 +169,7 @@ def _fixture_per_query_row(
 
 def _complete_contract_report() -> dict[str, object]:
     index_cache = {
-        "index_path": "/tmp/fixture-armory/.hephaistos/rag_index.json",
+        "index_path": "/tmp/fixture-armory/.hephaion/rag_index.json",
         "index_identity": "1" * 16,
         "index_build_or_refresh_command": "uv run heph index /tmp/fixture-armory",
         "scored_corpus_sha256": "a" * 64,
@@ -986,7 +986,7 @@ def test_matrix_command_excludes_ignored_permissioned_material(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     armory = _make_armory(tmp_path)
-    (armory / ".hephaistosignore").write_text("materials/private.md\n", encoding="utf-8")
+    (armory / ".hephaionignore").write_text("materials/private.md\n", encoding="utf-8")
     (armory / "materials" / "private.md").write_text(
         "PRIVATE-TENANT-SENTINEL must never be retrieved.\n",
         encoding="utf-8",

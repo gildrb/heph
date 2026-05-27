@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory import storage
+from hephaion.armory import storage
 from scripts import create_chat_reliability_fixture as fixture
 
 
