@@ -1,6 +1,6 @@
 # Architecture
 
-Heph follows strict import boundaries enforced by `import-linter`. Only
+Hephaion follows strict import boundaries enforced by `import-linter`. Only
 adapter packages may import broadly; lower tiers must stay copyable and must
 not depend on product workflows.
 
@@ -10,7 +10,7 @@ not depend on product workflows.
   `terminal.palette`, `_types`. These are the most copyable packages and must
   not import product workflow packages.
 - **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
-  `study`. These may model Heph concepts, but must not depend on
+  `study`. These may model Heph agent concepts, but must not depend on
   adapters, CLI command handlers, TUI modules, or chat session orchestration.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
@@ -198,7 +198,7 @@ the provenance path for a retrieved chunk.
 
 ## Study memory
 
-Heph is local-first by default: extracted study concepts are written to
+Hephaion is local-first by default: extracted study concepts are written to
 `<armory>/.hephaistos/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
@@ -207,7 +207,7 @@ entry count for the current armory session.
 
 ## Diagnostics
 
-Heph uses local diagnostics that keep debugging data inside the CLI
+Hephaion uses local diagnostics that keep debugging data inside the CLI
 workflow and armory workspace.
 
 ```mermaid
@@ -245,7 +245,7 @@ graph TD
 <!-- sync-docs:privacy-diagnostics-architecture:start -->
 ## Privacy & Diagnostics
 
-Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
+Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
 
 - `hephaistos.diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.

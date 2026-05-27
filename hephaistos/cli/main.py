@@ -27,7 +27,7 @@ class HephArgumentParser(argparse.ArgumentParser):
 def _package_version() -> str:
     metadata = importlib.import_module("importlib.metadata")
     try:
-        return metadata.version("hephaistos")
+        return metadata.version("heph")
     except Exception:
         return "0.1.0"
 
@@ -259,7 +259,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Heph opens an armory and starts an interactive AI session.",
+        "Open Heph, the agent inside the Hephaion harness.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} course-notes            Open the known armory named course-notes",

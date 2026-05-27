@@ -8,7 +8,7 @@
 |---|---|
 | `heph` | Open your current armory or plain chat. |
 | `heph <name-or-path>` | Open a known armory by name, e.g. `heph gdp`, or by path. |
-| `hephaistos [path]` | Equivalent long entrypoint for `heph`. |
+| `hephaion [path]` | Equivalent long Hephaion harness entrypoint for `heph`. |
 | `heph armory <name>` | Create a named armory in `~/.armories`. |
 | `heph armory init <name-or-path>` | Create a new named armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
@@ -24,9 +24,9 @@
 | `heph chat ask --jsonl <path> [prompt]` | Emit structured turn events as JSON Lines for harness audits. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
 
-`heph` is the canonical public command. `hephaistos` is an
-equivalent long entrypoint. Use `heph tui [path]` only when a script
-needs the explicit TUI subcommand.
+`heph` is the canonical public command that starts the Heph agent.
+`hephaion` is the equivalent long Hephaion harness entrypoint. Use
+`heph tui [path]` only when a script needs the explicit TUI subcommand.
 
 ## Slash commands
 

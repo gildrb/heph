@@ -131,7 +131,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
 CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph": "Open your current armory or plain chat.",
     "heph <name-or-path>": "Open a known armory by name, e.g. `heph gdp`, or by path.",
-    "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
+    "hephaion [path]": "Equivalent long Hephaion harness entrypoint for `heph`.",
     "heph armory <name>": "Create a named armory in `~/.armories`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
@@ -151,7 +151,7 @@ LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     ),
     (
         re.compile(r"\bhephaistos\s+start\b"),
-        "Use `hephaistos` or `hephaistos <name-or-path>` as the primary long-form command.",
+        "Use `hephaion` or `hephaion <name-or-path>` as the long-form harness command.",
     ),
     (
         re.compile(r"\bsource\s+reindex\b"),
@@ -360,16 +360,16 @@ def load_fragment(name: str) -> str:
 def collect_docs_model(root: Path) -> DocsModel:
     scripts = load_project_scripts(root / "pyproject.toml")
     short_command = "heph"
-    long_command = "hephaistos"
+    long_command = "hephaion"
     if short_command not in scripts or long_command not in scripts:
-        raise RuntimeError("Expected both `heph` and `hephaistos` entrypoints in pyproject.toml.")
+        raise RuntimeError("Expected both `heph` and `hephaion` entrypoints in pyproject.toml.")
     if scripts[short_command] != scripts[long_command]:
-        raise RuntimeError("Expected `heph` and `hephaistos` to share one entrypoint.")
+        raise RuntimeError("Expected `heph` and `hephaion` to share one entrypoint.")
 
     return DocsModel(
         short_command=short_command,
         long_command=long_command,
-        project_name="Heph",
+        project_name="Hephaion",
         scripts_entrypoint=scripts[short_command],
         common_commands=collect_common_commands(short_command, long_command),
         cli_reference_commands=collect_cli_commands(short_command, long_command),
@@ -477,7 +477,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "INSTALL_BLOCK": render_install_block(model),
         "PIP_INSTALL_BLOCK": render_pip_install_block(),
         "UPGRADE_BLOCK": "```bash\nuv tool upgrade heph\n```",
-        "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/hephaistos\n```",
+        "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/heph\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
         "EQUIVALENT_ENTRYPOINT_NOTE": compatibility,
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,

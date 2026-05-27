@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with Hephaistos
+about: Report a problem with Hephaion
 labels: bug, triage
 ---
 
@@ -24,7 +24,7 @@ labels: bug, triage
 
 ## Environment
 
-- Hephaistos version: <!-- run `heph --version` or `uv run heph --version` -->
+- Hephaion version: <!-- run `heph --version` or `uv run heph --version` -->
 - Python version:
 - OS:
 - Provider: <!-- OpenAI / Anthropic / other -->

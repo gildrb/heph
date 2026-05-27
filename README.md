@@ -1,18 +1,21 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
-# Heph
+# Hephaion
 
-**Hephaion is an agentic local document harness for accurate, cited answers.**
+**Hephaion is a local document harness for accurate, cited answers.**
 
-The agent (Heph) helps you understand and work with document-heavy projects
+Hephaion is the harness: the tool you install, run, and write in. Inside it,
+the agent (Heph) helps you understand and work with document-heavy projects
 without handing your files to a hosted workspace. Put materials in an **armory**,
-start Heph, and ask questions. Heph retrieves from your files before answering,
-checks citations against the retrieved evidence, and keeps memory scoped to that
-armory.
+start Heph with `heph`, and ask questions. Heph retrieves from your files before
+answering, checks citations against the retrieved evidence, and keeps memory
+scoped to that armory.
 
-Heph is there to reason over the material, ask follow-up questions, test your
-understanding, and keep long sessions grounded. Accuracy, verification, and privacy
-come first; model choice stays swappable.
+Heph is the part that reasons over the material, asks follow-up questions, tests
+your understanding, and keeps long sessions grounded. Hephaion provides the
+guardrails around that agent: retrieval, citation checks, memory scoping, and
+model/provider boundaries. Accuracy, verification, and privacy come first; model
+choice stays swappable.
 
 An armory is the core idea: a normal portable folder with your source files, saved
 chats, retrieval index, and local memory. Your documents are not locked into a
@@ -41,7 +44,7 @@ uv tool upgrade heph
 Install from GitHub:
 
 ```bash
-uv tool install git+https://github.com/gildrb/hephaistos
+uv tool install git+https://github.com/gildrb/heph
 ```
 
 ## Start

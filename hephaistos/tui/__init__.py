@@ -454,7 +454,7 @@ class HephTui(
 
     def on_mount(self) -> None:
         self.title = "Heph"
-        self.sub_title = "local document harness"
+        self.sub_title = "agent inside Hephaion"
         self._install_tty_resize_reader()
         self._sync_terminal_size_from_tty()
         self._initialize_layout_visibility()

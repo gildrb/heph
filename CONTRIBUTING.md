@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for helping improve Heph.
+Thanks for helping improve Hephaion and the Heph agent.
 
 ## Setup
 
 ```bash
-git clone https://github.com/gildrb/hephaistos
-cd hephaistos
+git clone https://github.com/gildrb/heph
+cd heph
 uv sync --group dev
 ```
 

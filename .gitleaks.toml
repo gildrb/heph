@@ -1,4 +1,4 @@
-title = "Hephaistos Gitleaks Config"
+title = "Hephaion Gitleaks Config"
 description = "Secret scanning configuration — extends default rules with project-specific allowlists."
 
 [allowlist]

@@ -394,7 +394,7 @@ def heph_help_plan(
     *,
     phase: LearningPhase = LearningPhase.PRESENTING,
 ) -> LearningTurnPlan:
-    """Plan a chat turn answering a question about Heph itself, grounded in product docs."""
+    """Plan a chat turn answering product questions, grounded in product docs."""
     return _turn_plan(
         LearningAction.CHAT,
         _heph_self_prompt(_normalize(user_request)),
@@ -441,9 +441,9 @@ def _plain_chat_prompt(query: str) -> str:
 def _heph_self_prompt(query: str) -> str:
     docs_context = heph_product_context()
     context_block = (
-        f"Current Heph documentation excerpt:\n{docs_context}\n"
+        f"Current Hephaion documentation excerpt:\n{docs_context}\n"
         if docs_context
-        else "Current Heph documentation excerpt: unavailable.\n"
+        else "Current Hephaion documentation excerpt: unavailable.\n"
     )
     return _prompt_frame(
         "Execute HEPH_HELP.",
@@ -451,7 +451,7 @@ def _heph_self_prompt(query: str) -> str:
         context_block,
         rules=(
             _SAME_LANGUAGE_USER_RULE,
-            "- Answer from the Heph documentation excerpt above, not from armory material.",
+            "- Answer from the Hephaion documentation excerpt above, not from armory material.",
             "- Do not treat the user message as a recall attempt, even during an active drill.",
             "- Do not grade the learner, require confidence, or reveal any active recall answer.",
             "- Do not use armory material, citations, retrieved evidence, or tool output.",

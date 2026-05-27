@@ -38,7 +38,7 @@ def test_lint_legacy_commands_flags_stale_refs(tmp_path: Path) -> None:
 
     errors = sync_docs.lint_legacy_commands(tmp_path)
 
-    assert any("hephaistos` or `hephaistos <name-or-path>`" in error for error in errors)
+    assert any("hephaion` or `hephaion <name-or-path>`" in error for error in errors)
     assert any("materials index" in error for error in errors)
 
 
@@ -46,6 +46,7 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     model = sync_docs.collect_docs_model(sync_docs.ROOT)
 
     assert model.short_command == "heph"
+    assert model.long_command == "hephaion"
     assert any(
         command.command == "heph materials index <path>"
         for command in model.cli_reference_commands
