@@ -1,10 +1,10 @@
 # Agentic Development
 
-This document describes how AI coding agents are used in the Heph project.
+This document describes how AI coding agents are used in the Hephaion project.
 
 ## Shared Project Skills
 
-Heph keeps shared, repo-level agent context in vendor-neutral committed docs and local,
+Hephaion keeps shared, repo-level agent context in vendor-neutral committed docs and local,
 ignored agent directories:
 
 | Location | Purpose |

@@ -1,9 +1,10 @@
 <coding_guidelines>
-# Heph — Agent Guide
+# Hephaion / Heph — Agent Guide
 
 ## Product Promise
 
-Heph is a **local document harness for accurate, cited answers**.
+Hephaion is a **local document harness for accurate, cited answers**. Heph is
+the agent that runs inside the harness.
 Protect this shape in every change:
 
 - Armories stay portable normal directories.

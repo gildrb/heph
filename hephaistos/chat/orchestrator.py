@@ -470,7 +470,8 @@ _LEARNING_INTENT_NORMALIZATION_SCHEMA = "\n".join(
     )
 )
 _LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
-Classify the user's intent for Heph, a tool that answers from the user's own materials.
+Classify the user's intent for Hephaion, the harness that runs the Heph agent and answers
+from the user's own materials.
 The user's materials are the default subject; ambiguous messages refer to them.
 
 Intents:
@@ -494,8 +495,9 @@ Intents:
 - scaffold_request: user signals the task is too hard or asks how to start without giving up.
 - skip_request: user wants to skip, pass, or move on to a different item.
 - material_review: user asks to review the cited material before attempting recall.
-- heph_help: user asks about Heph itself (what Heph does, how to use it, its commands).
-- chat: clearly unrelated to the user's materials and not about Heph itself.
+- heph_help: user asks about Hephaion or Heph: what the harness or agent does, how to
+  use it, or its commands.
+- chat: clearly unrelated to the user's materials and not about Hephaion or Heph.
 
 When a prior assistant intent is given, continue that intent unless the user clearly switches
 to a different one. Short, vague, or anaphoric follow-ups in any language continue the prior

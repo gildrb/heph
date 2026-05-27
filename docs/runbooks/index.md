@@ -1,6 +1,6 @@
 # Runbooks
 
-Operational playbooks for diagnosing and resolving issues in Heph.
+Operational playbooks for diagnosing and resolving issues in Hephaion.
 
 ## Available Runbooks
 
@@ -14,7 +14,7 @@ Operational playbooks for diagnosing and resolving issues in Heph.
 ## Quick Reference
 
 **Where to check deploy impact:**
-- [GitHub Deployments](https://github.com/gildrb/hephaistos/deployments) — history for manual edge publishes and releases
+- [GitHub Deployments](https://github.com/gildrb/heph/deployments) — history for manual edge publishes and releases
 
 **Primary diagnostics:**
 - Structured logs via `HEPHAISTOS_LOG_*`

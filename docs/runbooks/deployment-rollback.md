@@ -11,7 +11,7 @@ refresh the rolling edge prerelease.
 
 ### Rollback Steps
 
-1. **Identify the bad commit** — check the [edge release](https://github.com/gildrb/hephaistos/releases/tag/edge)
+1. **Identify the bad commit** — check the [edge release](https://github.com/gildrb/heph/releases/tag/edge)
    for the commit SHA.
 
 2. **Revert the commit** on `main`:
@@ -37,9 +37,9 @@ Stable releases are published to PyPI by manually dispatching
 1. **Yank the release from PyPI** (prevents new installs):
    ```bash
    pip install twine
-   twine register --repository pypi "hephaistos==0.1.0"  # if not registered
+   twine register --repository pypi "heph==0.1.0"  # if not registered
    # Yank:
-   pip run twine yank hephaistos 0.1.0 --repository pypi
+   pip run twine yank heph 0.1.0 --repository pypi
    ```
 
 2. **Delete the GitHub Release** (if needed):
@@ -58,7 +58,7 @@ Stable releases are published to PyPI by manually dispatching
 
 ## Where to Check Deploy Impact
 
-- **GitHub Deployments** — https://github.com/gildrb/hephaistos/deployments
+- **GitHub Deployments** — https://github.com/gildrb/heph/deployments
 - **GitHub Actions** — check the latest deploy/release workflow run
 - **Published package** — verify the expected wheel and sdist exist on the GitHub release and PyPI
 

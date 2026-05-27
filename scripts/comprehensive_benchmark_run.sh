@@ -184,7 +184,7 @@ Dataset selection:
   --standard-rag-dataset ID     Standard RAG dataset id, e.g. ms-marco
   --standard-rag-manifest PATH  Local standard RAG manifest
   --ms-marco-source-dir PATH    Local MS MARCO directory with collection, queries, and qrels files
-  --native-suite PATH           Hephaistos native benchmark suite path
+  --native-suite PATH           Hephaion native benchmark suite path
   --public-academic-manifest PATH
                                 Public academic manifest for materialization
   --public-academic-suite PATH  Pre-generated public-academic case suite with readiness_report.json

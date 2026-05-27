@@ -136,7 +136,7 @@ class RecommendCommand(Command):
             return CommandResult()
         print_info(
             "Model picks favor low cost, speed, and instruction following because "
-            "Heph handles RAG retrieval and citation checks."
+            "Hephaion handles RAG retrieval and citation checks."
         )
         for model in models:
             price = (
