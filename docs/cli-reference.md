@@ -27,6 +27,8 @@
 `heph` is the canonical public command that starts the Heph agent.
 `hephaion` is the equivalent long Hephaion harness entrypoint. Use
 `heph tui [path]` only when a script needs the explicit TUI subcommand.
+Armories created before the Hephaion rename with `.hephaistos/` internal state are
+migrated automatically to `.hephaion/` when opened.
 
 ## Slash commands
 

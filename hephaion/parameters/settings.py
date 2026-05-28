@@ -11,6 +11,8 @@ from typing import Final
 from hephaion._types import is_string_mapping
 
 _DEFAULTS_FILE = Path(__file__).parent / "default.toml"
+_LEGACY_USER_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
+_LEGACY_USER_CONFIG_FILE = _LEGACY_USER_CONFIG_DIR / "config.json"
 _USER_CONFIG_DIR = Path.home() / ".config" / "hephaion"
 _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
@@ -113,6 +115,18 @@ def _write_private_text(path: Path, text: str) -> None:
 
 def user_config_dir() -> Path:
     return _USER_CONFIG_DIR
+
+
+def _migrate_legacy_config() -> None:
+    if _USER_CONFIG_FILE.exists() or not _LEGACY_USER_CONFIG_FILE.is_file():
+        return
+    _ensure_private_config_dir()
+    _USER_CONFIG_FILE.write_text(
+        _LEGACY_USER_CONFIG_FILE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    with contextlib.suppress(OSError):
+        _USER_CONFIG_FILE.chmod(0o600)
 
 
 @dataclass(frozen=True)
@@ -232,6 +246,7 @@ def normalize_setting_value(key: str, value: object) -> object:
 
 
 def load_raw_settings() -> dict[str, object]:
+    _migrate_legacy_config()
     path = _USER_CONFIG_FILE
     if not path.is_file():
         return {}
@@ -243,6 +258,7 @@ def load_raw_settings() -> dict[str, object]:
 
 
 def save_raw_settings(settings: dict[str, object]) -> None:
+    _migrate_legacy_config()
     _ensure_private_config_dir()
     filtered = {key: settings[key] for key in sorted(settings) if key in ALLOWED_CONFIG_KEYS}
     _write_private_text(_USER_CONFIG_FILE, json.dumps(filtered, indent=2) + "\n")

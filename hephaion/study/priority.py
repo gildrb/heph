@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import html
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -22,6 +21,7 @@ from pathlib import Path
 from typing import NoReturn, Protocol, Self
 
 from hephaion._types import is_string_mapping, parse_json_object_fragment
+from hephaion.env import get_env
 from hephaion.materials import infer_material_role_from_text, material_display_name
 from hephaion.providers.endpoints import is_keyless_endpoint
 from hephaion.runtime import (
@@ -1810,7 +1810,7 @@ def _analysis_with_optional_web_prerequisites(
 
 
 def _web_prerequisites_enabled(config: ChatConfig | None) -> bool:
-    env_enabled = os.environ.get(_WEB_PREREQ_ENV, "").lower() in {"1", "true", "yes", "on"}
+    env_enabled = get_env(_WEB_PREREQ_ENV, "").lower() in {"1", "true", "yes", "on"}
     return env_enabled or (
         config is not None and config.is_feature_enabled("priority_web_prereqs")
     )

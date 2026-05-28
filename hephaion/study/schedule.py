@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.state_paths import existing_state_path, state_path
 from hephaion.study.mastery import next_recall_mastery
 from hephaion.study.state import RecallRating
 
@@ -256,11 +257,11 @@ class RecallScheduleStore:
 
     @property
     def _path(self) -> Path:
-        return self.armory_path / ".hephaion" / _RECALL_SCHEDULE_FILE
+        return state_path(self.armory_path, _RECALL_SCHEDULE_FILE)
 
     @property
     def _legacy_path(self) -> Path:
-        return self.armory_path / ".hephaion" / _LEGACY_RECALL_SCHEDULE_FILE
+        return existing_state_path(self.armory_path, _LEGACY_RECALL_SCHEDULE_FILE)
 
     @property
     def _read_path(self) -> Path:

@@ -14,6 +14,7 @@ from typing import Final
 
 from hephaion import __version__
 from hephaion._types import is_string_mapping
+from hephaion.env import get_env
 from hephaion.parameters.settings import load_app_settings, load_raw_settings, save_raw_settings
 from hephaion.privacy.release import (
     POSTHOG_HOST as _RELEASE_POSTHOG_HOST,
@@ -31,6 +32,7 @@ from hephaion.privacy.release import (
     SENTRY_DSN as _RELEASE_SENTRY_DSN,
 )
 
+_LEGACY_INSTALL_ID_PATH: Final[Path] = Path.home() / ".config" / "hephaistos" / "install_id.json"
 _INSTALL_ID_PATH: Final[Path] = Path.home() / ".config" / "hephaion" / "install_id.json"
 
 ANALYTICS_ENABLED_ENV: Final[str] = "HEPHAION_ANALYTICS_ENABLED"
@@ -63,6 +65,17 @@ def _write_private_install_id(value: str) -> None:
         file.write(json.dumps({"install_id": value}) + "\n")
 
 
+def _migrate_legacy_install_id() -> None:
+    if _INSTALL_ID_PATH.exists() or not _LEGACY_INSTALL_ID_PATH.is_file():
+        return
+    _ensure_install_id_dir()
+    raw = _LEGACY_INSTALL_ID_PATH.read_bytes()
+    fd = os.open(str(_INSTALL_ID_PATH), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as file:
+        os.fchmod(file.fileno(), 0o600)
+        file.write(raw)
+
+
 @dataclass(frozen=True)
 class PrivacyReleaseConfig:
     posthog_host: str = ""
@@ -77,7 +90,7 @@ def _clean(value: str | None) -> str:
 
 
 def _env_bool(name: str) -> bool | None:
-    raw = os.environ.get(name, "").strip().lower()
+    raw = get_env(name, "").strip().lower()
     if not raw:
         return None
     if raw in _TRUE_VALUES:
@@ -99,7 +112,7 @@ def release_config() -> PrivacyReleaseConfig:
 
 def posthog_host() -> str:
     return (
-        _clean(os.environ.get(POSTHOG_HOST_ENV))
+        _clean(get_env(POSTHOG_HOST_ENV))
         or _clean(os.environ.get(_LEGACY_POSTHOG_HOST_ENV))
         or release_config().posthog_host
     )
@@ -107,7 +120,7 @@ def posthog_host() -> str:
 
 def posthog_project_token() -> str:
     return (
-        _clean(os.environ.get(POSTHOG_TOKEN_ENV))
+        _clean(get_env(POSTHOG_TOKEN_ENV))
         or _clean(os.environ.get(_LEGACY_POSTHOG_TOKEN_ENV))
         or release_config().posthog_project_token
     )
@@ -115,7 +128,7 @@ def posthog_project_token() -> str:
 
 def sentry_dsn() -> str:
     return (
-        _clean(os.environ.get(SENTRY_DSN_ENV))
+        _clean(get_env(SENTRY_DSN_ENV))
         or _clean(os.environ.get(_LEGACY_SENTRY_DSN_ENV))
         or release_config().sentry_dsn
     )
@@ -177,6 +190,7 @@ def is_official_install() -> bool:
 def install_id() -> str:
     with contextlib.suppress(Exception):
         _ensure_install_id_dir()
+        _migrate_legacy_install_id()
     if _INSTALL_ID_PATH.exists():
         with contextlib.suppress(Exception):
             _INSTALL_ID_PATH.chmod(0o600)

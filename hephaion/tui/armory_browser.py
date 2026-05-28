@@ -26,9 +26,11 @@ from hephaion.armory.search import (
     load_known_armory_entries,
     load_recent_armory_entries,
 )
-from hephaion.armory.storage import MARKER_FILE, ArmoryError, initialize
+from hephaion.armory.storage import ArmoryError, initialize
+from hephaion.env import get_env
 from hephaion.matching import ranked_matches
 from hephaion.materials import count_material_files
+from hephaion.state_paths import is_armory_path, migrate_legacy_layout
 from hephaion.terminal import Theme, current_palette
 from hephaion.tui.startup_discovery import discover_available_armories
 from hephaion.tui.transparent import transparent_strip
@@ -92,7 +94,8 @@ def _list_entries(path: Path) -> list[Path]:
 
 def _is_armory(path: Path) -> bool:
     try:
-        return (path / MARKER_FILE).is_file()
+        migrate_legacy_layout(path)
+        return is_armory_path(path)
     except OSError:
         return False
 
@@ -102,7 +105,7 @@ def _is_writable_directory(path: Path) -> bool:
 
 
 def default_armory_home() -> Path:
-    configured = os.environ.get(_DEFAULT_ARMORY_HOME_ENV, "").strip()
+    configured = get_env(_DEFAULT_ARMORY_HOME_ENV, "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / ".armories").resolve()

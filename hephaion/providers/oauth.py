@@ -29,6 +29,8 @@ from hephaion.terminal.palette import LIGHT_THEME
 
 _log = get_logger("providers.oauth")
 
+_LEGACY_AUTH_DIR = Path.home() / ".config" / "hephaistos"
+_LEGACY_AUTH_FILE = _LEGACY_AUTH_DIR / "auth.json"
 _AUTH_DIR = Path.home() / ".config" / "hephaion"
 _AUTH_FILE = _AUTH_DIR / "auth.json"
 
@@ -375,6 +377,7 @@ def refresh_credentials(creds: OAuthCredentials) -> OAuthCredentials:
 
 
 def _load_all() -> dict[str, dict[str, object]]:
+    _migrate_legacy_auth()
     if not _AUTH_FILE.is_file():
         return {}
     try:
@@ -389,7 +392,20 @@ def _auth_entries_from_json(data: object) -> dict[str, dict[str, object]]:
     return {key: value for key, value in data.items() if is_string_mapping(value)}
 
 
+def _migrate_legacy_auth() -> None:
+    if _AUTH_FILE.exists() or not _LEGACY_AUTH_FILE.is_file():
+        return
+    _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+    _AUTH_DIR.chmod(0o700)
+    raw = _LEGACY_AUTH_FILE.read_bytes()
+    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(raw)
+
+
 def _write_all(data: dict[str, dict[str, object]]) -> None:
+    _migrate_legacy_auth()
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_DIR.chmod(0o700)
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")

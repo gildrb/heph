@@ -6,8 +6,13 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hephaion.state_paths import (
+    INTERNAL_DIR,
+    MARKER_FILE,
+    migrate_legacy_layout,
+)
+
 MATERIALS_DIR = "materials"
-INTERNAL_DIR = ".hephaion"
 GENERATED_DIR = ".hephaion/generated"
 CHATS_DIR = ".hephaion/chats"
 TRACES_DIR = ".hephaion/traces"
@@ -22,7 +27,6 @@ ARMORY_DIRS = (
     USAGE_DIR,
     TOOLS_DIR,
 )
-MARKER_FILE = Path(".hephaion/armory.toml")
 LAYOUT_VERSION = 2
 
 
@@ -51,6 +55,7 @@ def initialize(path: Path) -> None:
             f'version = {LAYOUT_VERSION}\ncreated_at = "{created_at}"\n',
             encoding="utf-8",
         )
+    migrate_legacy_layout(path)
 
 
 def validate(path: Path) -> None:
@@ -58,6 +63,7 @@ def validate(path: Path) -> None:
         raise ArmoryValidationError(f"armory does not exist: {path}")
     if not path.is_dir():
         raise ArmoryValidationError(f"path is not a directory: {path}")
+    migrate_legacy_layout(path)
 
     marker_path = path / MARKER_FILE
     if not marker_path.exists():
@@ -70,6 +76,7 @@ def validate(path: Path) -> None:
 
 
 def read_marker(path: Path) -> dict[str, object]:
+    migrate_legacy_layout(path)
     marker_path = path / MARKER_FILE
     if not marker_path.exists():
         raise ArmoryValidationError(f"missing armory marker file: {marker_path}")

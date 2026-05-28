@@ -9,7 +9,6 @@ built-in provider config.
 from __future__ import annotations
 
 import json
-import os
 import ssl
 import threading
 import time
@@ -21,6 +20,7 @@ from urllib.parse import urlparse
 import certifi
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.env import get_env
 from hephaion.logging import get_logger
 from hephaion.providers.config import ProviderConfig
 from hephaion.providers.registry import ModelInfo, get_registry
@@ -60,7 +60,7 @@ def hydrate_provider_models(
     allow_network: bool = False,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
+    if get_env(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
     _hydrate_models_dev_metadata(allow_network=allow_network)
@@ -88,7 +88,7 @@ def prefetch_provider_model_catalogs(
     *,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
+    if get_env(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
     _schedule_models_dev_refresh()

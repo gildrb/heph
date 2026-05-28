@@ -12,6 +12,7 @@ from typing import TypedDict
 
 from hephaion._types import is_string_mapping
 from hephaion.logging import get_logger
+from hephaion.state_paths import existing_state_path, state_path
 from hephaion.vocab.parser import VocabCard, VocabDeck
 
 _log = get_logger("vocab.state")
@@ -120,17 +121,22 @@ class VocabScheduleStore:
 
     @property
     def _path(self) -> Path:
-        return self.armory_path / ".hephaion" / _SCHEDULE_FILE
+        return state_path(self.armory_path, _SCHEDULE_FILE)
+
+    @property
+    def _read_path(self) -> Path:
+        return existing_state_path(self.armory_path, _SCHEDULE_FILE)
 
     @property
     def card_list(self) -> list[VocabCardState]:
         return list(self.cards.values())
 
     def load(self) -> bool:
-        if not self._path.is_file():
+        read_path = self._read_path
+        if not read_path.is_file():
             return False
         try:
-            raw_data = json.loads(self._path.read_text(encoding="utf-8"))
+            raw_data = json.loads(read_path.read_text(encoding="utf-8"))
             if not is_string_mapping(raw_data):
                 return False
             raw_cards = raw_data.get("cards", {})

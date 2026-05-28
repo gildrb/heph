@@ -81,6 +81,27 @@ def test_load_app_settings_ignores_removed_interface_mode(
     assert settings.load_raw_settings() == {}
 
 
+def test_load_raw_settings_migrates_legacy_hephaistos_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "hephaion"
+    config_file = config_dir / "config.json"
+    legacy_config_dir = tmp_path / "hephaistos"
+    legacy_config_file = legacy_config_dir / "config.json"
+    legacy_config_dir.mkdir(parents=True)
+    legacy_config_file.write_text(json.dumps({"model": "legacy-model"}), encoding="utf-8")
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(settings, "_LEGACY_USER_CONFIG_DIR", legacy_config_dir)
+    monkeypatch.setattr(settings, "_LEGACY_USER_CONFIG_FILE", legacy_config_file)
+
+    assert settings.load_raw_settings() == {"model": "legacy-model"}
+    assert config_file.read_text(encoding="utf-8") == legacy_config_file.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_dir = tmp_path / "config"
     config_file = config_dir / "config.json"

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-import os
 
+from hephaion.env import get_env
 from hephaion.rag import optional_backends
 from hephaion.rag.index import ArmoryIndex
 from hephaion.rag.optional_backends import (
@@ -42,7 +42,7 @@ class EmbeddingRetriever:
     ) -> None:
         self._index = index
         self._chunks = index.all_chunks
-        self._model_name = model_name or os.environ.get(_EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT)
+        self._model_name = model_name or get_env(_EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT)
         self._query_prefix = query_prefix
         self._document_prefix = document_prefix
         self._embeddings: list[list[float]] | None = None
@@ -119,7 +119,7 @@ class EmbeddingRetriever:
 
 class CrossEncoderReranker:
     def __init__(self, model_name: str | None = None) -> None:
-        self._model_name = model_name or os.environ.get(_RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT)
+        self._model_name = model_name or get_env(_RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT)
         self._model: CrossEncoderProtocol | None = None
 
     @property

@@ -92,10 +92,24 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     set_theme("dark")
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(_settings_mod, "_LEGACY_USER_CONFIG_DIR", tmp_path / "legacy_config")
+    monkeypatch.setattr(
+        _settings_mod,
+        "_LEGACY_USER_CONFIG_FILE",
+        tmp_path / "legacy_config" / "config.json",
+    )
     monkeypatch.setattr(_provider_config_mod, "_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_provider_config_mod, "_PROVIDERS_FILE", providers_file)
+    monkeypatch.setattr(_provider_config_mod, "_LEGACY_CONFIG_DIR", tmp_path / "legacy_config")
+    monkeypatch.setattr(
+        _provider_config_mod,
+        "_LEGACY_PROVIDERS_FILE",
+        tmp_path / "legacy_config" / "providers.toml",
+    )
     monkeypatch.setattr(_oauth_mod, "_AUTH_DIR", auth_dir)
     monkeypatch.setattr(_oauth_mod, "_AUTH_FILE", auth_file)
+    monkeypatch.setattr(_oauth_mod, "_LEGACY_AUTH_DIR", tmp_path / "legacy_auth")
+    monkeypatch.setattr(_oauth_mod, "_LEGACY_AUTH_FILE", tmp_path / "legacy_auth" / "auth.json")
     monkeypatch.setattr(
         _privacy_mod,
         "_INSTALL_ID_PATH",
@@ -130,6 +144,14 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simp
     defaults_file = tmp_path / "default.toml"
     monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(
+        "hephaion.parameters.settings._LEGACY_USER_CONFIG_DIR",
+        tmp_path / "legacy_hephaistos_config",
+    )
+    monkeypatch.setattr(
+        "hephaion.parameters.settings._LEGACY_USER_CONFIG_FILE",
+        tmp_path / "legacy_hephaistos_config" / "config.json",
+    )
     monkeypatch.setattr("hephaion.parameters.settings._DEFAULTS_FILE", defaults_file)
     return SimpleNamespace(
         config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
@@ -144,6 +166,11 @@ def isolated_auth_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simple
     auth_file = auth_dir / "auth.json"
     monkeypatch.setattr("hephaion.providers.oauth._AUTH_DIR", auth_dir)
     monkeypatch.setattr("hephaion.providers.oauth._AUTH_FILE", auth_file)
+    monkeypatch.setattr("hephaion.providers.oauth._LEGACY_AUTH_DIR", tmp_path / "legacy_auth")
+    monkeypatch.setattr(
+        "hephaion.providers.oauth._LEGACY_AUTH_FILE",
+        tmp_path / "legacy_auth" / "auth.json",
+    )
     return SimpleNamespace(auth_dir=auth_dir, auth_file=auth_file)
 
 

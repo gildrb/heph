@@ -95,6 +95,31 @@ def test_open_armory_returns_success_message(
     assert str(armory_path.resolve()) in out
 
 
+def test_open_legacy_hephaistos_armory_migrates_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    armory_path = armory_home / "legacy-armory"
+    marker_path = armory_path / ".hephaistos" / "armory.toml"
+    marker_path.parent.mkdir(parents=True)
+    marker_path.write_text('version = 2\ncreated_at = "2026-05-27T00:00:00+00:00"\n')
+    (armory_path / "materials").mkdir()
+    for dirname in ("generated", "chats", "traces", "usage", "tools"):
+        (marker_path.parent / dirname).mkdir()
+
+    run_argv(parser, ["armory", "open", str(armory_path)])
+
+    out = capsys.readouterr().out
+    assert "Opened armory" in out
+    assert (armory_path / ".hephaion" / "armory.toml").is_file()
+    assert not (armory_path / ".hephaistos").exists()
+
+
 def test_open_armory_fails_for_uninitialized_path(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

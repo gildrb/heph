@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import os
 import re as _re
 import sys
 import time
@@ -15,6 +14,8 @@ from pathlib import Path
 from typing import ClassVar, Self, TextIO
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.env import get_env
+from hephaion.state_paths import state_path
 from hephaion.terminal.palette import DARK_THEME, ansi_fg
 
 # -- Redaction / scrubbing ---------------------------------------------------
@@ -145,7 +146,7 @@ def _ensure_hephaion_logger() -> None:
     logger.propagate = False
     if not logger.handlers:
         logger.addHandler(_stderr_handler(level, fmt))
-        if log_file := os.environ.get(_LOG_FILE_ENV):
+        if log_file := get_env(_LOG_FILE_ENV):
             logger.addHandler(_file_handler(Path(log_file), level))
     _quiet_noisy_loggers()
 
@@ -154,8 +155,8 @@ def _logging_config() -> tuple[int, str]:
     is_tty = sys.stderr.isatty()
     default_level_name = "ERROR" if is_tty else "WARNING"
     default_format = "text" if is_tty else "json"
-    level_name = os.environ.get(_LOG_LEVEL_ENV, default_level_name).upper()
-    return getattr(logging, level_name, logging.WARNING), os.environ.get(
+    level_name = get_env(_LOG_LEVEL_ENV, default_level_name).upper()
+    return getattr(logging, level_name, logging.WARNING), get_env(
         _LOG_FORMAT_ENV,
         default_format,
     ).lower()
@@ -217,7 +218,7 @@ class TraceWriter:
     @property
     def path(self) -> Path | None:
         if self._path is None and self._armory_path is not None:
-            self._path = self._armory_path / ".hephaion" / _TRACES_DIR / f"{self.session_id}.jsonl"
+            self._path = state_path(self._armory_path, _TRACES_DIR, f"{self.session_id}.jsonl")
         return self._path
 
     def _write(self, event: Mapping[str, object]) -> None:

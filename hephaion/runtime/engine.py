@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import random
 import re
 import sys
@@ -32,6 +31,7 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, Self, cast
 
 from hephaion._types import is_string_mapping
 from hephaion.diagnostics.crashes import get_meter, get_tracer
+from hephaion.env import get_env
 from hephaion.logging import Timer, get_logger, redact_text
 from hephaion.providers.endpoints import is_keyless_endpoint
 from hephaion.providers.keyring_store import resolve_key
@@ -932,7 +932,7 @@ def _open_codex_backend_response(
 
 
 def _codex_backend_timeout_seconds() -> float:
-    raw = os.environ.get("HEPHAION_CODEX_TIMEOUT_SECONDS", "").strip()
+    raw = get_env("HEPHAION_CODEX_TIMEOUT_SECONDS", "").strip()
     if not raw:
         return _CODEX_BACKEND_TIMEOUT_SECONDS
     with contextlib.suppress(ValueError):

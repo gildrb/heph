@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import replace
 from typing import TYPE_CHECKING, TypedDict
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.env import get_env
 from hephaion.logging import Timer, get_logger
 from hephaion.memory import MemoryStore, save_memory
 from hephaion.runtime import (
@@ -70,7 +70,7 @@ class ExtractedConcept(TypedDict):
 
 
 def _effective_extraction_config(config: ChatConfig) -> ChatConfig:
-    extraction_model = os.environ.get(_EXTRACTION_MODEL_ENV, "").strip()
+    extraction_model = get_env(_EXTRACTION_MODEL_ENV, "").strip()
     return replace(config, model=extraction_model) if extraction_model else config
 
 

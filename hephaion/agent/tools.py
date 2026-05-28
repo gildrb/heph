@@ -51,6 +51,7 @@ from hephaion.armory.storage import (
     read_marker,
     validate,
 )
+from hephaion.env import get_env
 from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 
@@ -492,7 +493,7 @@ def _rtk_can_wrap_command(stripped_command: str) -> bool:
 
 
 def _rtk_min_command_chars() -> int:
-    raw_min_chars = os.environ.get("HEPHAION_RTK_MIN_COMMAND_CHARS", "0").strip()
+    raw_min_chars = get_env("HEPHAION_RTK_MIN_COMMAND_CHARS", "0").strip()
     try:
         return max(0, int(raw_min_chars))
     except ValueError:
@@ -500,13 +501,13 @@ def _rtk_min_command_chars() -> int:
 
 
 def _rtk_option_args() -> list[str]:
-    if os.environ.get("HEPHAION_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY:
+    if get_env("HEPHAION_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY:
         return ["--ultra-compact"]
     return []
 
 
 def _rtk_enabled() -> bool:
-    rtk_setting = os.environ.get("HEPHAION_RTK")
+    rtk_setting = get_env("HEPHAION_RTK")
     return rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
 
 

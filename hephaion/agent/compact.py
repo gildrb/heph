@@ -33,6 +33,7 @@ from hephaion.runtime import (
     build_client,
     to_chat_completion_messages,
 )
+from hephaion.state_paths import state_path
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletion
@@ -42,8 +43,8 @@ _log = get_logger("agent.compact")
 KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
-TRANSCRIPTS_DIR: str = ".hephaion/transcripts"
-_COMPACTION_CACHE_DIR: str = ".hephaion/compaction_cache"
+TRANSCRIPTS_DIR: str = "transcripts"
+_COMPACTION_CACHE_DIR: str = "compaction_cache"
 _SUMMARY_PROMPT_CHAR_LIMIT = 80_000
 _REDACTED = "***REDACTED***"
 _SENSITIVE_TRANSCRIPT_KEY_MARKERS = (
@@ -132,7 +133,7 @@ def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT)
 
 
 def _write_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
-    transcript_dir = workspace / TRANSCRIPTS_DIR
+    transcript_dir = state_path(workspace, TRANSCRIPTS_DIR)
     transcript_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     transcript_dir.chmod(0o700)
     transcript_path = transcript_dir / f"transcript_{time.time_ns()}.jsonl"
@@ -201,7 +202,7 @@ def _recent_exchange_start(messages: list[ApiMessage], keep_recent_exchanges: in
 def _summary_cache_path(workspace: Path, messages: list[ApiMessage]) -> tuple[Path, str]:
     serialized = json.dumps(messages, default=str, ensure_ascii=False, sort_keys=True)
     messages_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    return workspace / _COMPACTION_CACHE_DIR / f"{messages_hash}.txt", serialized
+    return state_path(workspace, _COMPACTION_CACHE_DIR, f"{messages_hash}.txt"), serialized
 
 
 def _cached_summary(cache_path: Path) -> str | None:

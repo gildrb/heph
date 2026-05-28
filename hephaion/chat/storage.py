@@ -9,10 +9,12 @@ from uuid import uuid4
 from hephaion._types import is_object_list, is_string_mapping
 from hephaion.logging import get_logger
 from hephaion.runtime import Conversation
+from hephaion.state_paths import existing_state_path, state_path
 
 _log = get_logger("chat.storage")
 
 CHATS_DIR = ".hephaion/chats"
+_CHATS_DIR_NAME = "chats"
 
 
 class ChatStorageError(Exception):
@@ -27,7 +29,11 @@ class SessionRecord(TypedDict):
 
 
 def _chats_path(armory_path: Path) -> Path:
-    return armory_path / CHATS_DIR
+    return state_path(armory_path, _CHATS_DIR_NAME)
+
+
+def _read_chats_path(armory_path: Path) -> Path:
+    return existing_state_path(armory_path, _CHATS_DIR_NAME)
 
 
 def _session_path(armory_path: Path, session_id: str) -> Path:
@@ -49,7 +55,7 @@ def _validate_session_path(armory_path: Path, session_id: str) -> None:
     if not _session_id_is_safe(session_id):
         raise ChatStorageError(f"invalid session id: {session_id}")
     chats = _chats_path(armory_path).resolve()
-    target = _session_path(armory_path, session_id).resolve()
+    target = (chats / f"{session_id}.json").resolve()
     if not target.is_relative_to(chats):
         raise ChatStorageError(f"invalid session id: {session_id}")
 
@@ -71,7 +77,7 @@ def save(
     chats = _chats_path(armory_path)
     chats.mkdir(parents=True, exist_ok=True)
 
-    file_path = _session_path(armory_path, session_id)
+    file_path = chats / f"{session_id}.json"
     now = datetime.now(UTC).isoformat()
     existing = _read_existing_session_data(file_path)
     data = _session_data(
@@ -190,7 +196,7 @@ def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:
 
 
 def list_sessions(armory_path: Path) -> list[SessionRecord]:
-    chats = _chats_path(armory_path)
+    chats = _read_chats_path(armory_path)
     if not chats.exists():
         return []
 

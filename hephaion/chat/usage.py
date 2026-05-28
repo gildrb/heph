@@ -23,6 +23,7 @@ from hephaion._types import is_object_list, is_string_mapping
 from hephaion.logging import get_logger
 from hephaion.providers.registry import ModelInfo, builtin_models, get_registry
 from hephaion.runtime import ApiMessage, UsagePayload
+from hephaion.state_paths import existing_state_path, state_path
 
 _log = get_logger("chat.usage")
 _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
@@ -242,7 +243,7 @@ def save_usage(
         )
         return None
 
-    usage_dir = armory_path / ".hephaion" / _USAGE_DIR
+    usage_dir = state_path(armory_path, _USAGE_DIR)
     usage_dir.mkdir(parents=True, exist_ok=True)
     path = usage_dir / f"{session_id}.json"
 
@@ -259,7 +260,7 @@ def save_usage(
 
 
 def load_usage_summaries(armory_path: Path) -> list[dict[str, int | float | str]]:
-    usage_dir = armory_path / ".hephaion" / _USAGE_DIR
+    usage_dir = existing_state_path(armory_path, _USAGE_DIR)
     if not usage_dir.exists():
         return []
 
