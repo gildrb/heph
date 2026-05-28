@@ -2,7 +2,7 @@
 
 This wrapper is for the stage before a real corpus has full labelled RAG and
 answer datasets. It combines strict manifest validation with the generic
-document-understanding smoke benchmark, producing one JSON artifact that can be
+document-understanding stress benchmark, producing one JSON artifact that can be
 attached to a completion audit.
 """
 

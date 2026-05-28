@@ -1,4 +1,4 @@
-name: Auto-approve Renovate PRs
+name: Dependency PR Review Gate
 
 on:
   pull_request_target:
@@ -10,33 +10,13 @@ permissions:
   contents: read
 
 jobs:
-  auto-approve:
+  dependency-review-required:
     if: github.actor == 'renovate[bot]' || github.actor == 'renovate[bot][app]'
     runs-on: ubuntu-latest
     steps:
-      - name: Check update type and approve
+      - name: Mark dependency PR as requiring review
         env:
-          GH_TOKEN: ${{ secrets.RENOVATE_APPROVE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          REPO: ${{ github.repository }}
         run: |
-          # Skip major updates -- these require manual review
-          if echo "$PR_TITLE" | grep -qiE "(major|breaking)"; then
-            echo "Major/breaking update detected -- skipping auto-approve"
-            exit 0
-          fi
-
-          # Also check labels for major-update
-          if ! LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name'); then
-            echo "Unable to read Renovate PR labels; refusing auto-approval" >&2
-            exit 1
-          fi
-          if echo "$LABELS" | grep -q "major-update"; then
-            echo "Major update label found -- skipping auto-approve"
-            exit 0
-          fi
-
-          # Auto-approve non-major Renovate PRs
-          echo "Auto-approving Renovate PR #$PR_NUMBER"
-          gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body "Auto-approved: minor/patch dependency update. CI checks will gate the merge."
+          gh pr comment "$PR_NUMBER" --body "Dependency updates are reviewed code changes. This PR requires manual review before merge."

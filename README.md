@@ -35,6 +35,12 @@ Or with pip:
 pip install heph
 ```
 
+For PDF, DOCX, PPTX, and XLSX conversion support, install the optional Docling extra:
+
+```bash
+pip install "heph[docling]"
+```
+
 Upgrade with:
 
 ```bash

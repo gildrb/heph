@@ -424,7 +424,15 @@ def render_install_block(model: DocsModel) -> str:
 
 
 def render_pip_install_block() -> str:
-    return "```bash\npip install heph\n```"
+    return (
+        "```bash\n"
+        "pip install heph\n"
+        "```\n\n"
+        "For PDF, DOCX, PPTX, and XLSX conversion support, install the optional Docling extra:\n\n"
+        "```bash\n"
+        'pip install "heph[docling]"\n'
+        "```"
+    )
 
 
 def render_create_armory_block(model: DocsModel) -> str:

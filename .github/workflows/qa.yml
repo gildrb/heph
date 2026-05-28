@@ -63,7 +63,7 @@ jobs:
           {
             echo "## QA Report"
             echo ""
-            echo "### Keyless CLI and TUI smoke checks"
+            echo "### Keyless CLI and TUI stress checks"
             echo ""
             echo '```'
             uv run pytest tests/test_cli_integration.py tests/test_rag_index.py tests/test_app_tui.py -q

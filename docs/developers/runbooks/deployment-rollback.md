@@ -24,7 +24,7 @@ refresh the rolling edge prerelease.
 
 3. **Verify** — check the new edge release and confirm the app works.
 
-4. **Monitor** — watch the follow-up GitHub Actions run and do a quick smoke test
+4. **Monitor** — watch the follow-up GitHub Actions run and do a quick stress test
    with `heph --version` plus a basic armory command.
 
 ## PyPI Release (version tags)
@@ -67,4 +67,4 @@ Stable releases are published to PyPI by manually dispatching
 - Always test on edge before cutting a stable release
 - Keep edge publishes explicit so routine `main` pushes do not create deployment noise
 - Use `--profile` and `--profile-memory` flags during QA
-- Keep a small smoke-test checklist for install, armory init, and chat startup
+- Keep a small stress-test checklist for install, armory init, and chat startup

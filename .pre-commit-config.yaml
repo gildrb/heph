@@ -32,6 +32,23 @@ repos:
         entry: python -m scripts.check_repo_policies
         types: [python]
         pass_filenames: false
+      - id: check-lockfile-change
+        name: lockfile change review gate
+        language: python
+        entry: python -m scripts.check_lockfile_change
+        files: ^uv\.lock$
+      - id: check-dependency-pinning
+        name: dependency pinning
+        language: python
+        entry: python -m scripts.check_dependency_pinning
+        files: ^pyproject\.toml$
+        pass_filenames: false
+      - id: check-sdist-allowlist
+        name: source-only sdist allowlist
+        language: python
+        entry: python -m scripts.check_dependency_sdist_allowlist
+        files: ^uv\.lock$
+        pass_filenames: false
       - id: ty
         name: ty (type-check)
         language: system

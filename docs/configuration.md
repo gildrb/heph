@@ -132,8 +132,8 @@ Memory is scoped per-armory and can be configured:
 For advanced users, you can configure custom retrieval backends through optional dependencies:
 
 ```bash
-uv sync --group rag  # Install BM25, embeddings, reranking
-uv sync --group docling  # Install document extraction extras
+uv sync --frozen --group rag  # Install BM25, embeddings, reranking
+uv sync --frozen --group docling  # Install document extraction extras
 ```
 
 ### Profiling

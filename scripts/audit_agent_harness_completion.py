@@ -558,7 +558,7 @@ def _real_chat_expectation_evidence_failure(expectation: Mapping[str, object]) -
 
 
 def _real_preflight_item(report_path: Path | None, manifest_path: Path | None) -> AuditItem:
-    requirement = "Real corpus preflight passes extraction, indexing, and role smoke checks"
+    requirement = "Real corpus preflight passes extraction, indexing, and role stress checks"
     if report_path is None:
         return AuditItem(
             requirement,

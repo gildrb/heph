@@ -64,7 +64,7 @@ Large armories may take a few minutes.
 
 Hephaion uses sentence-transformers for embeddings (optional dependency):
 ```bash
-uv sync --group rag
+uv sync --frozen --group rag
 ```
 
 If embeddings fail, check:

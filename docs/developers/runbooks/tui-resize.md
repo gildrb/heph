@@ -1,12 +1,12 @@
-# TUI Resize Smoke Test
+# TUI Resize Stress Test
 
 Use this runbook when changing the Textual TUI layout, composer, completion menu,
 transcript rendering, or side panel behavior.
 
-1. Run the pseudo-terminal resize smoke:
+1. Run the pseudo-terminal resize stress:
 
    ```bash
-   uv run python -m scripts.tui_resize_smoke
+   uv run python -m scripts.tui_resize_stress
    ```
 
 2. Launch a real armory in a normal terminal:
@@ -36,5 +36,5 @@ transcript rendering, or side panel behavior.
    - focus remains in the composer unless an intentional inline flow owns focus
    - repeated resize spam does not produce visible lag or repaint storms
 
-The headless regression tests cover the structural invariants, but this smoke test is still
+The headless regression tests cover the structural invariants, but this stress test is still
 required for terminal-cell artifacts that only appear in a real terminal emulator.

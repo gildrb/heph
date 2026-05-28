@@ -22,9 +22,9 @@ Protect this shape in every change:
 ## Setup
 ```bash
 uv sync --frozen           # install all dependencies
-uv sync --group dev        # install dev tools (lint, type-check, test)
-uv sync --group rag        # install optional RAG backends
-uv sync --group docling    # install optional document extraction extras
+uv sync --frozen --group dev        # install dev tools (lint, type-check, test)
+uv sync --frozen --group rag        # install optional RAG backends
+uv sync --frozen --group docling    # install optional document extraction extras
 ```
 
 ## Run
@@ -197,6 +197,13 @@ Testing rules:
 - API keys must not be written to config files; resolve them from OS keyring,
   environment variables, or the in-memory test store.
 - Logs, diagnostics, traces, and crash reports must redact secrets before writing.
+- Treat dependency updates as reviewed code changes.
+- Direct external dependency declarations must be exact `==` pins; `uv.lock` remains the
+  dependency ground truth.
+- Set `HEPH_ALLOW_LOCKFILE_CHANGE=1` only after reviewing lockfile changes.
+- Run `uv lock --check`, `uv run python -m scripts.check_dependency_pinning`,
+  `uv run python -m scripts.check_dependency_sdist_allowlist`, and `uv audit --frozen`
+  when dependencies change.
 
 ## Documentation and Product Style
 
@@ -218,7 +225,8 @@ Testing rules:
 
 ## Build & Release
 ```bash
-uv build                   # build sdist + wheel
+uv build --build-constraints build-constraints.txt --require-hashes --no-sources  # build sdist + wheel
+uv run python -m scripts.release_stress_test                   # stress-test built artifacts
 ```
 Releases are dispatched manually from protected `main` for reviewed `v*` tags.
 Edge deploys are published manually via `.github/workflows/deploy.yml`.
@@ -235,6 +243,7 @@ Operational playbooks for incident response:
 ## Pre-commit Hooks
 
 Configured hooks: ruff, ruff-format, check-large-files, gitleaks, sync-docs,
-check-repo-policies, ty, vulture, pylint duplicate-code, lint-imports, deptry,
-radon complexity, check-tech-debt, and validate-agents-md.
+check-repo-policies, lockfile change review gate, dependency pinning,
+source-only sdist allowlist, ty, vulture, pylint duplicate-code, lint-imports,
+deptry, radon complexity, check-tech-debt, and validate-agents-md.
 </coding_guidelines>

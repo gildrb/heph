@@ -1,13 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema",
   "extends": ["config:recommended"],
-  "minimumReleaseAge": "3 days",
+  "minimumReleaseAge": "7 days",
   "labels": ["dependencies", "triage"],
   "automergeStrategy": "squash",
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch", "digest", "pin", "lockFileMaintenance"],
-      "automerge": true,
+      "automerge": false,
       "groupName": "non-major dependencies",
       "groupSlug": "all-minor-patch"
     },
@@ -18,7 +18,7 @@
     },
     {
       "matchManagers": ["github-actions"],
-      "automerge": true,
+      "automerge": false,
       "groupName": "github-actions",
       "groupSlug": "github-actions",
       "labels": ["dependencies", "ci"],
@@ -27,7 +27,7 @@
     {
       "matchManagers": ["pep621"],
       "commitMessagePrefix": "chore(deps)",
-      "rangeStrategy": "bump"
+      "rangeStrategy": "pin"
     }
   ],
   "prConcurrentLimit": 5,
@@ -38,6 +38,6 @@
   },
   "vulnerabilityAlerts": {
     "labels": ["security"],
-    "automerge": true
+    "automerge": false
   }
 }

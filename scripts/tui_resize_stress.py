@@ -1,4 +1,4 @@
-"""Run a real PTY smoke test for TUI resize ghosting.
+"""Run a real PTY stress test for TUI resize ghosting.
 
 The Textual test harness can prove widget state, but terminal ghosting is a
 cell-level artifact. This script launches ``heph`` in a pseudo-terminal,
@@ -71,7 +71,7 @@ TMUX_RESIZE_SEQUENCE = (
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeCase:
+class StressCase:
     name: str
     input_bytes: bytes
 
@@ -91,7 +91,7 @@ class TerminalSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeResult:
+class StressResult:
     case_name: str
     resize_run_name: str
     terminal_clear_seen: bool
@@ -300,7 +300,7 @@ def _close_heph(pid: int, fd: int, selector: selectors.DefaultSelector) -> None:
 
 
 def _run_case(
-    case: SmokeCase,
+    case: StressCase,
     *,
     armory: Path,
     armory_home: Path,
@@ -325,12 +325,12 @@ def _run_case(
 
 
 def _result_for_case(
-    case: SmokeCase,
+    case: StressCase,
     resize_run: ResizeRun,
     snapshot: TerminalSnapshot,
-) -> SmokeResult:
+) -> StressResult:
     screen = snapshot.screen
-    return SmokeResult(
+    return StressResult(
         case_name=case.name,
         resize_run_name=resize_run.name,
         terminal_clear_seen=TERMINAL_CLEAR_SEQUENCE in snapshot.stream,
@@ -339,7 +339,7 @@ def _result_for_case(
         placeholder_count=screen.count(COMPOSER_PLACEHOLDER),
         slash_help_count=screen.count("/help"),
         settings_count=screen.count("Settings"),
-        material_count=screen.count("resize-smoke"),
+        material_count=screen.count("resize-stress"),
         armory_filter_count=screen.count("Filter armory paths"),
     )
 
@@ -356,7 +356,7 @@ def _composer_prompt_count(screen: str) -> int:
     return count
 
 
-def _failure_reasons(result: SmokeResult) -> list[str]:
+def _failure_reasons(result: StressResult) -> list[str]:
     failures: list[str] = []
     if not result.terminal_clear_seen:
         failures.append("terminal clear sequence was not observed")
@@ -385,7 +385,7 @@ def _failure_reasons(result: SmokeResult) -> list[str]:
         if result.footer_count > 1:
             failures.append("materials inline state duplicated footer chrome")
         if result.material_count < 1:
-            failures.append("materials inline state lost the smoke material")
+            failures.append("materials inline state lost the stress material")
     elif result.case_name == "armory-inline":
         if result.armory_filter_count != 1:
             failures.append("armory inline state did not end with one filter placeholder")
@@ -415,20 +415,20 @@ def _prepare_armories() -> tuple[Path, Path]:
     _init_armory(sibling, armory_home)
     materials = armory / "materials"
     materials.mkdir(exist_ok=True)
-    material_text = "# Resize Smoke\n\n" + (
+    material_text = "# Resize Stress\n\n" + (
         "A long resize verification sentence wraps cleanly. " * 12
     )
-    (materials / "resize-smoke.md").write_text(material_text, encoding="utf-8")
+    (materials / "resize-stress.md").write_text(material_text, encoding="utf-8")
     return armory_home, armory
 
 
-def _default_cases() -> tuple[SmokeCase, ...]:
+def _default_cases() -> tuple[StressCase, ...]:
     return (
-        SmokeCase("empty-placeholder", b""),
-        SmokeCase("slash-completion", b"/"),
-        SmokeCase("settings-inline", b"/settings\r"),
-        SmokeCase("materials-inline", b"/materials\r"),
-        SmokeCase("armory-inline", b"/armory\r"),
+        StressCase("empty-placeholder", b""),
+        StressCase("slash-completion", b"/"),
+        StressCase("settings-inline", b"/settings\r"),
+        StressCase("materials-inline", b"/materials\r"),
+        StressCase("armory-inline", b"/armory\r"),
     )
 
 
@@ -449,8 +449,8 @@ def _default_resize_runs(*, wide_width: int, wide_height: int) -> tuple[ResizeRu
     )
 
 
-def _run_smoke(
-    cases: Iterable[SmokeCase],
+def _run_stress(
+    cases: Iterable[StressCase],
     resize_runs: Iterable[ResizeRun],
 ) -> int:
     armory_home, armory = _prepare_armories()
@@ -548,9 +548,9 @@ def _tmux_failure_reasons(capture: str) -> list[str]:
     return failures
 
 
-def _run_tmux_smoke() -> int:
+def _run_tmux_stress() -> int:
     if which("tmux") is None:
-        print("tmux smoke skipped: tmux is not installed")
+        print("tmux stress skipped: tmux is not installed")
         return 0
     armory_home, armory = _prepare_armories()
     session = f"heph-resize-{os.getpid()}"
@@ -586,14 +586,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
-    parser.add_argument("--tmux", action="store_true", help="also run a tmux split-pane smoke")
+    parser.add_argument("--tmux", action="store_true", help="also run a tmux split-pane stress")
     args = parser.parse_args()
-    status = _run_smoke(
+    status = _run_stress(
         _default_cases(),
         _default_resize_runs(wide_width=args.width, wide_height=args.height),
     )
     if args.tmux:
-        status = max(status, _run_tmux_smoke())
+        status = max(status, _run_tmux_stress())
     return status
 
 

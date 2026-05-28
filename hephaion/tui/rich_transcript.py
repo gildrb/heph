@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-import unicodeit
-
 from hephaion.rag.context import TurnEvidence
 from hephaion.rag.source_mapping import evidence_location_label
 
@@ -31,6 +29,42 @@ _LATEX_COMMAND_REPLACEMENTS = {
     r"\:": " ",
     r"\!": "",
 }
+_LATEX_SYMBOL_REPLACEMENTS = {
+    r"\cdot": "⋅",
+    r"\dots": "…",
+    r"\geq": "≥",
+    r"\ge": "≥",
+    r"\infty": "∞",
+    r"\leq": "≤",
+    r"\le": "≤",
+    r"\neq": "≠",
+    r"\pi": "π",
+    r"\sum": "∑",
+    r"\times": "\u00d7",
+}
+_LATEX_SIMPLE_SCRIPT_RE = re.compile(r"([_^])([A-Za-z0-9+\-=()])")
+_SUBSCRIPT_CHARS = str.maketrans(
+    {
+        "0": "₀",
+        "1": "₁",
+        "2": "₂",
+        "3": "₃",
+        "4": "₄",
+        "5": "₅",
+        "6": "₆",
+        "7": "₇",
+        "8": "₈",
+        "9": "₉",
+        "+": "₊",
+        "-": "₋",
+        "=": "₌",
+        "(": "₍",
+        ")": "₎",
+        "n": "ₙ",
+        "x": "ₓ",
+    }
+)
+_SUPERSCRIPT_CHARS = str.maketrans("0123456789+-=()n", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
 _MARKDOWN_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]+`", re.DOTALL)
 _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r":?-{3,}:?")
 _MAX_VISIBLE_SOURCE_ITEMS = 3
@@ -48,7 +82,9 @@ def _replace_latex_commands(text: str) -> str:
     formatted = text
     for latex, replacement in _LATEX_COMMAND_REPLACEMENTS.items():
         formatted = formatted.replace(latex, replacement)
-    formatted = unicodeit.replace(formatted)
+    for latex, replacement in _LATEX_SYMBOL_REPLACEMENTS.items():
+        formatted = formatted.replace(latex, replacement)
+    formatted = _format_latex_scripts(formatted)
     formatted = _LATEX_BRACED_SCRIPT_RE.sub(
         lambda match: f"{match.group(1)}{match.group(2)}",
         formatted,
@@ -59,6 +95,30 @@ def _replace_latex_commands(text: str) -> str:
     )
     formatted = _LATEX_SUPERSCRIPT_SPACING_RE.sub(lambda match: match.group(1), formatted)
     return re.sub(r"[ \t]{2,}", " ", formatted)
+
+
+def _format_latex_scripts(text: str) -> str:
+    formatted = text
+    while True:
+        replaced = _LATEX_BRACED_SCRIPT_RE.sub(
+            lambda match: _translate_script(match.group(2), subscript=match.group(1) == "_"),
+            formatted,
+        )
+        if replaced == formatted:
+            break
+        formatted = replaced
+    return _LATEX_SIMPLE_SCRIPT_RE.sub(
+        lambda match: _translate_script(match.group(2), subscript=match.group(1) == "_"),
+        formatted,
+    )
+
+
+def _translate_script(value: str, *, subscript: bool) -> str:
+    table = _SUBSCRIPT_CHARS if subscript else _SUPERSCRIPT_CHARS
+    translated = value.translate(table)
+    if translated == value and not subscript:
+        return f"^{value}"
+    return translated
 
 
 def _format_math_expression(expression: str) -> str:

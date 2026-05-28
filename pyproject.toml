@@ -21,13 +21,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "keyring>=25.7.0",
-    "openai>=1.0.0",
-    "rich>=14.0.0",
-    "certifi>=2024.0.0",
-    "textual>=6.0.0",
-    "docling>=2.0.0",
-    "unicodeit>=0.7.0",
+    "keyring==25.7.0",
+    "openai==2.24.0",
+    "rich==14.3.3",
+    "certifi==2026.2.25",
+    "textual==8.2.4",
 ]
 
 [project.urls]
@@ -37,22 +35,24 @@ Issues = "https://github.com/gildrb/heph/issues"
 
 [project.optional-dependencies]
 embeddings = [
-    "sentence-transformers>=3.0.0",
-    "scikit-learn>=1.0.0",
+    "sentence-transformers==5.3.0",
+    "scikit-learn==1.8.0",
 ]
-docling = []
+docling = [
+    "docling==2.86.0",
+]
 rag = [
-    "pathspec>=0.12.0",
-    "tiktoken>=0.13.0",
+    "pathspec==1.0.4",
+    "tiktoken==0.13.0",
 ]
 fuzzy = [
-    "rapidfuzz>=3.14.0",
+    "rapidfuzz==3.14.5",
 ]
 beir = [
-    "beir>=2.2.0",
+    "beir==2.2.0",
 ]
 visualization = [
-    "matplotlib>=3.10.0",
+    "matplotlib==3.10.9",
 ]
 
 [project.scripts]
@@ -60,7 +60,7 @@ hephaion = "hephaion.cli.main:main"
 heph = "hephaion.cli.main:main"
 
 [build-system]
-requires = ["uv_build>=0.10.1,<0.11.0"]
+requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.ruff]
@@ -364,26 +364,28 @@ fail_under = 75
 
 [dependency-groups]
 dev = [
-    "bandit[toml]>=1.8",
-    "deptry>=0.22",
-    "pytest>=9.0.2",
-    "pytest-cov>=7.1.0",
-    "pytest-randomly>=0.1",
-    "pytest-rerunfailures>=14.0",
-    "pytest-xdist>=0.1",
-    "pylint>=3.0",
-    "radon>=6.0",
-    "ruff>=0.15.8",
-    "vulture>=2.0",
-    "import-linter>=2.11",
-    "py-spy>=0.4",
-    "bandit>=1.9",
-    "ty>=0.0.34",
-    "pre-commit>=4.6.0",
+    "bandit[toml]==1.9.4",
+    "deptry==0.25.1",
+    "pytest==9.0.3",
+    "pytest-cov==7.1.0",
+    "pytest-randomly==4.0.1",
+    "pytest-rerunfailures==16.1",
+    "pytest-xdist==3.8.0",
+    "pylint==4.0.5",
+    "radon==6.0.1",
+    "ruff==0.15.8",
+    "vulture==2.16",
+    "import-linter==2.11",
+    "py-spy==0.4.1",
+    "bandit==1.9.4",
+    "ty==0.0.34",
+    "pre-commit==4.6.0",
 ]
 rag = [
-    "bm25s>=0.2.13",
-    "sentence-transformers>=3.0.0",
-    "scikit-learn>=1.0.0",
+    "bm25s==0.3.5",
+    "sentence-transformers==5.3.0",
+    "scikit-learn==1.8.0",
 ]
-docling = []
+docling = [
+    "docling==2.86.0",
+]

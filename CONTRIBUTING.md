@@ -7,7 +7,7 @@ Thanks for helping improve Hephaion and the Heph agent.
 ```bash
 git clone https://github.com/gildrb/heph
 cd heph
-uv sync --group dev
+uv sync --frozen --group dev
 ```
 
 Optional extras:
@@ -33,6 +33,10 @@ uv run ruff check .
 uv run ruff format --check .
 uv run ty check
 uv run python -m scripts.check_repo_policies
+uv lock --check
+uv run python -m scripts.check_dependency_pinning
+uv run python -m scripts.check_dependency_sdist_allowlist
+uv audit --frozen
 ```
 
 When README, CLI, privacy, diagnostics, or docs-adjacent behavior changes:
@@ -43,6 +47,7 @@ uv run python -m scripts.sync_docs
 
 ## Guidelines
 
+- Treat dependency changes as reviewed code changes; set `HEPH_ALLOW_LOCKFILE_CHANGE=1` only after reviewing `pyproject.toml`, `uv.lock`, and the source-only sdist allowlist.
 - Keep armories portable normal directories.
 - Keep answers grounded in user materials with verifiable citations.
 - Keep memory scoped to the armory unless the user explicitly opts into a shared service.

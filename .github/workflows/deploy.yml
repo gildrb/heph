@@ -15,6 +15,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     environment: edge
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       DEPLOY_REF: ${{ github.event.inputs.ref || github.ref_name }}
     steps:
@@ -49,7 +53,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Sync dev dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
 
       - name: Ruff check
         run: uv run ruff check .
@@ -116,13 +120,41 @@ jobs:
           PY
 
       - name: Build package
-        run: uv build
+        run: uv build --build-constraints build-constraints.txt --require-hashes --no-sources
+
+      - name: Generate runtime SBOM
+        run: |
+          mkdir -p .artifacts/release
+          uv export --frozen --no-dev --format cyclonedx1.5 --output-file .artifacts/release/heph-runtime-sbom.cdx.json > /dev/null
+          uv export --frozen --no-dev --format pylock.toml --output-file .artifacts/release/pylock.runtime.toml > /dev/null
+
+      - name: Generate optional dependency SBOM
+        run: |
+          mkdir -p .artifacts/release
+          uv export --frozen --no-dev --all-extras --format cyclonedx1.5 --output-file .artifacts/release/heph-optional-sbom.cdx.json > /dev/null
+          uv export --frozen --no-dev --all-extras --format pylock.toml --output-file .artifacts/release/pylock.optional.toml > /dev/null
+
+      - name: Release stress test
+        run: uv run python -m scripts.release_stress_test
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/*
+            .artifacts/release/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
           path: dist/*
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: .artifacts/release/*
 
   deploy:
     needs: build
@@ -139,6 +171,12 @@ jobs:
         with:
           name: dist
           path: dist
+
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: release-assets
 
       - name: Create edge deployment
         env:
@@ -173,6 +211,7 @@ jobs:
             --notes "Rolling edge build for ${GITHUB_SHA}"
 
           gh release upload edge dist/* --clobber
+          gh release upload edge release-assets/* --clobber
 
       - name: Notify deploy
         env:

@@ -1,4 +1,4 @@
-"""Smoke benchmark unlabelled document understanding for any armory.
+"""Stress benchmark unlabelled document understanding for any armory.
 
 This script is intentionally generic. It does not know course names, lecturer
 names, universities, languages, or subjects. It checks whether an armory has
@@ -211,7 +211,7 @@ def _overview_source_coverage(
 
 def print_text_report(report: DocumentUnderstandingReport) -> None:
     """Print a compact human-readable report."""
-    print(f"Document understanding smoke: {report.armory_path}")
+    print(f"Document understanding stress: {report.armory_path}")
     print(
         f"materials={report.visible_materials} indexed={report.indexed_documents} "
         f"chunks={report.chunks}"

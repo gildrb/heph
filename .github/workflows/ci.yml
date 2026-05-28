@@ -23,7 +23,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| lint sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -62,7 +62,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| docs-sync sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -102,7 +102,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| typecheck sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -129,7 +129,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -140,6 +140,72 @@ jobs:
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  dependency-supply-chain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HEPH_ALLOW_LOCKFILE_CHANGE: ${{ vars.HEPH_ALLOW_LOCKFILE_CHANGE }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --frozen --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Lockfile review gate
+        if: github.event_name == 'pull_request'
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.check_lockfile_change --git-diff "origin/${GITHUB_BASE_REF}...HEAD"
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain lockfile-review | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Lockfile freshness
+        run: |
+          start=$(date +%s%N)
+          uv lock --check
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain lock-check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Direct dependency pinning
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.check_dependency_pinning
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain pinning | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Source-only sdist allowlist
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.check_dependency_sdist_allowlist
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain sdist-allowlist | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: No-build install check
+        run: |
+          start=$(date +%s%N)
+          uv sync --frozen --group dev --no-build --no-install-project --dry-run
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain no-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Dependency vulnerability audit
+        run: |
+          start=$(date +%s%N)
+          uv audit --frozen
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dependency-supply-chain uv-audit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   dead-code:
     runs-on: ubuntu-latest
@@ -154,7 +220,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| dead-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -179,7 +245,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| duplicate-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -204,7 +270,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| architecture sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -229,7 +295,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| test sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -261,7 +327,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| benchmark sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -352,7 +418,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| unused-deps sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -377,7 +443,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| complexity sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -402,17 +468,24 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| build sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Build
         run: |
           start=$(date +%s%N)
-          uv build
+          uv build --build-constraints build-constraints.txt --require-hashes --no-sources
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| build uv-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Release stress test
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.release_stress_test
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| build release-stress | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   feature-flags:
     runs-on: ubuntu-latest
@@ -427,7 +500,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| feature-flags sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -454,7 +527,7 @@ jobs:
       - name: Sync dependencies
         run: |
           start=$(date +%s%N)
-          uv sync --group dev
+          uv sync --frozen --group dev
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security-pr-report sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -521,7 +594,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Check TODO/FIXME issue links
         run: |
           start=$(date +%s%N)
@@ -541,7 +614,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Validate AGENTS.md commands
         run: |
           start=$(date +%s%N)
@@ -566,7 +639,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Fetch PR commits
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -629,7 +702,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
@@ -651,7 +724,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Download test results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
