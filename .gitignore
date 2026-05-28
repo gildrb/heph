@@ -83,6 +83,4 @@ autoresearch.jsonl
 autoresearch.ideas.md
 autoresearch_helper.py
 
-.devcontainer/
-docs/
 tests/

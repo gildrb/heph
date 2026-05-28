@@ -1,0 +1,47 @@
+# Security Policy
+
+## Supported Versions
+
+Currently only the latest version from the `main` branch is supported.
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability in Hephaion, please report it privately.
+
+**Do not** open a public issue.
+
+Instead, send an email to: hi@gildrb.com
+
+Please include:
+- A description of the vulnerability
+- Steps to reproduce the issue
+- Any potential impact you've identified
+- If possible, a suggested fix
+
+I will acknowledge receipt within 48 hours and provide a timeline for addressing the issue.
+
+## Security Features
+
+Hephaion is designed with security and privacy in mind:
+
+- **Local-first**: Your documents and chats stay on your machine
+- **No telemetry by default**: Analytics and crash reporting are opt-in only
+- **Scoped memory**: Each armory's memory is isolated from others
+- **No default terminal access**: Model-generated commands are not exposed as a default agent tool
+- **Secret protection**: API keys are stored in OS keyring or environment variables, never in config files
+
+## Security Best Practices for Users
+
+1. **Review armory plugins**: Only use armory plugins from sources you trust
+2. **Use terminal escapes carefully**: The `!` command escape should only be used in armories you trust
+3. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
+4. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
+
+## Dependency Security
+
+This project uses:
+- `uv` for dependency management, which includes security features
+- Pre-commit hooks with `gitleaks` to prevent accidental secret commits
+- `bandit` for security linting of Python code
+
+Dependencies are regularly updated through automated tooling.
