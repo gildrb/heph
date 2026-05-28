@@ -49,5 +49,7 @@ uv run python -m scripts.sync_docs
 - Keep providers and models swappable.
 - Prefer deleting duplication and simplifying control flow over adding new abstractions.
 - Add focused tests for behavior that could break.
+- Update user-facing docs in `docs/` when changing commands, armory behavior, retrieval, citation checks, memory, provider setup, privacy, or diagnostics. See `docs/getting-started.md` and related user guides.
+- Update developer docs in `docs/developers/` when changing internal architecture, agent conventions, or operational procedures.
 
 Before opening a pull request, make sure generated docs are synced and the worktree has no unrelated churn.

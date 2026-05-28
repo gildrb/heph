@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 _MAX_CONTEXT_CHARS = 4000
-_ASSISTANT_CONTEXT_PATH = Path("docs/heph-context.md")
+_ASSISTANT_CONTEXT_PATH = Path("docs/developers/heph-context.md")
 
 
 def _repo_readme_path() -> Path | None:
