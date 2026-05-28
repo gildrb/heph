@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import inspect
+import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
@@ -11,7 +12,6 @@ from hephaion.chat.model_selection import switch_model
 from hephaion.chat.provider_selection import activate_provider_for_session
 from hephaion.chat.session import list_armory_sessions, resume_session, save_session
 from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.env import get_env
 from hephaion.matching import ranked_matches
 from hephaion.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
@@ -875,12 +875,12 @@ class TuiInlineFlowMixin:
     def _environment_logout_credentials(self: _InlineFlowHost) -> list[str]:
         pc = ProviderConfig.load()
         credentials: list[str] = []
-        if get_env(GLOBAL_API_KEY_ENV, "").strip():
+        if os.environ.get(GLOBAL_API_KEY_ENV, "").strip():
             credentials.append(f"{GLOBAL_API_KEY_ENV} global override")
         for provider in pc.providers.values():
             if not provider.api_key_env:
                 continue
-            if get_env(provider.api_key_env, "").strip():
+            if os.environ.get(provider.api_key_env, "").strip():
                 credentials.append(f"{provider.display_name} ({provider.api_key_env})")
         return credentials
 

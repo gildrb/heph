@@ -137,28 +137,6 @@ def test_known_armory_entries_include_missing_paths(
     assert load_known_armories() == [existing]
 
 
-def test_known_armory_entries_accept_legacy_hephaistos_marker(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    existing = tmp_path / "existing"
-    marker = existing / ".hephaistos" / "armory.toml"
-    marker.parent.mkdir(parents=True)
-    marker.write_text('version = 2\ncreated_at = "2026-05-27T00:00:00+00:00"\n')
-    raw_settings: dict[str, object] = {"known_armories": [str(existing)]}
-
-    def fake_load() -> dict[str, object]:
-        return dict(raw_settings)
-
-    monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
-
-    entries = load_known_armory_entries()
-
-    assert entries[0].path == existing
-    assert entries[0].valid is True
-    assert (existing / ".hephaion" / "armory.toml").is_file()
-
-
 def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     armory = tmp_path / "my-armory"
     armory.mkdir()

@@ -19,8 +19,7 @@ choice stays swappable.
 
 An armory is the core idea: a normal portable folder with your source files, saved
 chats, retrieval index, and local memory. Your documents are not locked into a
-provider. Current armories keep Hephaion state in `.hephaion/`; armories created
-before the rename with `.hephaistos/` state are migrated automatically when opened.
+provider.
 
 ## Install
 

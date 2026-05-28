@@ -21,7 +21,6 @@ from hephaion.chat.session import (
 )
 from hephaion.diagnostics.events import capture as capture_analytics
 from hephaion.parameters.cli import load_config
-from hephaion.state_paths import state_path
 from hephaion.terminal import current_palette, print_error, print_info, set_theme
 from hephaion.terminal.history import InputHistory
 from hephaion.terminal.input import handle_input
@@ -84,7 +83,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
 def get_history_path(session: ChatSession) -> Path:
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
-    return state_path(session.armory_path, "history")
+    return session.armory_path / ".hephaion" / "history"
 
 
 def save_on_exit(session: ChatSession) -> None:

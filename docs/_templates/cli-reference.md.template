@@ -9,8 +9,6 @@
 `[[SHORT_COMMAND]]` is the canonical public command that starts the Heph agent.
 `[[LONG_COMMAND]]` is the equivalent long Hephaion harness entrypoint. Use
 `[[SHORT_COMMAND]] tui [path]` only when a script needs the explicit TUI subcommand.
-Armories created before the Hephaion rename with `.hephaistos/` internal state are
-migrated automatically to `.hephaion/` when opened.
 
 ## Slash commands
 

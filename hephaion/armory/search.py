@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaion.armory.storage import MARKER_FILE
 from hephaion.materials import MATERIALS_DIR, iter_material_files
 from hephaion.parameters.settings import load_raw_settings, save_setting
-from hephaion.state_paths import is_armory_path, migrate_legacy_layout
 
 _SETTINGS_KEY = "known_armories"
 _RECENT_SETTINGS_KEY = "recent_armories"
@@ -57,9 +57,7 @@ def _load_armory_entries(key: str) -> list[KnownArmory]:
             continue
         seen.add(path)
         exists = path.is_dir()
-        if exists:
-            migrate_legacy_layout(path)
-        valid = exists and is_armory_path(path)
+        valid = exists and (path / MARKER_FILE).is_file()
         armories.append(KnownArmory(path=path, exists=exists, valid=valid))
     return armories
 
@@ -102,9 +100,7 @@ def get_last_armory() -> Path | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
     path = Path(raw).expanduser().resolve()
-    if path.is_dir():
-        migrate_legacy_layout(path)
-    if path.is_dir() and is_armory_path(path):
+    if path.is_dir() and (path / MARKER_FILE).is_file():
         return path
     return None
 

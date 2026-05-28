@@ -38,22 +38,6 @@ def test_env_vars_override_release_stub(monkeypatch: pytest.MonkeyPatch) -> None
     assert consent.sentry_dsn() == "https://env@example.com/2"
 
 
-def test_legacy_hephaistos_env_vars_override_release_stub(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_consent_envs(monkeypatch)
-    monkeypatch.setattr(consent, "_RELEASE_POSTHOG_HOST", "https://release.example")
-    monkeypatch.setattr(consent, "_RELEASE_POSTHOG_PROJECT_TOKEN", "phc_release")
-    monkeypatch.setattr(consent, "_RELEASE_SENTRY_DSN", "https://release@example.com/1")
-    monkeypatch.setenv("HEPHAISTOS_POSTHOG_HOST", "https://legacy.example")
-    monkeypatch.setenv("HEPHAISTOS_POSTHOG_PROJECT_TOKEN", "phc_legacy")
-    monkeypatch.setenv("HEPHAISTOS_SENTRY_DSN", "https://legacy@example.com/2")
-
-    assert consent.posthog_host() == "https://legacy.example"
-    assert consent.posthog_project_token() == "phc_legacy"
-    assert consent.sentry_dsn() == "https://legacy@example.com/2"
-
-
 def test_safe_stub_has_no_remote_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_consent_envs(monkeypatch)
     monkeypatch.setattr(consent, "_RELEASE_POSTHOG_HOST", None)
@@ -122,21 +106,6 @@ def test_install_id_writes_private_permissions(
     assert value.startswith("heph_")
     assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(install_id_path.stat().st_mode) == 0o600
-
-
-def test_install_id_migrates_legacy_hephaistos_file(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    install_id_path = tmp_path / "hephaion" / "install_id.json"
-    legacy_install_id_path = tmp_path / "hephaistos" / "install_id.json"
-    legacy_install_id_path.parent.mkdir(parents=True)
-    legacy_install_id_path.write_text('{"install_id": "heph_legacy"}\n', encoding="utf-8")
-    monkeypatch.setattr(consent, "_INSTALL_ID_PATH", install_id_path)
-    monkeypatch.setattr(consent, "_LEGACY_INSTALL_ID_PATH", legacy_install_id_path)
-
-    assert consent.install_id() == "heph_legacy"
-    assert install_id_path.read_text(encoding="utf-8") == '{"install_id": "heph_legacy"}\n'
 
 
 def test_consent_notice_is_shown_once_for_official_installs(

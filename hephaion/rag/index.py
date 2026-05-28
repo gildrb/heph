@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import cast
 
 from hephaion._types import is_object_list, is_string_mapping
-from hephaion.env import get_env
 from hephaion.logging import Timer, get_logger
 from hephaion.materials import MATERIALS_DIR, iter_material_files
 from hephaion.parameters.settings import user_config_dir
@@ -36,7 +35,6 @@ from hephaion.rag.chunker import (
     chunk_file,
 )
 from hephaion.rag.retrieval_types import RetrieverCacheKey
-from hephaion.state_paths import existing_state_path, state_path
 
 _log = get_logger("rag.index")
 
@@ -111,7 +109,7 @@ def _unindexable_reason(path: Path) -> str:
 
 
 def _file_timeout_seconds() -> int:
-    raw = get_env(_FILE_TIMEOUT_ENV, "").strip()
+    raw = os.environ.get(_FILE_TIMEOUT_ENV, "").strip()
     if not raw:
         return 0
     try:
@@ -237,7 +235,7 @@ def _documents_digest(documents: object) -> str:
 
 
 def _cache_signing_key() -> bytes | None:
-    raw_path = get_env(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
+    raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
     key_path = (
         Path(raw_path).expanduser() if raw_path else user_config_dir() / _CACHE_SIGNING_KEY_FILE
     )
@@ -499,21 +497,14 @@ class ArmoryIndex:
         if cache_key is not None:
             digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:16]
             slug = f"{slug}_{digest}"
-        return state_path(self.armory_path, f"embeddings_{self.content_hash}_{slug}.json")
-
-    def _embedding_read_cache_path(self, model_name: str, cache_key: str | None = None) -> Path:
-        current = self._embedding_cache_path(model_name, cache_key)
-        return existing_state_path(self.armory_path, current.name)
+        return self.armory_path / ".hephaion" / f"embeddings_{self.content_hash}_{slug}.json"
 
     def _retriever_state_path(self, retriever_type: str) -> Path:
-        return state_path(
-            self.armory_path,
-            f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json",
+        return (
+            self.armory_path
+            / ".hephaion"
+            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
         )
-
-    def _retriever_read_state_path(self, retriever_type: str) -> Path:
-        current = self._retriever_state_path(retriever_type)
-        return existing_state_path(self.armory_path, current.name)
 
     def save_embeddings(
         self,
@@ -524,7 +515,7 @@ class ArmoryIndex:
     ) -> Path | None:
         if not embeddings:
             return None
-        embed_path = self._embedding_read_cache_path(model_name, cache_key)
+        embed_path = self._embedding_cache_path(model_name, cache_key)
         embed_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "content_hash": self.content_hash,
@@ -602,7 +593,7 @@ class ArmoryIndex:
         return state_path
 
     def load_retriever_state(self, retriever_type: str) -> dict[str, object] | None:
-        state_path = self._retriever_read_state_path(retriever_type)
+        state_path = self._retriever_state_path(retriever_type)
         if not state_path.is_file():
             return None
         data = _read_json_mapping(state_path)
@@ -798,7 +789,7 @@ class ArmoryIndex:
         _report_index_progress(progress, "skipped", f"{rel}: {reason}")
 
     def save(self) -> Path:
-        index_path = state_path(self.armory_path, _INDEX_FILE)
+        index_path = self.armory_path / ".hephaion" / _INDEX_FILE
         index_path.parent.mkdir(parents=True, exist_ok=True)
         documents = [
             {
@@ -836,7 +827,7 @@ class ArmoryIndex:
         return index_path
 
     def load(self, *, allow_stale: bool = False) -> bool:
-        index_path = existing_state_path(self.armory_path, _INDEX_FILE)
+        index_path = self.armory_path / ".hephaion" / _INDEX_FILE
         if not index_path.is_file():
             return False
 
@@ -1147,7 +1138,7 @@ def build_index(
     else:
         index.build(progress=progress)
     if progress is not None:
-        progress("writing", str(state_path(index.armory_path, _INDEX_FILE)))
+        progress("writing", str(index.armory_path / ".hephaion" / _INDEX_FILE))
     index.save()
     _log.info(
         "index built and saved",
@@ -1172,7 +1163,7 @@ def load_or_build(
     loaded = index.load(allow_stale=True)
     if _can_use_loaded_index(index, loaded=loaded, strategy=strategy):
         if progress is not None:
-            index_path = existing_state_path(armory_path, _INDEX_FILE)
+            index_path = armory_path / ".hephaion" / _INDEX_FILE
             progress("loaded", f"{index_path} ({index.chunk_count} chunks)")
         _log.info(
             "index loaded from cache",

@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from hephaion.providers import config as provider_config
 from hephaion.providers.config import (
     ProviderConfig,
     default_config,
@@ -69,41 +66,6 @@ def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None
 
     assert "zai" in loaded.providers
     assert not config_path.exists()
-
-
-def test_load_migrates_legacy_hephaistos_provider_config(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_dir = tmp_path / "hephaion"
-    config_path = config_dir / "providers.toml"
-    legacy_config_dir = tmp_path / "hephaistos"
-    legacy_config_path = legacy_config_dir / "providers.toml"
-    legacy_config_dir.mkdir(parents=True)
-    legacy_config_path.write_text(
-        """
-[[providers]]
-id = "custom"
-display_name = "Custom"
-base_url = "https://example.test/v1"
-api_key_env = "CUSTOM_API_KEY"
-active = true
-current_model = "example-model"
-models = ["example-model"]
-""".strip(),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(provider_config, "_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(provider_config, "_PROVIDERS_FILE", config_path)
-    monkeypatch.setattr(provider_config, "_LEGACY_CONFIG_DIR", legacy_config_dir)
-    monkeypatch.setattr(provider_config, "_LEGACY_PROVIDERS_FILE", legacy_config_path)
-
-    loaded = ProviderConfig.load()
-
-    assert "custom" in loaded.providers
-    assert config_path.read_text(encoding="utf-8") == legacy_config_path.read_text(
-        encoding="utf-8"
-    )
 
 
 def test_load_restores_missing_builtin_providers(tmp_path: Path) -> None:

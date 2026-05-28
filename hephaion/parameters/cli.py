@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib
+import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaion.env import get_env
 from hephaion.parameters import settings as settings_store
 
 if TYPE_CHECKING:
@@ -111,7 +111,7 @@ def _env_overrides() -> dict[str, str]:
     for key, env_name in _CONFIG_KEY_TO_ENV.items():
         if not env_name:
             continue
-        value = get_env(env_name)
+        value = os.environ.get(env_name)
         if value:
             result[key] = value
     return result

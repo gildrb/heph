@@ -16,8 +16,6 @@ from hephaion.providers.registry import builtin_models
 if TYPE_CHECKING:
     from hephaion.runtime import ChatConfig
 
-_LEGACY_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
-_LEGACY_PROVIDERS_FILE = _LEGACY_CONFIG_DIR / "providers.toml"
 _CONFIG_DIR = Path.home() / ".config" / "hephaion"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
 
@@ -100,13 +98,6 @@ def invalidate_provider_cache(
     _provider_cache_ref.config = replacement
 
 
-def _migrate_legacy_provider_config(path: Path) -> None:
-    if path != _PROVIDERS_FILE or path.exists() or not _LEGACY_PROVIDERS_FILE.is_file():
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_LEGACY_PROVIDERS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
-
-
 @dataclass
 class Provider:
     slug: str
@@ -175,7 +166,6 @@ class ProviderConfig:
     @classmethod
     def load(cls, path: Path | None = None) -> ProviderConfig:
         path = path or _PROVIDERS_FILE
-        _migrate_legacy_provider_config(path)
         cached = _provider_cache(path)
         if cached is not None:
             return cached
@@ -266,14 +256,10 @@ def _refresh_builtin_provider(provider: Provider, default: Provider) -> bool:
 
 def _refresh_builtin_provider_fields(provider: Provider, default: Provider) -> bool:
     changed = False
-    if provider.display_name != default.display_name:
-        provider.display_name = default.display_name
-        changed = True
-    if provider.endpoint != default.endpoint:
-        provider.endpoint = default.endpoint
-        changed = True
-    if provider.api_key_env != default.api_key_env:
-        provider.api_key_env = default.api_key_env
+    for attr in ("display_name", "endpoint", "api_key_env"):
+        if getattr(provider, attr) == getattr(default, attr):
+            continue
+        setattr(provider, attr, getattr(default, attr))
         changed = True
     return changed
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import os
 import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping
@@ -22,14 +23,12 @@ from hephaion.chat.turn_contract import TurnContract
 from hephaion.chat.usage import SessionUsage
 from hephaion.diagnostics.crashes import set_session_context
 from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.env import get_env
 from hephaion.logging import TraceWriter, get_logger
 from hephaion.materials import iter_material_files
 from hephaion.memory import MemoryStore, load_memory
 from hephaion.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
 from hephaion.rag.health import ExtractionHealthIssue, scan_extraction_health
 from hephaion.runtime import ChatConfig, Conversation, Message
-from hephaion.state_paths import state_path
 from hephaion.study import LearningState
 
 _log = get_logger("chat.session")
@@ -185,7 +184,7 @@ def refresh_armory_sources(session: ChatSession) -> None:
 
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     registry = default_registry.child()
-    tools_dir = state_path(armory_path, "tools")
+    tools_dir = armory_path / ".hephaion" / "tools"
     if not _armory_plugins_trusted():
         _warn_untrusted_armory_plugins(armory_path, tools_dir)
         return registry
@@ -200,7 +199,7 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
 
 
 def _armory_plugins_trusted() -> bool:
-    return get_env(ARMORY_PLUGINS_TRUST_ENV, "").strip().lower() in _TRUTHY_ENV_VALUES
+    return os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "").strip().lower() in _TRUTHY_ENV_VALUES
 
 
 def _warn_untrusted_armory_plugins(armory_path: Path, tools_dir: Path) -> None:

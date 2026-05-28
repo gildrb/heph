@@ -19,18 +19,16 @@ Fallback order for key resolution:
 
 from __future__ import annotations
 
-import contextlib
+import os
 from typing import Final
 
 import keyring
 from keyring.errors import KeyringError
 
-from hephaion.env import get_env
 from hephaion.providers import volatile_keys as _volatile_keys
 from hephaion.providers.oauth import resolve_oauth_key
 
 _SERVICE_PREFIX = "hephaion"
-_LEGACY_SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
 GLOBAL_API_KEY_ENV: Final[str] = "HEPHAION_API_KEY"
 
@@ -45,10 +43,6 @@ def _service_name(slug: str) -> str:
     return f"{_SERVICE_PREFIX}:{slug}"
 
 
-def _legacy_service_name(slug: str) -> str:
-    return f"{_LEGACY_SERVICE_PREFIX}:{slug}"
-
-
 def store_key(slug: str, api_key: str) -> None:
     keyring.set_password(_service_name(slug), _USERNAME, api_key)
     _keychain_cache[slug] = api_key
@@ -61,20 +55,7 @@ def retrieve_key(slug: str) -> str | None:
         result = keyring.get_password(_service_name(slug), _USERNAME)
     except KeyringError:
         return None
-    if result is None:
-        result = _retrieve_legacy_key(slug)
     _keychain_cache[slug] = result
-    return result
-
-
-def _retrieve_legacy_key(slug: str) -> str | None:
-    try:
-        result = keyring.get_password(_legacy_service_name(slug), _USERNAME)
-    except KeyringError:
-        return None
-    if result:
-        with contextlib.suppress(KeyringError):
-            keyring.set_password(_service_name(slug), _USERNAME, result)
     return result
 
 
@@ -114,7 +95,7 @@ def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> 
     Returns the key string, or ``""`` if none found.
     """
     # 0. Global override — takes precedence over everything
-    override = get_env(GLOBAL_API_KEY_ENV, "").strip()
+    override = os.environ.get(GLOBAL_API_KEY_ENV, "").strip()
     if override:
         return override
 
@@ -130,7 +111,7 @@ def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> 
 
     # 3. Provider-specific environment variable
     if env_var:
-        env_val = get_env(env_var, "").strip()
+        env_val = os.environ.get(env_var, "").strip()
         if env_val:
             return env_val
 

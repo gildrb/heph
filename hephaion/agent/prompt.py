@@ -15,7 +15,6 @@ from hephaion.agent.tools import (
 )
 from hephaion.logging import get_logger
 from hephaion.materials import MaterialRole, infer_material_role
-from hephaion.state_paths import existing_state_path
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,7 +45,7 @@ _BASE_GUIDELINES = (
 )
 
 
-_CUSTOM_PROMPT_FILE = "system_prompt.md"
+_CUSTOM_PROMPT_FILE = Path(".hephaion/system_prompt.md")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +107,7 @@ def _prompt_role(armory_path: Path | None) -> str:
     if armory_path is None:
         return _DEFAULT_ROLE_BLOCK
 
-    custom_prompt_file = existing_state_path(armory_path, _CUSTOM_PROMPT_FILE)
+    custom_prompt_file = armory_path / _CUSTOM_PROMPT_FILE
     if not custom_prompt_file.is_file():
         return _DEFAULT_ROLE_BLOCK
 
@@ -118,7 +117,7 @@ def _prompt_role(armory_path: Path | None) -> str:
 
     _log.info(
         "using custom system prompt",
-        extra={"fields": {"armory": str(armory_path), "file": str(custom_prompt_file.name)}},
+        extra={"fields": {"armory": str(armory_path), "file": str(_CUSTOM_PROMPT_FILE)}},
     )
     return custom_prompt
 

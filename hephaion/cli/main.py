@@ -8,8 +8,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from hephaion.env import get_env
-
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
 _HELP_EXAMPLES_HEADER = "Examples:"
@@ -185,7 +183,7 @@ def _runtime_diagnostic_messages() -> list[str]:
 
 
 def _maybe_reexec_source_venv() -> None:
-    if get_env("HEPHAION_NO_VENV_REEXEC") == "1":
+    if os.environ.get("HEPHAION_NO_VENV_REEXEC") == "1":
         return
     root = _project_root()
     if not _is_source_checkout(root) or _docling_available():

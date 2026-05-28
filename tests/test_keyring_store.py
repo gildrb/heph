@@ -9,7 +9,6 @@ import pytest
 from keyring.errors import KeyringError
 
 from hephaion.providers.keyring_store import (
-    _LEGACY_SERVICE_PREFIX,
     _SERVICE_PREFIX,
     _USERNAME,
     _keychain_cache,
@@ -120,19 +119,6 @@ class TestKeychainRoundTrip:
         assert retrieve_key(_TEST_SLUG) == "recovered-key"
         assert calls == 2
 
-    def test_retrieve_key_falls_back_to_legacy_hephaistos_service(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        def fake_get_password(service_name: str, username: str) -> str | None:
-            assert username == _USERNAME
-            if service_name == f"{_LEGACY_SERVICE_PREFIX}:{_TEST_SLUG}":
-                return "legacy-key"
-            return None
-
-        monkeypatch.setattr(keyring, "get_password", fake_get_password)
-
-        assert retrieve_key(_TEST_SLUG) == "legacy-key"
-
 
 # ---------------------------------------------------------------------------
 # resolve_key fallback chain
@@ -155,13 +141,6 @@ class TestResolveKey:
         assert retrieve_key(_TEST_SLUG) is None
         monkeypatch.setenv("TEST_API_KEY", "env-key")
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == "env-key"
-
-    def test_falls_back_to_legacy_hephaistos_env_var(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
-        monkeypatch.setenv("HEPHAISTOS_API_KEY", "legacy-env-key")
-        assert resolve_key(_TEST_SLUG, "HEPHAION_API_KEY") == "legacy-env-key"
 
     def test_falls_back_to_volatile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TEST_API_KEY", raising=False)

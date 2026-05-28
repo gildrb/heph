@@ -19,7 +19,6 @@ from hephaion.rag.index import ArmoryIndex
 from hephaion.rag.optional_backends import Bm25Protocol, SklearnVectorizerProtocol
 from hephaion.rag.retrieval_types import ScoredChunk
 from hephaion.rag.scoring import object_rows, sklearn_scores, tokenize
-from hephaion.state_paths import state_path
 
 _log = get_logger("rag.sparse")
 _TFIDF_CACHE_KEY = "tfidf_v8"
@@ -38,7 +37,7 @@ def _chunk_search_text(chunk_text: str, source: str, heading: str) -> str:
 
 
 def _bm25_backend_cache_dir(index: ArmoryIndex, cache_key: str) -> Path:
-    return state_path(index.armory_path, f"retriever_{index.content_hash}_{cache_key}")
+    return index.armory_path / ".hephaion" / f"retriever_{index.content_hash}_{cache_key}"
 
 
 def _load_bm25_backend_cache(index: ArmoryIndex, cache_key: str) -> object | None:

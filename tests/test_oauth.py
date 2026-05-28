@@ -183,37 +183,6 @@ class TestCredentialPersistence:
 
         assert loaded is None
 
-    def test_load_reads_legacy_hephaistos_auth_file(
-        self,
-        isolated_auth_dir: SimpleNamespace,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        legacy_auth_dir = isolated_auth_dir.auth_dir.parent / "legacy_auth_test"
-        legacy_auth_dir.mkdir(parents=True)
-        legacy_auth_file = legacy_auth_dir / "auth.json"
-        creds = self._make_creds()
-        legacy_auth_file.write_text(
-            json.dumps(
-                {
-                    "openai-codex": {
-                        "type": "oauth",
-                        "access_token": creds.access_token,
-                        "refresh_token": creds.refresh_token,
-                        "expires_at": creds.expires_at,
-                        "account_id": creds.account_id,
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(oauth_mod, "_LEGACY_AUTH_DIR", legacy_auth_dir)
-        monkeypatch.setattr(oauth_mod, "_LEGACY_AUTH_FILE", legacy_auth_file)
-
-        loaded = load_credentials("openai-codex")
-
-        assert loaded is not None
-        assert loaded.access_token == "at_123"
-
     @pytest.mark.usefixtures("isolated_auth_dir")
     def test_clear_credentials(self) -> None:
         creds = self._make_creds()

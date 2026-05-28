@@ -12,7 +12,6 @@ from typing import TypedDict
 
 from hephaion._types import is_object_list, is_string_mapping
 from hephaion.logging import get_logger
-from hephaion.state_paths import existing_state_path, state_path
 
 _log = get_logger("memory")
 
@@ -154,18 +153,13 @@ class MemoryStore:
 
     @property
     def _path(self) -> Path:
-        return state_path(self.armory_path, _MEMORY_FILE)
-
-    @property
-    def _read_path(self) -> Path:
-        return existing_state_path(self.armory_path, _MEMORY_FILE)
+        return self.armory_path / ".hephaion" / _MEMORY_FILE
 
     def load(self) -> bool:
-        read_path = self._read_path
-        if not read_path.is_file():
+        if not self._path.is_file():
             return False
         try:
-            entries = _entries_from_payload(json.loads(read_path.read_text(encoding="utf-8")))
+            entries = _entries_from_payload(json.loads(self._path.read_text(encoding="utf-8")))
         except (json.JSONDecodeError, OSError) as exc:
             _log.warning(
                 "memory load failed",

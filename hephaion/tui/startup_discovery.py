@@ -4,9 +4,8 @@ from pathlib import Path
 
 from hephaion.armory.cli import default_armory_home
 from hephaion.armory.search import add_known_armory, get_last_armory, load_known_armory_entries
-from hephaion.armory.storage import ArmoryError
+from hephaion.armory.storage import MARKER_FILE, ArmoryError
 from hephaion.chat.session import validate_armory_path
-from hephaion.state_paths import is_armory_path, migrate_legacy_layout
 
 
 def _append_unique(paths: list[Path], seen: set[Path], path: Path) -> None:
@@ -27,9 +26,7 @@ def discover_available_armories() -> list[Path]:
     armory_home = default_armory_home()
     if armory_home.is_dir():
         for entry in sorted(armory_home.iterdir(), key=lambda path: path.name.lower()):
-            if entry.is_dir():
-                migrate_legacy_layout(entry)
-            if entry.is_dir() and is_armory_path(entry):
+            if entry.is_dir() and (entry / MARKER_FILE).is_file():
                 _append_unique(armories, seen, entry)
                 add_known_armory(entry)
     return armories
