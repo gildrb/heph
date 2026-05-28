@@ -85,3 +85,4 @@ autoresearch_helper.py
 
 .devcontainer/
 docs/
+tests/
