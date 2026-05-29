@@ -93,6 +93,20 @@ heph update             Show the update command.
 Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/evidence`,
 `/settings`, and `/exit`.
 
+## Docs
+
+- [docs/getting-started.md](docs/getting-started.md) — first armory and materials walkthrough
+- [docs/armories.md](docs/armories.md) — portable armory layout and local storage
+- [docs/cli-reference.md](docs/cli-reference.md) — CLI commands, slash commands, and environment variables
+- [docs/configuration.md](docs/configuration.md) — provider and model configuration
+- [docs/models.md](docs/models.md) — provider choices, model selection, and API keys
+- [docs/privacy.md](docs/privacy.md) — local-first storage, diagnostics, and network behavior
+- [docs/architecture.md](docs/architecture.md) — package boundaries and data flow
+- [docs/troubleshooting.md](docs/troubleshooting.md) — common setup, indexing, and provider issues
+- [docs/developers/index.md](docs/developers/index.md) — developer docs and internal guides
+- [docs/developers/runbooks/index.md](docs/developers/runbooks/index.md) — operational debugging runbooks
+- [CONTRIBUTING.md](CONTRIBUTING.md) — repo layout, development workflow, and contribution guidelines
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local development, tests, and pull request

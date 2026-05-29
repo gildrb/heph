@@ -459,6 +459,26 @@ def render_env_vars_table(env_vars: tuple[EnvVarDoc, ...]) -> str:
     return render_markdown_table(("Variable", "Description"), rows)
 
 
+def render_home_docs_section(*, docs_index: bool) -> str:
+    prefix = "" if docs_index else "docs/"
+    contributing = "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md"
+    rows = (
+        (f"{prefix}getting-started.md", "first armory and materials walkthrough"),
+        (f"{prefix}armories.md", "portable armory layout and local storage"),
+        (f"{prefix}cli-reference.md", "CLI commands, slash commands, and environment variables"),
+        (f"{prefix}configuration.md", "provider and model configuration"),
+        (f"{prefix}models.md", "provider choices, model selection, and API keys"),
+        (f"{prefix}privacy.md", "local-first storage, diagnostics, and network behavior"),
+        (f"{prefix}architecture.md", "package boundaries and data flow"),
+        (f"{prefix}troubleshooting.md", "common setup, indexing, and provider issues"),
+        (f"{prefix}developers/index.md", "developer docs and internal guides"),
+        (f"{prefix}developers/runbooks/index.md", "operational debugging runbooks"),
+        (contributing, "repo layout, development workflow, and contribution guidelines"),
+    )
+    bullets = "\n".join(f"- [{path}]({path}) — {description}" for path, description in rows)
+    return f"## Docs\n\n{bullets}"
+
+
 def render_home_footer(*, docs_index: bool) -> str:
     if docs_index:
         return (
@@ -466,9 +486,10 @@ def render_home_footer(*, docs_index: bool) -> str:
             "- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.\n"
             "- Read the [architecture guide](architecture.md) for package boundaries"
             " and data flow.\n"
-            "- Read [agentic development](agentic-development.md) for agent-readiness"
-            " conventions.\n"
-            "- Read the [runbooks](runbooks/index.md) for operational debugging.\n"
+            "- Read [agentic development](developers/agentic-development.md) for"
+            " agent-readiness conventions.\n"
+            "- Read the [runbooks](developers/runbooks/index.md) for operational"
+            " debugging.\n"
         )
     return (
         "## License\n\n"
@@ -495,6 +516,8 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
+        "DOCS_SECTION": render_home_docs_section(docs_index=docs_index),
+        "CONTRIBUTING_LINK": "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md",
         "FOOTER_SECTION": render_home_footer(docs_index=docs_index).strip(),
     }
     return render_template("home.md.template", replacements)

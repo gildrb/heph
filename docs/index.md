@@ -93,9 +93,23 @@ heph update             Show the update command.
 Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/evidence`,
 `/settings`, and `/exit`.
 
+## Docs
+
+- [getting-started.md](getting-started.md) — first armory and materials walkthrough
+- [armories.md](armories.md) — portable armory layout and local storage
+- [cli-reference.md](cli-reference.md) — CLI commands, slash commands, and environment variables
+- [configuration.md](configuration.md) — provider and model configuration
+- [models.md](models.md) — provider choices, model selection, and API keys
+- [privacy.md](privacy.md) — local-first storage, diagnostics, and network behavior
+- [architecture.md](architecture.md) — package boundaries and data flow
+- [troubleshooting.md](troubleshooting.md) — common setup, indexing, and provider issues
+- [developers/index.md](developers/index.md) — developer docs and internal guides
+- [developers/runbooks/index.md](developers/runbooks/index.md) — operational debugging runbooks
+- [../CONTRIBUTING.md](../CONTRIBUTING.md) — repo layout, development workflow, and contribution guidelines
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for local development, tests, and pull request
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for local development, tests, and pull request
 guidelines.
 
 ## Safety
@@ -110,5 +124,5 @@ Model-generated terminal commands are not exposed as a default agent tool. Expli
 
 - Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.
 - Read the [architecture guide](architecture.md) for package boundaries and data flow.
-- Read [agentic development](agentic-development.md) for agent-readiness conventions.
-- Read the [runbooks](runbooks/index.md) for operational debugging.
+- Read [agentic development](developers/agentic-development.md) for agent-readiness conventions.
+- Read the [runbooks](developers/runbooks/index.md) for operational debugging.
