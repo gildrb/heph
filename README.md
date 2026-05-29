@@ -105,7 +105,6 @@ Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/eviden
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup, indexing, and provider issues
 - [docs/developers/index.md](docs/developers/index.md) — developer docs and internal guides
 - [docs/developers/runbooks/index.md](docs/developers/runbooks/index.md) — operational debugging runbooks
-- [CONTRIBUTING.md](CONTRIBUTING.md) — repo layout, development workflow, and contribution guidelines
 
 ## Contributing
 
