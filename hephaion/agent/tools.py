@@ -51,7 +51,10 @@ from hephaion.armory.storage import (
     read_marker,
     validate,
 )
+from hephaion.logging import get_logger
 from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
+
+_log = get_logger("agent.tools")
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -393,6 +396,7 @@ _MAX_SEARCH_RESULTS = 50
 _SEARCH_SKIP_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"})
 _RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
 _RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
+_RTK_FALLBACK_ALLOWED_ENV = "HEPHAION_RTK_FALLBACK_ALLOWED"
 _BINARY_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"})
 _BLOCKED_BASH_PATTERNS = (
     r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*\s+|-r[a-zA-Z]*\s+-f[a-zA-Z]*\s+)",
@@ -510,6 +514,11 @@ def _rtk_enabled() -> bool:
     return rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
 
 
+def _rtk_fallback_allowed() -> bool:
+    fallback_setting = os.environ.get(_RTK_FALLBACK_ALLOWED_ENV)
+    return fallback_setting is None or fallback_setting.strip().lower() in _RTK_TRUTHY
+
+
 def _blocked_bash_command(command: str) -> bool:
     return any(
         re.search(blocked_pattern, command, re.IGNORECASE)
@@ -540,13 +549,32 @@ def _run_rtk_command(rtk_argv: list[str], timeout: int) -> subprocess.CompletedP
 
 
 def _run_bash_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
-    rtk_argv = _rtk_command_prefix(command) if _rtk_enabled() else None
+    if not _rtk_enabled():
+        return _run_shell_command(command, timeout)
+
+    rtk_argv = _rtk_command_prefix(command)
     if rtk_argv is None:
+        fallback_allowed = _rtk_fallback_allowed()
+        if _rtk_candidate_argv(command) is not None and shutil.which("rtk") is None:
+            _log.warning(
+                "rtk command wrapper unavailable",
+                extra={"fields": {"error": "rtk not found", "fallback_allowed": fallback_allowed}},
+            )
+        if not fallback_allowed:
+            message = "rtk unavailable or command unsupported and shell fallback disabled"
+            raise RuntimeError(message)
         return _run_shell_command(command, timeout)
 
     try:
         return _run_rtk_command(rtk_argv, timeout)
     except OSError as exc:
+        fallback_allowed = _rtk_fallback_allowed()
+        _log.warning(
+            "rtk command wrapper unavailable",
+            extra={"fields": {"error": str(exc), "fallback_allowed": fallback_allowed}},
+        )
+        if not fallback_allowed:
+            raise RuntimeError(f"rtk unavailable and shell fallback disabled: {exc}") from exc
         fallback_result = _run_shell_command(command, timeout)
         fallback_result.stdout = (
             f"[rtk unavailable: {exc}; used original command output]\n"

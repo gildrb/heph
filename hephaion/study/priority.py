@@ -2224,6 +2224,7 @@ class ExternalLatexCompiler:
                 "-pdf",
                 "-interaction=nonstopmode",
                 "-halt-on-error",
+                "-no-shell-escape",
                 "-outdir=.",
                 tex_path.name,
             ]
@@ -2232,6 +2233,7 @@ class ExternalLatexCompiler:
             command = [
                 str(self._executable),
                 "--keep-logs",
+                "--only-cached",
                 "--outdir",
                 str(work_dir),
                 str(tex_path),
@@ -2241,6 +2243,7 @@ class ExternalLatexCompiler:
             str(self._executable),
             "-interaction=nonstopmode",
             "-halt-on-error",
+            "-no-shell-escape",
             f"-output-directory={work_dir}",
             str(tex_path),
         ]

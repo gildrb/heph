@@ -232,7 +232,10 @@ graph TD
 ### Trace files
 
 - Each armory can keep append-only JSONL traces in `.hephaion/traces/`
-- Trace files capture session events, retrieval activity, tool calls, and LLM timing
+- Trace files capture session events, user messages, retrieval activity, retrieved
+  excerpts, material/tool metadata, and LLM timing
+- Trace files are local armory data; recognized secrets are redacted before writing,
+  but trace contents should still be treated as private when sharing an armory
 - Plain chat mode skips armory trace files unless a workspace is attached
 
 ### Profiling

@@ -12,10 +12,12 @@ All your data is stored locally in your armory:
 ~/.armories/my-armory/
 ├── materials/           # Your source documents (you control these)
 ├── .hephaion/
-│   ├── index/          # Retrieval index (local only)
-│   ├── memory/         # Learning memory (local only)
+│   ├── armory.toml     # Armory marker and metadata
+│   ├── rag_index.json  # Retrieval index (local only)
+│   ├── memory.json     # Learning memory (local only)
 │   ├── chats/          # Chat history (local only)
-│   └── config.json     # Settings (local only)
+│   ├── traces/         # Session traces (local only)
+│   └── usage/          # Token/cost snapshots (local only)
 ```
 
 ### No Cloud Sync by Default
@@ -24,6 +26,21 @@ All your data is stored locally in your armory:
 - Chat history stays on your machine
 - Learning memory is local to each armory
 - Retrieval indexes are built and stored locally
+- Session traces and usage snapshots stay local to the armory
+
+### Local Traces
+
+Armory sessions can append JSONL trace files under `.hephaion/traces/`. These
+files are local only and recognized secrets are redacted before writing, but
+they can still include private user content such as:
+
+- User message text
+- Retrieval queries and retrieved chunk excerpts
+- Session, material-operation, and tool metadata
+- Timing and usage details
+
+Treat trace files as private armory data when backing up, syncing, or sharing an
+armory.
 
 ## What Goes to Model Providers
 
@@ -99,6 +116,12 @@ export OPENROUTER_API_KEY="sk-..."
 
 Keys in environment variables are never written to disk by Hephaion.
 
+### Session-Only Fallback
+
+If the OS keyring is unavailable during `/login`, Hephaion keeps the API key in
+process memory for the current run only. This fallback is not written to disk and
+is cleared by `/logout` or process exit.
+
 ### Never in Config Files
 
 Hephaion never writes API keys to:
@@ -116,12 +139,20 @@ Hephaion makes network connections only to:
 2. **Package managers** (uv, pip) - for updates/dependencies
 3. **Optional diagnostics endpoints** - if you enable them
 
-### No Inbound Connections
+Optional local document extraction and priority-PDF generation can invoke local
+system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your
+machine against local files; Hephaion does not add network calls for them.
+
+### No Persistent Inbound Server
 
 Hephaion does not:
-- Open network ports
-- Accept incoming connections
+- Run a persistent listening service
+- Accept LAN or internet connections
 - Act as a server
+
+During `/login`, Hephaion may temporarily bind a localhost-only OAuth callback
+on `127.0.0.1:1455`. The callback validates the OAuth state parameter and is
+closed after login or timeout.
 
 ### Proxy Support
 
@@ -217,6 +248,7 @@ This permanently deletes:
 - All chat history
 - Learning memory
 - Retrieval index
+- Session traces and usage snapshots
 
 ### Clear Specific Data
 
@@ -225,10 +257,13 @@ This permanently deletes:
 rm ~/.armories/my-armory/.hephaion/chats/*
 
 # Clear memory only
-rm ~/.armories/my-armory/.hephaion/memory/*
+rm ~/.armories/my-armory/.hephaion/memory.json
 
 # Clear index (will be rebuilt on next use)
-rm ~/.armories/my-armory/.hephaion/index/*
+rm ~/.armories/my-armory/.hephaion/rag_index.json
+
+# Clear local traces only
+rm ~/.armories/my-armory/.hephaion/traces/*.jsonl
 ```
 
 ### Revoke API Access

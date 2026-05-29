@@ -55,7 +55,26 @@ _ERROR_HTML_TEMPLATE = (
     "<p>{error}</p></body></html>"
 )
 
-_callback_state: dict[str, str | None] = {}
+
+@dataclass
+class _CallbackState:
+    expected_state: str
+    code: str | None = None
+    error: str | None = None
+    received_state: str | None = None
+
+
+class _OAuthCallbackServer(HTTPServer):
+    callback_state: _CallbackState
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        callback_state: _CallbackState,
+    ) -> None:
+        self.callback_state = callback_state
+        super().__init__(server_address, handler_class)
 
 
 @dataclass
@@ -123,36 +142,43 @@ def _extract_account_id(access_token: str) -> str | None:
 class _CallbackHandler(BaseHTTPRequestHandler):
     """Receives the OAuth redirect on localhost."""
 
+    def _callback_state(self) -> _CallbackState:
+        state = getattr(self.server, "callback_state", None)
+        if not isinstance(state, _CallbackState):
+            raise TypeError("OAuth callback state is unavailable.")
+        return state
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+        callback_state = self._callback_state()
 
         if parsed.path != "/auth/callback":
             self._respond(404, "Callback route not found.")
             return
 
         state = params.get("state", [None])[0]
-        if not state or state != _callback_state.get("expected_state"):
+        if not state or state != callback_state.expected_state:
             self._respond(400, "OAuth state mismatch.")
             return
 
         err = params.get("error", [None])[0]
         if err:
             safe_error = _sanitize_callback_error(err)
-            _callback_state["error"] = safe_error
-            _callback_state["received_state"] = state
+            callback_state.error = safe_error
+            callback_state.received_state = state
             self._respond(400, safe_error)
             return
 
         code = params.get("code", [None])[0]
 
         if not code:
-            _callback_state["error"] = "Missing code or state"
+            callback_state.error = "Missing code or state"
             self._respond(400, "Missing code or state")
             return
 
-        _callback_state["code"] = code
-        _callback_state["received_state"] = state
+        callback_state.code = code
+        callback_state.received_state = state
         self._respond(200, "")
 
     def _respond(self, status: int, error: str) -> None:
@@ -169,11 +195,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-def _start_callback_server() -> HTTPServer | None:
+def _start_callback_server(state: str) -> _OAuthCallbackServer | None:
     """Start the local callback server.  Returns ``None`` on bind failure."""
-    _callback_state.clear()
     try:
-        server = HTTPServer(("127.0.0.1", _CALLBACK_PORT), _CallbackHandler)
+        server = _OAuthCallbackServer(
+            ("127.0.0.1", _CALLBACK_PORT),
+            _CallbackHandler,
+            _CallbackState(expected_state=state),
+        )
         server.timeout = 120
         return server
     except OSError:
@@ -193,10 +222,10 @@ def _is_displayable_callback_char(char: str) -> bool:
     return char == "\t" or (ord(char) >= 32 and ord(char) != 127)
 
 
-def _wait_for_callback(server: HTTPServer) -> None:
+def _wait_for_callback(server: _OAuthCallbackServer) -> None:
     deadline = time.monotonic() + _CALLBACK_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if _callback_state.get("code") or _callback_state.get("error"):
+        if server.callback_state.code or server.callback_state.error:
             return
         remaining = deadline - time.monotonic()
         server.timeout = max(0.1, min(1.0, remaining))
@@ -315,7 +344,7 @@ def _authorization_url(challenge: str, state: str) -> str:
 
 
 def _authorization_code(auth_url: str, state: str) -> str:
-    server = _start_callback_server()
+    server = _start_callback_server(state)
     if server is None:
         return _manual_authorization_code(auth_url, state)
     return _callback_authorization_code(server, auth_url, state)
@@ -336,20 +365,20 @@ def _manual_authorization_code(auth_url: str, state: str) -> str:
     return code
 
 
-def _callback_authorization_code(server: HTTPServer, auth_url: str, state: str) -> str:
+def _callback_authorization_code(server: _OAuthCallbackServer, auth_url: str, state: str) -> str:
     print("  Opening browser for OpenAI authentication...")
-    _callback_state["expected_state"] = state
     webbrowser.open(auth_url)
     print(f"  Waiting for callback on port {_CALLBACK_PORT}...")
 
     _wait_for_callback(server)
     server.server_close()
 
-    if _callback_state.get("error"):
-        raise RuntimeError(f"OAuth error: {_callback_state['error']}")
-    if _callback_state.get("received_state") != state:
+    callback_state = server.callback_state
+    if callback_state.error:
+        raise RuntimeError(f"OAuth error: {callback_state.error}")
+    if callback_state.received_state != state:
         raise RuntimeError("OAuth state mismatch.")
-    code = _callback_state.get("code")
+    code = callback_state.code
     if not code:
         raise RuntimeError("No authorization code received.")
     return code

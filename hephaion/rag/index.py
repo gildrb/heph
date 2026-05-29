@@ -913,7 +913,7 @@ class ArmoryIndex:
             "rag index cache chunks do not match material files",
             extra={"fields": {"armory": str(self.armory_path)}},
         )
-        if allow_stale:
+        if allow_stale and version >= 7:
             return True
         self._clear_loaded_cache()
         return False

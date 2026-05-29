@@ -27,6 +27,7 @@ _SENSITIVE_KEY_PATTERNS: list[_re.Pattern[str]] = [
 
 # Unanchored versions — find secrets embedded within longer text
 _SENSITIVE_TEXT_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"sk-or-v1-[a-zA-Z0-9\-_]{20,}"),  # OpenRouter API keys
     _re.compile(r"sk-proj-[a-zA-Z0-9\-_]{20,}"),  # OpenAI project API keys
     _re.compile(r"sk-[a-zA-Z0-9]{20,}"),  # OpenAI-style API keys
     _re.compile(r"sk-ant-[a-zA-Z0-9\-]{20,}"),  # Anthropic-style keys

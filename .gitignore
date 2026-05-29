@@ -83,4 +83,11 @@ autoresearch.jsonl
 autoresearch.ideas.md
 autoresearch_helper.py
 
-tests/
+tests/*
+!tests/conftest.py
+!tests/test_diagnostics_crashes.py
+!tests/test_logging.py
+!tests/test_oauth.py
+!tests/test_rag_index.py
+!tests/test_study_priority.py
+!tests/test_tools.py

@@ -79,6 +79,7 @@
 | `HEPHAION_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
 | `HEPHAION_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
 | `HEPHAION_RERANK_MODEL` | Override the reranker model when available. |
+| `HEPHAION_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |
 | `HEPHAION_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
 | `HEPHAION_TEMPERATURE` | Override the generation temperature for chat responses. |
 | `HEPHAION_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaion/tools/*.py` plugins. |

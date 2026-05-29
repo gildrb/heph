@@ -120,6 +120,9 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
         "Supply a PostHog project token for a custom or forked build."
     ),
     "HEPHAION_RERANK_MODEL": "Override the reranker model when available.",
+    "HEPHAION_RTK_FALLBACK_ALLOWED": (
+        "Set to `0` to fail closed when the optional RTK wrapper is unavailable."
+    ),
     "HEPHAION_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "HEPHAION_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
@@ -341,6 +344,7 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             _EMBED_MODEL_ENV,
             _EXTRACTION_MODEL_ENV,
             _RERANK_MODEL_ENV,
+            "HEPHAION_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,
         }
