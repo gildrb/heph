@@ -44,8 +44,7 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
     """Extract bracketed evidence citations from response text.
 
     Accepted format is strict by design: ``[E1]``, ``[E1, E2]``, or
-    ``[E1; E2]``. Raw filenames are intentionally not treated as valid
-    citations anymore.
+    ``[E1; E2]``. Raw filenames are intentionally not treated as valid.
     """
     if not text:
         return []
