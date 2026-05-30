@@ -1,4 +1,5 @@
-"""Context compaction: three-layer compression for infinite sessions.
+"""
+Context compaction: three-layer compression for infinite sessions.
 
 Layer 1 (micro_compact): Replace old tool results with placeholders.
     Runs silently before every LLM turn.

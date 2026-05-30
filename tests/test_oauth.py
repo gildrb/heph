@@ -14,9 +14,16 @@ from unittest.mock import patch
 
 import pytest
 
+import hephaion.commands.model as _commands_model
+import hephaion.providers.model_choices as _model_choices
+from hephaion.chat.session import ChatSession, create_plain_session
 from hephaion.commands import LogoutCommand, get_registry
+from hephaion.providers import catalog
 from hephaion.providers import oauth as oauth_mod
+from hephaion.providers.catalog import LiveProviderCatalog
+from hephaion.providers.config import default_config
 from hephaion.providers.keyring_store import get_volatile, resolve_key, set_volatile
+from hephaion.providers.model_recommendations import recommended_model_choices
 from hephaion.providers.oauth import (
     OAuthCredentials,
     _CallbackHandler,
@@ -29,6 +36,9 @@ from hephaion.providers.oauth import (
     resolve_oauth_key,
     save_credentials,
 )
+from hephaion.providers.registry import ModelInfo
+from hephaion.runtime import ChatConfig
+from hephaion.terminal import MenuOption
 
 # --- SSL context ------------------------------------------------------------
 
@@ -390,6 +400,115 @@ def test_logout_command_registered() -> None:
     cmd = registry.find("logout")
     assert cmd is not None
     assert cmd.name == "logout"
+
+
+def test_recommend_model_command_registered_with_legacy_alias() -> None:
+    registry = get_registry()
+    cmd = registry.find("recommend-model")
+    assert cmd is not None
+    assert cmd.name == "recommend-model"
+    assert registry.find("recommend") is cmd
+
+
+def test_recommend_model_command_uses_available_models(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pc = default_config()
+    session = create_plain_session(
+        ChatConfig(
+            base_url=pc.providers["pollinations"].endpoint,
+            model="openai",
+        )
+    )
+    selected_options: list[MenuOption] = []
+    switched: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        _commands_model.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(
+        _model_choices,
+        "provider_is_accessible",
+        lambda provider, *, refresh_oauth=True: provider.slug == "pollinations",
+    )
+
+    def select_first(_title: str, options: list[MenuOption]) -> int:
+        selected_options.extend(options)
+        return 0
+
+    def switch(session: ChatSession, slug: str, model: str) -> bool:
+        switched.append((slug, model))
+        session.config.model = model
+        session.config.apply_provider_reference(slug, "")
+        return True
+
+    monkeypatch.setattr(_commands_model, "select_option", select_first)
+    monkeypatch.setattr(_commands_model, "switch_model", switch)
+
+    _commands_model.RecommendCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    labels = [option.label for option in selected_options]
+    assert "available to your connected providers" in out
+    assert labels
+    assert set(labels) <= {"openai", "openai-fast"}
+    assert "gpt-5.5" not in labels
+    assert switched == [("pollinations", labels[0])]
+
+
+def test_recommend_model_uses_live_openrouter_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    catalog.invalidate_catalog_cache()
+    pc = default_config()
+    pc.set_active("openrouter")
+    pc.providers["openrouter"].current_model = "example/new-large"
+
+    def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
+        return LiveProviderCatalog(
+            models=[
+                "example/new-large",
+                "example/new-flash",
+            ],
+            metadata=[
+                ModelInfo(
+                    "example/new-large",
+                    "openrouter",
+                    "Example New Large",
+                    128_000,
+                    16_384,
+                    0.0002,
+                    0.0006,
+                ),
+                ModelInfo(
+                    "example/new-flash",
+                    "openrouter",
+                    "Example New Flash",
+                    128_000,
+                    16_384,
+                    0.0002,
+                    0.0006,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
+
+    recommendations = recommended_model_choices(
+        pc,
+        refresh_live=True,
+        query="example/new",
+    )
+
+    assert [recommendation.model for recommendation in recommendations] == [
+        "example/new-flash",
+        "example/new-large",
+    ]
 
 
 def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:

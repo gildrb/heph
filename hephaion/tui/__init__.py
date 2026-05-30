@@ -255,7 +255,7 @@ _filter_command_activity_details = filter_command_activity_details
 _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
-_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
+_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models", "/recommend", "/recommend-model"}
 _TUI_MANAGED_RESEND_COMMANDS = {"exam"}
 
 

@@ -50,7 +50,7 @@
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming review reminders and due cards |
 | /models | Pick the active model |
-| /recommend | Recommend models for sessions |
+| /recommend-model | Recommend a quick, reliable model |
 | /memory | Manage local armory memory |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |

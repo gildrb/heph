@@ -10,7 +10,10 @@ from hephaion.diagnostics.events import capture as capture_analytics
 from hephaion.providers.config import ProviderConfig
 from hephaion.providers.endpoints import is_keyless_endpoint
 from hephaion.providers.model_choices import configured_model_choices, model_free_description
-from hephaion.providers.registry import get_registry as get_provider_registry
+from hephaion.providers.model_recommendations import (
+    ModelRecommendation,
+    recommended_model_choices,
+)
 from hephaion.terminal import (
     STYLE_DIM,
     MenuOption,
@@ -124,28 +127,84 @@ def _model_option_description(
 
 
 class RecommendCommand(Command):
-    name = "recommend"
-    description = "Recommend models for sessions"
+    name = "recommend-model"
+    description = "Recommend a quick, reliable model"
+    aliases = ("recommend",)
 
     def handle(self, session: object, args: str) -> CommandResult:
-        del session, args
-        registry = get_provider_registry()
-        models = [model for model in registry.list_models() if "recommended" in model.tags]
-        if not models:
-            print_info("No recommended models in registry.")
+        s = ensure_session(session)
+        pc = ProviderConfig.load()
+        recommendations = recommended_model_choices(
+            pc,
+            refresh_live=True,
+            query=args.strip(),
+            current_model=s.config.model,
+        )
+        if not recommendations:
+            print_info("No available models to recommend. Use /login to connect a provider.")
             return CommandResult()
         print_info(
-            "Model picks favor low cost, speed, and instruction following because "
-            "Hephaion handles RAG retrieval and citation checks."
+            "Ranked from models available to your connected providers; best quick, "
+            "reliable defaults are first."
         )
-        for model in models:
-            price = (
-                "free"
-                if model.is_free
-                else (f"${model.prompt_price_per_1k:.4f}/${model.completion_price_per_1k:.4f}")
-            )
-            ctx = f"{model.context_window // 1000}k ctx"
-            tags = f" [{', '.join(model.tags)}]" if model.tags else ""
-            print(f"  {model.name:<45} {ctx:<12} {price}{tags}")
-        print()
+        active = pc.get_active()
+        options, model_map = _recommendation_menu_items(
+            recommendations,
+            active_slug=active.slug if active else "",
+            current_model=s.config.model,
+        )
+        selected = select_option("Recommended model", options)
+        if selected is None:
+            return CommandResult()
+
+        slug, model = model_map[selected]
+        if not switch_model(s, slug, model):
+            print_error("Model unavailable.")
+            return CommandResult()
+        provider = ProviderConfig.load().providers[slug]
+        capture_analytics("model_changed", {"provider": slug, "to_model": model})
+        print_success(f"Switched to {provider.display_name} / {model}")
         return CommandResult()
+
+
+def _recommendation_menu_items(
+    recommendations: Sequence[ModelRecommendation],
+    *,
+    active_slug: str,
+    current_model: str,
+) -> tuple[list[MenuOption], list[tuple[str, str]]]:
+    duplicates = _duplicate_recommendation_models(recommendations)
+    options: list[MenuOption] = []
+    model_map: list[tuple[str, str]] = []
+    for recommendation in recommendations:
+        is_current = recommendation.slug == active_slug and recommendation.model == current_model
+        options.append(
+            MenuOption(
+                _recommendation_label(
+                    recommendation, duplicate=recommendation.model in duplicates
+                ),
+                _recommendation_description(recommendation),
+                is_current=is_current,
+            )
+        )
+        model_map.append((recommendation.slug, recommendation.model))
+    return options, model_map
+
+
+def _duplicate_recommendation_models(
+    recommendations: Sequence[ModelRecommendation],
+) -> set[str]:
+    counts: dict[str, int] = {}
+    for recommendation in recommendations:
+        counts[recommendation.model] = counts.get(recommendation.model, 0) + 1
+    return {model for model, count in counts.items() if count > 1}
+
+
+def _recommendation_label(recommendation: ModelRecommendation, *, duplicate: bool) -> str:
+    if not duplicate:
+        return recommendation.model
+    return f"{recommendation.model} [{recommendation.display_name}]"
+
+
+def _recommendation_description(recommendation: ModelRecommendation) -> str:
+    return f"via {recommendation.display_name}  {', '.join(recommendation.reasons)}"

@@ -70,7 +70,12 @@ Or via `/settings` in the TUI.
 
 ### Switch Models Mid-Session
 
-Use `/models` to see available models and switch between them.
+Use `/recommend-model` for a ranked picker of quick, reliable defaults from the
+models currently available to your connected providers. It refreshes live
+provider catalogs where supported, so new models can appear without a code
+release.
+
+Use `/models` to see every available model and switch manually.
 
 ## Model-Specific Considerations
 

@@ -45,6 +45,10 @@ from hephaion.providers.keyring_store import (
     store_key,
 )
 from hephaion.providers.model_choices import configured_model_choices
+from hephaion.providers.model_recommendations import (
+    ModelRecommendation,
+    recommended_model_choices,
+)
 from hephaion.terminal import current_palette, set_theme
 from hephaion.terminal.palette import TRANSPARENT
 from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
@@ -176,6 +180,8 @@ class _InlineFlowHost(Protocol):
 
     def _open_models_flow(self) -> None: ...
 
+    def _open_recommend_model_flow(self) -> None: ...
+
     def _handle_sessions_command(self, value: str) -> None: ...
 
     def _handle_known_sessions_subcommand(
@@ -248,11 +254,23 @@ class _InlineFlowHost(Protocol):
         choices: list[tuple[str, str, str, bool]],
     ) -> list[tuple[str, str]]: ...
 
+    def _recommend_model_flow_options(
+        self,
+        recommendations: list[ModelRecommendation],
+    ) -> list[tuple[str, str]]: ...
+
     def _refresh_models_flow_worker(self) -> None: ...
 
     def _refresh_models_flow_options(
         self,
         choices: list[tuple[str, str, str, bool]],
+    ) -> None: ...
+
+    def _refresh_recommend_model_flow_worker(self) -> None: ...
+
+    def _refresh_recommend_model_flow_options(
+        self,
+        recommendations: list[ModelRecommendation],
     ) -> None: ...
 
     def _logout_targets(self) -> list[_LogoutTarget]: ...
@@ -422,6 +440,7 @@ def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], Non
     return {
         "settings": host._handle_settings_choice,
         "models": host._perform_model_switch,
+        "recommend-model": host._perform_model_switch,
         "logout": host._perform_logout,
         "sessions": host._perform_session_resume,
     }
@@ -435,6 +454,8 @@ class TuiInlineFlowMixin:
             "/logout": self._open_logout_flow,
             "/settings": self._open_settings_flow,
             "/models": self._open_models_flow,
+            "/recommend": self._open_recommend_model_flow,
+            "/recommend-model": self._open_recommend_model_flow,
         }
         if action := actions.get(command):
             action()
@@ -749,6 +770,58 @@ class TuiInlineFlowMixin:
             return
         pc = ProviderConfig.load()
         options = self._model_flow_options(pc, choices)
+        if not options or options == self._inline_flow.all_options:
+            return
+        self._inline_flow.all_options = options
+        composer = self.query_one("#composer", Input)
+        self._filter_inline_menu_options(composer.value)
+
+    def _recommend_model_flow_options(
+        self: _InlineFlowHost,
+        recommendations: list[ModelRecommendation],
+    ) -> list[tuple[str, str]]:
+        duplicate_models = _duplicate_recommendation_model_names(recommendations)
+        return [
+            _recommend_model_flow_option(
+                recommendation,
+                duplicate=recommendation.model in duplicate_models,
+            )
+            for recommendation in recommendations
+        ]
+
+    def _open_recommend_model_flow(self: _InlineFlowHost) -> None:
+        pc = ProviderConfig.load()
+        recommendations = recommended_model_choices(pc, current_model=self.session.config.model)
+        if not recommendations:
+            self._append_notice("No models available. Use /login to connect a provider.")
+            return
+        self._open_inline_menu(
+            name="recommend-model",
+            step="menu",
+            title=f"Recommended models  current: {self.session.config.model}",
+            options=self._recommend_model_flow_options(recommendations),
+        )
+        self.run_worker(self._refresh_recommend_model_flow_worker, thread=True)
+
+    def _refresh_recommend_model_flow_worker(self: _InlineFlowHost) -> None:
+        try:
+            pc = ProviderConfig.load()
+            recommendations = recommended_model_choices(
+                pc,
+                refresh_live=True,
+                current_model=self.session.config.model,
+            )
+        except Exception:
+            return
+        self.call_from_thread(self._refresh_recommend_model_flow_options, recommendations)
+
+    def _refresh_recommend_model_flow_options(
+        self: _InlineFlowHost,
+        recommendations: list[ModelRecommendation],
+    ) -> None:
+        if not self._inline_flow.active or self._inline_flow.name != "recommend-model":
+            return
+        options = self._recommend_model_flow_options(recommendations)
         if not options or options == self._inline_flow.all_options:
             return
         self._inline_flow.all_options = options
@@ -1369,3 +1442,26 @@ def _parse_model_choice_label(label: str) -> tuple[str, str | None]:
         model, bracketed_provider = model.rsplit(" [", 1)
         return model, bracketed_provider[:-1]
     return model, None
+
+
+def _duplicate_recommendation_model_names(
+    recommendations: list[ModelRecommendation],
+) -> set[str]:
+    counts: dict[str, int] = {}
+    for recommendation in recommendations:
+        counts[recommendation.model] = counts.get(recommendation.model, 0) + 1
+    return {model for model, count in counts.items() if count > 1}
+
+
+def _recommend_model_flow_option(
+    recommendation: ModelRecommendation,
+    *,
+    duplicate: bool,
+) -> tuple[str, str]:
+    label = _model_choice_label(
+        recommendation.model,
+        recommendation.display_name,
+        duplicate=duplicate,
+    )
+    description = f"via {recommendation.display_name}  {', '.join(recommendation.reasons)}"
+    return label, description

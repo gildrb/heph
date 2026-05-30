@@ -130,6 +130,7 @@ Heph will:
 
 Inside Heph:
 - `/login` - Configure model access
+- `/recommend-model` - Pick a quick, reliable model from available providers
 - `/models` - Choose a different model
 - `/armory` - View armory information
 - `/evidence` - See retrieval evidence for the last answer

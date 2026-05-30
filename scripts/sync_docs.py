@@ -461,8 +461,7 @@ def render_env_vars_table(env_vars: tuple[EnvVarDoc, ...]) -> str:
 
 def render_home_docs_section(*, docs_index: bool) -> str:
     prefix = "" if docs_index else "docs/"
-    contributing = "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md"
-    rows = (
+    rows = [
         (f"{prefix}getting-started.md", "first armory and materials walkthrough"),
         (f"{prefix}armories.md", "portable armory layout and local storage"),
         (f"{prefix}cli-reference.md", "CLI commands, slash commands, and environment variables"),
@@ -473,8 +472,14 @@ def render_home_docs_section(*, docs_index: bool) -> str:
         (f"{prefix}troubleshooting.md", "common setup, indexing, and provider issues"),
         (f"{prefix}developers/index.md", "developer docs and internal guides"),
         (f"{prefix}developers/runbooks/index.md", "operational debugging runbooks"),
-        (contributing, "repo layout, development workflow, and contribution guidelines"),
-    )
+    ]
+    if docs_index:
+        rows.append(
+            (
+                "../CONTRIBUTING.md",
+                "repo layout, development workflow, and contribution guidelines",
+            )
+        )
     bullets = "\n".join(f"- [{path}]({path}) — {description}" for path, description in rows)
     return f"## Docs\n\n{bullets}"
 
