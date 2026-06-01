@@ -296,6 +296,14 @@ def _wrap_transcript_plain_line(line: str, width: int) -> list[str]:
     return wrapper.wrap(line) or [line]
 
 
+def _clip_transcript_plain_line(line: str, width: int) -> str:
+    if len(line) <= width:
+        return line
+    if width <= 3:
+        return "." * width
+    return f"{line[: width - 3].rstrip()}..."
+
+
 def _transcript_line_renderables(
     line: str,
     *,
@@ -309,6 +317,18 @@ def _transcript_line_renderables(
         _transcript_line_renderable(wrapped_line, style=style)
         for wrapped_line in _wrap_transcript_plain_line(line, width)
     ]
+
+
+def _transcript_activity_renderable(
+    line: str,
+    *,
+    width: int,
+    style: _RichStyle,
+) -> object:
+    return _transcript_line_renderable(
+        _clip_transcript_plain_line(line, width),
+        style=style,
+    )
 
 
 def _panel_width(log: RichLog) -> int:
@@ -406,6 +426,18 @@ def _write_muted_ansi_entry(
     )
 
 
+def _write_activity_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
+    palette = current_palette()
+    style = _RichStyle(color=palette.text_muted)
+    for line in entry.content.splitlines() or [""]:
+        renderable = _transcript_activity_renderable(
+            line,
+            width=max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING),
+            style=style,
+        )
+        host._write_transcript_renderable(log, renderable)
+
+
 def _write_plain_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
     host._write_transcript_lines(log, entry.content)
 
@@ -416,7 +448,7 @@ _ENTRY_WRITERS: dict[str, _EntryWriter] = {
     "startup": _write_startup_entry,
     "ansi": _write_ansi_entry,
     "notice": _write_muted_ansi_entry,
-    "activity": _write_muted_ansi_entry,
+    "activity": _write_activity_entry,
 }
 
 
@@ -609,6 +641,17 @@ class TuiTranscriptMixin:
         self._reflow_transcript_entries()
 
     def _append_activity(self: _TranscriptHost, text: str) -> None:
+        log = self.query_one("#transcript", RichLog)
+        entry = TuiTranscriptEntry(text, "activity")
+        if self.state.transcript and self.state.transcript[-1].kind == "activity":
+            previous = self.state.transcript[-1]
+            self.state.transcript[-1] = TuiTranscriptEntry(
+                f"{previous.content}\n{text}",
+                "activity",
+            )
+            self._transcript_render_width = log.size.width
+            self._write_transcript_entry(entry)
+            return
         self._append_entry(text, "activity")
 
     def _append_error(self: _TranscriptHost, text: str) -> None:

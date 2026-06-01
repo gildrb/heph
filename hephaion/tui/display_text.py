@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 39
+_INFO_PANEL_VISIBLE_WIDTH = 44
 _RECENT_ARMORY_NAME_WIDTH = 16
 _RECENT_ARMORY_PATH_WIDTH = 20
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
@@ -217,8 +218,22 @@ def _info_panel_lines(
     ]
 
 
+def _ellipsize_end(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    if max_length <= 3:
+        return "." * max_length
+    return f"{text[: max_length - 3].rstrip()}..."
+
+
+def _indented_info_panel_line(line: str) -> str:
+    if not line:
+        return ""
+    return _ellipsize_end(f"  {line}", _INFO_PANEL_VISIBLE_WIDTH)
+
+
 def _indented_panel_text(lines: Sequence[str]) -> str:
-    return "\n".join(f"  {line}" if line else "" for line in lines)
+    return "\n".join(_indented_info_panel_line(line) for line in lines)
 
 
 def _stylize_all(text: Text, plain: str, label: str, style: str) -> None:
@@ -279,13 +294,17 @@ def info_panel_default_text(
     progress: str = "",
 ) -> Text:
     palette = current_palette()
-    title = session.title or "Grounding"
     plain = _indented_panel_text(
         _info_panel_lines(session, session_seconds, busy=busy, progress=progress)
     )
     text = require_rich_text()(plain, style=palette.text_muted)
-    title_start = plain.index(title)
-    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
+    display_title = plain.splitlines()[0].strip()
+    title_start = plain.index(display_title)
+    text.stylize(
+        f"bold {palette.text_primary}",
+        title_start,
+        title_start + len(display_title),
+    )
     _stylize_info_panel_labels(text, plain)
     duration = _session_duration(session_seconds)
     duration_start = plain.index(duration, plain.index("time "))
@@ -298,15 +317,15 @@ def info_panel_default_text(
 def startup_card_text() -> str:
     return "\n".join(
         [
-            "Tips",
-            "  Add files to materials/.",
-            "  Use @file for focus.",
-            "  Ask for summaries or gaps.",
-            "  /priority finds next steps.",
-            "  /evidence shows sources.",
+            "  Tips",
+            "    Add files to materials/.",
+            "    Use @file for focus.",
+            "    Ask for summaries or gaps.",
+            "    /priority finds next steps.",
+            "    /evidence shows sources.",
             "",
-            "Warnings",
-            "  Verify important claims.",
+            "  Warnings",
+            "    Verify important claims.",
         ]
     )
 
@@ -366,7 +385,7 @@ def armory_home_text() -> str:
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:
     palette = current_palette()
-    lines = [f"  {line}" if line else "" for line in _info_panel_message_lines(entry, session)]
+    lines = [_indented_info_panel_line(line) for line in _info_panel_message_lines(entry, session)]
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style=palette.text_muted)
     _stylize_message_panel_title(text, plain, lines[0].strip())
