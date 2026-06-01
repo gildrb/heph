@@ -4804,6 +4804,21 @@ def _stabilized_intent_for_default_material_plan(
             retrieval_query=CANONICAL_OVERVIEW_QUERY,
         )
     if (
+        prior_contract is None
+        and _overview_turn(default_plan)
+        and _lacks_retrievable_content(user_input)
+        and (not resolution.intent or resolution.intent in _CONTINUABLE_MATERIAL_INTENTS)
+    ):
+        return TurnIntentResolution(
+            intent="material_overview",
+            canonical_request=resolution.canonical_request or user_input,
+            confidence=resolution.confidence,
+            answer_mode=ANSWER_MODE_FROM_EVIDENCE,
+            answer_format=resolution.answer_format,
+            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
+            retrieval_query=CANONICAL_OVERVIEW_QUERY,
+        )
+    if (
         prior_contract is not None
         or not _overview_turn(default_plan)
         or resolution.intent != "source_qa"
@@ -4823,6 +4838,10 @@ def _stabilized_intent_for_default_material_plan(
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
         retrieval_query=CANONICAL_OVERVIEW_QUERY,
     )
+
+
+def _lacks_retrievable_content(text: str) -> bool:
+    return bool(text.strip()) and not tokenize(text)
 
 
 def _unresolved_followup_intent_resolution(
