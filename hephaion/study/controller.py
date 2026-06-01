@@ -108,11 +108,13 @@ class LearningTurnPlan:
     action: LearningAction
     phase: LearningPhase
     prompt: str
+    original_user_input: str = ""
     retrieval_query: str | None = None
     retrieval_strategy: str = ""
     evidence_refs: tuple[str, ...] = ()
     requires_direct_evidence: bool = False
     use_expected_source_refs: bool = False
+    uses_overview_sampling: bool = False
     allow_tools: bool = True
     buffer_response: bool = False
     stated_confidence: float | None = None
@@ -124,11 +126,13 @@ def _turn_plan(
     prompt: str,
     *,
     phase: LearningPhase = LearningPhase.PRESENTING,
+    original_user_input: str = "",
     retrieval_query: str | None = None,
     retrieval_strategy: str = "",
     evidence_refs: tuple[str, ...] = (),
     requires_direct_evidence: bool = False,
     use_expected_source_refs: bool = False,
+    uses_overview_sampling: bool = False,
     allow_tools: bool = False,
     buffer_response: bool = False,
     stated_confidence: float | None = None,
@@ -138,11 +142,13 @@ def _turn_plan(
         action=action,
         phase=phase,
         prompt=prompt,
+        original_user_input=original_user_input,
         retrieval_query=retrieval_query,
         retrieval_strategy=retrieval_strategy,
         evidence_refs=evidence_refs,
         requires_direct_evidence=requires_direct_evidence,
         use_expected_source_refs=use_expected_source_refs,
+        uses_overview_sampling=uses_overview_sampling,
         allow_tools=allow_tools,
         buffer_response=buffer_response,
         stated_confidence=stated_confidence,
@@ -318,8 +324,10 @@ def material_overview_plan(
     return _turn_plan(
         LearningAction.PRESENT,
         _overview_prompt(user_request),
+        original_user_input=user_request,
         retrieval_query=retrieval_query,
         retrieval_strategy="overview",
+        uses_overview_sampling=True,
         buffer_response=True,
     )
 
@@ -333,6 +341,7 @@ def material_topic_presentation_plan(
     return _turn_plan(
         LearningAction.PRESENT,
         _present_prompt(query, user_request=user_request),
+        original_user_input=user_request,
         retrieval_query=query,
         allow_tools=True,
     )
@@ -355,6 +364,7 @@ def material_topic_drill_plan(
         LearningAction.CALIBRATE,
         prompt,
         phase=LearningPhase.RECALL,
+        original_user_input=user_request,
         retrieval_query=_normalize(retrieval_query) or None,
         buffer_response=True,
     )
@@ -369,6 +379,7 @@ def material_source_qa_plan(
     return _turn_plan(
         LearningAction.SOURCE_QA,
         _source_qa_prompt(query, user_request=user_request),
+        original_user_input=user_request,
         retrieval_query=query,
         buffer_response=True,
     )
@@ -383,6 +394,7 @@ def recall_clarification_plan(
         LearningAction.PROMPT_RECALL,
         _recall_clarification_prompt(current_item, _normalize(user_request)),
         phase=LearningPhase.RECALL,
+        original_user_input=user_request,
     )
 
 
@@ -395,6 +407,7 @@ def plain_chat_plan(
         LearningAction.CHAT,
         _plain_chat_prompt(_normalize(user_request)),
         phase=phase,
+        original_user_input=user_request,
     )
 
 
@@ -408,6 +421,7 @@ def heph_help_plan(
         LearningAction.CHAT,
         _heph_self_prompt(_normalize(user_request)),
         phase=phase,
+        original_user_input=user_request,
     )
 
 
@@ -773,7 +787,7 @@ def _with_learning_policy(
 
 
 def _is_material_overview_plan(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and "Execute MATERIAL_OVERVIEW" in plan.prompt
+    return plan.action is LearningAction.PRESENT and plan.uses_overview_sampling
 
 
 def _material_answer_skips_learning_policy(plan: LearningTurnPlan) -> bool:

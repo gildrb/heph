@@ -2759,10 +2759,12 @@ def _apply_turn_contract_to_plan(
 
     updated_plan = replace(
         plan,
+        original_user_input=contract.original_user_input,
         retrieval_query=retrieval_query,
         retrieval_strategy=retrieval_strategy,
         evidence_refs=evidence_refs,
         requires_direct_evidence=requires_direct_evidence,
+        uses_overview_sampling=retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW,
     )
     updated_contract = replace(
         contract,
@@ -3151,7 +3153,7 @@ def _stabilized_followup_retrieval(
         and _contract_is_material_overview(prior_contract)
         and contract.is_followup
         and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.answer_mode != ANSWER_MODE_TRANSFORM_PRIOR
+        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
         and not contract.direct_evidence_required
     ):
         semantic_query = _first_non_literal_followup_query(contract, prior_contract)
@@ -4726,7 +4728,6 @@ def _low_confidence_prior_followup_resolution(
     if prior_contract is None or not prior_contract.evidence_refs:
         return TurnIntentResolution(intent=prior_intent, confidence=confidence, is_followup=True)
     prior_request = prior_contract.canonical_request or prior_contract.original_user_input
-    retrieval_query = _prior_contract_retrieval_surface(prior_contract)
     return TurnIntentResolution(
         intent=prior_intent,
         canonical_request=user_input,
@@ -4734,8 +4735,8 @@ def _low_confidence_prior_followup_resolution(
         followup_target=prior_request,
         answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
         answer_format=prior_contract.answer_format,
-        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-        retrieval_query=retrieval_query,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        retrieval_query="",
         prior_answer_reference=True,
         confidence=confidence,
     )
@@ -4818,7 +4819,6 @@ def _unresolved_followup_intent_resolution(
 ) -> TurnIntentResolution:
     if resolution.intent or prior_contract is None or not _overview_turn(default_plan):
         return resolution
-    retrieval_query = _prior_contract_retrieval_surface(prior_contract)
     return TurnIntentResolution(
         intent=prior_contract.resolved_intent or "source_qa",
         canonical_request=user_input,
@@ -4827,8 +4827,8 @@ def _unresolved_followup_intent_resolution(
         followup_target=prior_contract.canonical_request or prior_contract.original_user_input,
         answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
         answer_format=prior_contract.answer_format,
-        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-        retrieval_query=retrieval_query,
+        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        retrieval_query="",
         prior_answer_reference=True,
     )
 

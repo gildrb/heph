@@ -81,10 +81,6 @@ _DIRECT_SUPPORT_QUERY_OVERLAP_FLOOR = 0.6
 _DIRECT_SUPPORT_DOMINANT_SCORE_FLOOR = 0.75
 _DIRECT_SUPPORT_DOMINANT_SCORE_RATIO = 2.0
 _DIRECT_SUPPORT_DOMINANT_MIN_MATCHES = 2
-_SOURCE_QUESTION_RE = re.compile(
-    r"^User (?:question|request|follow-up):\s*(?P<text>.+)$",
-    re.MULTILINE,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,9 +332,7 @@ def _source_answer_query(plan: LearningTurnPlan) -> str:
 
 
 def _source_answer_original_request(plan: LearningTurnPlan) -> str:
-    if match := _SOURCE_QUESTION_RE.search(plan.prompt):
-        return match.group("text").strip()
-    return ""
+    return plan.original_user_input.strip()
 
 
 def _direct_support_score(query: str, turn_evidence: TurnEvidence | None) -> float:
@@ -1342,7 +1336,7 @@ def _expanded_prior_query_evidence(
         if index is None:
             return None
 
-        if _material_overview_prompt(plan):
+        if _material_overview_plan(plan):
             return build_turn_evidence_from_refs(
                 session,
                 list(plan.evidence_refs),
@@ -1493,13 +1487,13 @@ def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> T
     if plan.action is LearningAction.PRESENT and (
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     ):
-        if _material_overview_prompt(plan):
+        if _material_overview_plan(plan):
             return build_turn_evidence_from_overview(session)
         return build_turn_evidence_from_query(session, plan.retrieval_query) or (
             build_turn_evidence_from_overview(session)
         )
     query_evidence = build_turn_evidence_from_query(session, plan.retrieval_query)
-    if _material_overview_prompt(plan) and not _query_evidence_supports_request(
+    if _material_overview_plan(plan) and not _query_evidence_supports_request(
         plan.retrieval_query,
         query_evidence,
     ):
@@ -1507,8 +1501,8 @@ def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> T
     return query_evidence
 
 
-def _material_overview_prompt(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and "Execute MATERIAL_OVERVIEW." in plan.prompt
+def _material_overview_plan(plan: LearningTurnPlan) -> bool:
+    return plan.action is LearningAction.PRESENT and plan.uses_overview_sampling
 
 
 def _query_evidence_supports_request(
