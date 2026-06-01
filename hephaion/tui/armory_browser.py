@@ -295,7 +295,15 @@ def build_entries(
     child_entries = _available_armory_entries()
 
     if filter_query.strip():
-        return _filtered_entries(filter_query, [*recent_entries, *child_entries])
+        return _filtered_entries(
+            filter_query,
+            _deduped_path_entries([*child_entries, *recent_entries]),
+        )
+
+    recent_entries, child_entries = _dedupe_recent_from_all_entries(
+        recent_entries,
+        child_entries,
+    )
 
     return _sectioned_entries(
         place_entries,
@@ -316,6 +324,47 @@ def _filtered_entries(filter_query: str, entries: list[_DirEntry]) -> list[_DirE
     return [match.value for match in matches]
 
 
+def _dedupe_recent_from_all_entries(
+    recent_entries: list[_DirEntry],
+    child_entries: list[_DirEntry],
+) -> tuple[list[_DirEntry], list[_DirEntry]]:
+    recent_path_keys: set[Path] = set()
+    for entry in recent_entries:
+        if entry.path is None:
+            continue
+        path_key = _entry_path_key(entry.path)
+        if path_key is not None:
+            recent_path_keys.add(path_key)
+    child_entries = [
+        entry
+        for entry in child_entries
+        if entry.path is None or _entry_path_key(entry.path) not in recent_path_keys
+    ]
+    return recent_entries, child_entries
+
+
+def _deduped_path_entries(entries: list[_DirEntry]) -> list[_DirEntry]:
+    deduped: list[_DirEntry] = []
+    seen: set[Path] = set()
+    for entry in entries:
+        if entry.path is None:
+            deduped.append(entry)
+            continue
+        path_key = _entry_path_key(entry.path)
+        if path_key is None or path_key in seen:
+            continue
+        seen.add(path_key)
+        deduped.append(entry)
+    return deduped
+
+
+def _entry_path_key(path: Path) -> Path | None:
+    try:
+        return path.expanduser().resolve(strict=False)
+    except (OSError, RuntimeError):
+        return None
+
+
 def _sectioned_entries(
     place_entries: list[_DirEntry],
     recent_entries: list[_DirEntry],
@@ -330,9 +379,15 @@ def _sectioned_entries(
     entries.extend(_entry_section(_RECENT_HEADING, recent_entries, _EMPTY_RECENT_LABEL))
     if entries:
         entries.append(_DirEntry(""))
-    if allow_create:
-        entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
-    entries.extend(_entry_section(_ALL_HEADING, child_entries, _EMPTY_ALL_LABEL))
+    entries.extend(
+        _entry_section(
+            _ALL_HEADING,
+            [_DirEntry(_NEW_ARMORY_LABEL, is_create=True), *child_entries]
+            if allow_create
+            else child_entries,
+            _EMPTY_ALL_LABEL,
+        )
+    )
     return entries
 
 

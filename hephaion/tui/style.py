@@ -108,7 +108,7 @@ RichLog {{
     background: {bg};
 }}
 #armory-flow-hint {{
-    height: 1;
+    height: 0;
     color: {p.text_muted};
     background: {bg};
 }}

@@ -135,6 +135,9 @@ def _armory_command_flow(value: str) -> str | None:
 _ARMORY_USAGE_MESSAGE = (
     "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
 )
+_ARMORY_ROW_LEFT_PADDING = 2
+_ARMORY_FILE_COLUMN_WIDTH = len("files")
+_ARMORY_STATE_GAP = 2
 
 
 def _display_path(path: Path) -> str:
@@ -156,16 +159,22 @@ def _armory_header_text(
     current_path: Path,
     filter_query: str,
     entries: list[_DirEntry],
+    label_width: int = 0,
 ) -> str:
-    del current_path
-    filter_hint = f"  {filter_query}" if filter_query else ""
-    return f"Armories{filter_hint}  {_armory_selectable_count(entries)} item(s)    files  state"
+    del current_path, filter_query
+    count_label = f"{_armory_selectable_count(entries)} item(s)"
+    label_width = _armory_layout_label_width(label_width, count_label)
+    return (
+        f"{' ' * _ARMORY_ROW_LEFT_PADDING}"
+        f"{count_label:<{label_width}}"
+        f"{' ' * _ARMORY_DESCRIPTION_GAP}"
+        "files  state"
+    )
 
 
 def _armory_flow_hint(*, creating: bool) -> str:
-    if creating:
-        return "enter create  esc cancel"
-    return "enter open  n new  esc close"
+    del creating
+    return ""
 
 
 def _armory_entry_label(entry: _DirEntry) -> str:
@@ -176,11 +185,12 @@ def _armory_entry_description(entry: _DirEntry, *, active: bool = False) -> str:
     if entry.is_section or not entry.label:
         return ""
     if entry.is_create:
-        return "  -    create"
-    return (
-        f"{_armory_entry_file_column(entry.path):>3}    "
-        f"{_armory_entry_state(entry.path, active=active)}"
-    )
+        return ""
+    state = _armory_entry_state(entry.path, active=active)
+    file_count = _armory_entry_file_column(entry.path)
+    if not state:
+        return f"{file_count:<{_ARMORY_FILE_COLUMN_WIDTH}}"
+    return f"{file_count:<{_ARMORY_FILE_COLUMN_WIDTH}}{' ' * _ARMORY_STATE_GAP}{state}"
 
 
 def _armory_entry_file_column(path: Path | None) -> str:
@@ -200,13 +210,13 @@ def _armory_entry_state(path: Path | None, *, active: bool = False) -> str:
         return "folder"
     if count_material_files(path) == 0:
         return "empty"
-    return "ready"
+    return ""
 
 
 def _armory_sidebar_text(entry: _DirEntry | None, *, active: bool = False) -> str:
     if entry is None:
         return "No armory selected."
-    label = _armory_entry_label(entry)
+    label = _armory_entry_label(entry).strip()
     if entry.is_create:
         return (
             "New armory\n\n"
@@ -228,7 +238,8 @@ def _armory_sidebar_text(entry: _DirEntry | None, *, active: bool = False) -> st
         )
     if state == "working":
         return f"{label}\n\nAssistant working\n\nYou can switch back when the turn finishes."
-    return f"{label}\n\nReady\n\nEnter opens this as the active document context."
+    file_count = _armory_entry_file_column(entry.path)
+    return f"{label}\n\n{file_count} file(s)\n\nEnter opens this as the active document context."
 
 
 def _armory_preview_text(entry: _DirEntry | None, *, filter_query: str, active: bool) -> str:
@@ -276,6 +287,10 @@ def _armory_label_width(
         ),
         default=0,
     )
+
+
+def _armory_layout_label_width(label_width: int, count_label: str) -> int:
+    return max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
 
 
 def _armory_entry_text(
@@ -374,11 +389,18 @@ class TuiArmoryMixin:
         self._update_armory_preview()
 
     def _refresh_armory_header(self: _ArmoryHost) -> None:
+        current = self.query_one("#armory-current-inline", OptionList)
+        label_width = _armory_label_width(
+            self._armory_entries,
+            highlighted=current.highlighted,
+            rendered_height=current.size.height,
+        )
         self.query_one("#armory-header", Static).update(
             _armory_header_text(
                 current_path=self._armory_current,
                 filter_query=self._armory_filter,
                 entries=self._armory_entries,
+                label_width=label_width,
             )
         )
         self.query_one("#armory-breadcrumbs", Static).update("")
@@ -414,6 +436,16 @@ class TuiArmoryMixin:
             self._armory_entries,
             highlighted=highlighted,
             rendered_height=current.size.height,
+        )
+        count_label = f"{_armory_selectable_count(self._armory_entries)} item(s)"
+        label_width = _armory_layout_label_width(label_width, count_label)
+        self.query_one("#armory-header", Static).update(
+            _armory_header_text(
+                current_path=self._armory_current,
+                filter_query=self._armory_filter,
+                entries=self._armory_entries,
+                label_width=label_width,
+            )
         )
         current.set_options(
             [
