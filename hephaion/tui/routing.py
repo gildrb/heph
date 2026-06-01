@@ -17,6 +17,7 @@ class TuiInputRoute(Enum):
     EMPTY = "empty"
     MATERIALS = "materials"
     SESSIONS = "sessions"
+    TURN = "turn"
     NEW = "new"
     ARMORY = "armory"
     EXTERNAL = "external"
@@ -26,6 +27,7 @@ class TuiInputRoute(Enum):
 _INLINE_ROUTES = {
     "materials": TuiInputRoute.MATERIALS,
     "sessions": TuiInputRoute.SESSIONS,
+    "turn": TuiInputRoute.TURN,
     "armory": TuiInputRoute.ARMORY,
 }
 

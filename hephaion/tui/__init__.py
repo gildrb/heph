@@ -1023,6 +1023,7 @@ class HephTui(
         route_handlers = {
             _TuiInputRoute.MATERIALS: self._submit_materials_route,
             _TuiInputRoute.SESSIONS: self._submit_sessions_route,
+            _TuiInputRoute.TURN: self._submit_turn_route,
             _TuiInputRoute.NEW: self._submit_new_route,
             _TuiInputRoute.ARMORY: self._submit_armory_route,
         }
@@ -1044,6 +1045,11 @@ class HephTui(
         self._record_history(value)
         self._append_user(value, mark_working=False)
         self._handle_sessions_command(value)
+
+    def _submit_turn_route(self, value: str) -> None:
+        self._record_history(value)
+        self._append_user(value, mark_working=False)
+        self._handle_turn_command(value)
 
     def _submit_new_route(self, value: str) -> None:
         self._record_history(value)

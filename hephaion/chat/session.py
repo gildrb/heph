@@ -8,7 +8,7 @@ import os
 import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,6 +20,13 @@ from hephaion.chat import storage as chat_storage
 from hephaion.chat.events import TurnEvent, render_turn_event
 from hephaion.chat.titles import derive_title as _derive_title
 from hephaion.chat.turn_contract import TurnContract
+from hephaion.chat.turn_history import (
+    TurnSnapshot,
+    build_turn_snapshot,
+    turn_history_from_payload,
+    turn_history_through,
+    turn_snapshot_by_id,
+)
 from hephaion.chat.usage import SessionUsage
 from hephaion.diagnostics.crashes import set_session_context
 from hephaion.diagnostics.events import capture as capture_analytics
@@ -61,6 +68,7 @@ class ChatSession:
     last_turn_evidence: TurnEvidence | None = None
     last_plan_intent: str = ""
     last_turn_contract: TurnContract | None = None
+    turn_history: list[TurnSnapshot] = field(default_factory=list)
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     _tool_registry: ToolRegistry = field(
@@ -369,6 +377,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         last_plan_intent=_metadata_string(metadata, "last_plan_intent"),
         last_turn_contract=TurnContract.from_dict(metadata.get("last_turn_contract")),
         last_turn_evidence=TurnEvidence.from_dict(metadata.get("last_turn_evidence")),
+        turn_history=turn_history_from_payload(metadata.get("turn_history")),
         started_at=started_at,
         resumed_at=now,
         last_activity_at=now,
@@ -524,6 +533,7 @@ def save_session(session: ChatSession) -> Path:
             "last_turn_evidence": (
                 session.last_turn_evidence.to_dict() if session.last_turn_evidence else {}
             ),
+            "turn_history": [snapshot.to_dict() for snapshot in session.turn_history],
             "started_at": session.started_at.isoformat(),
             "last_activity_at": session.last_activity_at.isoformat(),
         },
@@ -549,6 +559,72 @@ def save_session(session: ChatSession) -> Path:
     )
     session.trace.record_session_event("saved", path=str(path))
     return path
+
+
+def record_turn_snapshot(
+    session: ChatSession,
+    *,
+    user_input: str,
+    assistant_reply: str,
+    evidence: TurnEvidence | None,
+    plan_intent: str,
+    contract: TurnContract | None,
+) -> None:
+    snapshot = build_turn_snapshot(
+        session.conversation,
+        session.turn_history,
+        learning_state=session.learning_state,
+        user_input=user_input,
+        assistant_reply=assistant_reply,
+        evidence=evidence,
+        plan_intent=plan_intent,
+        contract=contract,
+    )
+    if snapshot is None:
+        return
+    session.turn_history.append(snapshot)
+
+
+def fork_session_at_turn(session: ChatSession, turn_id: str) -> ChatSession:
+    snapshot = turn_snapshot_by_id(session.turn_history, turn_id)
+    if snapshot is None:
+        raise SessionError(f"turn not found: {turn_id}")
+    if session.armory_path is not None and session.dirty and session_has_messages(session):
+        with contextlib.suppress(chat_storage.ChatStorageError):
+            save_session(session)
+
+    messages = [
+        Message(message.role, message.content)
+        for message in session.conversation.messages[: snapshot.message_count]
+    ]
+    branched = ChatSession(
+        config=replace(session.config),
+        conversation=Conversation(messages=messages),
+        session_id=chat_storage.new_session_id(),
+        title=_branched_title(session.title or _derive_title(Conversation(messages=messages))),
+        armory_path=session.armory_path,
+        source_file_count=session.source_file_count,
+        source_files=tuple(session.source_files),
+        disabled_source_files=set(session.disabled_source_files),
+        dirty=True,
+        last_turn_evidence=snapshot.evidence,
+        last_plan_intent=snapshot.plan_intent,
+        last_turn_contract=snapshot.contract,
+        turn_history=turn_history_through(session.turn_history, snapshot),
+        learning_state=snapshot.learning_state.clone(),
+    )
+    if session.armory_path is not None:
+        _configure_session_armory_context(branched, session.armory_path)
+        replace_system_prompt(branched)
+    return branched
+
+
+def _branched_title(title: str) -> str:
+    cleaned = title.strip() or "Chat"
+    suffix = " branch"
+    if cleaned.endswith(suffix):
+        return cleaned
+    return f"{cleaned}{suffix}"
 
 
 def list_armory_sessions(armory_path: Path) -> list[chat_storage.SessionRecord]:

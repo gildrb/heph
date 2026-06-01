@@ -91,7 +91,7 @@ heph update             Show the update command.
 ```
 
 Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/evidence`,
-`/settings`, and `/exit`.
+`/turn`, `/settings`, and `/exit`.
 
 ## Docs
 

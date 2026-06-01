@@ -10,7 +10,14 @@ from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.model_selection import switch_model
 from hephaion.chat.provider_selection import activate_provider_for_session
-from hephaion.chat.session import list_armory_sessions, resume_session, save_session
+from hephaion.chat.session import (
+    SessionError,
+    fork_session_at_turn,
+    list_armory_sessions,
+    resume_session,
+    save_session,
+)
+from hephaion.chat.turn_history import TurnSnapshot
 from hephaion.diagnostics.events import capture as capture_analytics
 from hephaion.matching import ranked_matches
 from hephaion.parameters.settings import (
@@ -88,7 +95,11 @@ _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_L
 _SESSION_LIST_COMMANDS = {"list", "recent"}
 _SESSION_BROWSE_COMMANDS = {"", "browse", "menu"}
 _SESSION_LATEST_COMMANDS = {"resume", "last", "latest"}
+_TURN_LIST_COMMANDS = {"list", "history"}
+_TURN_BROWSE_COMMANDS = {"", "browse", "menu"}
+_TURN_LATEST_COMMANDS = {"resume", "last", "latest"}
 _INLINE_MENU_DESCRIPTION_GAP = 4
+_TURN_PREVIEW_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -184,9 +195,17 @@ class _InlineFlowHost(Protocol):
 
     def _handle_sessions_command(self, value: str) -> None: ...
 
+    def _handle_turn_command(self, value: str) -> None: ...
+
     def _handle_known_sessions_subcommand(
         self,
         sessions: list[chat_storage.SessionRecord],
+        subcommand: str,
+    ) -> bool: ...
+
+    def _handle_known_turn_subcommand(
+        self,
+        snapshots: list[TurnSnapshot],
         subcommand: str,
     ) -> bool: ...
 
@@ -196,9 +215,19 @@ class _InlineFlowHost(Protocol):
 
     def _open_session_menu(self, sessions: list[chat_storage.SessionRecord]) -> None: ...
 
+    def _show_turn_records(self, snapshots: list[TurnSnapshot]) -> None: ...
+
+    def _open_turn_menu(self, snapshots: list[TurnSnapshot]) -> None: ...
+
     def _resume_matching_session(
         self,
         sessions: list[chat_storage.SessionRecord],
+        subcommand: str,
+    ) -> bool: ...
+
+    def _branch_matching_turn(
+        self,
+        snapshots: list[TurnSnapshot],
         subcommand: str,
     ) -> bool: ...
 
@@ -311,6 +340,8 @@ class _InlineFlowHost(Protocol):
 
     def _perform_session_resume(self, session_id: str) -> None: ...
 
+    def _perform_turn_branch(self, turn_id: str) -> None: ...
+
     def _prompt_inline_text(self, name: str, step: str, placeholder: str) -> None: ...
 
     def _handle_inline_text(self, value: str) -> None: ...
@@ -355,6 +386,15 @@ def _inline_menu_option_text(
 
 def _inline_menu_label_width(options: list[tuple[str, str]]) -> int:
     return max((len(label) for label, _description in options), default=0)
+
+
+def _turn_option_description(snapshot: TurnSnapshot) -> str:
+    preview = " ".join(snapshot.user_input.split())
+    if len(preview) > _TURN_PREVIEW_LIMIT:
+        preview = f"{preview[: _TURN_PREVIEW_LIMIT - 3]}..."
+    evidence_count = len(snapshot.evidence.items) if snapshot.evidence is not None else 0
+    evidence_label = f"{evidence_count} evidence" if evidence_count else "no evidence"
+    return f"{preview}  {evidence_label}"
 
 
 def _inline_menu_visible_label_width(
@@ -443,6 +483,7 @@ def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], Non
         "recommend-model": host._perform_model_switch,
         "logout": host._perform_logout,
         "sessions": host._perform_session_resume,
+        "turn": host._perform_turn_branch,
     }
 
 
@@ -461,6 +502,8 @@ class TuiInlineFlowMixin:
             action()
         elif command == "/sessions":
             self._handle_sessions_command(value)
+        elif command == "/turn":
+            self._handle_turn_command(value)
 
     def _submit_inline_chat_value(self: _InlineFlowHost, value: str) -> None:
         composer = self.query_one("#composer", Input)
@@ -871,6 +914,19 @@ class TuiInlineFlowMixin:
             return
         self._append_error("Usage: /sessions [list|recent|browse|resume]")
 
+    def _handle_turn_command(self: _InlineFlowHost, value: str) -> None:
+        _, _, args = value.partition(" ")
+        subcommand = args.strip().upper()
+        snapshots = list(self.session.turn_history)
+        if not snapshots:
+            self._append_notice("No completed turns in this chat yet.")
+            return
+        if self._handle_known_turn_subcommand(snapshots, subcommand.lower()):
+            return
+        if self._branch_matching_turn(snapshots, subcommand):
+            return
+        self._append_error("Usage: /turn [list|browse|T#]")
+
     def _handle_known_sessions_subcommand(
         self: _InlineFlowHost,
         sessions: list[chat_storage.SessionRecord],
@@ -884,6 +940,25 @@ class TuiInlineFlowMixin:
                 _SESSION_LATEST_COMMANDS,
                 lambda: self._perform_session_resume(sessions[0]["session_id"]),
             ),
+        ):
+            for command in commands:
+                actions[command] = action
+        action = actions.get(subcommand)
+        if action is None:
+            return False
+        action()
+        return True
+
+    def _handle_known_turn_subcommand(
+        self: _InlineFlowHost,
+        snapshots: list[TurnSnapshot],
+        subcommand: str,
+    ) -> bool:
+        actions: dict[str, Callable[[], None]] = {}
+        for commands, action in (
+            (_TURN_LIST_COMMANDS, lambda: self._show_turn_records(snapshots)),
+            (_TURN_BROWSE_COMMANDS, lambda: self._open_turn_menu(snapshots)),
+            (_TURN_LATEST_COMMANDS, lambda: self._perform_turn_branch(snapshots[-1].turn_id)),
         ):
             for command in commands:
                 actions[command] = action
@@ -930,6 +1005,30 @@ class TuiInlineFlowMixin:
             ],
         )
 
+    def _show_turn_records(self: _InlineFlowHost, snapshots: list[TurnSnapshot]) -> None:
+        lines = ["Completed turns in this chat:"]
+        lines.extend(
+            f"  {snapshot.turn_id}  {_turn_option_description(snapshot)}" for snapshot in snapshots
+        )
+        self._append_plain("\n".join(lines))
+
+    def _open_turn_menu(
+        self: _InlineFlowHost,
+        snapshots: list[TurnSnapshot],
+    ) -> None:
+        self._open_inline_menu(
+            name="turn",
+            step="menu",
+            title="Turn  choose a message to branch from",
+            options=[
+                (
+                    snapshot.turn_id,
+                    _turn_option_description(snapshot),
+                )
+                for snapshot in snapshots
+            ],
+        )
+
     def _resume_matching_session(
         self: _InlineFlowHost,
         sessions: list[chat_storage.SessionRecord],
@@ -939,6 +1038,17 @@ class TuiInlineFlowMixin:
         if len(matches) != 1:
             return False
         self._perform_session_resume(matches[0]["session_id"])
+        return True
+
+    def _branch_matching_turn(
+        self: _InlineFlowHost,
+        snapshots: list[TurnSnapshot],
+        subcommand: str,
+    ) -> bool:
+        matches = [snapshot for snapshot in snapshots if snapshot.turn_id.startswith(subcommand)]
+        if len(matches) != 1:
+            return False
+        self._perform_turn_branch(matches[0].turn_id)
         return True
 
     def _logout_targets(self: _InlineFlowHost) -> list[_LogoutTarget]:
@@ -1090,6 +1200,20 @@ class TuiInlineFlowMixin:
         self.session = resumed
         self._replace_transcript_with_resumed_session(resumed)
         self._close_inline_flow(f"resumed session {resumed.session_id}")
+        self._sync_busy_to_current_session()
+        self._update_info_panel()
+
+    def _perform_turn_branch(self: _InlineFlowHost, turn_id: str) -> None:
+        try:
+            branched = fork_session_at_turn(self.session, turn_id)
+        except SessionError as exc:
+            self._close_inline_flow(f"error: {exc}")
+            return
+        self.session = branched
+        self._replace_transcript_with_resumed_session(branched)
+        self._close_inline_flow(
+            f"branched from {turn_id.upper()} into session {branched.session_id}"
+        )
         self._sync_busy_to_current_session()
         self._update_info_panel()
 

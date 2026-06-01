@@ -54,6 +54,7 @@
 | /memory | Manage local armory memory |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
+| /turn | Branch from an earlier completed turn |
 | /index | Manage cross-armory search index |
 | /usage | Show token usage and cost for this session |
 | /vocabulary | Practice vocabulary translations from your materials |

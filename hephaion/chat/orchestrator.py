@@ -76,6 +76,7 @@ from hephaion.chat.turn_contract import (
     intent_resolution_from_payload,
     turn_contract_from_resolution,
 )
+from hephaion.chat.turn_history import build_turn_snapshot
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.logging import Timer, get_logger
@@ -6236,6 +6237,18 @@ class TurnOrchestrator:
         ):
             self.session.last_plan_intent = _resolved_turn_intent(resolved)
             self.session.last_turn_contract = resolved.turn_contract
+        snapshot = build_turn_snapshot(
+            self.session.conversation,
+            self.session.turn_history,
+            learning_state=self.session.learning_state,
+            user_input=user_input,
+            assistant_reply=self.last_reply,
+            evidence=visible_evidence,
+            plan_intent=_resolved_turn_intent(resolved),
+            contract=resolved.turn_contract,
+        )
+        if snapshot is not None:
+            self.session.turn_history.append(snapshot)
         self._schedule_memory_extraction(user_input, visible_evidence)
         self._save_usage_if_armory_session()
         return notice

@@ -145,3 +145,18 @@ class SessionsCommand(Command):
             return CommandResult()
         print_info("Use the /sessions browser in the TUI to list or resume saved chats.")
         return CommandResult()
+
+
+class TurnCommand(Command):
+    name = "turn"
+    description = "Branch from an earlier completed turn"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        del session
+        subcmd = args.strip().lower()
+        known_subcommands = {"list", "history", "browse", "menu", "resume", "last", "latest"}
+        if subcmd and subcmd not in known_subcommands and not subcmd.startswith("t"):
+            print_error("Usage: /turn [list|browse|T#]")
+            return CommandResult()
+        print_info("Use the /turn browser in the TUI to branch from an earlier reply.")
+        return CommandResult()

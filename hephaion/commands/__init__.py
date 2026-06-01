@@ -22,6 +22,7 @@ from hephaion.commands.session import (
     NewCommand,
     SessionsCommand,
     StatusCommand,
+    TurnCommand,
 )
 from hephaion.commands.settings import SettingsCommand
 from hephaion.commands.study import (
@@ -91,6 +92,7 @@ def get_registry() -> CommandRegistry:
                 MemoryCommand,
                 SettingsCommand,
                 SessionsCommand,
+                TurnCommand,
                 IndexCommand,
                 UsageCommand,
                 VocabCommand,
@@ -134,6 +136,7 @@ __all__ = [
     "StatsCommand",
     "StatusCommand",
     "TokensCommand",
+    "TurnCommand",
     "UsageCommand",
     "VocabCommand",
     # Re-exported helpers (for test monkeypatching)
