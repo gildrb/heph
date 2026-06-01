@@ -548,18 +548,10 @@ def _transfer_success(
     correct: bool,
     explicit: bool | None,
 ) -> bool:
+    _ = (item, correct)
     if explicit is not None:
         return explicit
-    transfer_markers = (
-        "apply",
-        "application",
-        "scenario",
-        "compare",
-        "contrast",
-        "why",
-        "explain why",
-    )
-    return correct and any(marker in item.casefold() for marker in transfer_markers)
+    return False
 
 
 def _record_error_and_intervention(

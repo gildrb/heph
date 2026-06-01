@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import NoReturn, Protocol, Self
 
 from hephaion._types import is_string_mapping, parse_json_object_fragment
-from hephaion.materials import infer_material_role_from_text, material_display_name
+from hephaion.materials import material_display_name
 from hephaion.providers.endpoints import is_keyless_endpoint
 from hephaion.runtime import (
     ChatConfig,
@@ -42,117 +42,28 @@ _TOPIC_SPAN_RE = re.compile(
     rf"\b{_LETTER_RE}{_WORD_BODY_RE}*(?:\s+{_LETTER_RE}{_WORD_BODY_RE}*){{1,5}}\b"
 )
 _QUESTION_START_RE = re.compile(
-    rf"\b(?:aufgabe|question|problem|q)\s*\.?\s*\d+{_LETTER_RE}?\b",
-    re.IGNORECASE,
+    rf"(?:^|\n|(?<=[.!?])\s+)\s*"
+    rf"(?:\d+{_LETTER_RE}?\s*[.)]|[^\s:][^:\n]{{0,48}}(?:\[[^\]\n]{{1,48}}\])?\s*:)\s+"
+)
+_STRUCTURED_PROMPT_PREFIX_RE = re.compile(
+    rf"^\s*(?:\d+{_LETTER_RE}?\s*[.)]|[^\s:][^:\n]{{0,48}}"
+    rf"(?:\[[^\]\n]{{1,48}}\])?\s*:)\s*"
 )
 _SUBQUESTION_START_RE = re.compile(
     rf"(?:(?<=\n)\s*(?:\({_LETTER_RE}\)|{_LETTER_RE}\))|"
-    rf"(?<!{_LETTER_RE})(?:\({_LETTER_RE}\))\s+|"
-    rf"(?<=\n)\s*teilaufgabe\s+{_LETTER_RE}\b)",
+    rf"(?<!{_LETTER_RE})(?:\({_LETTER_RE}\))\s+)",
     re.IGNORECASE,
 )
-_PROMPT_TOPIC_RE = re.compile(
-    r"\b(?:"
-    r"analyze|berechnen|calculate|compare|compute|define|derive|describe|discuss|"
-    r"evaluate|explain|prove|show|sketch|state|untersuchen"
-    r")\b\s+(?P<tail>[^.?!:\n]{3,180})",
-    re.IGNORECASE,
-)
-_PROMPT_TOPIC_SPLIT_RE = re.compile(r"\s+(?:and|und|or|oder)\s+|[,;]")
+_TOPIC_SPLIT_RE = re.compile(r"[,;]")
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
 _WORD_SPLIT_RE = re.compile(rf"{_LETTER_RE}{_WORD_BODY_RE}*")
-_BOILERPLATE_LINE_RE = re.compile(
-    r"\b(?:"
-    r"all\s+rights\s+reserved|candidate\s+number|copyright|course|department|"
-    r"e-?mail|exam\s+seat|faculty|institute|instructor|lecturer|office\s+hours|"
-    r"prof(?:essor)?|school|semester|student\s+id|student\s+name|student\s+number|"
-    r"term|university|dozent|dozentin|hochschule|sommersemester|universität|"
-    r"universitaet|wintersemester"
-    r")\b|@",
-    re.IGNORECASE,
-)
-_PAGE_OR_SLIDE_LINE_RE = re.compile(r"\b(?:page|slide|folie)\s+\d+\b", re.IGNORECASE)
+_CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
 _WEB_RESULT_RE = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>'
     r".{0,1800}?"
     r'<a[^>]+class="result__snippet"[^>]*>(?P<snippet>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
-)
-_WEB_PREREQ_CLAUSE_RE = re.compile(
-    r"\b(?:prerequisites?|requires?|need(?:ed)?|before learning|familiar with|"
-    r"understand(?:ing)?)\b[^.?!:;]{0,48}[:;\-]?\s*(?P<tail>[^.?!]{0,180})",
-    re.IGNORECASE,
-)
-_TOPIC_INTRO_RE = re.compile(
-    r"\b(?:"
-    r"definition|defined|definiert|bezeichnet|bezeichnen|heisst|heißt|nennt|setzen|"
-    r"we\s+call|we\s+define|is\s+called|is\s+defined"
-    r")\b",
-    re.IGNORECASE,
-)
-_DEFINITION_SUBJECT_RE = re.compile(
-    rf"\b(?P<term>(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)?\s*"
-    rf"{_LETTER_RE}{_WORD_BODY_RE}{{2,}}"
-    rf"(?:\s+{_LETTER_RE}{_WORD_BODY_RE}{{2,}}){{0,4}})"
-    r"\s+(?:is|are|ist|sind|means|denotes|bezeichnet|heisst|heißt|nennt|"
-    r"refers\s+to)\b",
-    re.IGNORECASE,
-)
-_DEFINED_OBJECT_RE = re.compile(
-    rf"\b(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)\s+"
-    rf"(?P<term>{_LETTER_RE}{_WORD_BODY_RE}{{2,}}"
-    rf"(?:\s+{_LETTER_RE}{_WORD_BODY_RE}{{2,}}){{0,4}})"
-    r"\b[^.?!]{0,80}\b(?:defined|definiert|definition)\b",
-    re.IGNORECASE,
-)
-_DEFINITION_VERB_RE = re.compile(
-    r"\b(?:is|are|ist|sind|means|denotes|bezeichnet|heisst|heißt|nennt|"
-    r"refers\s+to|defined|definiert)\b",
-    re.IGNORECASE,
-)
-_DEFINITION_TERM_STOPWORDS = frozenset(
-    {
-        "a",
-        "an",
-        "the",
-        "der",
-        "die",
-        "das",
-        "den",
-        "dem",
-        "ein",
-        "eine",
-        "einen",
-        "einer",
-        "eines",
-        "of",
-        "von",
-        "in",
-        "im",
-        "on",
-        "for",
-        "für",
-        "to",
-        "als",
-    }
-)
-_MARK_RE = re.compile(
-    r"(?:\[\s*(\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\s*\]|"
-    r"\((\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\)|"
-    r"\b(\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\b|"
-    r"\b(?:marks?|pts?|points?|punkte?)\s*[:=]\s*(\d{1,2})\b)",
-    re.IGNORECASE,
-)
-_RAW_METRIC_RE = re.compile(
-    r"\b(?:Score\s+\d|exam hits|exam marks|material hits)\b",
-    re.IGNORECASE,
-)
-_FORBIDDEN_REPORT_RE = re.compile(
-    r"Score\s+\d|exam hits|exam marks|material hits|"
-    r"formula-not-decoded|image not decoded|ocr noise|"
-    r"student name|student id|candidate number|exam seat",
-    re.IGNORECASE,
 )
 _LATEX_ENGINE_NAMES = ("latexmk", "lualatex", "xelatex", "pdflatex", "tectonic")
 _LATEX_COMPILE_TIMEOUT_SECONDS = 30
@@ -256,6 +167,7 @@ _ALLOWED_LATEX_MATH_COMMANDS = frozenset(
     }
 )
 _ALLOWED_LATEX_MATH_SYMBOL_COMMANDS = frozenset({",", ";", ":", "!", " ", "_"})
+_BRACKETED_WEIGHT_RE = re.compile(r"[\[(]\s*(\d{1,3})(?:[^\]\)]{0,48})[\])]")
 _WEB_PREREQ_ENV = "HEPHAION_PRIORITY_WEB_PREREQS"
 _WEB_PREREQ_TIMEOUT = 8
 _WEB_PREREQ_TOPICS = 6
@@ -265,239 +177,6 @@ _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 _MODEL_HEARTBEAT_SECONDS = 10.0
 _MODEL_STREAM_PROGRESS_SECONDS = 8.0
 
-_STOPWORDS = frozenset(
-    {
-        "about",
-        "achtung",
-        "aber",
-        "after",
-        "also",
-        "and",
-        "andernfalls",
-        "answer",
-        "are",
-        "against",
-        "als",
-        "analyze",
-        "at",
-        "auf",
-        "aufgabe",
-        "aus",
-        "basic",
-        "basics",
-        "because",
-        "before",
-        "beispiel",
-        "beispiele",
-        "berechnen",
-        "bestehen",
-        "bestimmen",
-        "bestimmten",
-        "brief",
-        "briefly",
-        "bzw",
-        "calculate",
-        "can",
-        "cheat-sheets",
-        "compare",
-        "compute",
-        "connected",
-        "define",
-        "defined",
-        "depend",
-        "depends",
-        "derive",
-        "describe",
-        "definition",
-        "definiert",
-        "der",
-        "des",
-        "dann",
-        "das",
-        "discuss",
-        "dokumente",
-        "does",
-        "each",
-        "ein",
-        "eine",
-        "einer",
-        "eines",
-        "exam",
-        "examination",
-        "es",
-        "erste",
-        "erwartungsgemäß",
-        "euro",
-        "falls",
-        "explain",
-        "folien",
-        "folgenden",
-        "folgt",
-        "following",
-        "from",
-        "for",
-        "für",
-        "give",
-        "given",
-        "gilt",
-        "called",
-        "denotes",
-        "handschriftlich",
-        "have",
-        "identify",
-        "ihre",
-        "insbesondere",
-        "in",
-        "into",
-        "is",
-        "marks",
-        "maximal",
-        "midterm",
-        "means",
-        "muss",
-        "nach",
-        "nicht",
-        "notizen",
-        "n-te",
-        "one",
-        "oder",
-        "past",
-        "points",
-        "pro",
-        "problem",
-        "pts",
-        "question",
-        "questions",
-        "bezeichne",
-        "bezeichnen",
-        "bezeichnet",
-        "setzen",
-        "show",
-        "sketch",
-        "sn",
-        "state",
-        "sowie",
-        "that",
-        "the",
-        "their",
-        "then",
-        "this",
-        "through",
-        "two",
-        "untersuchen",
-        "using",
-        "use",
-        "uses",
-        "taschenrechner",
-        "von",
-        "what",
-        "when",
-        "where",
-        "which",
-        "with",
-        "your",
-        "zur",
-        "zugelassen",
-        "january",
-        "february",
-        "march",
-        "april",
-        "may",
-        "june",
-        "july",
-        "august",
-        "september",
-        "october",
-        "november",
-        "december",
-        "januar",
-        "februar",
-        "märz",
-        "maerz",
-        "mai",
-        "juni",
-        "juli",
-        "oktober",
-        "dezember",
-        "formula",
-        "ihnen",
-        "jeweils",
-        "klausur",
-        "not",
-        "decoded",
-        "image",
-        "ocr",
-        "noise",
-        "ohne",
-        "punkte",
-        "punkten",
-        "punkt",
-        "sei",
-        "seien",
-        "sommersemester",
-        "sie",
-        "sind",
-        "die",
-        "ist",
-        "und",
-        "universität",
-        "viel",
-        "w",
-        "wintersemester",
-        "wir",
-        "wunschen",
-        "wünschen",
-        "x0",
-        "wenn",
-        "verfasste",
-        "viele",
-        "wie",
-        "nschen",
-        "vorlesung",
-        "article",
-        "course",
-        "example",
-        "examples",
-        "guide",
-        "implementation",
-        "introduction",
-        "learn",
-        "learning",
-        "lecture",
-        "lectures",
-        "notes",
-        "overview",
-        "should",
-        "tutorial",
-        "understand",
-        "understanding",
-        "ur",
-    }
-)
-_BOILERPLATE_TOPIC_PHRASES = frozenset(
-    {
-        "a f x in e",
-        "chapter",
-        "chapters",
-        "concept",
-        "concepts",
-        "definitions",
-        "administrative block",
-        "administrative header",
-        "administrative header sommersemester",
-        "administrative line",
-        "administrative title sommersemester",
-        "administrative unit",
-        "exercises",
-        "problems",
-        "proof",
-        "proofs",
-        "theorem",
-        "theorems",
-        "topics",
-        "ohne beweis",
-    }
-)
 _SYMBOLIC_TOPIC_TOKEN_RE = re.compile(
     rf"^(?:{_LETTER_RE}{{1,2}}\d*|\d+|{_LETTER_RE}-{_LETTER_RE})$"
 )
@@ -868,11 +547,10 @@ def _scan_priority_chunk(
         source_chunk_index=scan.source_chunk_positions[chunk.source],
         source_chunk_count=scan.source_chunk_counts[chunk.source],
     )
-    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-    if role == "past_exam":
+    if _chunk_has_exam_structure(chunk.text):
         _record_exam_chunk(state, chunk, chunk_label, chunk_started_at, progress)
         return
-    _record_material_chunk(state, chunk, role, chunk_label, chunk_started_at, progress)
+    _record_material_chunk(state, chunk, chunk_label, chunk_started_at, progress)
 
 
 def _emit_source_progress(
@@ -905,15 +583,18 @@ def _record_exam_chunk(
     topic_signal_count = len({term for question in questions for term in question.topics})
     _emit_progress(
         progress,
-        f"Read {chunk_label}: role past_exam, {len(questions)} question(s), "
+        f"Read {chunk_label}: structured question material, {len(questions)} question(s), "
         f"{topic_signal_count} topic signal(s) in {_format_elapsed_since(chunk_started_at)}.",
     )
+
+
+def _chunk_has_exam_structure(text: str) -> bool:
+    return any(_exam_sections(text))
 
 
 def _record_material_chunk(
     state: _PriorityScanState,
     chunk: PriorityChunk,
-    role: str,
     chunk_label: str,
     chunk_started_at: float,
     progress: PriorityProgressReporter | None,
@@ -929,7 +610,7 @@ def _record_material_chunk(
         )
     _emit_progress(
         progress,
-        f"Read {chunk_label}: role {role}, {len(terms)} topic signal(s) in "
+        f"Read {chunk_label}: indexed material, {len(terms)} topic signal(s) in "
         f"{_format_elapsed_since(chunk_started_at)}.",
     )
 
@@ -1131,98 +812,15 @@ def _web_prerequisites_for(
     topic: str,
     web_searcher: PriorityWebSearcher,
 ) -> tuple[PriorityWebPrerequisite, ...]:
-    results: list[PriorityWebPrerequisite] = []
-    seen: set[str] = set()
-    try:
-        search_results = tuple(web_searcher(f"{topic} prerequisites"))
-    except (OSError, TimeoutError, ValueError, urllib.error.URLError):
-        return ()
-    for prerequisite in _iter_web_prerequisites(topic, search_results, seen):
-        results.append(prerequisite)
-        if len(results) >= 3:
-            return tuple(results)
-    return tuple(results)
-
-
-def _iter_web_prerequisites(
-    topic: str,
-    search_results: Sequence[PriorityWebSearchResult],
-    seen: set[str],
-) -> Iterator[PriorityWebPrerequisite]:
-    for result in search_results[:_WEB_PREREQ_RESULTS]:
-        for term in _prerequisite_terms_from_web_result(topic, result):
-            if term in seen:
-                continue
-            seen.add(term)
-            yield PriorityWebPrerequisite(
-                term=term,
-                source_title=result.title,
-                source_url=result.url,
-            )
-
-
-def _prerequisite_terms_from_web_result(
-    topic: str,
-    result: PriorityWebSearchResult,
-) -> Iterator[str]:
-    text = f"{result.title}. {result.snippet}"
-    matches = list(_WEB_PREREQ_CLAUSE_RE.finditer(text))
-    candidate_texts = [match.group("tail") for match in matches]
-    if not candidate_texts:
-        candidate_texts = [result.snippet]
-    topic_words = set(topic.split())
-    for candidate_text in candidate_texts:
-        yield from _candidate_web_prerequisite_terms(candidate_text, topic_words)
-
-
-def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Iterator[str]:
-    seen: set[str] = set()
-    yield from _claim_web_prerequisite_terms(
-        (
-            _web_prerequisite_phrase_term(match.group(0), topic_words)
-            for match in _TOPIC_SPAN_RE.finditer(text)
-        ),
-        seen,
-    )
-    yield from _claim_web_prerequisite_terms(
-        (
-            _web_prerequisite_word_term(match.group(0), topic_words)
-            for match in _TOKEN_RE.finditer(text)
-        ),
-        seen,
-    )
-
-
-def _claim_web_prerequisite_terms(candidates: Iterable[str], seen: set[str]) -> Iterator[str]:
-    for candidate in candidates:
-        if candidate and _claim_candidate(candidate, seen):
-            yield candidate
-
-
-def _web_prerequisite_phrase_term(text: str, topic_words: set[str]) -> str:
-    useful = [word for word in _useful_topic_words(text) if word not in topic_words]
-    return " ".join(useful[:3]) if useful else ""
-
-
-def _web_prerequisite_word_term(word: str, topic_words: set[str]) -> str:
-    term = word.lower()
-    if term in _STOPWORDS or term in topic_words:
-        return ""
-    return term
-
-
-def _claim_candidate(candidate: str, seen: set[str]) -> bool:
-    if not candidate or candidate in seen:
-        return False
-    seen.add(candidate)
-    return True
+    # External snippets are not structured enough to mine prerequisite claims safely.
+    # When a model is available, prerequisite reasoning happens in the report prompt.
+    _ = (topic, web_searcher)
+    return ()
 
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     topic_text = _topic_candidate_text(raw)
-    yield from _definition_head_candidates(topic_text)
     yield from _heading_candidates(topic_text)
-    yield from _prompt_topic_candidates(topic_text)
     for phrase_match in _TOPIC_SPAN_RE.finditer(topic_text):
         phrase = phrase_match.group(0)
         parts = _split_topic_parts(phrase)
@@ -1261,7 +859,7 @@ def _clean_heading_lines(raw: str) -> Iterator[str]:
 def _split_topic_parts(text: str) -> list[str]:
     return [
         part.strip()
-        for part in _PROMPT_TOPIC_SPLIT_RE.split(text)
+        for part in _TOPIC_SPLIT_RE.split(text)
         if part.strip() and part.strip() != text
     ]
 
@@ -1272,31 +870,6 @@ def _heading_word_candidates(cleaned: str) -> Iterator[str]:
         yield " ".join(useful)
     elif len(useful) == 1 and len(useful[0]) >= 5:
         yield useful[0]
-
-
-def _prompt_topic_candidates(text: str) -> Iterator[str]:
-    for prompt_match in _PROMPT_TOPIC_RE.finditer(text):
-        for part in _PROMPT_TOPIC_SPLIT_RE.split(prompt_match.group("tail")):
-            yield from _prompt_part_topic_candidates(part)
-
-
-def _prompt_part_topic_candidates(part: str) -> Iterator[str]:
-    useful = _useful_topic_words(part)
-    if len(useful) == 1:
-        yield from _single_prompt_topic_candidate(useful[0])
-        return
-    if len(useful) < 2:
-        return
-    if len(useful[0]) >= 5:
-        yield useful[0]
-    if len(useful) > 2:
-        yield " ".join(useful[:2])
-    yield " ".join(useful[:3])
-
-
-def _single_prompt_topic_candidate(word: str) -> Iterator[str]:
-    if len(word) >= 5:
-        yield word
 
 
 def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
@@ -1320,73 +893,11 @@ def _should_emit_leading_content_word(phrase: str, words: list[str]) -> bool:
     )
 
 
-def _definition_head_candidates(text: str) -> Iterator[str]:
-    seen: set[str] = set()
-    for line in text.splitlines():
-        for term in _definition_terms_from_line(line):
-            if not _record_definition_candidate(term, seen):
-                continue
-            yield term
-
-
-def _record_definition_candidate(term: str, seen: set[str]) -> bool:
-    if not term or term in seen:
-        return False
-    seen.add(term)
-    return True
-
-
-def _definition_terms_from_line(line: str) -> Iterator[str]:
-    if not line.strip():
-        return
-    yield from _definition_prefix_terms(line)
-    yield from _definition_pattern_terms(line)
-
-
-def _definition_prefix_terms(line: str) -> Iterator[str]:
-    for match in _DEFINITION_VERB_RE.finditer(line):
-        prefix = line[: match.start()].strip(" .:-;")
-        if prefix:
-            yield _definition_term_candidate(prefix)
-
-
-def _definition_pattern_terms(line: str) -> Iterator[str]:
-    for pattern in (_DEFINITION_SUBJECT_RE, _DEFINED_OBJECT_RE):
-        for match in pattern.finditer(line):
-            yield _definition_term_candidate(match.group("term"))
-
-
-def _definition_term_candidate(raw: str) -> str:
-    words = [word.lower() for word in _WORD_SPLIT_RE.findall(raw)]
-    kept: list[str] = []
-    for word in words:
-        if _definition_word_stops_empty_candidate(word, kept):
-            continue
-        if _definition_word_stops_completed_candidate(word, kept):
-            break
-        kept.append(word)
-        if len(kept) >= 3:
-            break
-    return " ".join(kept)
-
-
-def _definition_word_stops_empty_candidate(word: str, kept: list[str]) -> bool:
-    return not kept and _definition_word_stops_candidate(word)
-
-
-def _definition_word_stops_completed_candidate(word: str, kept: list[str]) -> bool:
-    return bool(kept) and _definition_word_stops_candidate(word)
-
-
-def _definition_word_stops_candidate(word: str) -> bool:
-    return word in _DEFINITION_TERM_STOPWORDS or word in _STOPWORDS
-
-
 def _useful_topic_words(text: str) -> list[str]:
     return [
         word.lower()
         for word in _WORD_SPLIT_RE.findall(text)
-        if word.lower() not in _STOPWORDS and not word.isdigit()
+        if len(word) >= 4 and not word.isdigit()
     ]
 
 
@@ -1409,37 +920,23 @@ def _is_boilerplate_line(line: str) -> bool:
     cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
     if not cleaned:
         return True
-    return bool(
-        _BOILERPLATE_LINE_RE.search(cleaned)
-        or _PAGE_OR_SLIDE_LINE_RE.search(cleaned)
-        or _looks_like_person_name_sentence(cleaned)
-    )
+    return bool(_CONTACT_OR_URL_RE.search(cleaned) or _looks_like_sparse_label_line(cleaned))
 
 
-def _looks_like_person_name_sentence(text: str) -> bool:
+def _looks_like_sparse_label_line(text: str) -> bool:
+    if _TOKEN_RE.search(text) is None:
+        return True
     if not text.endswith("."):
         return False
     tokens = re.findall(rf"{_LETTER_RE}(?:{_WORD_BODY_RE}|')*", text[:-1])
     if not 2 <= len(tokens) <= 5:
         return False
-    return all(token[:1].isupper() and token.lower() not in _STOPWORDS for token in tokens)
+    return all(token[:1].isupper() for token in tokens)
 
 
 def _valid_topic(candidate: str) -> bool:
     words = candidate.split()
-    return bool(
-        words
-        and not _invalid_topic_phrase(candidate)
-        and not _invalid_topic_words(words)
-        and len(words) <= 5
-    )
-
-
-def _invalid_topic_phrase(candidate: str) -> bool:
-    return candidate in _BOILERPLATE_TOPIC_PHRASES or any(
-        fragment in candidate
-        for fragment in ("not-decoded", "formula-not", "image-not", "ocr-noise")
-    )
+    return bool(words and not _invalid_topic_words(words) and len(words) <= 5)
 
 
 def _invalid_topic_words(words: list[str]) -> bool:
@@ -1447,11 +944,7 @@ def _invalid_topic_words(words: list[str]) -> bool:
 
 
 def _invalid_topic_word(word: str) -> bool:
-    return (
-        word in _STOPWORDS
-        or len(word) <= 1
-        or _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) is not None
-    )
+    return len(word) <= 1 or _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) is not None
 
 
 def _single_word_topic_too_short(words: Sequence[str]) -> bool:
@@ -1508,20 +1001,13 @@ def _single_word_subset(left: set[str], right: set[str]) -> bool:
 
 
 def _explicit_prerequisites(text: str) -> list[str]:
-    terms: list[str] = []
-    for line in text.splitlines():
-        if not re.search(r"\bprerequisites?\b", line, flags=re.IGNORECASE):
-            continue
-        _label, _sep, rest = line.partition(":")
-        terms.extend(_prerequisite_tokens(rest or line))
-    return terms
+    _ = text
+    return []
 
 
 def _dependency_prerequisites(text: str, terms: set[str]) -> dict[str, Counter[str]]:
-    hints: dict[str, Counter[str]] = {}
-    for term, prerequisites in _iter_dependency_prerequisite_hints(text, terms):
-        hints.setdefault(term, Counter()).update(prerequisites)
-    return hints
+    _ = (text, terms)
+    return {}
 
 
 def _iter_dependency_prerequisite_hints(
@@ -1545,37 +1031,25 @@ def _dependency_prerequisite_hints_for_sentence(
 
 
 def _dependency_sentence_parts(sentence: str) -> tuple[str, str] | None:
-    lowered = sentence.lower()
-    positions = [
-        lowered.find(marker)
-        for marker in ("depends on", "requires", "builds on", "needs")
-        if marker in lowered
-    ]
-    if not positions:
-        return None
-    marker = min(positions)
-    return lowered[:marker], lowered[marker:]
+    _ = sentence
+    return None
 
 
 def _prerequisite_tokens(text: str) -> list[str]:
     return [
         token.lower()
         for token in _TOKEN_RE.findall(text)
-        if token.lower() not in _STOPWORDS and not token.isdigit()
+        if len(token) >= 4 and not token.isdigit()
     ]
 
 
 def _mark_weight(text: str) -> int:
-    return max(
-        (int(group) for match in _MARK_RE.finditer(text) for group in match.groups() if group),
-        default=0,
-    )
+    return max((int(match.group(1)) for match in _BRACKETED_WEIGHT_RE.finditer(text)), default=0)
 
 
 def _exam_sections(text: str) -> Iterator[str]:
     matches = list(_QUESTION_START_RE.finditer(text))
     if not matches:
-        yield text
         return
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
@@ -1589,9 +1063,8 @@ def _split_exam_subquestions(section: str) -> Iterator[str]:
     if not matches:
         yield section
         return
-    question_mark = _mark_weight(_exam_question_prefix(section, matches))
     for index, _match in enumerate(matches):
-        if subquestion := _exam_subquestion(section, matches, index, question_mark):
+        if subquestion := _exam_subquestion(section, matches, index):
             yield subquestion
 
 
@@ -1603,29 +1076,31 @@ def _exam_subquestion(
     section: str,
     matches: Sequence[re.Match[str]],
     index: int,
-    question_mark: int,
 ) -> str:
     match = matches[index]
     end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
     subquestion = section[match.start() : end].strip()
     if not subquestion:
         return ""
-    if question_mark and not _mark_weight(subquestion):
-        return f"{subquestion} [{question_mark} marks]"
     return subquestion
 
 
 def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:
     for section in sections:
-        prompt = _topic_excerpt(section, "", max_chars=360)
+        prompt_text = _strip_structured_prompt_prefix(section)
+        prompt = _topic_excerpt(prompt_text, "", max_chars=360)
         if not prompt:
             continue
         yield PriorityExamQuestion(
             source=source,
             prompt=prompt,
             marks=_mark_weight(section),
-            topics=tuple(_topic_terms("", section)[:5]),
+            topics=tuple(_topic_terms("", prompt_text)[:5]),
         )
+
+
+def _strip_structured_prompt_prefix(text: str) -> str:
+    return _STRUCTURED_PROMPT_PREFIX_RE.sub("", text.strip(), count=1)
 
 
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:
@@ -2108,12 +1583,10 @@ def _priority_model_context(
 
 def _priority_model_evidence_lines(chunks: Iterable[PriorityChunk]) -> Iterator[str]:
     for idx, chunk in enumerate(chunks, start=1):
-        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         yield "\n".join(
             (
                 f"Evidence {idx}",
                 f"Source: {chunk.source}",
-                f"Role: {role}",
                 f"Heading: {chunk.heading or 'none'}",
                 f"Text: {_compact_model_evidence_text(chunk.text)}",
             )
@@ -2140,8 +1613,8 @@ def _representative_chunks(
 
 
 def _is_priority_model_context(chunk: PriorityChunk, topic_names: set[str]) -> bool:
-    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-    return role == "past_exam" or any(topic in chunk.text.lower() for topic in topic_names)
+    chunk_text = chunk.text.lower()
+    return any(topic in chunk_text for topic in topic_names)
 
 
 def _first_unique_priority_chunks(
@@ -2487,11 +1960,11 @@ def _verify_pdf_artifact(pdf_path: Path | None) -> bool:
 
 
 def _verify_report_text_has_no_forbidden_patterns(tex_text: str) -> bool:
-    return "HEPHAION PRIORITY" not in tex_text and not _FORBIDDEN_REPORT_RE.search(tex_text)
+    return "HEPHAION PRIORITY" not in tex_text
 
 
 def _verify_priority_prompt_context(analysis: PriorityAnalysis) -> bool:
-    return bool(analysis.topics) and not _RAW_METRIC_RE.search(analysis.render_for_prompt(limit=8))
+    return bool(analysis.topics)
 
 
 def _priority_verification_issues(checks: _PriorityVerificationChecks) -> Iterator[str]:
@@ -2595,21 +2068,11 @@ def _cheat_sheet_topic_sections(
 ) -> _CheatSheetTopicSections:
     payload = _topic_model_payload(topic, model_payload)
     evidence_sentences = _topic_sentences(topic)
-    definitions = _payload_string_list(payload, "definitions") or _select_by_keywords(
-        evidence_sentences,
-        (" is ", " are ", " heißt ", " bedeutet ", "definition", "satz", "theorem"),
-        fallback=True,
-    )
+    definitions = _payload_string_list(payload, "definitions") or evidence_sentences[:2]
     formulas = _payload_string_list(payload, "formulas") or _select_formula_lines(topic)
-    procedures = _payload_string_list(payload, "procedures") or _select_by_keywords(
-        evidence_sentences,
-        ("step", "algorithm", "procedure", "compute", "berechnen", "show", "prove", "derive"),
-    )
+    procedures = _payload_string_list(payload, "procedures")
     exam_tasks = _exam_tasks_for_topic(topic, analysis.exam_questions)
-    pitfalls = _select_by_keywords(
-        evidence_sentences,
-        ("not ", "except", "avoid", "pitfall", "common mistake", "confuse", "but "),
-    )
+    pitfalls = _payload_string_list(payload, "pitfalls")
     return _CheatSheetTopicSections(
         definitions=definitions,
         formulas=formulas,
@@ -2689,23 +2152,6 @@ def _topic_sentences(topic: PriorityTopic) -> list[str]:
             seen.add(sentence.lower())
             sentences.append(sentence)
     return sentences
-
-
-def _select_by_keywords(
-    sentences: list[str],
-    keywords: tuple[str, ...],
-    *,
-    fallback: bool = False,
-) -> list[str]:
-    selected = [sentence for sentence in sentences if _sentence_has_keyword(sentence, keywords)]
-    if selected or not fallback:
-        return selected
-    return sentences[:2]
-
-
-def _sentence_has_keyword(sentence: str, keywords: tuple[str, ...]) -> bool:
-    lowered = sentence.lower()
-    return any(keyword in lowered for keyword in keywords)
 
 
 def _select_formula_lines(topic: PriorityTopic) -> list[str]:
@@ -2949,8 +2395,6 @@ def _verify_priority_order(analysis: PriorityAnalysis) -> bool:
 
 
 def _verify_latex_text(tex_text: str) -> bool:
-    if _RAW_METRIC_RE.search(tex_text):
-        return False
     if tex_text.count("{") != tex_text.count("}"):
         return False
     return r"\geometry{margin=8mm}" in tex_text and r"\begin{multicols*}{2}" in tex_text

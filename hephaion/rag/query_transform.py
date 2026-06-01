@@ -67,42 +67,6 @@ class IdentityTransformer:
 
 _WORD_RE = re.compile(r"[a-zA-Z]{3,}")
 
-# Common domain-agnostic expansion heuristics
-_EXPANSION_SUFFIXES = [
-    "tutorial",
-    "guide",
-    "example",
-    "explanation",
-    "overview",
-    "introduction",
-    "definition",
-    "concept",
-]
-
-# Simple synonym map for common query terms (no external deps needed)
-_SYNONYM_MAP: dict[str, list[str]] = {
-    "learn": ["train", "study", "understand", "education"],
-    "create": ["build", "make", "generate", "construct", "develop"],
-    "use": ["utilize", "apply", "employ", "usage"],
-    "find": ["search", "locate", "discover", "identify"],
-    "change": ["modify", "update", "alter", "transform", "edit"],
-    "remove": ["delete", "erase", "clear", "eliminate"],
-    "start": ["begin", "initiate", "launch", "run"],
-    "stop": ["halt", "terminate", "end", "quit"],
-    "error": ["bug", "issue", "problem", "fault", "exception"],
-    "speed": ["performance", "fast", "optimization", "efficiency"],
-    "connect": ["link", "join", "attach", "bind", "network"],
-    "data": ["information", "records", "dataset", "storage"],
-    "system": ["framework", "platform", "architecture", "infrastructure"],
-    "method": ["function", "procedure", "approach", "technique", "algorithm"],
-    "test": ["verify", "validate", "check", "assert"],
-    "deploy": ["release", "publish", "ship", "install"],
-    "configure": ["setup", "setting", "customize", "preference"],
-    "analyze": ["examine", "inspect", "evaluate", "assess"],
-    "compare": ["contrast", "difference", "versus", "evaluation"],
-    "install": ["setup", "add", "download", "dependency"],
-}
-
 
 def _expand_with_wordnet(word: str) -> list[str]:
     if _wordnet is None:
@@ -141,8 +105,6 @@ class QueryExpander:
 
         expansions: set[str] = set()
         for word in words:
-            if word in _SYNONYM_MAP:
-                expansions.update(_SYNONYM_MAP[word][:3])
             if self._use_wordnet:
                 wn_synonyms = _expand_with_wordnet(word)
                 expansions.update(wn_synonyms[:3])

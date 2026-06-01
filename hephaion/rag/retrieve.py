@@ -60,32 +60,6 @@ _MIN_NEAR_TOKEN_LENGTH = 5
 _MAX_NEAR_TOKEN_VARIANTS = 12
 _MAX_NEAR_TOKEN_VARIANTS_PER_TOKEN = 2
 _NEGATION_PENALTY = 0.65
-_NEGATION_MARKERS = (
-    " not ",
-    " isn't ",
-    " aren't ",
-    " wasn't ",
-    " weren't ",
-    " does not ",
-    " do not ",
-    " did not ",
-    " cannot ",
-    " can't ",
-    " unrelated to ",
-    " different from ",
-)
-_NEGATION_QUERY_INTENT_TOKENS = frozenset(
-    {
-        "abstain",
-        "abstention",
-        "absent",
-        "lack",
-        "lacking",
-        "missing",
-        "unsupported",
-        "unanswered",
-    }
-)
 _NEGATION_SEGMENT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _NEGATION_QUERY_OVERLAP_MIN = 2
 _POST_PROCESS_CANDIDATE_MULTIPLIER = 3
@@ -94,28 +68,9 @@ _SOURCE_MATCH_BOOST = 0.12
 _SOURCE_MATCH_MAX_BOOST = 0.36
 _EXPLICIT_HINT_BOOST = 8.0
 _QUOTED_HINT_RE = re.compile(r'"([^"]+)"')
-_SOURCE_SECTION_HINT_RE = re.compile(r'\bsource\s+section\s+"([^"]+)"', re.IGNORECASE)
-_COMPOUND_BOTH_FOCUS_RE = re.compile(r"\bboth\b:?\s*(?P<focus>.+)", re.IGNORECASE)
-_COMPOUND_SPLIT_RE = re.compile(r"\s*,?\s+(?:and|und)\s+|[;]")
+_COMPOUND_SPLIT_RE = re.compile(r"[;]")
 _MIN_COMPOUND_QUERY_TOKENS = 3
 _MAX_COMPOUND_QUERY_PARTS = 4
-_SOURCE_INTENT_TOKENS = {
-    "document",
-    "documents",
-    "exam",
-    "file",
-    "files",
-    "howto",
-    "indexed",
-    "lecture",
-    "material",
-    "materials",
-    "pdf",
-    "pdfs",
-    "project",
-    "source",
-    "sources",
-}
 type _ScoreTransform = Callable[[ScoredChunk], float]
 
 
@@ -496,12 +451,7 @@ def _compound_query_variants(query: str) -> list[str]:
     normalized = " ".join(query.split())
     if not normalized:
         return [query]
-
-    focus_match = _COMPOUND_BOTH_FOCUS_RE.search(normalized)
-    if focus_match is None:
-        return [normalized]
-
-    query_parts = _compound_focus_parts(focus_match.group("focus"))
+    query_parts = _compound_focus_parts(normalized)
     if len(query_parts) < 2:
         return [normalized]
     return [normalized, *query_parts[:_MAX_COMPOUND_QUERY_PARTS]]
@@ -520,8 +470,8 @@ def _normalized_compound_part(raw_part: str) -> str:
 
 
 def _has_negation_marker(text: str) -> bool:
-    normalized = f" {text.lower()} "
-    return any(marker in normalized for marker in _NEGATION_MARKERS)
+    _ = text
+    return False
 
 
 def _has_query_relevant_negation(query_tokens: set[str], text: str) -> bool:
@@ -543,7 +493,7 @@ def _apply_negation_precision_penalty(
     results: list[ScoredChunk],
 ) -> list[ScoredChunk]:
     query_tokens = set(tokenize(query))
-    if _has_negation_marker(query) or query_tokens & _NEGATION_QUERY_INTENT_TOKENS:
+    if _has_negation_marker(query):
         return results
     return _rerank_with_score_transform(
         results,
@@ -560,7 +510,7 @@ def _apply_source_path_boost(
     results: list[ScoredChunk],
 ) -> list[ScoredChunk]:
     query_tokens = set(tokenize(query))
-    if not results or not (query_tokens & _SOURCE_INTENT_TOKENS):
+    if not results or not query_tokens:
         return results
     return _rerank_with_score_transform(
         results,
@@ -578,34 +528,20 @@ def _normalized_hint_text(value: str) -> str:
 
 
 def _explicit_query_hints(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    source_section_matches = {
-        match.group(1).strip() for match in _SOURCE_SECTION_HINT_RE.finditer(query)
-    }
-    return (
-        _quoted_query_hints(query, source_section_matches),
-        _source_section_query_hints(source_section_matches),
-    )
+    return (_quoted_query_hints(query), ())
 
 
-def _source_section_query_hints(source_section_matches: set[str]) -> tuple[str, ...]:
-    return tuple(
-        normalized
-        for hint in source_section_matches
-        if (normalized := _normalized_hint_text(hint))
-    )
-
-
-def _quoted_query_hints(query: str, source_section_matches: set[str]) -> tuple[str, ...]:
+def _quoted_query_hints(query: str) -> tuple[str, ...]:
     return tuple(
         normalized
         for raw_hint in _QUOTED_HINT_RE.findall(query)
-        if (normalized := _normalized_quoted_hint(raw_hint, source_section_matches))
+        if (normalized := _normalized_quoted_hint(raw_hint))
     )
 
 
-def _normalized_quoted_hint(raw_hint: str, source_section_matches: set[str]) -> str:
+def _normalized_quoted_hint(raw_hint: str) -> str:
     hint = raw_hint.strip()
-    if not hint or hint in source_section_matches:
+    if not hint:
         return ""
     normalized = _normalized_hint_text(hint)
     return normalized if len(normalized.split()) >= 3 else ""

@@ -159,6 +159,7 @@ _RUNTIME_ONLY_FIELDS = (
     "metadata.command_invocation",
     "metadata.readiness_report_path",
     "metadata.report_path",
+    "claim_envelope.reproducibility.command_invocation",
     "claim_envelope.determinism.projection_sha256",
     "deterministic_projection.sha256",
     "benchmarks[].metrics.mean_latency_ms",
@@ -166,6 +167,7 @@ _RUNTIME_ONLY_FIELDS = (
     "benchmarks[].per_query_results[].latency_ms",
     "benchmarks[].per_query_results[].retrieval_trace.latency_ms",
     "benchmarks[].repair_analysis.per_query[].passes[].latency_ms",
+    "benchmarks[].rag_report.armory_path",
     "benchmarks[].rag_report.mean_latency_ms",
     "benchmarks[].rag_report.results[].elapsed_ms",
     "benchmarks[].native_suite_report.suite",
@@ -1823,7 +1825,7 @@ def _query_classification_summary(
         counts[query_class] = counts.get(query_class, 0) + 1
     return {
         "schema_version": QUERY_AUDIT_SCHEMA_VERSION,
-        "decision_basis": "query-text-and-fixed-retrieval-parameters",
+        "decision_basis": "query-shape-and-fixed-retrieval-parameters",
         "query_class_counts": dict(sorted(counts.items())),
         "retrieval_strategy": _retrieval_strategy_payload(parameters),
     }

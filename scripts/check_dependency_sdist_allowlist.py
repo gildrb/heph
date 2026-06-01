@@ -15,6 +15,10 @@ _ALLOWED_SOURCE_ONLY_SDISTS = {
         "pylatexenc",
         "2.10",
     ): "sha256:3dd8fd84eb46dc30bee1e23eaab8d8fb5a7f507347b23e5f38ad9675c84f40d3",
+    (
+        "unicodeit",
+        "0.7.5",
+    ): "sha256:f100df7a1b8c64d7b5160859426b641cd9f30218173c5a3450842370e242a168",
 }
 
 

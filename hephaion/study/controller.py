@@ -29,7 +29,10 @@ _log = get_logger("study.controller")
 type TurnResult = tuple[LearningState, str]
 
 _SAME_LANGUAGE_USER_RULE = "- Answer in the same language as the user's request when clear.\n"
-_SAME_LANGUAGE_REQUEST_RULE = "- Answer in the same language as the user's request.\n"
+_SAME_LANGUAGE_REQUEST_RULE = (
+    "- Answer in the user's request language when clear, even when sources use another "
+    "language; preserve source terms.\n"
+)
 _SAME_LANGUAGE_ITEM_RULE = (
     "- Answer in the same language as the current item or the user's recent request when clear.\n"
 )
@@ -58,19 +61,19 @@ _NO_UNSOLICITED_LEARNING_MENU_RULE = (
 )
 _PRIORITY_RETRIEVAL_QUERY = "exam priority topics prerequisites past exams materials overview"
 _MATERIAL_OVERVIEW_ANSWER_RULES = (
-    "- Compact terminal answer: 1 short overview paragraph, then <=3 bullets only if useful.",
-    "- Synthesize when evidence exists; do not refuse because the answer needs shaping.",
-    "- Prioritize learnable content: concepts, definitions, methods, problem types, "
-    "examples, tasks.",
-    "- Treat titles/logistics/boilerplate as context unless requested.",
-    "- Cite every factual claim with current evidence IDs; use multiple sources when needed.",
-    "- No tables or source inventories unless requested.",
-    "- No facts from filenames, metadata, institutions, people, or outside knowledge.",
+    "- Write 1-2 short cited sentences in the user's language, or the requested table/list.",
+    "- Honor requested shape exactly; tables need meaningful headers and a markdown separator.",
+    "- State only topics, methods, examples, tasks, or problem types visible in the excerpts.",
+    "- No unsolicited quality judgments, rankings, difficulty claims, source-wide scope, "
+    "or importance claims.",
+    "- Cite factual claims next to their support; omit unsupported specifics.",
+    "- Do not copy source lines, use filenames/metadata as facts, append inventories, "
+    "or add offers.",
 )
 
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 _ASSESS_SECTION_RE = re.compile(
-    r"^(?:Score|Got|Missing|Misconception|Correction|Try again|Confidence):",
+    r"^(?:Score|Got|Missing|Misconception|Correction|Confidence):",
     re.IGNORECASE,
 )
 _CONFIDENCE_RE = re.compile(
@@ -286,11 +289,11 @@ def _present_prompt(item: str, *, user_request: str | None = None) -> str:
             _SAME_LANGUAGE_REQUEST_RULE,
             "- Use only the retrieved material for this item.",
             "- Present the complete solution or method once, concisely.",
+            "- Do not infer ranking, importance, or source-wide scope unless evidence states it.",
             _CITE_EVIDENCE_STEP_RULE,
             _NO_UNSOLICITED_LEARNING_MENU_RULE,
             "- If no retrieved source material is available, say no searchable armory "
-            "evidence was found for this item. Do not answer from outside knowledge. "
-            "Ask for a more specific material-backed prompt or for the material to be indexed.",
+            "evidence was found for this item. Do not answer from outside knowledge.",
             "- Do not switch into assessment or extra tutoring.",
         ),
     )
@@ -316,6 +319,7 @@ def material_overview_plan(
         LearningAction.PRESENT,
         _overview_prompt(user_request),
         retrieval_query=retrieval_query,
+        retrieval_strategy="overview",
         buffer_response=True,
     )
 
@@ -417,12 +421,15 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
         request_line,
         rules=(
             _SAME_LANGUAGE_REQUEST_RULE,
-            "- Answer the user's question directly using only the retrieved source material.",
+            "- Use retrieved material for source facts; for follow-ups, use prior cited claims "
+            "as premises and keep any inference concise.",
+            "- Prefer one short paragraph; use at most three bullets if bullets help.",
             "- If the user asks for an exact phrase, quote only the exact phrase plus citations.",
             _CITE_EVIDENCE_CLAIMS_RULE,
-            "- If the retrieved source material does not directly answer the question, say what "
-            "direct cited answer is missing for the resolved request. Do not claim the whole "
-            "armory or all sources lack it unless this turn exhaustively checked every source.",
+            "- If direct evidence is required and retrieved material does not directly answer, "
+            "say what direct cited answer is missing for the resolved request. Do not claim the "
+            "whole armory or all sources lack it unless this turn exhaustively checked every "
+            "source.",
         ),
     )
 
@@ -683,13 +690,12 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
             "  Missing: <rubric or material-supported points still needed>.",
             "  Misconception: <incorrect idea and why the source contradicts it, or none>.",
             "  Correction: <minimal cited correction with evidence IDs>.",
-            "  Try again: <one next retrieval prompt>.",
             "  Confidence: <whether the user's confidence seems calibrated, if stated>.",
             "- CORRECT: keep the structure brief and do not restate a full solution.",
             "- PARTIAL: identify missing required points without revealing unrelated "
             "extra material.",
-            "- WRONG: correct the misconception or first wrong step immediately, then give "
-            "one focused retrieval prompt. Do not let the user continue with a false idea.",
+            "- WRONG: correct the misconception or first wrong step immediately using "
+            "retrieved evidence. Do not let the user continue with a false idea.",
             "- Do not define or explain a term merely because the material uses it. If the "
             "retrieved material does not define the term, assess only the source-stated "
             "claim or say that the definition is still missing.",
@@ -887,13 +893,17 @@ def _plan_open_intent(
         return _open_material_plan_for_intent(user_input, intent)
     if _practice_session_active(state) and state.phase is LearningPhase.PRESENTING:
         return _practice_calibration_plan(state, user_input)
-    return material_overview_plan(user_input or "what is the material about")
+    query = _normalize(user_input) or "what is the material about"
+    return material_overview_plan(
+        user_input or "what is the material about",
+        retrieval_query=query,
+    )
 
 
 def _open_material_plan_for_intent(user_input: str, intent: str) -> LearningTurnPlan:
     query = _normalize(user_input) or "what is the material about"
     if intent == "material_overview":
-        return material_overview_plan(user_input)
+        return material_overview_plan(user_input, retrieval_query=query)
     if intent == "source_qa":
         return material_source_qa_plan(user_input, retrieval_query=query)
     if intent == "topic_drill":

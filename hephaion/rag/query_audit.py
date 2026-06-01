@@ -5,10 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-QUERY_AUDIT_SCHEMA_VERSION = "query-classification-v1"
+QUERY_AUDIT_SCHEMA_VERSION = "query-classification-v2"
 QUERY_EXCERPT_LIMIT = 180
 
 _QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:-]*")
+_QUOTED_QUERY_RE = re.compile(r'"[^"]+"|`[^`]+`')
+_PATH_OR_REF_TOKEN_RE = re.compile(r"(?:[/\\#]|[.][A-Za-z0-9]{1,8}$)")
+_MULTI_PART_QUERY_RE = re.compile("[;\n]|\\s[-\\u2013\\u2014]\\s")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,34 +29,19 @@ class RetrievalAuditConfig:
 
 
 def query_class(query: str) -> str:
-    normalized = query.casefold()
-    tokens = set(_QUERY_TOKEN_RE.findall(normalized))
-    if {
-        "source",
-        "sources",
-        "citation",
-        "citations",
-        "cite",
-        "document",
-        "documents",
-        "file",
-        "files",
-        "page",
-        "section",
-    } & tokens:
-        return "source_lookup"
-    if (
-        "what is the material about" in normalized
-        or {"overview", "summary", "summarize", "topics", "outline"} & tokens
-    ):
-        return "overview"
-    if {"compare", "contrast", "versus", "vs", "difference", "differences"} & tokens:
-        return "comparison"
-    if {"derive", "solve", "proof", "prove", "calculate", "steps"} & tokens:
-        return "procedural"
-    if {"why", "how", "explain", "mechanism"} & tokens:
-        return "conceptual"
-    return "fact_lookup"
+    normalized = " ".join(query.split())
+    if not normalized:
+        return "empty"
+    tokens = _QUERY_TOKEN_RE.findall(normalized)
+    if _QUOTED_QUERY_RE.search(normalized):
+        return "quoted"
+    if any(_PATH_OR_REF_TOKEN_RE.search(token) for token in tokens):
+        return "path_or_ref"
+    if _MULTI_PART_QUERY_RE.search(normalized):
+        return "multi_part"
+    if len(tokens) <= 3:
+        return "short"
+    return "plain"
 
 
 def transformed_query_count(transform_strategy: str) -> int:
@@ -83,7 +71,7 @@ def query_classification_payload(
     return {
         "schema_version": QUERY_AUDIT_SCHEMA_VERSION,
         "query_class": query_class(query),
-        "decision_basis": "query-text-and-fixed-retrieval-parameters",
+        "decision_basis": "query-shape-and-fixed-retrieval-parameters",
         "fallback": {"used": False, "reason": None},
         "transformed_query_count": transformed_query_count(config.transform_strategy),
         "retrieval_strategy": retrieval_strategy_payload(config),

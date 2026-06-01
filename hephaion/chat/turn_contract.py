@@ -72,6 +72,11 @@ class TurnContract:
     prior_answer_reference: bool = False
     prior_answer_positions: tuple[int, ...] = ()
     prior_answer_position_basis: str = ""
+    prior_turn_original_user_input: str = ""
+    prior_turn_resolved_intent: str = ""
+    prior_turn_canonical_request: str = ""
+    prior_turn_evidence_refs: tuple[str, ...] = ()
+    prior_answer_excerpt: str = ""
     validation_result: str = ""
     confidence: float = 0.0
 
@@ -92,6 +97,11 @@ class TurnContract:
             "prior_answer_reference": self.prior_answer_reference,
             "prior_answer_positions": list(self.prior_answer_positions),
             "prior_answer_position_basis": self.prior_answer_position_basis,
+            "prior_turn_original_user_input": self.prior_turn_original_user_input,
+            "prior_turn_resolved_intent": self.prior_turn_resolved_intent,
+            "prior_turn_canonical_request": self.prior_turn_canonical_request,
+            "prior_turn_evidence_refs": list(self.prior_turn_evidence_refs),
+            "prior_answer_excerpt": self.prior_answer_excerpt,
             "validation_result": self.validation_result,
             "confidence": self.confidence,
         }
@@ -124,6 +134,19 @@ class TurnContract:
                 payload,
                 "prior_answer_position_basis",
             ),
+            prior_turn_original_user_input=_payload_string(
+                payload,
+                "prior_turn_original_user_input",
+            ),
+            prior_turn_resolved_intent=_payload_string(payload, "prior_turn_resolved_intent"),
+            prior_turn_canonical_request=_payload_string(
+                payload,
+                "prior_turn_canonical_request",
+            ),
+            prior_turn_evidence_refs=tuple(
+                _payload_string_sequence(payload, "prior_turn_evidence_refs")
+            ),
+            prior_answer_excerpt=_payload_string(payload, "prior_answer_excerpt"),
             validation_result=_payload_string(payload, "validation_result"),
             confidence=_payload_float(payload, "confidence"),
         )

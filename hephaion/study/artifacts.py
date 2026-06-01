@@ -98,49 +98,7 @@ class LearningArtifactValidationReport:
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9][A-Za-zÀ-ÖØ-öø-ÿ0-9_-]{2,}")
 _WHITESPACE_RE = re.compile(r"\s+")
 _CLOZE_RE = re.compile(r"\{\{c\d+::(?P<text>[^}]+)\}\}", re.IGNORECASE)
-_BROAD_RE = re.compile(
-    r"\b(?:all|everything|entire|whole)\s+"
-    r"(?:course|exam|module|subject|syllabus|textbook|topic)\b",
-    re.IGNORECASE,
-)
 _INVALID_DIFFICULTY_MESSAGE = "difficulty must be a LearningArtifactDifficulty"
-_VAGUE_PHRASES = frozenset(
-    {
-        "explain this",
-        "important concept",
-        "learn this",
-        "remember this",
-        "study this",
-        "understand this",
-        "what is it?",
-    }
-)
-_STOPWORDS = frozenset(
-    {
-        "about",
-        "also",
-        "and",
-        "are",
-        "because",
-        "before",
-        "can",
-        "does",
-        "for",
-        "from",
-        "how",
-        "into",
-        "its",
-        "not",
-        "the",
-        "this",
-        "what",
-        "when",
-        "where",
-        "which",
-        "why",
-        "with",
-    }
-)
 _MAX_ARTIFACT_REVIEW_INTERVAL_DAYS = 365
 type _ArtifactRule = tuple[str, str, Callable[[LearningArtifact], bool]]
 
@@ -452,7 +410,7 @@ def _text_shape_issues(
 
 
 def _is_overly_broad_text(text: str) -> bool:
-    return bool(_BROAD_RE.search(text)) or len(_TOKEN_RE.findall(text)) > 180
+    return len(_TOKEN_RE.findall(text)) > 180
 
 
 def _source_span_issues(
@@ -670,9 +628,7 @@ def _span_offsets_select_source(span: LearningArtifactSourceSpan, source_text: s
 
 
 def _significant_tokens(text: str) -> set[str]:
-    return {
-        token.casefold() for token in _TOKEN_RE.findall(text) if token.casefold() not in _STOPWORDS
-    }
+    return {token.casefold() for token in _TOKEN_RE.findall(text)}
 
 
 def _artifact_fingerprint(artifact: LearningArtifact) -> str:
@@ -699,10 +655,8 @@ def _is_vague(text: str) -> bool:
     normalized = _normalized_for_match(text)
     if not normalized:
         return False
-    if normalized in _VAGUE_PHRASES:
-        return True
     tokens = _significant_tokens(text)
-    return len(tokens) <= 1 and any(word in normalized for word in ("concept", "topic", "this"))
+    return len(tokens) <= 1
 
 
 def _clean(text: str) -> str:

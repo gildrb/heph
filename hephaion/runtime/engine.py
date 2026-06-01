@@ -926,6 +926,8 @@ def _open_codex_backend_response(
         )
     except urllib.error.HTTPError as exc:
         detail = _codex_http_error_detail(exc)
+        if detail == "ChatGPT Codex backend request failed":
+            detail = f"HTTP {exc.code} {exc.reason}: {detail}"
         raise EngineError(f"ChatGPT Codex request failed: {detail}") from exc
     except urllib.error.URLError as exc:
         raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc.reason))}") from exc

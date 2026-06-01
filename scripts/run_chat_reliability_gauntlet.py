@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -26,14 +27,21 @@ from hephaion.chat.compaction import compact_session
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
 from hephaion.chat.evidence import build_turn_evidence_from_refs
 from hephaion.chat.session import ChatSession, create_session, resume_session, save_session
+from hephaion.chat.turn_contract import (
+    RETRIEVAL_STRATEGY_NONE,
+    RETRIEVAL_STRATEGY_REUSE_PRIOR,
+    TurnContract,
+)
 from hephaion.rag import EvidenceChunk, TurnEvidence
 from hephaion.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
+    Message,
     reset_provider_circuit_breaker,
     stream_reply,
 )
+from hephaion.study import LearningState
 from scripts.create_chat_reliability_fixture import (
     DEFAULT_SEED_PREFIX,
     create_fixture_armories,
@@ -41,12 +49,14 @@ from scripts.create_chat_reliability_fixture import (
 )
 
 DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_CODEX_MODEL = "gpt-5.3-codex-spark"
+DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_GAUNTLET_CODEX_TIMEOUT_SECONDS = 30.0
 PROVIDER_OPENAI_CODEX = "openai-codex"
-TRANSIENT_PROVIDER_RETRIES = 6
-TRANSIENT_PROVIDER_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 8.0, 8.0)
+TRANSIENT_PROVIDER_RETRIES = 2
+TRANSIENT_PROVIDER_RETRY_DELAYS_SECONDS = (1.0, 2.0)
+EVIDENCE_CITATION_RE = re.compile(r"\[(?:e|E)\d+\]")
+WORD_RE = re.compile(r"[^\W\d_][\w'-]*")
 
 CATEGORY_VAGUE_FOLLOWUP = "vague_followup"
 CATEGORY_CONTINUATION = "continuation"
@@ -56,12 +66,9 @@ CATEGORY_SOURCE_SPECIFIC = "source_specific"
 CATEGORY_CITATION_CHECK = "citation_check"
 CATEGORY_LOW_EVIDENCE = "low_evidence"
 
-LOW_EVIDENCE_PROMPTS = (
-    "Using only the sources, what is the amber forge retrieval phrase?",
-    "Where do the materials define the imaginary protocol named blue lantern?",
-    "Which source mentions the invented theorem called silver cactus?",
-    "Using only the armory, what date was the fictional launch ceremony?",
-    "Which document explains the nonexistent basalt checksum?",
+LOW_EVIDENCE_PROMPTS = tuple(
+    f"Using only the sources, what exact phrase supports absent-test-marker-{index}?"
+    for index in range(1, 6)
 )
 
 VAGUE_FOLLOWUP_PROMPT_BANKS = (
@@ -252,6 +259,17 @@ class TraceAudit(TypedDict):
 
 
 @dataclass(frozen=True, slots=True)
+class _PromptRetrySnapshot:
+    messages: tuple[Message, ...]
+    learning_state: LearningState
+    last_turn_evidence: TurnEvidence | None
+    last_plan_intent: str
+    last_turn_contract: TurnContract | None
+    trace_path: Path | None
+    trace_size: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReliabilityTurnSpec:
     prompt: str
     categories: tuple[str, ...] = ()
@@ -349,7 +367,7 @@ def focused_turns() -> list[ReliabilityTurnSpec]:
     return [
         _turn("What do you think about the material?", (CATEGORY_TOPIC_SWITCH,), citations=True),
         _turn(
-            "Switch to history and summarize one source-backed point.",
+            "Switch to a different source-backed point in the material and summarize it.",
             (CATEGORY_TOPIC_SWITCH,),
             citations=True,
         ),
@@ -380,12 +398,12 @@ def focused_turns() -> list[ReliabilityTurnSpec]:
             citations=True,
         ),
         _turn(
-            "Switch to algorithms and summarize the key idea from the source.",
+            "Switch to another source-backed point in the material and summarize the key idea.",
             (CATEGORY_TOPIC_SWITCH,),
             citations=True,
         ),
         _turn(
-            "In the algorithms source, how is the next item selected?",
+            "In that source, what is the stated definition, rule, or procedure?",
             (CATEGORY_SOURCE_SPECIFIC,),
             citations=True,
         ),
@@ -411,12 +429,12 @@ def focused_turns() -> list[ReliabilityTurnSpec]:
             citations=True,
         ),
         _turn(
-            "Now switch to calculus and explain the central rule.",
+            "Now switch to another source-backed topic and explain its central rule or method.",
             (CATEGORY_TOPIC_SWITCH,),
             citations=True,
         ),
         _turn(
-            "In the calculus source, what does the rule follow from?",
+            "In that source, what does the rule or method follow from?",
             (CATEGORY_SOURCE_SPECIFIC,),
             citations=True,
         ),
@@ -446,16 +464,12 @@ def focused_turns() -> list[ReliabilityTurnSpec]:
             citations=True,
         ),
         _turn(
-            "Using only the sources, what is the amber forge retrieval phrase?",
-            (CATEGORY_LOW_EVIDENCE,),
-        ),
-        _turn(
-            "Continue from the cited evidence.",
+            "What else should I take from that?",
             (CATEGORY_VAGUE_FOLLOWUP, CATEGORY_CONTINUATION),
             citations=True,
         ),
         _turn(
-            "What else should I take from that?",
+            "Continue from the cited evidence.",
             (CATEGORY_VAGUE_FOLLOWUP, CATEGORY_CONTINUATION),
             citations=True,
         ),
@@ -464,19 +478,25 @@ def focused_turns() -> list[ReliabilityTurnSpec]:
             (CATEGORY_PRIOR_REFERENCE,),
             citations=True,
         ),
+        _turn(
+            LOW_EVIDENCE_PROMPTS[0],
+            (CATEGORY_LOW_EVIDENCE,),
+        ),
     ]
 
 
 def stress_turns(*, seed: int = 0) -> list[ReliabilityTurnSpec]:
     """Build a short stress script that still exercises every required category."""
+    mixed_followups = _mixed_followup_turns(seed=seed)
     return [
         _turn("What is the material about?", (CATEGORY_TOPIC_SWITCH,), citations=True),
         *_vague_followup_turns(seed=seed)[:3],
         *_prior_reference_turns()[:1],
         *_source_specific_turns()[:1],
         *_citation_check_turns()[:1],
+        *mixed_followups[:5],
+        *mixed_followups[6:8],
         *_low_evidence_turns()[:1],
-        *_mixed_followup_turns(seed=seed)[:8],
     ][:15]
 
 
@@ -650,15 +670,19 @@ def run_reliability_conversation(
 
     executed_turns = turns[: len(results)]
     category_counts = _category_counts(executed_turns)
-    if len(results) < requirements.turns:
-        failures.append(f"turn count {len(results)} below required {requirements.turns}")
-    failures.extend(
-        _requirement_failures(category_counts, requirements, resume_count, compact_count)
-    )
+    halted_by_exception = _conversation_halted_by_turn_exception(results)
+    if not halted_by_exception:
+        if len(results) < requirements.turns:
+            failures.append(f"turn count {len(results)} below required {requirements.turns}")
+        failures.extend(
+            _requirement_failures(category_counts, requirements, resume_count, compact_count)
+        )
     trace_path = session.trace.path
     trace_audit = _trace_audit(trace_path)
     if require_trace:
-        failures.extend(_trace_failures(trace_path, trace_audit, len(results)))
+        failures.extend(
+            _trace_failures(trace_path, trace_audit, _expected_trace_reply_turns(results))
+        )
     report: ReliabilityConversationReport = {
         "armory": str(armory_path),
         "level": level,
@@ -693,16 +717,77 @@ def _print_turn_progress(level: str, result: ReliabilityTurnResult, total: int) 
     )
 
 
+def _conversation_halted_by_turn_exception(results: Sequence[ReliabilityTurnResult]) -> bool:
+    return bool(results and _turn_result_raised(results[-1]))
+
+
+def _expected_trace_reply_turns(results: Sequence[ReliabilityTurnResult]) -> int:
+    return sum(1 for result in results if not _turn_result_raised(result))
+
+
+def _turn_result_raised(result: ReliabilityTurnResult) -> bool:
+    return any(failure.startswith("turn raised ") for failure in result["failures"])
+
+
 def _run_prompt(session: ChatSession, prompt: str) -> str:
     for attempt in range(TRANSIENT_PROVIDER_RETRIES + 1):
+        snapshot = _prompt_retry_snapshot(session)
         try:
             return _run_prompt_once(session, prompt)
         except EngineError as exc:
             if attempt >= TRANSIENT_PROVIDER_RETRIES or not _transient_provider_error(exc):
+                _restore_prompt_retry_snapshot(session, snapshot, restore_trace=False)
                 raise
             reset_provider_circuit_breaker()
+            _restore_prompt_retry_snapshot(session, snapshot, restore_trace=True)
             _sleep_before_transient_retry(attempt)
     return ""
+
+
+def _prompt_retry_snapshot(session: ChatSession) -> _PromptRetrySnapshot:
+    trace_path = session.trace.path
+    return _PromptRetrySnapshot(
+        messages=tuple(
+            Message(message.role, message.content) for message in session.conversation.messages
+        ),
+        learning_state=session.learning_state.clone(),
+        last_turn_evidence=session.last_turn_evidence,
+        last_plan_intent=session.last_plan_intent,
+        last_turn_contract=session.last_turn_contract,
+        trace_path=trace_path,
+        trace_size=(
+            trace_path.stat().st_size
+            if isinstance(trace_path, Path) and trace_path.exists()
+            else 0
+        ),
+    )
+
+
+def _restore_prompt_retry_snapshot(
+    session: ChatSession,
+    snapshot: _PromptRetrySnapshot,
+    *,
+    restore_trace: bool,
+) -> None:
+    session.conversation = Conversation(
+        [Message(message.role, message.content) for message in snapshot.messages]
+    )
+    session.learning_state = snapshot.learning_state.clone()
+    session.last_turn_evidence = snapshot.last_turn_evidence
+    session.last_plan_intent = snapshot.last_plan_intent
+    session.last_turn_contract = snapshot.last_turn_contract
+    if restore_trace:
+        _restore_trace_checkpoint(session, snapshot)
+
+
+def _restore_trace_checkpoint(session: ChatSession, snapshot: _PromptRetrySnapshot) -> None:
+    if snapshot.trace_path is None:
+        return
+    session.trace.close()
+    if not snapshot.trace_path.exists():
+        return
+    with snapshot.trace_path.open("r+b") as file_handle:
+        file_handle.truncate(snapshot.trace_size)
 
 
 def _run_prompt_once(session: ChatSession, prompt: str) -> str:
@@ -719,6 +804,8 @@ def _run_prompt_once(session: ChatSession, prompt: str) -> str:
 
 def _transient_provider_error(exc: EngineError) -> bool:
     message = str(exc).casefold()
+    if "429" in message or "too many requests" in message or "rate limit" in message:
+        return False
     return any(
         fragment in message
         for fragment in (
@@ -751,6 +838,8 @@ def _turn_result(
     failures: list[str] = []
     if not answer:
         failures.append("empty answer")
+    if not _answer_has_substantive_text(answer):
+        failures.append("answer did not contain substantive text")
     if contract is None:
         failures.append("missing turn contract")
     else:
@@ -760,8 +849,14 @@ def _turn_result(
             _is_semantic_followup(spec)
             and contract.retrieval_query
             and _normalized_text(contract.retrieval_query) == _normalized_text(spec.prompt)
+            and not _content_rich_query(spec.prompt)
         ):
             failures.append("semantic follow-up used literal user text as retrieval query")
+        if CATEGORY_LOW_EVIDENCE in spec.categories and not _query_preserves_current_terms(
+            spec.prompt,
+            contract.retrieval_query,
+        ):
+            failures.append("low-evidence turn did not preserve current query terms")
     verification_notice = verify_response(answer, evidence)
     if verification_notice and contract is not None and contract.citation_required:
         failures.append("citation verification failed")
@@ -774,6 +869,17 @@ def _turn_result(
         and not citation_result.has_citations
     ):
         failures.append("source-grounded turn did not cite retrieved evidence")
+    if _is_semantic_followup(spec) and CATEGORY_LOW_EVIDENCE not in spec.categories:
+        if contract is not None and contract.retrieval_strategy == RETRIEVAL_STRATEGY_NONE:
+            failures.append("semantic follow-up dropped retrieval/evidence state")
+        if evidence and not citation_result.has_citations:
+            failures.append("semantic follow-up did not ground answer in evidence")
+    if (
+        CATEGORY_LOW_EVIDENCE in spec.categories
+        and contract is not None
+        and contract.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+    ):
+        failures.append("low-evidence request reused prior evidence")
     claim_audit = (
         _audit_answer_claims(
             answer,
@@ -899,7 +1005,7 @@ def _exception_turn_result(
     session: ChatSession,
     exc: Exception,
 ) -> ReliabilityTurnResult:
-    contract = session.last_turn_contract
+    contract = _current_turn_contract(session, spec.prompt)
     failure = f"turn raised {type(exc).__name__}: {_exception_excerpt(exc)}"
     return {
         "turn": turn,
@@ -915,6 +1021,13 @@ def _exception_turn_result(
         "unsupported_claims": [],
         "failures": [failure],
     }
+
+
+def _current_turn_contract(session: ChatSession, prompt: str) -> TurnContract | None:
+    contract = session.last_turn_contract
+    if contract is None or contract.original_user_input != prompt:
+        return None
+    return contract
 
 
 def _exception_excerpt(exc: Exception, *, limit: int = 300) -> str:
@@ -950,7 +1063,9 @@ def _audit_answer_claims(
             "contains a factual claim that is not supported by the provided evidence, "
             "if it contradicts the evidence, or if a low-evidence answer guesses instead "
             "of saying the sources do not contain the answer. Do not require citations in "
-            "this audit; citation syntax and citation-target labels are checked elsewhere. "
+            "this audit. The passed boolean is authoritative; keep unsupported_claims "
+            "empty for a passing verdict and nonempty for a failing verdict; citation syntax "
+            "and citation-target labels are checked elsewhere. "
             "Audit source-material and external-world claims only. Do not fail product "
             "scaffolding such as asking the learner to answer from memory, include a "
             "confidence score, use a time limit, "
@@ -984,9 +1099,9 @@ def _audit_answer_claims(
             "prompt may ask the learner to answer from memory even when the source-backed "
             "correct answer would be to say not found; that instruction is not a source claim "
             "and is not a contradiction. Do not fail operational fallback text about an "
-            "overview draft being unreliable, refusing to infer from filenames or metadata, "
-            "asking the user to narrow the request, or retrying later; those are product "
-            "state/scaffolding statements, not claims from the evidence. If conversation "
+            "overview draft being unreliable or refusing to infer from filenames or metadata; "
+            "those are product state/scaffolding statements, not claims from the evidence. "
+            "If conversation "
             "context is provided, use it only to judge references to prior-answer structure "
             "such as bullets, ordinals, comparisons, or the user's requested lens; still "
             "require source evidence for factual claims about the materials."
@@ -1117,20 +1232,6 @@ def _parse_claim_audit_reply(raw_reply: str) -> ClaimAuditResult:
         }
     if not isinstance(reason, str) or not reason.strip():
         reason = "claim audit did not provide a reason"
-    if not passed and _audit_reason_explicitly_marks_passed(reason):
-        return {
-            "checked": True,
-            "passed": True,
-            "reason": reason.strip(),
-            "unsupported_claims": [],
-        }
-    if not passed and unsupported_claims and _audit_reason_affirms_support(reason):
-        return {
-            "checked": True,
-            "passed": True,
-            "reason": reason.strip(),
-            "unsupported_claims": [],
-        }
     return {
         "checked": True,
         "passed": passed,
@@ -1143,31 +1244,6 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str) and item.strip()]
-
-
-def _audit_reason_affirms_support(reason: str) -> bool:
-    normalized = reason.casefold()
-    supportive = (
-        "does state" in normalized
-        or "does define" in normalized
-        or "does support" in normalized
-        or "is supported" in normalized
-        or "are supported" in normalized
-        or "contains relevant" in normalized
-        or "contains the relevant" in normalized
-        or "directly contains" in normalized
-    )
-    unsupported = (
-        "does not support" in normalized
-        or "not supported" in normalized
-        or "unsupported" in normalized
-        or "contradict" in normalized
-    )
-    return supportive and not unsupported
-
-
-def _audit_reason_explicitly_marks_passed(reason: str) -> bool:
-    return "passed=true" in "".join(reason.casefold().split())
 
 
 def _conversation_metrics(
@@ -1212,6 +1288,28 @@ def _is_semantic_followup(spec: ReliabilityTurnSpec) -> bool:
         {CATEGORY_VAGUE_FOLLOWUP, CATEGORY_CONTINUATION, CATEGORY_PRIOR_REFERENCE}
         & set(spec.categories)
     )
+
+
+def _answer_has_substantive_text(answer: str) -> bool:
+    citationless = EVIDENCE_CITATION_RE.sub(" ", answer)
+    words = WORD_RE.findall(citationless)
+    return len(words) >= 2
+
+
+def _query_preserves_current_terms(prompt: str, query: str) -> bool:
+    prompt_terms = _specific_terms(prompt)
+    if len(prompt_terms) < 2:
+        return True
+    query_terms = _specific_terms(query)
+    return len(prompt_terms & query_terms) >= min(2, len(prompt_terms))
+
+
+def _content_rich_query(text: str) -> bool:
+    return len(_specific_terms(text)) >= 3
+
+
+def _specific_terms(text: str) -> frozenset[str]:
+    return frozenset(term.casefold() for term in WORD_RE.findall(text) if len(term) >= 5)
 
 
 def _normalized_text(text: str) -> str:
@@ -1396,28 +1494,112 @@ def _trace_reply_has_replay_surface(
     contract: Mapping[str, object],
 ) -> bool:
     return (
-        all(
-            key in payload
-            for key in (
-                "reply_excerpt",
-                "retrieval_query",
-                "evidence_refs",
-                "evidence_coverage",
-                "evidence_items",
-                "verification_notice",
-            )
-        )
-        and all(
-            isinstance(contract.get(key), str)
-            for key in (
-                "resolved_intent",
-                "canonical_request",
-                "retrieval_strategy",
-                "retrieval_query",
-            )
-        )
-        and bool(str(contract.get("validation_result", "")).strip())
+        _trace_reply_payload_has_replay_surface(payload)
+        and _trace_contract_has_replay_surface(contract)
+        and _trace_contract_matches_payload(payload, contract)
     )
+
+
+def _trace_reply_payload_has_replay_surface(payload: Mapping[str, object]) -> bool:
+    return (
+        isinstance(payload.get("reply_excerpt"), str)
+        and isinstance(payload.get("retrieval_query"), str)
+        and _string_sequence(payload.get("evidence_refs")) is not None
+        and is_string_mapping(payload.get("evidence_coverage"))
+        and isinstance(payload.get("evidence_items"), list)
+        and isinstance(payload.get("verification_notice"), str)
+    )
+
+
+def _trace_contract_has_replay_surface(contract: Mapping[str, object]) -> bool:
+    required_strings = (
+        "original_user_input",
+        "resolved_intent",
+        "canonical_request",
+        "followup_target",
+        "answer_mode",
+        "answer_format",
+        "retrieval_strategy",
+        "retrieval_query",
+        "prior_answer_position_basis",
+        "prior_turn_original_user_input",
+        "prior_turn_resolved_intent",
+        "prior_turn_canonical_request",
+        "prior_answer_excerpt",
+        "validation_result",
+    )
+    required_bools = (
+        "is_followup",
+        "citation_required",
+        "direct_evidence_required",
+        "prior_answer_reference",
+    )
+    return (
+        all(isinstance(contract.get(key), str) for key in required_strings)
+        and all(isinstance(contract.get(key), bool) for key in required_bools)
+        and _string_sequence(contract.get("evidence_refs")) is not None
+        and _string_sequence(contract.get("prior_turn_evidence_refs")) is not None
+        and _int_sequence(contract.get("prior_answer_positions")) is not None
+        and isinstance(contract.get("confidence"), int | float)
+        and bool(str(contract.get("original_user_input", "")).strip())
+        and bool(str(contract.get("resolved_intent", "")).strip())
+        and bool(str(contract.get("validation_result", "")).strip())
+        and _trace_contract_has_required_prior_state(contract)
+    )
+
+
+def _trace_contract_has_required_prior_state(contract: Mapping[str, object]) -> bool:
+    if not (
+        contract.get("is_followup") is True
+        or contract.get("prior_answer_reference") is True
+        or contract.get("retrieval_strategy") in {"reuse_prior_evidence", "expand_prior_evidence"}
+        or contract.get("answer_mode") in {"transform_prior_answer", "reason_from_prior_evidence"}
+    ):
+        return True
+    return (
+        bool(str(contract.get("prior_turn_original_user_input", "")).strip())
+        and bool(str(contract.get("prior_answer_excerpt", "")).strip())
+        and (
+            bool(str(contract.get("prior_turn_resolved_intent", "")).strip())
+            or bool(str(contract.get("prior_turn_canonical_request", "")).strip())
+        )
+    )
+
+
+def _trace_contract_matches_payload(
+    payload: Mapping[str, object],
+    contract: Mapping[str, object],
+) -> bool:
+    payload_evidence_refs = _string_sequence(payload.get("evidence_refs"))
+    contract_evidence_refs = _string_sequence(contract.get("evidence_refs"))
+    return (
+        payload.get("retrieval_query") == contract.get("retrieval_query")
+        and payload_evidence_refs is not None
+        and contract_evidence_refs is not None
+        and payload_evidence_refs == contract_evidence_refs
+    )
+
+
+def _string_sequence(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return None
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        items.append(item)
+    return tuple(items)
+
+
+def _int_sequence(value: object) -> tuple[int, ...] | None:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return None
+    items: list[int] = []
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool):
+            return None
+        items.append(item)
+    return tuple(items)
 
 
 def _trace_reply_contract_count(trace_path: Path | None) -> int:
@@ -1719,9 +1901,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--provider",
         choices=("openai", PROVIDER_OPENAI_CODEX, "openrouter", "zai", "custom", "pollinations"),
-        default="",
+        default=PROVIDER_OPENAI_CODEX,
         help=(
-            "Optional Heph provider slug. Use openai-codex to test with the logged-in "
+            "Heph provider slug. Defaults to openai-codex, which tests with the logged-in "
             "Codex subscription instead of an OpenAI API key."
         ),
     )

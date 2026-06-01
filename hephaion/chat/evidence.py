@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
 import re
+import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from html import unescape
@@ -10,12 +12,12 @@ from typing import TYPE_CHECKING
 
 from hephaion.chat.turn_contract import (
     RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    RETRIEVAL_STRATEGY_OVERVIEW,
     RETRIEVAL_STRATEGY_REUSE_PRIOR,
     TurnContract,
 )
 from hephaion.chat.usage import ContextBudget
 from hephaion.logging import Timer, get_logger
-from hephaion.materials import infer_material_role_from_text
 from hephaion.rag import (
     ArmoryIndex,
     Chunk,
@@ -60,16 +62,14 @@ _PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
 _DUPLICATE_LOW_CONTENT_MAX_CHARS = 240
 _DUPLICATE_LOW_CONTENT_MIN_SOURCES = 2
-_OVERVIEW_CHUNK_LIMIT = 48
-_OVERVIEW_CHUNKS_PER_DOCUMENT = 5
-_OVERVIEW_DOCUMENT_LIMIT = 48
-_OVERVIEW_EXCERPT_CHAR_LIMIT = 700
-_OVERVIEW_CONTEXT_TOKEN_BUDGET = 9000
-_LOW_CONTENT_CHUNK_RE = re.compile(
-    r"^\s*(?:cite as:|for information about citing|downloaded on|terms of use\b|"
-    r"copyright\b|http://ocw\.mit\.edu/terms)",
-    re.IGNORECASE,
-)
+_OVERVIEW_CHUNK_LIMIT = 10
+_OVERVIEW_CHUNKS_PER_DOCUMENT = 1
+_OVERVIEW_EXCERPT_CHAR_LIMIT = 260
+_OVERVIEW_CONTEXT_TOKEN_BUDGET = 2500
+_OVERVIEW_PRIMARY_SOURCE_LIMIT = 10
+_OVERVIEW_DOCUMENT_SCAN_LIMIT = 12
+_OVERVIEW_SUBSTANTIVE_MIN_SCORE = 16
+_CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
 _QUOTE_CHARS = "'\"\u201c\u201d\u2018\u2019"
 _DIRECT_SUPPORT_MIN_TOKEN_LEN = 4
 _DIRECT_SUPPORT_MIN_COVERAGE = 0.5
@@ -84,11 +84,6 @@ _DIRECT_SUPPORT_DOMINANT_MIN_MATCHES = 2
 _SOURCE_QUESTION_RE = re.compile(
     r"^User (?:question|request|follow-up):\s*(?P<text>.+)$",
     re.MULTILINE,
-)
-_OVERVIEW_CONTEXT_POLICY = (
-    "Use this overview only as deterministic corpus context. Cite retrieved evidence "
-    "for factual claims, distinguish evidence from uncertainty, and do not infer from "
-    "filenames, lecturer names, subject names, institutions, or outside knowledge."
 )
 
 
@@ -244,19 +239,31 @@ def _direct_support_adjusted_assessment(
         return assessment
     strict_source_match = plan.requires_direct_evidence or plan.retrieval_query is None
     expanded_prior = _source_answer_expands_prior_evidence(plan)
+    expanded_prior_source_anchor = bool(
+        expanded_prior
+        and turn_evidence is not None
+        and _query_matches_evidence_source(query, turn_evidence)
+    )
     support_floor = (
-        _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE if expanded_prior else _DIRECT_SUPPORT_MIN_COVERAGE
+        _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE
+        if expanded_prior_source_anchor
+        else _DIRECT_SUPPORT_MIN_COVERAGE
+        if strict_source_match
+        else _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE
+        if expanded_prior
+        else _DIRECT_SUPPORT_MIN_COVERAGE
     )
     query_terms_missing = bool(
-        plan.retrieval_query
+        query
         and turn_evidence is not None
         and _distinctive_query_terms_missing(
-            _direct_support_terms(plan.retrieval_query),
+            _direct_support_terms(query),
             turn_evidence,
         )
     )
     expanded_prior_direct_query_missing = bool(
         expanded_prior
+        and plan.requires_direct_evidence
         and plan.retrieval_query
         and query_terms_missing
         and _query_preserves_user_terms(
@@ -308,6 +315,7 @@ def _source_answer_reuses_prior_evidence(
 ) -> bool:
     return bool(
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and not plan.requires_direct_evidence
         and plan.evidence_refs
         and turn_evidence is not None
         and turn_evidence.items
@@ -319,9 +327,12 @@ def _source_answer_expands_prior_evidence(plan: LearningTurnPlan) -> bool:
 
 
 def _source_answer_query(plan: LearningTurnPlan) -> str:
+    original_request = _source_answer_original_request(plan)
+    if plan.requires_direct_evidence and original_request:
+        return original_request
     if plan.retrieval_query:
         return plan.retrieval_query
-    return _source_answer_original_request(plan)
+    return original_request
 
 
 def _source_answer_original_request(plan: LearningTurnPlan) -> str:
@@ -381,7 +392,7 @@ def _dominant_retrieval_support_score(query: str, turn_evidence: TurnEvidence | 
     if next_score > 0 and top_item.score / next_score < _DIRECT_SUPPORT_DOMINANT_SCORE_RATIO:
         return 0.0
     top_terms = set(_direct_support_terms(f"{top_item.chunk.heading}\n{top_item.content}"))
-    matches = sum(1 for term in query_terms if term in top_terms)
+    matches = sum(1 for term in query_terms if _direct_term_in_terms(term, top_terms))
     if matches < _DIRECT_SUPPORT_DOMINANT_MIN_MATCHES:
         return 0.0
     return max(_DIRECT_SUPPORT_MIN_COVERAGE, matches / len(query_terms))
@@ -394,7 +405,7 @@ def _direct_support_item_score(
     min_matches: int,
 ) -> float:
     item_terms = set(_direct_support_terms(f"{item.chunk.heading}\n{item.content}"))
-    matches = sum(1 for term in query_terms if term in item_terms)
+    matches = sum(1 for term in query_terms if _direct_term_in_terms(term, item_terms))
     if matches < min_matches:
         return 0.0
     return matches / len(query_terms)
@@ -406,7 +417,9 @@ def _query_preserves_user_terms(query: str, user_request: str) -> bool:
     if not query_terms or not request_terms:
         return False
     return (
-        len(query_terms & request_terms) / len(query_terms) >= _DIRECT_SUPPORT_QUERY_OVERLAP_FLOOR
+        sum(1 for term in query_terms if _direct_term_in_terms(term, request_terms))
+        / len(query_terms)
+        >= _DIRECT_SUPPORT_QUERY_OVERLAP_FLOOR
     )
 
 
@@ -420,6 +433,17 @@ def _direct_support_terms(text: str) -> tuple[str, ...]:
     )
 
 
+def _query_matches_evidence_source(query: str, turn_evidence: TurnEvidence) -> bool:
+    query_terms = set(_direct_support_terms(query))
+    if not query_terms:
+        return False
+    for item in turn_evidence.items:
+        source_terms = set(_direct_support_terms(item.source))
+        if source_terms and any(_direct_term_in_terms(term, source_terms) for term in query_terms):
+            return True
+    return False
+
+
 def _distinctive_query_terms_missing(
     query_terms: tuple[str, ...],
     turn_evidence: TurnEvidence,
@@ -427,7 +451,9 @@ def _distinctive_query_terms_missing(
     if len(query_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
         return False
     evidence_terms = _turn_evidence_terms(turn_evidence)
-    missing_terms = [term for term in query_terms if term not in evidence_terms]
+    missing_terms = [
+        term for term in query_terms if not _direct_term_in_terms(term, evidence_terms)
+    ]
     if len(missing_terms) < _DIRECT_SUPPORT_DISTINCTIVE_MIN_MISSING:
         return False
     return len(missing_terms) / len(query_terms) >= _DIRECT_SUPPORT_DISTINCTIVE_TOKEN_FLOOR
@@ -444,11 +470,23 @@ def _quoted_phrase_terms_missing(query: str, turn_evidence: TurnEvidence) -> boo
     evidence_terms = _turn_evidence_terms(turn_evidence)
     for phrase in _quoted_phrases(query):
         phrase_terms = _direct_support_terms(phrase)
-        if len(phrase_terms) >= _DIRECT_SUPPORT_MIN_MATCHES and not set(phrase_terms).issubset(
-            evidence_terms
-        ):
+        if len(phrase_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
+            continue
+        if not all(_direct_term_in_terms(term, evidence_terms) for term in phrase_terms):
             return True
     return False
+
+
+def _direct_term_in_terms(term: str, terms: set[str]) -> bool:
+    return any(_direct_terms_match(term, candidate) for candidate in terms)
+
+
+def _direct_terms_match(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if min(len(left), len(right)) < _DIRECT_SUPPORT_MIN_TOKEN_LEN + 1:
+        return False
+    return difflib.SequenceMatcher(a=left, b=right).ratio() >= 0.84
 
 
 def _quoted_phrases(text: str) -> tuple[str, ...]:
@@ -656,7 +694,11 @@ def adaptive_rag_budget(session: ChatSession) -> int:
 
 
 def is_overview_query(query: str) -> bool:
-    return query.strip().casefold() == CANONICAL_OVERVIEW_QUERY
+    return _query_signature(query) == _query_signature(CANONICAL_OVERVIEW_QUERY)
+
+
+def _query_signature(query: str) -> str:
+    return " ".join(tokenize(query))
 
 
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
@@ -778,7 +820,7 @@ def _trace_query_chunks(scored: Sequence[ScoredChunk]) -> list[Mapping[str, obje
 
 
 def _filter_low_content_chunks(scored: list[ScoredChunk]) -> list[ScoredChunk]:
-    content_chunks = [item for item in scored if not _LOW_CONTENT_CHUNK_RE.search(item.chunk.text)]
+    content_chunks = [item for item in scored if not _chunk_is_low_content(item.chunk.text)]
     content_chunks = _filter_repeated_short_duplicate_chunks(content_chunks)
     return content_chunks or scored
 
@@ -812,6 +854,28 @@ def _short_duplicate_signature(text: str) -> str:
     if not normalized or len(normalized) > _DUPLICATE_LOW_CONTENT_MAX_CHARS:
         return ""
     return normalized
+
+
+def _chunk_is_low_content(text: str) -> bool:
+    normalized = " ".join(unescape(text).split())
+    if not normalized:
+        return True
+    alnum_count = sum(character.isalnum() for character in normalized)
+    if alnum_count == 0:
+        return True
+    if _CONTACT_OR_URL_RE.search(normalized) and _low_content_density(normalized):
+        return True
+    punctuation_count = sum(character in ".,;:!?()[]{}<>/\\|" for character in normalized)
+    alpha_count = sum(character.isalpha() for character in normalized)
+    return len(normalized) <= _DUPLICATE_LOW_CONTENT_MAX_CHARS and punctuation_count > alpha_count
+
+
+def _low_content_density(text: str) -> bool:
+    words = tokenize(text)
+    if len(words) <= 8:
+        return True
+    url_chars = sum(len(match.group(0)) for match in _CONTACT_OR_URL_RE.finditer(text))
+    return url_chars / max(len(text), 1) >= 0.35
 
 
 def _expand_with_neighbor_chunks(
@@ -882,7 +946,7 @@ def _neighbor_chunks(document: ChunkedDocument, chunk_index: int) -> list[Chunk]
     return [
         neighbor
         for neighbor_index in _neighbor_indexes(document, chunk_index)
-        if not _LOW_CONTENT_CHUNK_RE.search((neighbor := document.chunks[neighbor_index]).text)
+        if not _chunk_is_low_content((neighbor := document.chunks[neighbor_index]).text)
     ]
 
 
@@ -931,11 +995,20 @@ def _overview_scored_chunks(corpus: _EnabledCorpus) -> list[ScoredChunk]:
 
 def _round_robin_overview_chunks(documents: Sequence[ChunkedDocument]) -> list[ScoredChunk]:
     scored: list[ScoredChunk] = []
-    chunks_by_document = [_overview_document_chunks(document) for document in documents]
+    chunks_by_document = [
+        _overview_document_chunks(document) for document in _overview_selected_documents(documents)
+    ]
     for offset in range(_OVERVIEW_CHUNKS_PER_DOCUMENT):
         if _append_overview_offset(scored, chunks_by_document, offset):
             return scored
     return scored
+
+
+def _overview_selected_documents(
+    documents: Sequence[ChunkedDocument],
+) -> tuple[ChunkedDocument, ...]:
+    ranked = tuple(sorted(documents, key=_overview_document_sort_key))
+    return ranked[: min(_OVERVIEW_PRIMARY_SOURCE_LIMIT, _OVERVIEW_CHUNK_LIMIT)]
 
 
 def _append_overview_offset(
@@ -952,16 +1025,69 @@ def _append_overview_offset(
 
 
 def _overview_document_chunks(document: ChunkedDocument) -> tuple[Chunk, ...]:
+    chunks = tuple(chunk for chunk in document.chunks if not _chunk_is_low_content(chunk.text))
     return tuple(
-        chunk for chunk in document.chunks if not _LOW_CONTENT_CHUNK_RE.search(chunk.text)
+        sorted(
+            chunks,
+            key=lambda chunk: _overview_chunk_sort_key(document.source, chunk),
+        )
     )
+
+
+def _overview_document_sort_key(document: ChunkedDocument) -> tuple[int, str]:
+    return len(document.chunks), document.source.casefold()
+
+
+def _overview_chunk_sort_key(
+    source: str,
+    chunk: Chunk,
+) -> tuple[int, int, int, int]:
+    _ = source
+    score_text = _overview_chunk_score_text(chunk.text)
+    covered = _overview_chunk_looks_like_cover_page(score_text)
+    substantive = _overview_chunk_content_score(score_text) >= _OVERVIEW_SUBSTANTIVE_MIN_SCORE
+    structural = substantive and _overview_chunk_has_structural_signal(score_text)
+    early = chunk.index < _OVERVIEW_DOCUMENT_SCAN_LIMIT
+    acceptable = substantive and not covered
+    return (
+        int(not early),
+        int(not structural),
+        int(not acceptable),
+        chunk.index,
+    )
+
+
+def _overview_chunk_content_score(text: str) -> int:
+    token_count = len(set(tokenize(text)))
+    punctuation_count = sum(text.count(mark) for mark in ".;:?!")
+    section_bonus = 30 if "\f" in text else 0
+    return min(token_count, 80) + min(punctuation_count, 12) * 4 + section_bonus
+
+
+def _overview_chunk_has_structural_signal(text: str) -> bool:
+    return any(_overview_character_is_structural_signal(character) for character in text)
+
+
+def _overview_character_is_structural_signal(character: str) -> bool:
+    return unicodedata.category(character) == "Sm" or character in "=<>"
+
+
+def _overview_chunk_score_text(text: str) -> str:
+    sections = [section.strip() for section in text.split("\f") if section.strip()]
+    return sections[-1] if len(sections) > 1 else text
+
+
+def _overview_chunk_looks_like_cover_page(text: str) -> bool:
+    normalized = " ".join(unescape(text).split())
+    if not normalized:
+        return True
+    sentence_text = re.sub(r"\b\d{1,2}\.", "", normalized)
+    return not any(mark in sentence_text for mark in ".!?;:")
 
 
 def _fallback_overview_chunks(chunks: Sequence[Chunk]) -> list[ScoredChunk]:
     return [
-        _overview_scored_chunk(chunk)
-        for chunk in chunks
-        if not _LOW_CONTENT_CHUNK_RE.search(chunk.text)
+        _overview_scored_chunk(chunk) for chunk in chunks if not _chunk_is_low_content(chunk.text)
     ][:_OVERVIEW_CHUNK_LIMIT]
 
 
@@ -970,95 +1096,13 @@ def _overview_scored_chunk(chunk: Chunk) -> ScoredChunk:
 
 
 def _compact_overview_chunk(chunk: Chunk) -> Chunk:
-    text = " ".join(chunk.text.split())
+    text = " ".join(_overview_chunk_score_text(chunk.text).split())
     if len(text) <= _OVERVIEW_EXCERPT_CHAR_LIMIT:
-        return chunk
+        return replace(chunk, text=text)
     return replace(
         chunk,
         text=text[: _OVERVIEW_EXCERPT_CHAR_LIMIT - 17].rstrip() + "\n[... truncated]",
     )
-
-
-def build_overview_context(session: ChatSession) -> str:
-    try:
-        index = ensure_rag_index(session)
-        if index is None:
-            return ""
-        corpus = _enabled_corpus(index, session.disabled_source_files)
-        if not corpus.documents:
-            return ""
-
-        role_counts, document_lines = _overview_document_lines(corpus.documents)
-        analysis = analyze_priority(corpus.chunks, limit=8)
-        return _render_overview_context(corpus, role_counts, document_lines, analysis)
-    except Exception:
-        _log.warning("overview context build failed", exc_info=True)
-        return ""
-
-
-def _overview_document_lines(
-    documents: Sequence[ChunkedDocument],
-) -> tuple[dict[str, int], list[str]]:
-    role_counts: dict[str, int] = {}
-    document_lines = [
-        _overview_document_line(document, role_counts)
-        for document in documents[:_OVERVIEW_DOCUMENT_LIMIT]
-    ]
-    remaining = len(documents) - len(document_lines)
-    if remaining > 0:
-        document_lines.append(f"- ... {remaining} more enabled indexed document(s)")
-    return role_counts, document_lines
-
-
-def _overview_document_line(
-    document: ChunkedDocument,
-    role_counts: dict[str, int],
-) -> str:
-    text = " ".join(chunk.text for chunk in document.chunks)
-    role, confidence, reason = infer_material_role_from_text(document.source, text)
-    role_counts[role] = role_counts.get(role, 0) + 1
-    return (
-        f"- {document.source}: {role} ({confidence:.2f}; {reason}; {len(document.chunks)} chunks)"
-    )
-
-
-def _render_overview_context(
-    corpus: _EnabledCorpus,
-    role_counts: Mapping[str, int],
-    document_lines: Sequence[str],
-    analysis: PriorityAnalysis,
-) -> str:
-    lines = _overview_header_lines(corpus, role_counts, document_lines)
-    if analysis.topics:
-        lines.extend(
-            (
-                "Topic scan from enabled indexed text:",
-                analysis.render_for_prompt(limit=8),
-            )
-        )
-    lines.append(_OVERVIEW_CONTEXT_POLICY)
-    return "\n".join(lines)
-
-
-def _overview_header_lines(
-    corpus: _EnabledCorpus,
-    role_counts: Mapping[str, int],
-    document_lines: Sequence[str],
-) -> list[str]:
-    return [
-        "Deterministic local corpus overview from enabled indexed material:",
-        f"- indexed_documents={len(corpus.documents)}",
-        f"- chunks={len(corpus.chunks)}",
-        f"- inferred_roles={_overview_role_summary(role_counts)}",
-        "Document role sample:",
-        *document_lines,
-    ]
-
-
-def _overview_role_summary(role_counts: Mapping[str, int]) -> str:
-    if not role_counts:
-        return "none"
-    return ", ".join(f"{role}={count}" for role, count in sorted(role_counts.items()))
 
 
 def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[ScoredChunk]:
@@ -1182,7 +1226,7 @@ def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
             analysis.render_for_prompt(limit=limit),
             (
                 "Use this scan as the primary priority signal. Do not infer priorities from "
-                "filenames, lecturer names, subject names, or outside knowledge."
+                "source labels, cover-page metadata, or outside knowledge."
             ),
         ]
         return "\n".join(lines)
@@ -1298,6 +1342,13 @@ def _expanded_prior_query_evidence(
         if index is None:
             return None
 
+        if _material_overview_prompt(plan):
+            return build_turn_evidence_from_refs(
+                session,
+                list(plan.evidence_refs),
+                max_tokens=max(adaptive_rag_budget(session), _OVERVIEW_CONTEXT_TOKEN_BUDGET),
+            ) or build_turn_evidence_from_overview(session)
+
         prior_scored = _scored_chunks_from_refs(
             index,
             plan.evidence_refs,
@@ -1335,7 +1386,7 @@ def _source_qa_relevant_query_scored(
 ) -> Sequence[ScoredChunk]:
     if plan.action is not LearningAction.SOURCE_QA or not plan.retrieval_query:
         return scored
-    query_terms = _direct_support_terms(plan.retrieval_query)
+    query_terms = _direct_support_terms(_source_answer_query(plan))
     if len(query_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
         return scored
     min_matches = (
@@ -1439,14 +1490,43 @@ def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> T
         return None
     if plan.action is LearningAction.PRESENT and is_overview_query(plan.retrieval_query):
         return build_turn_evidence_from_overview(session)
-    return build_turn_evidence_from_query(session, plan.retrieval_query)
+    if plan.action is LearningAction.PRESENT and (
+        plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+    ):
+        if _material_overview_prompt(plan):
+            return build_turn_evidence_from_overview(session)
+        return build_turn_evidence_from_query(session, plan.retrieval_query) or (
+            build_turn_evidence_from_overview(session)
+        )
+    query_evidence = build_turn_evidence_from_query(session, plan.retrieval_query)
+    if _material_overview_prompt(plan) and not _query_evidence_supports_request(
+        plan.retrieval_query,
+        query_evidence,
+    ):
+        return build_turn_evidence_from_overview(session)
+    return query_evidence
+
+
+def _material_overview_prompt(plan: LearningTurnPlan) -> bool:
+    return plan.action is LearningAction.PRESENT and "Execute MATERIAL_OVERVIEW." in plan.prompt
+
+
+def _query_evidence_supports_request(
+    query: str,
+    evidence: TurnEvidence | None,
+) -> bool:
+    if evidence is None or not evidence.items:
+        return False
+    query_terms = _direct_support_terms(query)
+    if not query_terms:
+        return False
+    return _direct_support_coverage_score(query, evidence) >= _EXPANDED_DIRECT_SUPPORT_MIN_COVERAGE
 
 
 __all__ = [
     "ResolvedTurnPlan",
     "adaptive_rag_budget",
     "assess_turn_evidence",
-    "build_overview_context",
     "build_priority_context",
     "build_priority_turn_evidence",
     "build_prompt_fn",

@@ -10,114 +10,21 @@ from pathlib import PurePosixPath
 from typing import Protocol, cast
 
 _HEADING_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]\s+)(?P<text>.+?)\s*$")
-_HEADING_CONTEXT_PREFIX_RE = re.compile(
-    r"^(?:lecture|vorlesung|chapter|kapitel|unit|session)\s+\d+[a-z]?\s*[-:]\s*",
-    re.IGNORECASE,
-)
-_SOURCE_LABEL_CONTEXT_RE = re.compile(
-    r"^(?:lecture|vorlesung|chapter|kapitel|unit|session)\s+"
-    r"(?P<number>\d+[a-z]?)\s*[-:]\s*(?P<title>.+)$",
-    re.IGNORECASE,
-)
-_DEFINITION_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?P<term>[A-ZÀ-ÖØ-Þa-zà-öø-ÿ][^:.\n]{2,80}?)\s+"
-    r"(?:is|are|means|refers to|describes|represents|studies|ist|sind|bedeutet)\s+"
-    r"(?P<body>[^.\n]{8,260})(?:[.]|$)",
-    re.IGNORECASE,
+_COLON_FACT_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?P<term>[A-ZÀ-ÖØ-Þa-zà-öø-ÿ][^:\n]{2,80}):\s*"
+    r"(?P<body>[^.\n]{8,260})(?:[.]|$)"
 )
 _FORMULA_RE = re.compile(
-    r"(?:"
-    r"\b(?:formula|equation|identity|rule|satz|gleichung)\b[^.\n:]{0,80}[:]\s*(?P<labelled>.+)"
-    r"|(?P<symbolic>[A-Za-z][A-Za-z0-9_]*\s*(?:=|≈|≃|<=|>=|≤|≥|->|→)\s*[^.\n]{2,160})"
-    r")",
-    re.IGNORECASE,
-)
-_EXAMPLE_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:example|beispiel)\s*[:.-]\s*(?P<body>[^.\n]{8,260})",
-    re.IGNORECASE,
-)
-_MISCONCEPTION_RE = re.compile(
-    r"\b(?:common misconception|misconception|pitfall|trap|fehler|falle)\b[:\s-]+"
-    r"(?P<body>[^.\n]{8,260})",
-    re.IGNORECASE,
-)
-_OBJECTIVE_RE = re.compile(
-    r"\b(?:learning objective|lernziel|students should|you should be able to)\b[:\s-]+"
-    r"(?P<body>[^.\n]{8,260})",
-    re.IGNORECASE,
-)
-_RUBRIC_RE = re.compile(
-    r"\b(?:rubric|mark scheme|marks?|points?|punkte?)\b[:\s-]+(?P<body>[^.\n]{4,260})",
-    re.IGNORECASE,
-)
-_FIGURE_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:figure|fig[.]?|abbildung)\s*\d*[.:)-]?\s*(?P<body>[^.\n]{4,260})",
-    re.IGNORECASE,
-)
-_TABLE_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:table|tab[.]?|tabelle)\s*\d*[.:)-]?\s*(?P<body>[^.\n]{4,260})",
-    re.IGNORECASE,
-)
-_EXAM_QUESTION_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:question|frage|aufgabe)\s*\d*[^\]:.]{0,40}"
-    r"(?:\[[^\]]+\])?\s*[:.-]\s*(?P<body>[^.\n]{4,260})",
-    re.IGNORECASE,
-)
-_ANSWER_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:answer|solution|lösung|loesung|musterlösung|musterloesung)"
-    r"\s*[:.-]\s*(?P<body>[^.\n]{4,260})",
-    re.IGNORECASE,
+    r"(?P<symbolic>[A-Za-z][A-Za-z0-9_]*\s*(?:=|≈|≃|<=|>=|≤|≥|->|→)\s*[^.\n]{2,160})"
 )
 _WHITESPACE_RE = re.compile(r"\s+")
-_METADATA_TERMS = (
-    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
-    r"page|professor|seite|semester|slide"
-)
-_SOURCE_INTERNAL_TERMS = (
-    r"source[-\s]?backed|source[-\s]?supported|source field|chunk|filename|file name"
-)
-_METADATA_CONCEPT_RE = re.compile(
-    rf"\b(?:{_METADATA_TERMS}|universität|university|www|http)\b",
-    re.IGNORECASE,
-)
+_CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
 _DATE_ONLY_RE = re.compile(
     r"^\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\s+\w+\s+\d{4}|\d{4})\s*$",
     re.IGNORECASE,
 )
-_BAD_DEFINITION_TERMS = frozenset(
-    {
-        "this",
-        "these",
-        "that",
-        "those",
-        "it",
-        "es",
-        "dies",
-        "diese",
-    }
-)
-_QUESTION_METADATA_OR_INTERNAL_RE = re.compile(
-    rf"\b(?:{_METADATA_TERMS}|{_SOURCE_INTERNAL_TERMS}|source question|www|http)\b"
-    r"|#chunk=|\bmaterials[/\\]",
-    re.IGNORECASE,
-)
 _SOURCE_LABEL_METADATA_RE = re.compile(
-    rf"\b(?:{_METADATA_TERMS}|{_SOURCE_INTERNAL_TERMS}|www|http)\b"
-    r"|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
-    re.IGNORECASE,
-)
-_ACTIVE_RECALL_PROMPT_RE = re.compile(
-    r"^\s*(?:"
-    r"cloze deletion|compare|correct|define|explain|fill|in one|multiple choice|"
-    r"past[- ]exam style|state|what|why"
-    r")\b|[?]",
-    re.IGNORECASE,
-)
-_QUESTION_SECOND_TASK_RE = re.compile(
-    r"\b(?:and|also|then)\s+(?:"
-    r"calculate|compare|compute|define|derive|describe|determine|explain|give|"
-    r"identify|justify|list|name|outline|show|state|summarize|what|when|why"
-    r")\b",
+    r"(?:https?://|www\.|\S+@\S+)|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
     re.IGNORECASE,
 )
 
@@ -143,16 +50,7 @@ class AcademicItemKind(StrEnum):
     EXAM_SKILL = "exam_skill"
 
 
-_PARAGRAPH_ITEM_PATTERNS: tuple[tuple[re.Pattern[str], AcademicItemKind], ...] = (
-    (_EXAMPLE_RE, AcademicItemKind.EXAMPLE),
-    (_MISCONCEPTION_RE, AcademicItemKind.COMMON_MISCONCEPTION),
-    (_OBJECTIVE_RE, AcademicItemKind.LEARNING_OBJECTIVE),
-    (_RUBRIC_RE, AcademicItemKind.EXAM_SKILL),
-    (_FIGURE_RE, AcademicItemKind.FIGURE),
-    (_TABLE_RE, AcademicItemKind.TABLE),
-    (_EXAM_QUESTION_RE, AcademicItemKind.EXAM_QUESTION),
-    (_ANSWER_RE, AcademicItemKind.ANSWER),
-)
+_PARAGRAPH_ITEM_PATTERNS: tuple[tuple[re.Pattern[str], AcademicItemKind], ...] = ()
 _NODE_ITEM_FIELDS = {
     AcademicItemKind.DEFINITION: "definitions",
     AcademicItemKind.FORMULA: "formulas",
@@ -280,17 +178,37 @@ def grounded_question_quality_issues(question: GroundedQuestion) -> tuple[str, .
         issues.append("missing canonical source label")
     elif _SOURCE_LABEL_METADATA_RE.search(question.source_label):
         issues.append("source label contains metadata or internal source wording")
-    if not _ACTIVE_RECALL_PROMPT_RE.search(text):
+    if not _looks_like_single_question(text):
         issues.append("not framed as active recall")
     if text.count("?") > 1:
         issues.append("asks more than one question")
-    if _QUESTION_SECOND_TASK_RE.search(text):
+    if _looks_like_compound_question(text):
         issues.append("asks more than one thing")
-    if _QUESTION_METADATA_OR_INTERNAL_RE.search(text):
+    if _contains_internal_source_marker(text):
         issues.append("contains metadata or internal source wording")
-    if _METADATA_CONCEPT_RE.search(question.concept):
+    if _concept_looks_like_metadata(question.concept):
         issues.append("uses metadata-like concept")
     return tuple(issues)
+
+
+def _looks_like_single_question(text: str) -> bool:
+    stripped = text.strip()
+    return bool(stripped and stripped.endswith("?") and stripped.count("?") == 1)
+
+
+def _looks_like_compound_question(text: str) -> bool:
+    stripped = text.strip()
+    if "\n" in stripped:
+        return True
+    return stripped.count(";") > 1 or stripped.count(":") > 1
+
+
+def _contains_internal_source_marker(text: str) -> bool:
+    return bool(_CONTACT_OR_URL_RE.search(text) or "#chunk=" in text or "materials/" in text)
+
+
+def _concept_looks_like_metadata(text: str) -> bool:
+    return bool(_CONTACT_OR_URL_RE.search(text) or _DATE_ONLY_RE.fullmatch(text.strip()))
 
 
 def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[AcademicItem]:
@@ -323,7 +241,7 @@ def _heading_items(text: str, source_ref: str, source_label: str) -> list[Academ
 
 
 def _definition_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
-    definition_match = _DEFINITION_RE.match(paragraph)
+    definition_match = _COLON_FACT_RE.match(paragraph)
     if definition_match is None:
         return []
     concept = _clean(definition_match.group("term")).rstrip(":")
@@ -342,20 +260,14 @@ def _definition_items(paragraph: str, source_ref: str, source_label: str) -> lis
 
 
 def _valid_definition(concept: str, body: str) -> bool:
-    return bool(
-        concept
-        and body
-        and "," not in concept
-        and len(concept.split()) <= 8
-        and concept.casefold() not in _BAD_DEFINITION_TERMS
-    )
+    return bool(concept and body and "," not in concept and len(concept.split()) <= 8)
 
 
 def _formula_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
     formula_match = _FORMULA_RE.search(paragraph)
     if formula_match is None:
         return []
-    formula_text = _clean(formula_match.group("labelled") or formula_match.group("symbolic") or "")
+    formula_text = _clean(formula_match.group("symbolic") or "")
     if len(formula_text) < 4:
         return []
     return [
@@ -400,7 +312,7 @@ def _heading(line: str) -> str | None:
     match = _HEADING_RE.match(line)
     if match is None:
         return None
-    heading = _clean(_HEADING_CONTEXT_PREFIX_RE.sub("", _clean(match.group("text")), count=1))
+    heading = _clean(match.group("text"))
     if len(heading) < 3 or len(heading.split()) > 10:
         return None
     return heading
@@ -425,9 +337,6 @@ def _source_label_from_ref(source_ref: str) -> str:
 
 def _canonical_source_label_text(text: str) -> str:
     cleaned = _clean(text.replace("_", " "))
-    match = _SOURCE_LABEL_CONTEXT_RE.match(cleaned)
-    if match is not None:
-        return _clean(f"{match.group('number')} {match.group('title')}")
     label = cleaned.replace("-", " ")
     return _clean(label) or cleaned
 
@@ -463,20 +372,13 @@ def _flush_paragraph(paragraphs: list[str], current: list[str]) -> list[str]:
 
 
 def _is_standalone_paragraph_line(raw_line: str, line: str) -> bool:
-    return raw_line.lstrip().startswith(("- ", "* ", "+ ")) or _starts_cued_item(line)
+    _ = line
+    return raw_line.lstrip().startswith(("- ", "* ", "+ "))
 
 
 def _starts_cued_item(line: str) -> bool:
-    return bool(
-        re.match(
-            r"^(?:example|beispiel|common misconception|misconception|pitfall|trap|"
-            r"learning objective|lernziel|rubric|mark scheme|figure|fig[.]?|abbildung|"
-            r"table|tab[.]?|tabelle|question|frage|aufgabe|answer|solution|lösung|"
-            r"loesung|musterlösung|musterloesung)\b",
-            line,
-            re.IGNORECASE,
-        )
-    )
+    _ = line
+    return False
 
 
 def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedQuestion]:
@@ -585,7 +487,7 @@ def _node_is_question_worthy(node: CourseKnowledgeNode) -> bool:
     concept = node.concept.strip()
     if not concept or _DATE_ONLY_RE.fullmatch(concept):
         return False
-    return not _METADATA_CONCEPT_RE.search(concept)
+    return not _concept_looks_like_metadata(concept)
 
 
 def _question(

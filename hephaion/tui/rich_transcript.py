@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from hephaion.rag.context import TurnEvidence
 from hephaion.rag.source_mapping import evidence_location_label
+
+try:
+    from unicodeit import replace as _unicodeit_replace
+except ImportError:  # pragma: no cover - optional display enhancement
+    _unicodeit_replace: Callable[[str], str] | None = None
 
 _CITATION_RE = re.compile(r"(?:\[|【)([Ee]\d+(?:\s*[,;]\s*[Ee]\d+)*)(?:\]|】)")
 _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")
@@ -16,6 +22,13 @@ _MATH_SPAN_RE = re.compile(r"\$(?!\$)(.+?)(?<!\$)\$", re.DOTALL)
 _LATEX_FRACTION_RE = re.compile(r"\\(?:dfrac|tfrac|frac)\{([^{}]+)\}\{([^{}]+)\}")
 _LATEX_BRACED_SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}")
 _LATEX_SUPERSCRIPT_SPACING_RE = re.compile(r"(?<=[A-Za-z\u0370-\u03FF])\s+([⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾])")
+_LATEX_BARE_FONT_COMMAND_RE = re.compile(
+    r"\\(?P<command>(?:mathbb|mathbf|mathrm|mathit|mathsf|mathtt|mathcal|mathfrak))"
+    r"\s+(?P<symbol>[A-Za-z])\b"
+)
+_LATEX_FONT_COMMAND_RE = re.compile(
+    r"\\(?:mathbb|mathbf|mathrm|mathit|mathsf|mathtt|mathcal|mathfrak)\{[^{}]+\}"
+)
 _LATEX_COMMAND_REPLACEMENTS = {
     r"\displaystyle": "",
     r"\left.": "",
@@ -28,19 +41,27 @@ _LATEX_COMMAND_REPLACEMENTS = {
     r"\;": " ",
     r"\:": " ",
     r"\!": "",
+    r"\lim": "lim",
 }
 _LATEX_SYMBOL_REPLACEMENTS = {
     r"\cdot": "⋅",
     r"\dots": "…",
+    r"\epsilon": "ε",
+    r"\varepsilon": "ε",
+    r"\delta": "δ",
     r"\geq": "≥",
     r"\ge": "≥",
+    r"\in": "∈",
     r"\infty": "∞",
     r"\leq": "≤",
     r"\le": "≤",
     r"\neq": "≠",
     r"\pi": "π",
+    r"\phi": "φ",
+    r"\varphi": "φ",
     r"\sum": "∑",
     r"\times": "\u00d7",
+    r"\to": "→",
 }
 _LATEX_SIMPLE_SCRIPT_RE = re.compile(r"([_^])([A-Za-z0-9+\-=()])")
 _SUBSCRIPT_CHARS = str.maketrans(
@@ -58,6 +79,7 @@ _SUBSCRIPT_CHARS = str.maketrans(
         "+": "₊",
         "-": "₋",
         "=": "₌",
+        "_": "",
         "(": "₍",
         ")": "₎",
         "n": "ₙ",
@@ -79,10 +101,13 @@ class EnrichedReply:
 
 
 def _replace_latex_commands(text: str) -> str:
-    formatted = text
+    formatted = _normalize_bare_latex_font_commands(text)
+    formatted = _format_latex_font_commands(formatted)
     for latex, replacement in _LATEX_COMMAND_REPLACEMENTS.items():
         formatted = formatted.replace(latex, replacement)
-    for latex, replacement in _LATEX_SYMBOL_REPLACEMENTS.items():
+    for latex, replacement in sorted(
+        _LATEX_SYMBOL_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True
+    ):
         formatted = formatted.replace(latex, replacement)
     formatted = _format_latex_scripts(formatted)
     formatted = _LATEX_BRACED_SCRIPT_RE.sub(
@@ -95,6 +120,20 @@ def _replace_latex_commands(text: str) -> str:
     )
     formatted = _LATEX_SUPERSCRIPT_SPACING_RE.sub(lambda match: match.group(1), formatted)
     return re.sub(r"[ \t]{2,}", " ", formatted)
+
+
+def _normalize_bare_latex_font_commands(text: str) -> str:
+    return _LATEX_BARE_FONT_COMMAND_RE.sub(
+        lambda match: f"\\{match.group('command')}{{{match.group('symbol')}}}",
+        text,
+    )
+
+
+def _format_latex_font_commands(text: str) -> str:
+    if _unicodeit_replace is None:
+        return text
+    unicodeit_replace = _unicodeit_replace
+    return _LATEX_FONT_COMMAND_RE.sub(lambda match: unicodeit_replace(match.group(0)), text)
 
 
 def _format_latex_scripts(text: str) -> str:

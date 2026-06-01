@@ -174,14 +174,6 @@ _DRIVEN_LEARNING_INTENTS = frozenset(
     {"driven_learning_calibration", "topic_drill", "priority_request"}
 )
 _STUDY_INTENTS = frozenset({"driven_learning_calibration", "topic_drill"})
-_SESSION_TYPE_CUES = (
-    ("exam", PracticeSessionType.EXAM),
-    ("weak", PracticeSessionType.WEAK_TOPICS),
-    ("review", PracticeSessionType.REVIEW),
-    ("socratic", PracticeSessionType.SOCRATIC),
-    ("cram", PracticeSessionType.CRAM),
-    ("deep", PracticeSessionType.DEEP),
-)
 _NEXT_ACTION_BY_FEEDBACK: dict[LearningFeedbackType, LearningMoveKind] = {
     LearningFeedbackType.CORRECT: "schedule_review",
     LearningFeedbackType.PARTIAL: "give_hint",
@@ -347,11 +339,8 @@ def _pedagogy_rewrite_instruction(move: LearningMove) -> str:
 
 
 def _looks_like_recall_answer_leak(normalized_reply: str, move: LearningMove) -> bool:
-    if move.kind not in {"ask_recall", "contrastive_question"}:
-        return False
-    return any(
-        marker in normalized_reply for marker in ("the answer is", "solution:", "full solution")
-    )
+    _ = (normalized_reply, move)
+    return False
 
 
 def move_for_plan(
@@ -480,9 +469,9 @@ def parse_time_budget_minutes(text: str) -> int | None:
 
 
 def session_type_from_text(text: str) -> PracticeSessionType:
-    normalized = text.casefold()
-    for cue, session_type in _SESSION_TYPE_CUES:
-        if cue in normalized:
+    normalized = text.strip().casefold()
+    for session_type in PracticeSessionType:
+        if normalized == session_type.value:
             return session_type
     return PracticeSessionType.GENERAL
 

@@ -6,41 +6,22 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaion.materials import infer_material_role_from_text
-
 _LETTER = r"A-Za-zÀ-ÖØ-öø-ÿ"
-_MARK_RE = re.compile(
-    r"(?:\[\s*)?(?P<marks>\d{1,2})\s*(?:marks?|pts?|points?|punkte?)(?:\s*\])?",
-    re.IGNORECASE,
-)
 _QUESTION_PREFIX_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:Question\s*\d*\s*)?(?P<marks>\[[^\]]*marks?[^\]]*\])?\s*[:.)-]?\s*",
+    r"^\s*(?:[-*]\s*)?(?:\d+\s*)?[:.)-]?\s*",
     re.IGNORECASE,
 )
 _PROBLEM_START_RE = re.compile(
-    rf"^\s*(?:"
-    rf"(?:question|problem|exercise|aufgabe)\s*\d+[{_LETTER}]?\b"
-    rf"|\d+\s*[.)]"
-    rf")",
+    r"^\s*(?:"
+    r"\d+\s*[.)]"
+    r")",
     re.IGNORECASE,
 )
 _SUBQUESTION_START_RE = re.compile(
     rf"^\s*(?P<label>\(?\s*[{_LETTER}]\s*\)|[{_LETTER}]\s*[.)])\s+",
     re.IGNORECASE,
 )
-_PROMPT_CUE_RE = re.compile(
-    r"\b(?:"
-    r"analyze|answer|begründen|berechnen|bestimmen|calculate|compute|decide|define|"
-    r"derive|describe|discuss|entscheiden|evaluate|explain|find|prove|show|sketch|"
-    r"state|untersuchen|why"
-    r")\b",
-    re.IGNORECASE,
-)
 _WHITESPACE_RE = re.compile(r"[ \t]+")
-_PAGE_TURN_RE = re.compile(
-    r"^\s*(?:please\s+turn\s+over|continued\s+on\s+next\s+page|bitte\s+wenden)\s*!?\s*$",
-    re.IGNORECASE,
-)
 _EXAM_PROMPT_NOISE_RE = re.compile(r"[�©@]|(?:\?[^.!?\n]{0,24}[=+\-*/^])")
 
 
@@ -112,9 +93,6 @@ def supporting_source_refs(
 
 
 def _supporting_ref_score(chunk: ExamChunk, question_terms: set[str]) -> tuple[int, str] | None:
-    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-    if role == "past_exam":
-        return None
     overlap = len(question_terms & _content_terms(chunk.text))
     if overlap <= 0:
         return None
@@ -126,15 +104,14 @@ def _iter_exam_questions(chunks: Sequence[ExamChunk]) -> list[ExamQuestion]:
     questions = [
         question
         for position, chunk in enumerate(chunk_list)
-        if _is_past_exam_chunk(chunk)
+        if _has_question_structure(chunk.text)
         for question in _chunk_exam_questions(chunk_list, position)
     ]
     return _dedupe_exam_questions(questions)
 
 
-def _is_past_exam_chunk(chunk: ExamChunk) -> bool:
-    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-    return role == "past_exam"
+def _has_question_structure(text: str) -> bool:
+    return bool(_PROBLEM_START_RE.search(text))
 
 
 def _chunk_exam_questions(chunks: Sequence[ExamChunk], position: int) -> Iterator[ExamQuestion]:
@@ -146,11 +123,10 @@ def _chunk_exam_questions(chunks: Sequence[ExamChunk], position: int) -> Iterato
 
 
 def _exam_question(question: str, chunk: ExamChunk) -> ExamQuestion:
-    marks_match = _MARK_RE.search(question)
     return ExamQuestion(
         question=question,
         source_ref=f"{chunk.source}#chunk={chunk.index}",
-        marks=int(marks_match.group("marks")) if marks_match else None,
+        marks=None,
     )
 
 
@@ -295,9 +271,8 @@ def _strip_question_prefix(line: str, prefix: re.Match[str] | None) -> str:
 
 
 def _question_with_prefix_marks(question: str, prefix: re.Match[str] | None) -> str:
-    if prefix is None or not prefix.group("marks") or _MARK_RE.search(question):
-        return question
-    return f"{question} {prefix.group('marks')}"
+    _ = prefix
+    return question
 
 
 def _clean_prompt_question(question: str) -> str | None:
@@ -309,7 +284,7 @@ def _is_question_like(text: str) -> bool:
     normalized = text.strip()
     if len(normalized) < 12:
         return False
-    return bool("?" in normalized or _PROMPT_CUE_RE.search(normalized))
+    return bool("?" in normalized or normalized[-1:] in {".", ":", ";"})
 
 
 def _is_answerable_exam_prompt(text: str) -> bool:
@@ -329,11 +304,8 @@ def _starts_with_subpart(line: str) -> bool:
 
 
 def _is_context_dependent_subpart(line: str) -> bool:
-    lowered = line.casefold()
-    return bool(
-        re.search(r"\b(?:f|g|h|it|this|the|above|given|diese[rs]?|obige[rs]?|dazu)\b", lowered)
-        or re.search(r"\b(?:auf|on|in)\s+[A-Z]\b", line)
-    )
+    tokens = _WHITESPACE_RE.sub(" ", line.strip()).split()
+    return len(tokens) <= 3 and not line.rstrip().endswith(("?", ".", ":", ";"))
 
 
 def _clean_question_text(text: str) -> str:
@@ -345,8 +317,6 @@ def _clean_question_text(text: str) -> str:
 
 
 def _append_clean_question_line(compacted: list[str], line: str) -> None:
-    if _PAGE_TURN_RE.match(line):
-        return
     if not line:
         if compacted and compacted[-1]:
             compacted.append("")
@@ -363,24 +333,8 @@ def _strip_blank_edges(lines: list[str]) -> list[str]:
 
 
 def _content_terms(text: str) -> set[str]:
-    stopwords = {
-        "and",
-        "answer",
-        "define",
-        "explain",
-        "for",
-        "from",
-        "identify",
-        "marks",
-        "question",
-        "state",
-        "the",
-        "through",
-        "using",
-        "with",
-    }
     return {
         token.lower()
         for token in re.findall(r"[A-Za-z][A-Za-z0-9_+-]{2,}", text)
-        if token.lower() not in stopwords
+        if len(token) >= 4
     }

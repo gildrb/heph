@@ -238,6 +238,7 @@ SEMANTIC_DISPATCH_MESSAGE: Final[str] = (
 )
 SEMANTIC_DISPATCH_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "hephaion/chat/",
+    "hephaion/rag/",
     "hephaion/study/",
 )
 SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
@@ -644,6 +645,13 @@ def _is_semantic_dispatch_phrase_table_name(target_name: str) -> bool:
 
 
 def _is_string_literal_container(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call) and _dotted_name(node.func) in {
+        "frozenset",
+        "list",
+        "set",
+        "tuple",
+    }:
+        return any(_is_string_literal_container(arg) for arg in node.args)
     return isinstance(node, ast.Dict | ast.Set | ast.List | ast.Tuple) and any(
         isinstance(child, ast.Constant) and isinstance(child.value, str)
         for child in ast.walk(node)
@@ -746,7 +754,7 @@ def _normalize_prompt_rule_line(line: str) -> str | None:
 
 
 def _check_file(path: Path) -> list[Violation]:
-    rel_path = path.relative_to(REPO_ROOT).as_posix()
+    rel_path = _repo_relative_path(path)
     source = path.read_text(encoding="utf-8")
     return _check_source(source, rel_path, filename=str(path))
 
@@ -754,11 +762,24 @@ def _check_file(path: Path) -> list[Violation]:
 def _check_duplicate_prompt_rules() -> list[Violation]:
     literals: list[PromptRuleLiteral] = []
     for path in _iter_python_files():
-        rel_path = path.relative_to(REPO_ROOT).as_posix()
+        rel_path = _repo_relative_path(path)
         source = path.read_text(encoding="utf-8")
         literals.extend(_prompt_rule_literals(source, rel_path, filename=str(path)))
 
     return _duplicate_prompt_rule_violations(literals)
+
+
+def _repo_relative_path(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        root_parts = REPO_ROOT.parts
+        path_parts = path.parts
+        if len(path_parts) >= len(root_parts) and tuple(
+            part.casefold() for part in path_parts[: len(root_parts)]
+        ) == tuple(part.casefold() for part in root_parts):
+            return Path(*path_parts[len(root_parts) :]).as_posix()
+        raise
 
 
 def _hardcoded_answer_literals(
