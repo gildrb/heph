@@ -70,27 +70,31 @@ def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, 
     for item in items:
         by_source.setdefault(item.source, []).append(item)
 
-    lines = ["Last turn sources:"]
+    header = "\n".join(
+        [
+            "Last turn sources:",
+            "Expand exact source text: /evidence E1",
+            "Open source at line:      /evidence E1 open",
+        ]
+    )
+    source_blocks: list[str] = []
     for source, source_items in by_source.items():
-        lines.append(f"{source}")
+        source_lines = [source]
         for item in source_items:
-            path, span = _item_path_and_span(session, item)
+            _, span = _item_path_and_span(session, item)
             location = evidence_location_label(item.source, item.chunk, span)
-            lines.append(f"  {item.evidence_id}  {location}; score={item.score:.3f}")
+            if len(source_lines) > 1:
+                source_lines.append("")
+            source_lines.append(f"  {item.evidence_id}  {location}; score={item.score:.3f}")
             if item.chunk.heading:
-                lines.append(f"      heading: {item.chunk.heading}")
+                source_lines.append(f"      heading: {item.chunk.heading}")
             preview = " ".join(item.content.split())
             if len(preview) > 160:
                 preview = f"{preview[:157]}..."
             if preview:
-                lines.append(f"      {preview}")
-            lines.append(f"      expand: /evidence {item.evidence_id}")
-            if path is not None:
-                lines.append(f"      open:   /evidence {item.evidence_id} open")
-    lines.append("")
-    lines.append("Expand exact source text: /evidence E1")
-    lines.append("Open source at line:      /evidence E1 open")
-    return "\n".join(lines)
+                source_lines.append(f"      {preview}")
+        source_blocks.append("\n".join(source_lines))
+    return f"{header}\n\n" + "\n\n".join(source_blocks)
 
 
 def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:

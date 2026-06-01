@@ -295,6 +295,9 @@ Resolve routing hints for the current Heph turn; do not answer the user.
 Materials are the default subject. Keep the current user request primary; use prior context only
 to resolve references. New source content uses answer_from_evidence. Broad corpus views use
 overview. Specific facts, definitions, quotes, named concepts, or named sources use retrieve.
+Set is_followup=false unless the current request explicitly depends on a prior answer, citation,
+source, listed item, table row, or continuing instruction. A fresh question about the materials is
+not a follow-up merely because previous turns exist.
 Use topic_drill only when the current user request asks Heph to quiz, drill, practice, or ask a
 recall question; never carry drill mode from the previous assistant question by inertia.
 Pure rewrites of a displayed prior answer use transform_prior_answer and reuse prior evidence.
@@ -3625,6 +3628,13 @@ def _turn_contract_can_seed_followup(
     )
 
 
+def _prior_contract_for_followup_seed(session: ChatSession) -> TurnContract | None:
+    contract = session.last_turn_contract
+    if _turn_contract_can_seed_followup(contract, visible_evidence=session.last_turn_evidence):
+        return contract
+    return None
+
+
 def _resolved_with_citation_requirement(
     resolved: ResolvedTurnPlan,
     *,
@@ -4796,7 +4806,11 @@ def _stabilized_intent_for_default_material_plan(
         prior_contract is not None
         or not _overview_turn(default_plan)
         or resolution.intent != "source_qa"
-        or _source_lookup_preserves_user_terms(resolution, user_input, index)
+    ):
+        return resolution
+    if resolution.direct_evidence_required and _source_lookup_preserves_user_terms(
+        resolution,
+        index,
     ):
         return resolution
     return TurnIntentResolution(
@@ -4835,7 +4849,6 @@ def _unresolved_followup_intent_resolution(
 
 def _source_lookup_preserves_user_terms(
     resolution: TurnIntentResolution,
-    user_input: str,
     index: ArmoryIndex | None,
 ) -> bool:
     lookup_query = resolution.retrieval_query or resolution.canonical_request
@@ -4846,10 +4859,7 @@ def _source_lookup_preserves_user_terms(
         return False
     if index is not None:
         return _query_has_index_anchor(query_terms, index)
-    user_terms = tuple(dict.fromkeys(tokenize(user_input)))
-    return not user_terms or any(
-        _query_has_matching_term(term, query_terms) for term in user_terms
-    )
+    return False
 
 
 def _query_has_index_anchor(query_terms: frozenset[str], index: ArmoryIndex) -> bool:
@@ -5604,6 +5614,8 @@ class TurnOrchestrator:
     ) -> Generator[TurnEvent, None, ResolvedTurnPlan]:
         session = self.session
         due_reviews, memory_state = _learning_practice_context(session)
+        prior_contract = _prior_contract_for_followup_seed(session)
+        prior_intent = session.last_plan_intent if prior_contract is not None else ""
         intent_index = session.rag_index
         if (
             intent_index is None
@@ -5623,8 +5635,8 @@ class TurnOrchestrator:
             user_input,
             config=session.config,
             conversation=session.conversation,
-            prior_intent=session.last_plan_intent,
-            prior_contract=session.last_turn_contract,
+            prior_intent=prior_intent,
+            prior_contract=prior_contract,
         )
         if (
             intent_index is None
@@ -5641,14 +5653,14 @@ class TurnOrchestrator:
             intent_resolution,
             user_input=user_input,
             default_plan=default_plan,
-            prior_contract=session.last_turn_contract,
+            prior_contract=prior_contract,
             index=intent_index,
         )
         intent_resolution = _unresolved_followup_intent_resolution(
             intent_resolution,
             user_input=user_input,
             default_plan=default_plan,
-            prior_contract=session.last_turn_contract,
+            prior_contract=prior_contract,
         )
         learning_plan = plan_turn(
             original_learning_state,
@@ -5661,11 +5673,11 @@ class TurnOrchestrator:
         learning_plan, turn_contract = _apply_turn_contract_to_plan(
             learning_plan,
             turn_contract,
-            prior_contract=session.last_turn_contract,
+            prior_contract=prior_contract,
         )
         turn_contract = _turn_contract_with_prior_replay_state(
             turn_contract,
-            prior_contract=session.last_turn_contract,
+            prior_contract=prior_contract,
             conversation=session.conversation,
             user_input=user_input,
         )
