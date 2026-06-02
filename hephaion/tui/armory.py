@@ -27,6 +27,7 @@ from hephaion.tui.textual_compat import (
     OptionList,
     RichLog,
     Static,
+    sidebar_content_width,
     sidebar_text,
 )
 from hephaion.tui.textual_compat import (
@@ -138,6 +139,7 @@ _ARMORY_USAGE_MESSAGE = (
 _ARMORY_ROW_LEFT_PADDING = 2
 _ARMORY_FILE_COLUMN_WIDTH = len("files")
 _ARMORY_STATE_GAP = 2
+_ARMORY_TRUNCATION_MARKER = "..."
 
 
 def _display_path(path: Path) -> str:
@@ -163,7 +165,7 @@ def _armory_header_text(
 ) -> str:
     del current_path, filter_query
     count_label = f"{_armory_selectable_count(entries)} item(s)"
-    label_width = _armory_layout_label_width(label_width, count_label)
+    label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
     return (
         f"{' ' * _ARMORY_ROW_LEFT_PADDING}"
         f"{count_label:<{label_width}}"
@@ -227,19 +229,14 @@ def _armory_sidebar_text(entry: _DirEntry | None, *, active: bool = False) -> st
         return label
     state = _armory_entry_state(entry.path, active=active)
     if state == "missing":
-        return f"{label}\n\nMissing armory\n\nThis recent entry no longer exists."
+        return "Missing armory\n\nThis recent entry no longer exists."
     if state == "folder":
-        return f"{label}\n\nFolder only\n\nInitialize it before using it as an armory."
+        return "Folder only\n\nInitialize it before using it as an armory."
     if state == "empty":
-        return (
-            f"{label}\n\n"
-            "Empty armory\n\n"
-            "Add documents to materials/ before asking cited questions."
-        )
+        return "Empty armory\n\nAdd documents to materials/ before asking cited questions."
     if state == "working":
-        return f"{label}\n\nAssistant working\n\nYou can switch back when the turn finishes."
-    file_count = _armory_entry_file_column(entry.path)
-    return f"{label}\n\n{file_count} file(s)\n\nEnter opens this as the active document context."
+        return "Assistant working\n\nYou can switch back when the turn finishes."
+    return "Ready\n\nMaterials available.\n\nMemory stays scoped here."
 
 
 def _armory_preview_text(entry: _DirEntry | None, *, filter_query: str, active: bool) -> str:
@@ -249,7 +246,7 @@ def _armory_preview_text(entry: _DirEntry | None, *, filter_query: str, active: 
         return "No selection"
     content = _armory_sidebar_text(entry, active=active)
     if active:
-        return f"{content}\n\nassistant working"
+        return content
     return content
 
 
@@ -289,8 +286,42 @@ def _armory_label_width(
     )
 
 
-def _armory_layout_label_width(label_width: int, count_label: str) -> int:
-    return max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
+def _armory_row_width(widget: _ClassableWidget, host: object) -> int:
+    if widget.size.width > 0:
+        return widget.size.width
+    host_size = getattr(host, "size", None)
+    host_width = getattr(host_size, "width", 0)
+    return host_width if isinstance(host_width, int) else 0
+
+
+def _armory_description_width(entries: list[_DirEntry]) -> int:
+    return max((len(_armory_entry_description(entry)) for entry in entries), default=0)
+
+
+def _armory_layout_label_width(
+    label_width: int,
+    count_label: str,
+    *,
+    entries: list[_DirEntry],
+    row_width: int,
+) -> int:
+    label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
+    if row_width <= 0:
+        return label_width
+    description_width = max(_armory_description_width(entries), len("files  state"))
+    available = row_width - _ARMORY_ROW_LEFT_PADDING - _ARMORY_DESCRIPTION_GAP
+    available -= description_width
+    if available <= 0:
+        return min(label_width, max(1, row_width - _ARMORY_ROW_LEFT_PADDING))
+    return min(label_width, max(1, available))
+
+
+def _clip_armory_label(label: str, width: int) -> str:
+    if width <= 0 or len(label) <= width:
+        return label
+    if width <= len(_ARMORY_TRUNCATION_MARKER):
+        return label[:width]
+    return f"{label[: width - len(_ARMORY_TRUNCATION_MARKER)]}{_ARMORY_TRUNCATION_MARKER}"
 
 
 def _armory_entry_text(
@@ -304,8 +335,8 @@ def _armory_entry_text(
     description = _armory_entry_description(entry, active=active)
     if _RichText is None:
         if description:
-            padded_width = max(label_width, len(label))
-            return f"{label:<{padded_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
+            label = _clip_armory_label(label, label_width)
+            return f"{label:<{label_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
         return label
     if not label:
         return ""
@@ -318,6 +349,9 @@ def _armory_entry_text(
     label_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
     description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
     padded_width = max(label_width, len(label))
+    if description:
+        label = _clip_armory_label(label, label_width)
+        padded_width = label_width
     text.append(f"{label:<{padded_width}}" if description else label, style=label_style)
     if description:
         text.append(" " * _ARMORY_DESCRIPTION_GAP, style=description_style)
@@ -395,6 +429,12 @@ class TuiArmoryMixin:
             highlighted=current.highlighted,
             rendered_height=current.size.height,
         )
+        label_width = _armory_layout_label_width(
+            label_width,
+            f"{_armory_selectable_count(self._armory_entries)} item(s)",
+            entries=self._armory_entries,
+            row_width=_armory_row_width(current, self),
+        )
         self.query_one("#armory-header", Static).update(
             _armory_header_text(
                 current_path=self._armory_current,
@@ -438,7 +478,12 @@ class TuiArmoryMixin:
             rendered_height=current.size.height,
         )
         count_label = f"{_armory_selectable_count(self._armory_entries)} item(s)"
-        label_width = _armory_layout_label_width(label_width, count_label)
+        label_width = _armory_layout_label_width(
+            label_width,
+            count_label,
+            entries=self._armory_entries,
+            row_width=_armory_row_width(current, self),
+        )
         self.query_one("#armory-header", Static).update(
             _armory_header_text(
                 current_path=self._armory_current,
@@ -522,7 +567,7 @@ class TuiArmoryMixin:
         )
         content = _armory_preview_text(entry, filter_query=self._armory_filter, active=active)
         preview.update(content)
-        sidebar.update(sidebar_text(content))
+        sidebar.update(sidebar_text(content, width=sidebar_content_width(sidebar)))
 
     def _move_armory_highlight(self: _ArmoryHost, offset: int) -> None:
         if not self._armory_entries:

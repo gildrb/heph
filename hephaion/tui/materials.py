@@ -13,6 +13,7 @@ from hephaion.tui.textual_compat import (
     OptionList,
     RichLog,
     Static,
+    sidebar_content_width,
     sidebar_text,
 )
 from hephaion.tui.textual_compat import (
@@ -323,7 +324,7 @@ class TuiMaterialsMixin:
             label = material_display_name(file)
             state = "active" if file not in self.session.disabled_source_files else "disabled"
             content = f"{title}\n\n@{label}\n{state}\n\n{file}"
-        sidebar.update(sidebar_text(content))
+        sidebar.update(sidebar_text(content, width=sidebar_content_width(sidebar)))
 
     def _format_material_option(
         self: _MaterialsHost,
