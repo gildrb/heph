@@ -255,9 +255,9 @@ RichLog {{
 }}
 #composer-frame {{
     layout: horizontal;
-    height: 3;
+    height: auto;
     min-height: 3;
-    max-height: 3;
+    max-height: 8;
     width: 100%;
     max-width: 100%;
     margin-top: 1;
@@ -356,9 +356,9 @@ OptionList:focus > .option-list--option-highlighted {{
     padding: 0 2;
 }}
 #composer {{
-    height: 1;
+    height: auto;
     min-height: 1;
-    max-height: 1;
+    max-height: 6;
     width: 100%;
     max-width: 100%;
     padding: 0 0;

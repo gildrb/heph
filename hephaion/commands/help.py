@@ -27,7 +27,7 @@ class HelpCommand(Command):
         lines.append(styled("Shortcuts", STYLE_PROMPT))
         lines.append("  Up/Down         Browse input history")
         lines.append("  Tab             Autocomplete slash commands")
-        lines.append("  Alt+Enter       Insert newline")
+        lines.append("  Shift+Enter/Ctrl+J  Insert newline")
         lines.append("  Ctrl+C          Exit Heph")
         lines.append("  Ctrl+D          Exit Heph")
         lines.append("")

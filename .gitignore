@@ -91,4 +91,5 @@ tests/*
 !tests/test_oauth.py
 !tests/test_rag_index.py
 !tests/test_study_priority.py
+!tests/test_tui_keyboard_protocol.py
 !tests/test_tools.py

@@ -49,6 +49,10 @@ def format_command_activity_line(line: str) -> str:
     return f"{_ACTIVITY_TRACE_INDENT}{detail}"
 
 
+def is_command_activity_line(line: str) -> bool:
+    return _command_activity_detail(line) is not None
+
+
 def _command_activity_detail(line: str) -> str | None:
     clean = _ANSI_ESCAPE_RE.sub("", line).strip()
     if not clean.casefold().startswith("info:"):

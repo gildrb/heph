@@ -38,6 +38,7 @@ from hephaion.tui.command_output import (
     filter_command_activity_details,
     format_command_activity_details,
     format_command_activity_line,
+    is_command_activity_line,
 )
 from hephaion.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
@@ -77,6 +78,7 @@ from hephaion.tui.ids import (
     TRANSCRIPT_SPACER_ID,
 )
 from hephaion.tui.inline_flows import TuiInlineFlowMixin
+from hephaion.tui.keyboard_protocol import install_textual_modified_key_compat
 from hephaion.tui.keymap import armory_binding_keys
 from hephaion.tui.materials import TuiMaterialsMixin
 from hephaion.tui.render_state import DirtyRegion, TuiRenderCache
@@ -216,6 +218,14 @@ _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _LIVE_RESIZE_POLL_SECONDS = 1 / 60
 _RESIZE_REDRAW_DELAY_SECONDS = 0.075
 _TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
+# Textual already requests Kitty keyboard protocol flag 1. Modified Enter still
+# collapses to plain Enter in that mode, so Heph pushes report-all keyboard
+# events while the TUI is mounted and translates printable CSI-u key names in
+# the composer input layer.
+_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER = "\x1b[>9u"
+_TERMINAL_XTERM_MODIFIED_KEYS = "\x1b[>4;1m"
+_TERMINAL_KEYBOARD_PROTOCOL_POP = "\x1b[<u"
+_TERMINAL_XTERM_MODIFIED_KEYS_RESET = "\x1b[>4;0m"
 _RESIZE_SENSITIVE_SELECTORS = (
     "#status",
     TRANSCRIPT_SELECTOR,
@@ -254,6 +264,7 @@ _command_output_text = command_output_text
 _filter_command_activity_details = filter_command_activity_details
 _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
+_is_command_activity_line = is_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
 _INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models", "/recommend", "/recommend-model"}
 _TUI_MANAGED_RESEND_COMMANDS = {"exam"}
@@ -352,6 +363,13 @@ class HephTui(
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
         Binding("f8", "evidence", "Evidence", show=False, priority=True),
+        Binding(
+            "shift+enter,ctrl+enter,alt+enter,ctrl+j",
+            "insert_composer_newline",
+            "Newline",
+            show=False,
+            priority=True,
+        ),
         Binding("ctrl+c", "quit", "Quit", priority=True),
         Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
         Binding("ctrl+d", "quit", "Quit", priority=True),
@@ -363,6 +381,7 @@ class HephTui(
         runtime_state: _TuiRuntimeState,
         palette: Theme,
     ) -> None:
+        install_textual_modified_key_compat()
         super().__init__()
         self.CSS = _tui_css(palette)  # ty:ignore[invalid-attribute-access]
         self._widgets = _WidgetClasses.from_palette(palette)
@@ -459,6 +478,7 @@ class HephTui(
     def on_mount(self) -> None:
         self.title = "Heph"
         self.sub_title = "agent inside Hephaion"
+        self._push_terminal_keyboard_protocol()
         self._install_tty_resize_reader()
         self._sync_terminal_size_from_tty()
         self._initialize_layout_visibility()
@@ -469,6 +489,27 @@ class HephTui(
         self._prefetch_model_catalogs()
         self.set_interval(_LIVE_RESIZE_POLL_SECONDS, self._sync_terminal_size_from_tty)
         self.set_interval(1.0, self._tick_session_duration)
+
+    def on_unmount(self) -> None:
+        self._pop_terminal_keyboard_protocol()
+
+    def _push_terminal_keyboard_protocol(self) -> None:
+        self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER)
+        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS)
+
+    def _pop_terminal_keyboard_protocol(self) -> None:
+        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS_RESET)
+        self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_POP)
+
+    def _write_terminal_control(self, sequence: str) -> None:
+        driver = getattr(self, "_driver", None)
+        write = getattr(driver, "write", None)
+        flush = getattr(driver, "flush", None)
+        if not callable(write):
+            return
+        write(sequence)
+        if callable(flush):
+            flush()
 
     def _initialize_layout_visibility(self) -> None:
         visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
@@ -754,6 +795,11 @@ class HephTui(
         }
         actions = {
             "escape": self._handle_escape_shortcut,
+            "alt+enter": self._insert_composer_newline_shortcut,
+            "ctrl+enter": self._insert_composer_newline_shortcut,
+            "ctrl+j": self._insert_composer_newline_shortcut,
+            "newline": self._insert_composer_newline_shortcut,
+            "shift+enter": self._insert_composer_newline_shortcut,
             "shift+tab": self._cycle_reasoning_shortcut,
             "tab": self._complete_shortcut,
         }
@@ -774,6 +820,10 @@ class HephTui(
         self.action_complete()
         return True
 
+    def _insert_composer_newline_shortcut(self) -> bool:
+        self.action_insert_composer_newline()
+        return True
+
     def _handle_escape_shortcut(self) -> bool:
         if self.busy:
             self.action_cancel_turn()
@@ -792,12 +842,21 @@ class HephTui(
             self._history_next()
 
     def _redirect_printable_key_to_composer(self, event: events.Key, composer: Input) -> None:
-        if self.focused is composer or not event.character or not event.is_printable:
+        if self.focused is composer:
+            return
+        character = self._composer_character_for_key(event)
+        if character is None:
             return
         composer.focus()
         self.set_focus(composer)
-        composer.insert_text_at_cursor(event.character)
+        composer.insert_text_at_cursor(character)
         self._consume_key(event)
+
+    @staticmethod
+    def _composer_character_for_key(event: events.Key) -> str | None:
+        if event.character and event.is_printable:
+            return event.character
+        return _tui_widgets.csi_u_key_text(event.key)
 
     @staticmethod
     def _consume_key(event: events.Key) -> None:
@@ -1114,6 +1173,15 @@ class HephTui(
             composer.cursor_position = 1
         self._refresh_completions()
 
+    def action_insert_composer_newline(self) -> None:
+        if self._inline_flow.active or self._armory_inline_active or self._materials_inline_active:
+            return
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
+        cursor = composer.cursor_position
+        composer.value = f"{composer.value[:cursor]}\n{composer.value[cursor:]}"
+        composer.cursor_position = cursor + 1
+        self._hide_completions()
+
     def action_open_armory_home(self) -> None:
         self._handle_armory_browser("/armory")
 
@@ -1212,6 +1280,8 @@ class HephTui(
 
         def stream_notice(line: str) -> None:
             nonlocal streamed_line
+            if not _is_command_activity_line(line):
+                return
             streamed_line = True
             self.call_from_thread(self._append_notice, _format_command_activity_line(line))
 
@@ -1223,7 +1293,7 @@ class HephTui(
         stdout.flush_pending()
         stderr.flush_pending()
         if streamed_line:
-            output = ""
+            output = _filter_command_activity_details(_command_output_text(stdout, stderr))
         else:
             output = _captured_command_output(stdout, stderr, activity_trace_mode)
         self.call_from_thread(

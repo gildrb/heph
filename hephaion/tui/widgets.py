@@ -11,25 +11,87 @@ from hephaion.tui.transparent import (
 )
 
 try:
+    from rich.cells import get_character_cell_size
+    from rich.text import Text
     from textual import events
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
+    from textual.geometry import Offset, Size
     from textual.screen import Screen
     from textual.selection import Selection
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
     Binding = None  # ty:ignore[invalid-assignment]
+    get_character_cell_size = None  # ty:ignore[invalid-assignment]
     events = None  # ty:ignore[invalid-assignment]
     Horizontal = object  # ty:ignore[invalid-assignment]
+    Offset = None  # ty:ignore[invalid-assignment]
+    Size = None  # ty:ignore[invalid-assignment]
     Vertical = object  # ty:ignore[invalid-assignment]
     Screen = object  # ty:ignore[invalid-assignment]
     Selection = None  # ty:ignore[invalid-assignment]
     Strip = None  # ty:ignore[invalid-assignment]
+    Text = None  # ty:ignore[invalid-assignment]
     Input = None  # ty:ignore[invalid-assignment]
     OptionList = None  # ty:ignore[invalid-assignment]
     RichLog = None  # ty:ignore[invalid-assignment]
     Static = None  # ty:ignore[invalid-assignment]
+
+_MULTILINE_INPUT_MAX_VISIBLE_LINES = 6
+_CSI_U_KEY_TEXT = {
+    "apostrophe": "'",
+    "at": "@",
+    "backslash": "\\",
+    "comma": ",",
+    "equals_sign": "=",
+    "full_stop": ".",
+    "grave_accent": "`",
+    "left_square_bracket": "[",
+    "minus": "-",
+    "plus": "+",
+    "right_square_bracket": "]",
+    "semicolon": ";",
+    "slash": "/",
+    "space": " ",
+    "underscore": "_",
+}
+_SHIFTED_CSI_U_KEY_TEXT = {
+    "1": "!",
+    "2": "@",
+    "3": "#",
+    "4": "$",
+    "5": "%",
+    "6": "^",
+    "7": "&",
+    "8": "*",
+    "9": "(",
+    "0": ")",
+    "apostrophe": '"',
+    "backslash": "|",
+    "comma": "<",
+    "equals_sign": "+",
+    "full_stop": ">",
+    "grave_accent": "~",
+    "left_square_bracket": "{",
+    "minus": "_",
+    "right_square_bracket": "}",
+    "semicolon": ":",
+    "slash": "?",
+    "space": " ",
+}
+
+
+def csi_u_key_text(key: str) -> str | None:
+    if not key.startswith("shift+"):
+        if len(key) == 1:
+            return key
+        return _CSI_U_KEY_TEXT.get(key)
+
+    base_key = key.removeprefix("shift+")
+    if len(base_key) == 1 and base_key.isalpha():
+        return base_key.upper()
+    return _SHIFTED_CSI_U_KEY_TEXT.get(base_key)
 
 
 @dataclass
@@ -69,12 +131,134 @@ def input_without_ctrl_a_class(base: type) -> type:
     ):
         BINDINGS = bindings
 
+        @property
+        def content_width(self) -> int:
+            if "\n" not in self.value:
+                return super().content_width
+            if self.placeholder and not self.value:
+                return len(self.placeholder)
+            line_widths = (Text(line, end="").cell_len for line in self.value.split("\n"))
+            return max(line_widths, default=0) + 1
+
+        @property
+        def cursor_screen_offset(self) -> Offset:
+            if "\n" not in self.value:
+                return super().cursor_screen_offset
+            x, y, _width, _height = self.content_region
+            scroll_x, scroll_y = self.scroll_offset
+            cursor_y, cursor_x = self._cursor_line_column()
+            return Offset(x + cursor_x - scroll_x, y + cursor_y - scroll_y)
+
         def on_key(self, event: events.Key) -> None:
-            if event.key != "ctrl+a":
+            if event.key == "ctrl+a":
+                self.app.action_open_armory_home()
+                event.prevent_default()
+                event.stop()
                 return
-            self.app.action_open_armory_home()
+
+            text = csi_u_key_text(event.key)
+            if text is None:
+                return
+            if self.selection.is_empty:
+                self.insert_text_at_cursor(text)
+            else:
+                self.replace(text, *self.selection)
             event.prevent_default()
             event.stop()
+
+        def _watch_value(self, value: str) -> None:
+            super()._watch_value(value)
+            line_count = len(value.split("\n"))
+            self.virtual_size = Size(self.content_width, line_count)
+            self.styles.height = min(line_count, _MULTILINE_INPUT_MAX_VISIBLE_LINES)
+            self.refresh(layout=True)
+
+        def render_line(self, y: int) -> Strip:
+            if "\n" not in self.value:
+                return super().render_line(y)
+
+            scroll_x, scroll_y = self.scroll_offset
+            line_y = scroll_y + y
+            lines = self.value.split("\n")
+            if line_y >= len(lines):
+                return Strip.blank(self.size.width, self.rich_style)
+
+            line_start = sum(len(line) + 1 for line in lines[:line_y])
+            line = lines[line_y]
+            result = Text(line, no_wrap=True, overflow="ignore", end="")
+            if self.highlighter is not None:
+                result = self.highlighter(result)
+
+            if self.has_focus:
+                self._style_selection(result, line_start, len(line))
+                if self._cursor_visible:
+                    self._style_cursor(result, line_start, len(line))
+
+            max_content_width = self.scrollable_content_region.width
+            segments = list(
+                self.app.console.render(
+                    result,
+                    self.app.console_options.update_width(self.content_width),
+                )
+            )
+            strip = Strip(segments)
+            strip = strip.crop(scroll_x, scroll_x + max_content_width + 1)
+            strip = strip.extend_cell_length(max_content_width + 1)
+            return strip.apply_style(self.rich_style)
+
+        def cell_offset_to_index(self, offset_x: int, offset_y: int) -> int:
+            if "\n" not in self.value:
+                return self._cell_offset_to_index(offset_x)
+
+            scroll_x, scroll_y = self.scroll_offset
+            lines = self.value.split("\n")
+            line_y = min(max(0, offset_y + scroll_y), len(lines) - 1)
+            line_start = sum(len(line) + 1 for line in lines[:line_y])
+            return line_start + self._line_cell_offset_to_index(lines[line_y], offset_x + scroll_x)
+
+        def _cursor_line_column(self) -> tuple[int, int]:
+            before_cursor = self.value[: self.cursor_position]
+            line_y = before_cursor.count("\n")
+            line_start = before_cursor.rfind("\n") + 1
+            cursor_x = Text(before_cursor[line_start:], end="").cell_len
+            return line_y, cursor_x
+
+        def _style_selection(self, result: Text, line_start: int, line_length: int) -> None:
+            if self.selection.is_empty:
+                return
+            start, end = sorted(self.selection)
+            line_end = line_start + line_length
+            selection_start = max(start, line_start) - line_start
+            selection_end = min(end, line_end) - line_start
+            if selection_start < selection_end:
+                result.stylize_before(
+                    self.get_component_rich_style("input--selection"),
+                    selection_start,
+                    selection_end,
+                )
+
+        def _style_cursor(self, result: Text, line_start: int, line_length: int) -> None:
+            cursor = self.cursor_position
+            if not line_start <= cursor <= line_start + line_length:
+                return
+            cursor_column = cursor - line_start
+            if cursor_column == line_length:
+                result.pad_right(1)
+            result.stylize(
+                self.get_component_rich_style("input--cursor"),
+                cursor_column,
+                cursor_column + 1,
+            )
+
+        @staticmethod
+        def _line_cell_offset_to_index(line: str, offset: int) -> int:
+            cell_offset = 0
+            for index, char in enumerate(line):
+                cell_width = get_character_cell_size(char)
+                if cell_offset <= offset < cell_offset + cell_width:
+                    return index
+                cell_offset += cell_width
+            return min(max(0, offset), len(line))
 
     return HephInput
 
@@ -183,7 +367,7 @@ def selectable_transparent_input_class(base: type) -> type:
         async def _on_click(self, event: events.Click) -> None:
             offset = event.get_content_offset(self)
             if offset is not None:
-                self.cursor_position = self._cell_offset_to_index(offset.x)
+                self.cursor_position = self.cell_offset_to_index(offset.x, offset.y)
             event.stop()
 
         def render_line(self, y: int) -> Strip:
