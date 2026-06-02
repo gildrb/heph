@@ -64,6 +64,7 @@ from hephaion.tui.render_state import DirtyRegion, TuiRenderCache
 from hephaion.tui.session_state import TuiRuntimeState
 from hephaion.tui.slash_completion import (
     changed_highlight_indices,
+    completion_menu_scroll_y,
     completion_menu_visible_slice,
 )
 from hephaion.tui.style import _tui_css
@@ -100,6 +101,10 @@ _TURN_LIST_COMMANDS = {"list", "history"}
 _TURN_BROWSE_COMMANDS = {"", "browse", "menu"}
 _TURN_LATEST_COMMANDS = {"resume", "last", "latest"}
 _INLINE_MENU_DESCRIPTION_GAP = 4
+_SESSION_OPTION_SEPARATOR = "\t"
+_SESSION_TITLE_GAP = 2
+_SESSION_METADATA_GAP = 2
+_OPTION_HORIZONTAL_PADDING = 4
 _TURN_PREVIEW_LIMIT = 64
 
 
@@ -391,6 +396,93 @@ def _inline_menu_option_text(
     return text
 
 
+def _session_option_description(entry: chat_storage.SessionRecord) -> str:
+    title = entry["title"] or "(untitled)"
+    return f"{title}{_SESSION_OPTION_SEPARATOR}{entry['updated_at']}"
+
+
+def _split_session_option_description(description: str) -> tuple[str, str]:
+    title, separator, metadata = description.partition(_SESSION_OPTION_SEPARATOR)
+    if separator:
+        return title, metadata
+    return description, ""
+
+
+def _truncate_with_ellipsis(value: str, width: int) -> str:
+    if width <= 0:
+        return ""
+    if len(value) <= width:
+        return value
+    if width <= 3:
+        return "." * width
+    return f"{value[: width - 3]}..."
+
+
+def _session_menu_option_parts(
+    label: str,
+    description: str,
+    *,
+    label_width: int,
+    prompt_width: int,
+) -> tuple[str, str, str, str, str]:
+    title, metadata = _split_session_option_description(description)
+    padded_label_width = max(label_width, len(label))
+    if prompt_width <= padded_label_width:
+        return _truncate_with_ellipsis(label, prompt_width), "", "", "", ""
+
+    label_text = f"{label:<{padded_label_width}}"
+    remaining_width = prompt_width - len(label_text)
+    title_gap = " " * min(_SESSION_TITLE_GAP, remaining_width)
+    remaining_width -= len(title_gap)
+
+    metadata_gap_width = 0
+    if metadata and remaining_width > _SESSION_METADATA_GAP:
+        metadata_gap_width = _SESSION_METADATA_GAP
+        metadata_width = remaining_width - metadata_gap_width
+        metadata = _truncate_with_ellipsis(metadata, metadata_width)
+    else:
+        metadata = ""
+
+    metadata_width = len(metadata)
+    title_width = remaining_width - metadata_gap_width - metadata_width
+    title_text = _truncate_with_ellipsis(title, title_width)
+    metadata_gap = ""
+    if metadata:
+        used_width = len(label_text) + len(title_gap) + len(title_text) + metadata_width
+        metadata_gap = " " * max(_SESSION_METADATA_GAP, prompt_width - used_width)
+    return label_text, title_gap, title_text, metadata_gap, metadata
+
+
+def _session_menu_option_text(
+    label: str,
+    description: str,
+    *,
+    selected: bool,
+    label_width: int,
+    prompt_width: int,
+) -> str | Text:
+    parts = _session_menu_option_parts(
+        label,
+        description,
+        label_width=label_width,
+        prompt_width=prompt_width,
+    )
+    if _RichText is None:
+        return "".join(parts)
+    palette = current_palette()
+    label_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
+    title_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
+    metadata_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
+    text = _RichText()
+    label_text, title_gap, title_text, metadata_gap, metadata = parts
+    text.append(label_text, style=label_style)
+    text.append(title_gap, style=title_style)
+    text.append(title_text, style=title_style)
+    text.append(metadata_gap, style=metadata_style)
+    text.append(metadata, style=metadata_style)
+    return text
+
+
 def _inline_menu_label_width(options: list[tuple[str, str]]) -> int:
     return max((len(label) for label, _description in options), default=0)
 
@@ -554,13 +646,27 @@ class TuiInlineFlowMixin:
         composer = self.query_one("#composer", Input)
         if options:
             selected = 0 if highlighted is None else min(highlighted, len(options) - 1)
-            label_width = _inline_menu_visible_label_width(
-                options,
-                highlighted=selected,
-                rendered_height=suggestions.size.height,
-            )
-            suggestions.set_options(
-                [
+            rendered_height = suggestions.size.height
+            if self._inline_flow.name == "sessions":
+                label_width = _inline_menu_label_width(options)
+                prompt_width = max(1, suggestions.size.width - _OPTION_HORIZONTAL_PADDING)
+                prompts = [
+                    _session_menu_option_text(
+                        label,
+                        description,
+                        selected=index == selected,
+                        label_width=label_width,
+                        prompt_width=prompt_width,
+                    )
+                    for index, (label, description) in enumerate(options)
+                ]
+            else:
+                label_width = _inline_menu_visible_label_width(
+                    options,
+                    highlighted=selected,
+                    rendered_height=rendered_height,
+                )
+                prompts = [
                     _inline_menu_option_text(
                         label,
                         description,
@@ -569,13 +675,18 @@ class TuiInlineFlowMixin:
                     )
                     for index, (label, description) in enumerate(options)
                 ]
+            scroll_y = completion_menu_scroll_y(selected, len(options), rendered_height)
+            suggestions.set_options(
+                prompts,
             )
             suggestions.highlighted = selected
+            suggestions.scroll_y = scroll_y
         else:
             query = composer.value.strip()
             suffix = f" for {query}" if query else ""
             suggestions.set_options([f"No matches{suffix}"])
             suggestions.highlighted = None
+            suggestions.scroll_y = 0
         suggestions.add_class("inline-menu")
         suggestions.add_class("visible")
         self._refresh_footer_hints()
@@ -591,21 +702,36 @@ class TuiInlineFlowMixin:
         if previous == highlighted:
             return
         options = self._inline_flow.options
-        label_width = _inline_menu_scrolled_label_width(
-            options,
-            scroll_y=int(suggestions.scroll_y),
-            rendered_height=suggestions.size.height,
-        )
+        if self._inline_flow.name == "sessions":
+            label_width = _inline_menu_label_width(options)
+            prompt_width = max(1, suggestions.size.width - _OPTION_HORIZONTAL_PADDING)
+        else:
+            label_width = _inline_menu_scrolled_label_width(
+                options,
+                scroll_y=int(suggestions.scroll_y),
+                rendered_height=suggestions.size.height,
+            )
+            prompt_width = 0
         for option_index in changed_highlight_indices(previous, highlighted, len(options)):
             label, description = options[option_index]
-            suggestions.replace_option_prompt_at_index(
-                option_index,
-                _inline_menu_option_text(
+            if self._inline_flow.name == "sessions":
+                prompt = _session_menu_option_text(
                     label,
                     description,
                     selected=option_index == highlighted,
                     label_width=label_width,
-                ),
+                    prompt_width=prompt_width,
+                )
+            else:
+                prompt = _inline_menu_option_text(
+                    label,
+                    description,
+                    selected=option_index == highlighted,
+                    label_width=label_width,
+                )
+            suggestions.replace_option_prompt_at_index(
+                option_index,
+                prompt,
             )
         suggestions.highlighted = highlighted
         self._refresh_completion_position()
@@ -1006,7 +1132,7 @@ class TuiInlineFlowMixin:
             options=[
                 (
                     entry["session_id"],
-                    f"{entry['title'] or '(untitled)'}  {entry['updated_at']}",
+                    _session_option_description(entry),
                 )
                 for entry in sessions
             ],
