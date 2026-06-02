@@ -89,7 +89,8 @@ def current_palette() -> Theme:
 def style_code(style_name: str) -> str:
     palette = current_palette()
     style_groups: tuple[tuple[set[str], str], ...] = (
-        ({"accent", "warning", "success"}, f"{BOLD}{ansi_fg(palette.action_primary_bg)}"),
+        ({"accent", "warning"}, f"{BOLD}{ansi_fg(palette.action_primary_bg)}"),
+        ({"success"}, f"{BOLD}{ansi_fg(palette.status_success_text)}"),
         ({"prompt", "assistant", "emphasis"}, f"{BOLD}{ansi_fg(palette.text_primary)}"),
         ({"brand", "ember"}, f"{BOLD}{ansi_fg(palette.brand_primary)}"),
         ({"chrome_label", "shortcut", "metadata"}, ansi_fg(palette.text_secondary)),

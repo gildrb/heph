@@ -37,6 +37,7 @@ class Theme:
     action_primary_bg: str
     action_primary_text: str
 
+    status_success_text: str
     status_error_text: str
 
 
@@ -52,6 +53,7 @@ DARK = Theme(
     brand_primary="#FFFFFF",
     action_primary_bg="#57C785",
     action_primary_text="#000000",
+    status_success_text="#57C785",
     status_error_text="#FF6B6B",
 )
 
@@ -67,6 +69,7 @@ LIGHT = Theme(
     brand_primary="#000000",
     action_primary_bg="#0F7A3A",
     action_primary_text="#FFFFFF",
+    status_success_text="#006B32",
     status_error_text="#B00020",
 )
 

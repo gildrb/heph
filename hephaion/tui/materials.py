@@ -341,7 +341,7 @@ class TuiMaterialsMixin:
             marker_color = f"bold {palette.brand_primary}"
             prefix_color = f"bold {palette.brand_primary}"
         elif enabled_file:
-            state_color = palette.action_primary_bg
+            state_color = palette.status_success_text
             marker_color = palette.text_muted
             prefix_color = palette.text_muted
         else:

@@ -60,6 +60,7 @@ from hephaion.terminal import current_palette, set_theme
 from hephaion.terminal.palette import TRANSPARENT
 from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaion.tui.flow_state import InlineFlow
+from hephaion.tui.render_state import DirtyRegion, TuiRenderCache
 from hephaion.tui.session_state import TuiRuntimeState
 from hephaion.tui.slash_completion import (
     changed_highlight_indices,
@@ -134,6 +135,8 @@ class _InlineFlowHost(Protocol):
     session: ChatSession
     state: TuiRuntimeState
     _inline_flow: InlineFlow
+    _transcript_render_width: int | None
+    _render_cache: TuiRenderCache
 
     @property
     def stylesheet(self) -> _StylesheetObject: ...
@@ -161,6 +164,8 @@ class _InlineFlowHost(Protocol):
 
     def _append_notice(self, text: str) -> None: ...
 
+    def _replace_last_notice(self, text: str) -> None: ...
+
     def _append_error(self, text: str) -> None: ...
 
     def _append_plain(self, text: str) -> None: ...
@@ -182,6 +187,8 @@ class _InlineFlowHost(Protocol):
     def _update_info_panel(self) -> None: ...
 
     def _schedule_transcript_reflow(self) -> None: ...
+
+    def _reflow_transcript_entries(self) -> None: ...
 
     def _open_login_flow(self) -> None: ...
 
@@ -1149,7 +1156,7 @@ class TuiInlineFlowMixin:
         set_theme(theme)
         self._refresh_tui_css()
         display_label = THEME_LABELS[theme]
-        self._append_notice(f"theme: {display_label}")
+        self._replace_last_notice(f"{display_label} theme.")
         self._open_appearance_flow(selected_label=display_label)
 
     def _handle_activity_trace_choice(self: _InlineFlowHost, label: str) -> None:
@@ -1180,10 +1187,12 @@ class TuiInlineFlowMixin:
         screen = cast("_ScreenObject", self.screen)
         screen.styles.background = palette.bg_app
         screen.styles.background_tint = TRANSPARENT
+        self._render_cache.forget(*DirtyRegion)
         self._refresh_status()
         self._refresh_footer_hints()
         self._update_info_panel()
-        self._schedule_transcript_reflow()
+        self._transcript_render_width = None
+        self._reflow_transcript_entries()
 
     def _perform_session_resume(self: _InlineFlowHost, session_id: str) -> None:
         if self.session.armory_path is None:

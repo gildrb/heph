@@ -271,7 +271,7 @@ def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) 
         style = (
             palette.status_error_text
             if name in session.disabled_source_files
-            else palette.action_primary_bg
+            else palette.status_success_text
         )
         text.stylize(style, idx, idx + len(token))
 
