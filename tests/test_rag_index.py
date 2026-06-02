@@ -11,8 +11,13 @@ from pathlib import Path
 
 import pytest
 
+from hephaion import commands
+from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.commands import model as _commands_model
+from hephaion.providers.config import default_config
 from hephaion.rag import index as rag_index
 from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.index import (
     ArmoryIndex,
     _documents_digest,
@@ -20,6 +25,9 @@ from hephaion.rag.index import (
     load_or_build,
     scan_unindexable_files,
 )
+from hephaion.runtime import ChatConfig, Conversation
+from hephaion.terminal.history import InputHistory
+from hephaion.terminal.input import handle_input
 
 
 @pytest.fixture
@@ -345,6 +353,272 @@ class TestBuildIndex:
     def test_build_index_persists(self, armory: Path) -> None:
         build_index(armory)
         assert (armory / ".hephaion" / "rag_index.json").exists()
+
+
+class TestIndexCommand:
+    def test_refreshes_current_armory_material_index(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="index-session",
+            armory_path=armory,
+        )
+
+        result = commands.IndexCommand().handle(session, "")
+
+        assert capsys.readouterr().out == ""
+        assert result.output is not None
+        assert session.rag_index is not None
+        assert result.output == (
+            f"Index refreshed: 3 sources, {session.rag_index.chunk_count} chunks; "
+            "cache 0 reused, 3 rebuilt, 0 skipped."
+        )
+        assert "@python.md" not in result.output
+        assert session.rag_index.chunk_count > 0
+        assert (armory / ".hephaion" / "rag_index.json").is_file()
+
+    def test_summarizes_reused_materials(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="index-session",
+            armory_path=armory,
+        )
+        first_result = commands.IndexCommand().handle(session, "")
+        assert first_result.output is not None
+        capsys.readouterr()
+
+        result = commands.IndexCommand().handle(session, "")
+
+        assert capsys.readouterr().out == ""
+        assert result.output is not None
+        assert "cache 3 reused, 0 rebuilt, 0 skipped" in result.output
+        assert "\n" not in result.output
+        assert "@python.md" not in result.output
+
+    def test_dispatch_prints_summary_without_info_prefix(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="index-session",
+            armory_path=armory,
+        )
+
+        handle_input(session, "/index", InputHistory([]))
+
+        out = capsys.readouterr().out
+        assert "Index refreshed: 3 sources" in out
+        assert "cache 0 reused, 3 rebuilt, 0 skipped" in out
+        assert "info:" not in out
+        assert "error:" not in out
+
+    def test_requires_armory_for_material_index(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = create_plain_session(ChatConfig(api_key="test-key"))
+
+        commands.IndexCommand().handle(session, "")
+
+        out = capsys.readouterr().out
+        assert "No armory attached" in out
+        assert "Use /armory" in out
+
+    def test_list_reports_cross_armory_locations(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = create_plain_session(ChatConfig(api_key="test-key"))
+
+        commands.IndexCommand().handle(session, f"add {armory}")
+        capsys.readouterr()
+        commands.IndexCommand().handle(session, "list")
+
+        out = capsys.readouterr().out
+        assert "Cross-armory search locations:" in out
+        assert str(armory) in out
+
+
+class TestEvidenceCommand:
+    def test_overview_is_compact(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="evidence-session",
+            armory_path=armory,
+        )
+        content = "Python is a high-level programming language."
+        chunk = Chunk(
+            text=content,
+            source="materials/python.md",
+            index=0,
+            char_start=16,
+            char_end=16 + len(content),
+        )
+        session.last_turn_evidence = TurnEvidence(
+            items=(EvidenceChunk(evidence_id="E1", chunk=chunk, score=0.91, content=content),)
+        )
+
+        commands.EvidenceCommand().handle(session, "")
+
+        out = capsys.readouterr().out
+        assert "Last turn evidence: 1 excerpt(s) from 1 source(s)" in out
+        assert "Details: /evidence E1" in out
+        assert "E1  @python.md" in out
+        assert "line" in out
+        assert "score" not in out
+        assert content not in out
+
+    def test_detail_shows_source_text_without_relevance_score(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="evidence-session",
+            armory_path=armory,
+        )
+        content = "Python is a high-level programming language."
+        chunk = Chunk(
+            text=content,
+            source="materials/python.md",
+            index=0,
+            char_start=16,
+            char_end=16 + len(content),
+        )
+        session.last_turn_evidence = TurnEvidence(
+            items=(EvidenceChunk(evidence_id="E1", chunk=chunk, score=0.91, content=content),)
+        )
+
+        commands.EvidenceCommand().handle(session, "E1")
+
+        out = capsys.readouterr().out
+        assert "Source text:" in out
+        assert content in out
+        assert "score" not in out
+
+
+class TestUsageCommand:
+    def test_outputs_single_compact_line(self, capsys: pytest.CaptureFixture[str]) -> None:
+        session = create_plain_session(ChatConfig(api_key="test-key"))
+        session.usage.estimate_from_chars(400, 200, "gpt-5.4-mini")
+
+        result = commands.UsageCommand().handle(session, "")
+
+        assert capsys.readouterr().out == ""
+        assert result.output is not None
+        assert "\n" not in result.output
+        assert result.output.startswith("Usage: 1 call(s);")
+        assert "100 prompt, 50 output, 150 total tokens" in result.output
+
+    def test_dispatch_prints_single_compact_line(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = create_plain_session(ChatConfig(api_key="test-key"))
+        session.usage.estimate_from_chars(400, 200, "gpt-5.4-mini")
+
+        handle_input(session, "/usage", InputHistory([]))
+
+        out = capsys.readouterr().out
+        assert out.count("\n") == 1
+        assert out.startswith("Usage: 1 call(s);")
+        assert "info:" not in out
+        assert "error:" not in out
+
+
+class TestCompactCommandStatus:
+    def test_memory_command_is_not_registered(self) -> None:
+        registry = commands.get_registry()
+
+        assert registry.find("memory") is None
+        assert not any(suggestion.name == "memory" for suggestion in registry.suggestions())
+        assert not hasattr(commands, "MemoryCommand")
+
+    def test_settings_fallback_is_single_plain_line(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = create_plain_session(ChatConfig(api_key="test-key"))
+
+        result = commands.SettingsCommand().handle(session, "")
+
+        out = capsys.readouterr().out
+        assert result.output is None
+        assert out.count("\n") == 1
+        assert out.startswith("Settings are managed in the TUI with /settings.")
+        assert "Theme:" in out
+        assert "activity trace:" in out
+        assert "info:" not in out
+
+    def test_models_no_match_is_single_plain_line(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(
+                api_key="test-key",
+                base_url="https://api.openai.com/v1",
+                model="gpt-5.4",
+            ),
+            conversation=Conversation(),
+            session_id="models-session",
+        )
+        monkeypatch.setattr(
+            _commands_model.ProviderConfig,
+            "load",
+            classmethod(lambda _cls: default_config()),
+        )
+
+        result = commands.ModelsCommand().handle(session, "does-not-exist")
+
+        out = capsys.readouterr().out
+        assert result.output is None
+        assert out.count("\n") == 1
+        assert out.startswith("No matching models available.")
+        assert "Current model: gpt-5.4" in out
+        assert "Use /login" in out
+
+    def test_vocabulary_status_is_single_plain_line(
+        self,
+        armory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = ChatSession(
+            config=ChatConfig(api_key="test-key"),
+            conversation=Conversation(),
+            session_id="vocabulary-session",
+            armory_path=armory,
+        )
+
+        result = commands.VocabCommand().handle(session, "status")
+
+        out = capsys.readouterr().out
+        assert result.output is None
+        assert out.count("\n") == 1
+        assert out.startswith("Vocabulary: Total cards")
+        assert "material files:" in out
+        assert "info:" not in out
 
 
 class TestLoadOrBuild:

@@ -202,8 +202,8 @@ Hephaion is local-first by default: extracted study concepts are written to
 `<armory>/.hephaion/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
-Memory stays armory-scoped. `/memory status` reports the active local store and
-entry count for the current armory session.
+Memory stays armory-scoped. `/status` includes the current armory session's
+memory count when a local memory store is attached.
 
 ## Diagnostics
 

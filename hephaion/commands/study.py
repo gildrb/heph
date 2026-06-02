@@ -223,14 +223,12 @@ class VocabCommand(Command):
         store.sync_with_deck(deck)
         save_schedule(store)
         stats = store.stats()
-        lines = [
-            f"  Total cards:  {stats['total']}",
-            f"  New:          {stats['new']}",
-            f"  Due now:      {stats['due']}",
-            f"  Mastered:     {stats['mastered']}",
-            f"  Material files: {', '.join(deck.source_files) if deck.source_files else 'none'}",
-        ]
-        print("\n".join(lines))
+        source_files = ", ".join(deck.source_files) if deck.source_files else "none"
+        print(
+            f"Vocabulary: Total cards {stats['total']}; new {stats['new']}; "
+            f"due now {stats['due']}; mastered {stats['mastered']}; "
+            f"material files: {source_files}."
+        )
         return CommandResult()
 
     @staticmethod

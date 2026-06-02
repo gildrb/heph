@@ -73,14 +73,12 @@ def _filtered_model_choices(choices: Sequence[ModelChoice], query: str) -> list[
 
 def _no_matching_model_text(session: object) -> str:
     s = ensure_session(session)
-    lines = [
-        f"  Model:   {s.config.model}",
-        f"  API:     {s.config.base_url}",
-        f"  Key:     {_model_key_status(s.config.base_url, s.config.resolved_api_key)}",
-        "",
-        "  No matching models available. Use /login to connect a provider.",
-    ]
-    return "\n".join(lines)
+    key_status = _model_key_status(s.config.base_url, s.config.resolved_api_key)
+    return (
+        "No matching models available. "
+        f"Current model: {s.config.model}; API: {s.config.base_url}; key: {key_status}. "
+        "Use /login to connect a provider."
+    )
 
 
 def _model_key_status(base_url: str, resolved_api_key: str) -> str:

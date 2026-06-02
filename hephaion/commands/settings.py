@@ -19,7 +19,6 @@ from hephaion.privacy.consent import (
     crash_reports_enabled,
 )
 from hephaion.providers.config import ProviderConfig
-from hephaion.terminal import print_info
 
 
 class SettingsCommand(Command):
@@ -38,16 +37,13 @@ class SettingsCommand(Command):
         )
         vocab = VOCAB_STRICTNESS_LABELS.get(settings.vocab_strictness, settings.vocab_strictness)
         default_armory = settings.default_armory_path or "none"
-        lines = [
-            "Settings are managed in the TUI with /settings.",
-            f"  Theme: {settings.theme}",
-            f"  Activity trace: {activity}",
-            f"  Vocabulary practice: {vocab}",
-            f"  Default armory: {default_armory}",
-            f"  Usage analytics: {'enabled' if analytics_enabled() else 'disabled'}",
-            f"  Crash reports: {'enabled' if crash_reports_enabled() else 'disabled'}",
-            f"  Provider: {provider}",
-        ]
-        for line in lines:
-            print_info(line)
+        analytics = "enabled" if analytics_enabled() else "disabled"
+        crash_reports = "enabled" if crash_reports_enabled() else "disabled"
+        print(
+            "Settings are managed in the TUI with /settings. "
+            f"Theme: {settings.theme}; activity trace: {activity}; "
+            f"vocabulary practice: {vocab}; default armory: {default_armory}; "
+            f"usage analytics: {analytics}; crash reports: {crash_reports}; "
+            f"provider: {provider}."
+        )
         return CommandResult()

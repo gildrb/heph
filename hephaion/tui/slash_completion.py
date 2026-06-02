@@ -284,11 +284,6 @@ class SlashCompletionEngine:
         return coverage - start_penalty - gap_penalty
 
     def _argument_suggestions(self, cmd_name: str) -> list[tuple[str, str]]:
-        if cmd_name == "memory":
-            return [
-                ("status", "Show local memory status"),
-            ]
-
         if cmd_name == "sessions":
             return [
                 ("list", "List saved sessions in this armory"),

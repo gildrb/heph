@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 from hephaion.armory.search import (
@@ -10,12 +11,29 @@ from hephaion.armory.search import (
     load_known_armories,
     remove_known_armory,
 )
-from hephaion.chat.session import refresh_armory_sources
+from hephaion.chat.session import ChatSession, refresh_armory_sources
 from hephaion.commands._base import Command, CommandResult, ensure_session
+from hephaion.materials import material_display_name
+from hephaion.rag.index import ArmoryIndex, build_index
 from hephaion.terminal import print_error, print_info, print_success
 
 _SUPPORTED_IMPORT_SUFFIXES = frozenset((".md", ".txt", ".pdf", ".rst", ".py", ".json"))
 _INDEX_REMOVE_COMMANDS = frozenset(("remove", "rm", "delete"))
+
+
+@dataclass(slots=True)
+class _MaterialIndexRefreshStats:
+    reused: int = 0
+    rebuilt: int = 0
+    skipped: int = 0
+
+    def record(self, state: str, detail: str) -> None:
+        if state == "indexed" and detail.endswith(", reused)"):
+            self.reused += 1
+        elif state == "indexed":
+            self.rebuilt += 1
+        elif state == "skipped":
+            self.skipped += 1
 
 
 class ImportCommand(Command):
@@ -112,14 +130,16 @@ def _print_imported_files(imported: list[str]) -> None:
 
 class IndexCommand(Command):
     name = "index"
-    description = "Manage cross-armory search index"
+    description = "Refresh the current armory materials index"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        del session
+        s = ensure_session(session)
         parts = args.strip().split(maxsplit=1)
-        subcmd = parts[0].lower() if parts else "list"
+        subcmd = parts[0].lower() if parts else ""
         value = parts[1].strip() if len(parts) > 1 else ""
 
+        if not subcmd:
+            return _handle_material_index_refresh(s)
         if subcmd == "list":
             return _handle_index_list()
         if subcmd == "add":
@@ -127,15 +147,50 @@ class IndexCommand(Command):
         if subcmd in _INDEX_REMOVE_COMMANDS:
             return _handle_index_remove(value)
         print_error("Usage: /index [list | add <path> | remove <path>]")
+        print_info("Run bare /index to refresh the current armory materials index.")
         return CommandResult()
+
+
+def _handle_material_index_refresh(session: ChatSession) -> CommandResult:
+    if session.armory_path is None:
+        print_error("No armory attached. Use /armory to open one.")
+        return CommandResult()
+
+    stats = _MaterialIndexRefreshStats()
+    index = build_index(session.armory_path, progress=stats.record)
+    session.rag_index = index
+    return CommandResult(output=_material_index_summary(index, stats))
+
+
+def _material_index_summary(
+    index: ArmoryIndex,
+    stats: _MaterialIndexRefreshStats,
+) -> str:
+    line = (
+        f"Index refreshed: {_count_label(len(index.documents), 'source')}, "
+        f"{_count_label(index.chunk_count, 'chunk')}; "
+        f"cache {stats.reused} reused, {stats.rebuilt} rebuilt, {stats.skipped} skipped"
+    )
+    if stats.skipped:
+        skipped = ", ".join(
+            f"@{material_display_name(source)}" for source in sorted(index.unindexable_files)[:3]
+        )
+        suffix = "..." if len(index.unindexable_files) > 3 else ""
+        line = f"{line}; skipped {skipped}{suffix}"
+    return f"{line}."
+
+
+def _count_label(count: int, noun: str) -> str:
+    suffix = "" if count == 1 else "s"
+    return f"{count} {noun}{suffix}"
 
 
 def _handle_index_list() -> CommandResult:
     armories = load_known_armories()
     if not armories:
-        print_info("No armories indexed. Use /index add <path> to add one.")
+        print_info("No cross-armory search locations saved. Use /index add <path> to add one.")
         return CommandResult()
-    lines = ["Indexed armories:"]
+    lines = ["Cross-armory search locations:"]
     lines.extend(f"  {p}" for p in armories)
     print("\n".join(lines))
     return CommandResult()

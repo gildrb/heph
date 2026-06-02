@@ -15,7 +15,6 @@ from hephaion.commands.display import (
     UsageCommand,
 )
 from hephaion.commands.help import ExitCommand, HelpCommand
-from hephaion.commands.memory import MemoryCommand
 from hephaion.commands.model import ModelsCommand, RecommendCommand
 from hephaion.commands.session import (
     ArmoryCommand,
@@ -89,7 +88,6 @@ def get_registry() -> CommandRegistry:
                 RemindCommand,
                 ModelsCommand,
                 RecommendCommand,
-                MemoryCommand,
                 SettingsCommand,
                 SessionsCommand,
                 TurnCommand,
@@ -124,7 +122,6 @@ __all__ = [
     "IndexCommand",
     "LoginCommand",
     "LogoutCommand",
-    "MemoryCommand",
     "ModelsCommand",
     "NewCommand",
     "PriorityCommand",

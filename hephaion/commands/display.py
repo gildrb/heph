@@ -13,6 +13,7 @@ from hephaion.commands._base import (
     format_duration,
     pct,
 )
+from hephaion.materials import material_display_name
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.source_mapping import (
     SourceLineSpan,
@@ -66,44 +67,30 @@ def _item_path_and_span(
 
 
 def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, ...]) -> str:
-    by_source: dict[str, list[EvidenceChunk]] = {}
-    for item in items:
-        by_source.setdefault(item.source, []).append(item)
+    source_count = len({item.source for item in items})
+    lines = [
+        f"Last turn evidence: {len(items)} excerpt(s) from {source_count} source(s).",
+        "Details: /evidence E1    Open: /evidence E1 open",
+        "",
+    ]
+    lines.extend(_format_evidence_overview_item(session, item) for item in items)
+    return "\n".join(lines)
 
-    header = "\n".join(
-        [
-            "Last turn sources:",
-            "Expand exact source text: /evidence E1",
-            "Open source at line:      /evidence E1 open",
-        ]
-    )
-    source_blocks: list[str] = []
-    for source, source_items in by_source.items():
-        source_lines = [source]
-        for item in source_items:
-            _, span = _item_path_and_span(session, item)
-            location = evidence_location_label(item.source, item.chunk, span)
-            if len(source_lines) > 1:
-                source_lines.append("")
-            source_lines.append(f"  {item.evidence_id}  {location}; score={item.score:.3f}")
-            if item.chunk.heading:
-                source_lines.append(f"      heading: {item.chunk.heading}")
-            preview = " ".join(item.content.split())
-            if len(preview) > 160:
-                preview = f"{preview[:157]}..."
-            if preview:
-                source_lines.append(f"      {preview}")
-        source_blocks.append("\n".join(source_lines))
-    return f"{header}\n\n" + "\n\n".join(source_blocks)
+
+def _format_evidence_overview_item(session: ChatSession, item: EvidenceChunk) -> str:
+    _, span = _item_path_and_span(session, item)
+    location = evidence_location_label(item.source, item.chunk, span)
+    source = material_display_name(item.source)
+    return f"  {item.evidence_id}  @{source}  {location}"
 
 
 def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
     path, span = _item_path_and_span(session, item)
-    source = item.source if path is None else str(path)
+    source = material_display_name(item.source) if path is None else str(path)
     location = evidence_location_label(item.source, item.chunk, span)
     lines = [
         f"{item.evidence_id}  {source}",
-        f"{location}; score={item.score:.3f}",
+        location,
     ]
     if item.chunk.heading:
         lines.append(f"heading: {item.chunk.heading}")
@@ -360,12 +347,12 @@ class UsageCommand(Command):
         del args
         s = ensure_session(session)
         summary = s.usage.summary()
-        lines = [
-            f"  API calls:     {summary['api_calls']}",
-            f"  Prompt tokens: {summary['prompt_tokens']}",
-            f"  Output tokens: {summary['completion_tokens']}",
-            f"  Total tokens:  {summary['total_tokens']}",
-            f"  Estimated cost: ${summary['cost_usd']:.4f}",
-        ]
-        print("\n".join(lines))
-        return CommandResult()
+        return CommandResult(
+            output=(
+                f"Usage: {summary['api_calls']} call(s); "
+                f"{summary['prompt_tokens']} prompt, "
+                f"{summary['completion_tokens']} output, "
+                f"{summary['total_tokens']} total tokens; "
+                f"${summary['cost_usd']:.4f}."
+            )
+        )
