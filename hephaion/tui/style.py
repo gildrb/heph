@@ -385,9 +385,9 @@ OptionList:focus > .option-list--option-highlighted {{
     display: block;
 }}
 #info-panel {{
-    width: 46;
-    min-width: 46;
-    max-width: 46;
+    width: 38;
+    min-width: 38;
+    max-width: 38;
     height: 100%;
     padding: 0 1;
     content-align: left top;

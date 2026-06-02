@@ -28,7 +28,7 @@ class ClassableWidget(Protocol):
 
 
 _SIDEBAR_INDENT = "  "
-_SIDEBAR_CONTENT_WIDTH_FALLBACK = 44
+_SIDEBAR_CONTENT_WIDTH_FALLBACK = 36
 
 
 def sidebar_text(content: str, *, width: int = 0) -> str:
