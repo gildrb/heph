@@ -12,7 +12,7 @@ def main() -> int:
     args = _build_parser().parse_args()
     wheel = _single_wheel(args.dist)
     sdist = _single_sdist(args.dist)
-    with tempfile.TemporaryDirectory(prefix="heph-release-stress-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="heph-release-stress-", dir=Path.cwd()) as temp_dir:
         work_dir = Path(temp_dir)
         venv = work_dir / "venv"
         _run(["uv", "venv", str(venv), "--python", args.python], cwd=work_dir)
@@ -26,6 +26,8 @@ def main() -> int:
                 str(python),
                 "--only-binary",
                 ":all:",
+                "--no-binary",
+                "antlr4-python3-runtime,pylatexenc,unicodeit",
                 str(wheel),
             ],
             cwd=work_dir,
