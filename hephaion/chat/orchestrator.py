@@ -50,9 +50,6 @@ from hephaion.chat.evidence import (
     evidence_trace_items as _evidence_trace_items,
 )
 from hephaion.chat.evidence import (
-    is_overview_query as _is_overview_query,
-)
-from hephaion.chat.evidence import (
     resolve_turn_evidence as _resolve_turn_evidence,
 )
 from hephaion.chat.evidence import (
@@ -108,7 +105,6 @@ from hephaion.study import (
     plan_turn,
     validate_pedagogy,
 )
-from hephaion.study.overview import CANONICAL_OVERVIEW_QUERY
 from hephaion.study.policy import LearningMoveKind
 from hephaion.study.schedule import (
     RecallItemState,
@@ -296,6 +292,10 @@ Resolve routing hints for the current Heph turn; do not answer the user.
 Materials are the default subject. Keep the current user request primary; use prior context only
 to resolve references. New source content uses answer_from_evidence. Broad corpus views use
 overview. Specific facts, definitions, quotes, named concepts, or named sources use retrieve.
+Corpus-level synthesis, comparison, evaluation, ranking, prioritization, or judgment over the
+materials uses material_overview with retrieval_strategy=overview, even when the answer should
+name one resulting topic or source. Do not turn a corpus-level operation into a literal keyword
+lookup unless the user asks about a specific named concept, source, citation, or quoted claim.
 Set is_followup=false unless the current request explicitly depends on a prior answer, citation,
 source, listed item, table row, or continuing instruction. A fresh question about the materials is
 not a follow-up merely because previous turns exist.
@@ -382,6 +382,7 @@ class _DeterministicLearningReply:
     source_refs: list[str] | None = None
     internal_passes: int | None = None
     citation_required: bool | None = None
+    updates_learning_state: bool = True
 
 
 def _material_label(source: str) -> str:
@@ -1953,7 +1954,7 @@ def _deterministic_learning_reply(
     if resolved.turn_evidence is not None and resolved.turn_evidence.items:
         return None
     if missing_reply := _missing_indexed_material_reply(session, plan.action):
-        return _DeterministicLearningReply(missing_reply)
+        return _DeterministicLearningReply(missing_reply, updates_learning_state=False)
     if no_match_reply := _no_matching_indexed_evidence_reply(
         session,
         plan,
@@ -2567,8 +2568,7 @@ def _evidence_assessment_prompt_line(assessment: EvidenceAssessment) -> str:
 
 def _overview_turn(plan: LearningTurnPlan) -> bool:
     return plan.action is LearningAction.PRESENT and (
-        plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-        or (plan.retrieval_query is not None and _is_overview_query(plan.retrieval_query))
+        plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW or plan.uses_overview_sampling
     )
 
 
@@ -2728,7 +2728,7 @@ def _apply_turn_contract_to_plan(
                 prior_answer_position_basis="",
             )
         retrieval_strategy = RETRIEVAL_STRATEGY_OVERVIEW
-        retrieval_query = CANONICAL_OVERVIEW_QUERY
+        retrieval_query = _overview_retrieval_surface(plan, contract, retrieval_query)
     elif (
         retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
         and _contract_has_specific_material_target(contract)
@@ -3012,8 +3012,7 @@ def _contract_with_default_material_scope(
         return contract
     if contract.resolved_intent and contract.resolved_intent != "material_overview":
         return contract
-    if not _has_canonical_overview_surface(plan, contract):
-        return contract
+    retrieval_query = _overview_retrieval_surface(plan, contract, plan.retrieval_query)
     if (
         plan.buffer_response
         and contract.answer_format == ANSWER_FORMAT_PLAIN
@@ -3025,7 +3024,7 @@ def _contract_with_default_material_scope(
             canonical_request="Provide a compact overview of the material contents.",
             followup_target="",
             retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=CANONICAL_OVERVIEW_QUERY,
+            retrieval_query=retrieval_query or "",
         )
     if (
         contract.answer_format == ANSWER_FORMAT_PLAIN
@@ -3038,7 +3037,7 @@ def _contract_with_default_material_scope(
             canonical_request="Provide a compact overview of the material contents.",
             followup_target="",
             retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=CANONICAL_OVERVIEW_QUERY,
+            retrieval_query=retrieval_query or "",
         )
     if contract.resolved_intent:
         return contract
@@ -3048,21 +3047,26 @@ def _contract_with_default_material_scope(
         canonical_request=contract.canonical_request
         or "Provide a compact overview of the material contents.",
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-        retrieval_query=CANONICAL_OVERVIEW_QUERY,
+        retrieval_query=retrieval_query or "",
     )
 
 
-def _has_canonical_overview_surface(plan: LearningTurnPlan, contract: TurnContract) -> bool:
-    return any(
-        _is_overview_query(text)
-        for text in (
-            plan.retrieval_query or "",
-            contract.retrieval_query,
-            contract.canonical_request,
-            contract.original_user_input,
-        )
-        if text
-    )
+def _overview_retrieval_surface(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+    fallback: str | None,
+) -> str | None:
+    for candidate in (
+        contract.retrieval_query,
+        fallback or "",
+        contract.canonical_request,
+        contract.original_user_input,
+        plan.retrieval_query or "",
+        plan.original_user_input,
+    ):
+        if candidate and not _lacks_retrievable_content(candidate):
+            return candidate
+    return None
 
 
 def _followup_lacks_replayable_prior_surface(
@@ -3085,7 +3089,6 @@ def _contract_has_specific_material_target(contract: TurnContract) -> bool:
         and contract.answer_format == ANSWER_FORMAT_PLAIN
         and bool(_contract_followup_target(contract))
         and bool(contract.canonical_request)
-        and not _is_overview_query(contract.canonical_request)
     )
 
 
@@ -3169,6 +3172,12 @@ def _stabilized_followup_retrieval(
         and contract.is_followup
         and contract.prior_answer_reference
     ):
+        if (
+            contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR
+            and contract.resolved_intent == "material_overview"
+            and (semantic_query := _first_non_literal_followup_query(contract, prior_contract))
+        ):
+            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
         return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
     if (
         prior_contract is not None
@@ -4709,6 +4718,7 @@ def _resolved_user_intent(
                 prior_intent=prior_intent,
                 prior_contract=prior_contract,
                 confidence=0.0,
+                expand_from_prior=False,
             )
         return TurnIntentResolution(confidence=0.0)
     intent, confidence = _classifier_intent_from_payload(payload)
@@ -4725,6 +4735,7 @@ def _resolved_user_intent(
             prior_intent=prior_intent,
             prior_contract=prior_contract,
             confidence=confidence,
+            expand_from_prior=True,
         )
     return TurnIntentResolution(confidence=confidence)
 
@@ -4735,10 +4746,14 @@ def _low_confidence_prior_followup_resolution(
     prior_intent: str,
     prior_contract: TurnContract | None,
     confidence: float,
+    expand_from_prior: bool,
 ) -> TurnIntentResolution:
     if prior_contract is None or not prior_contract.evidence_refs:
         return TurnIntentResolution(intent=prior_intent, confidence=confidence, is_followup=True)
     prior_request = prior_contract.canonical_request or prior_contract.original_user_input
+    retrieval_strategy = (
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR if expand_from_prior else RETRIEVAL_STRATEGY_REUSE_PRIOR
+    )
     return TurnIntentResolution(
         intent=prior_intent,
         canonical_request=user_input,
@@ -4746,8 +4761,8 @@ def _low_confidence_prior_followup_resolution(
         followup_target=prior_request,
         answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
         answer_format=prior_contract.answer_format,
-        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
-        retrieval_query="",
+        retrieval_strategy=retrieval_strategy,
+        retrieval_query=prior_request if expand_from_prior else "",
         prior_answer_reference=True,
         confidence=confidence,
     )
@@ -4793,16 +4808,6 @@ def _stabilized_intent_for_default_material_plan(
     prior_contract: TurnContract | None,
     index: ArmoryIndex | None,
 ) -> TurnIntentResolution:
-    if prior_contract is None and _overview_turn(default_plan) and _is_overview_query(user_input):
-        return TurnIntentResolution(
-            intent="material_overview",
-            canonical_request=resolution.canonical_request or user_input,
-            confidence=resolution.confidence,
-            answer_mode=ANSWER_MODE_FROM_EVIDENCE,
-            answer_format=resolution.answer_format,
-            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=CANONICAL_OVERVIEW_QUERY,
-        )
     if (
         prior_contract is None
         and _overview_turn(default_plan)
@@ -4816,7 +4821,7 @@ def _stabilized_intent_for_default_material_plan(
             answer_mode=ANSWER_MODE_FROM_EVIDENCE,
             answer_format=resolution.answer_format,
             retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=CANONICAL_OVERVIEW_QUERY,
+            retrieval_query="",
         )
     if (
         prior_contract is not None
@@ -4824,10 +4829,9 @@ def _stabilized_intent_for_default_material_plan(
         or resolution.intent != "source_qa"
     ):
         return resolution
-    if resolution.direct_evidence_required and _source_lookup_preserves_user_terms(
-        resolution,
-        index,
-    ):
+    if not resolution.direct_evidence_required:
+        return resolution
+    if index is not None and _source_lookup_preserves_user_terms(resolution, index):
         return resolution
     return TurnIntentResolution(
         intent="material_overview",
@@ -4836,8 +4840,25 @@ def _stabilized_intent_for_default_material_plan(
         answer_mode=ANSWER_MODE_FROM_EVIDENCE,
         answer_format=resolution.answer_format,
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-        retrieval_query=CANONICAL_OVERVIEW_QUERY,
+        retrieval_query=_overview_resolution_query(resolution, user_input, default_plan),
     )
+
+
+def _overview_resolution_query(
+    resolution: TurnIntentResolution,
+    user_input: str,
+    default_plan: LearningTurnPlan,
+) -> str:
+    for candidate in (
+        resolution.retrieval_query,
+        default_plan.retrieval_query or "",
+        resolution.canonical_request,
+        user_input,
+        default_plan.original_user_input,
+    ):
+        if candidate and not _lacks_retrievable_content(candidate):
+            return candidate
+    return ""
 
 
 def _lacks_retrievable_content(text: str) -> bool:
@@ -4958,7 +4979,9 @@ def _stabilized_followup_intent_resolution(
             resolution,
             answer_mode=ANSWER_MODE_FROM_EVIDENCE,
             retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=CANONICAL_OVERVIEW_QUERY,
+            retrieval_query=(
+                resolution.retrieval_query or resolution.canonical_request or user_input
+            ),
         )
     if (
         prior_intent in _CONTINUABLE_MATERIAL_INTENTS
@@ -5345,10 +5368,7 @@ def _material_overview_turn(
         contract.resolved_intent == "material_overview"
         and plan.action is LearningAction.PRESENT
         and not _contract_has_specific_material_target(contract)
-        and (
-            contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-            or _has_canonical_overview_surface(plan, contract)
-        )
+        and contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     )
 
 
@@ -5635,7 +5655,7 @@ class TurnOrchestrator:
         session = self.session
         due_reviews, memory_state = _learning_practice_context(session)
         prior_contract = _prior_contract_for_followup_seed(session)
-        prior_intent = session.last_plan_intent if prior_contract is not None else ""
+        prior_intent = session.last_plan_intent
         intent_index = session.rag_index
         if (
             intent_index is None
@@ -5955,6 +5975,7 @@ class TurnOrchestrator:
             deterministic_reply.reply,
             user_input=user_input,
             source_refs=deterministic_reply.source_refs,
+            updates_learning_state=deterministic_reply.updates_learning_state,
         )
         yield from _final_reply_events(final_reply)
 
@@ -6027,12 +6048,17 @@ class TurnOrchestrator:
         *,
         user_input: str,
         source_refs: list[str] | None = None,
+        updates_learning_state: bool,
     ) -> str:
         localized_reply = _localize_deterministic_reply(
             reply,
             user_input=user_input,
             config=self.session.config,
         )
+        if not updates_learning_state:
+            self.last_reply = localized_reply
+            self._append_assistant_message(localized_reply)
+            return localized_reply
         return self._apply_learning_reply(
             original_learning_state,
             plan,

@@ -319,7 +319,7 @@ def _overview_prompt(query: str) -> str:
 def material_overview_plan(
     user_request: str,
     *,
-    retrieval_query: str = "what is the material about",
+    retrieval_query: str | None = None,
 ) -> LearningTurnPlan:
     return _turn_plan(
         LearningAction.PRESENT,
@@ -907,17 +907,17 @@ def _plan_open_intent(
         return _open_material_plan_for_intent(user_input, intent)
     if _practice_session_active(state) and state.phase is LearningPhase.PRESENTING:
         return _practice_calibration_plan(state, user_input)
-    query = _normalize(user_input) or "what is the material about"
+    query = _normalize(user_input) or None
     return material_overview_plan(
-        user_input or "what is the material about",
+        user_input,
         retrieval_query=query,
     )
 
 
 def _open_material_plan_for_intent(user_input: str, intent: str) -> LearningTurnPlan:
-    query = _normalize(user_input) or "what is the material about"
+    query = _normalize(user_input)
     if intent == "material_overview":
-        return material_overview_plan(user_input, retrieval_query=query)
+        return material_overview_plan(user_input, retrieval_query=query or None)
     if intent == "source_qa":
         return material_source_qa_plan(user_input, retrieval_query=query)
     if intent == "topic_drill":

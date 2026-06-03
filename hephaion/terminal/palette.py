@@ -17,6 +17,8 @@ RESET = "\033[0m"
 TRANSPARENT = "transparent"
 RICH_BLACK_COLOR_NAME = "black"
 BLACK_RGB: Final[tuple[int, int, int]] = (0, 0, 0)
+RUST_RED_DARK: Final[str] = "#D06A4A"
+RUST_RED_LIGHT: Final[str] = "#9A321F"
 
 
 @dataclass(frozen=True)
@@ -50,11 +52,11 @@ DARK = Theme(
     text_muted="#6F6F6F",
     text_inverse="#000000",
     border_subtle="#3D3D3D",
-    brand_primary="#FFFFFF",
-    action_primary_bg="#57C785",
+    brand_primary=RUST_RED_DARK,
+    action_primary_bg=RUST_RED_DARK,
     action_primary_text="#000000",
     status_success_text="#57C785",
-    status_error_text="#FF6B6B",
+    status_error_text=RUST_RED_DARK,
 )
 
 LIGHT = Theme(
@@ -66,11 +68,11 @@ LIGHT = Theme(
     text_muted="#666666",
     text_inverse="#FFFFFF",
     border_subtle="#D9D9D9",
-    brand_primary="#000000",
-    action_primary_bg="#0F7A3A",
+    brand_primary=RUST_RED_LIGHT,
+    action_primary_bg=RUST_RED_LIGHT,
     action_primary_text="#FFFFFF",
     status_success_text="#006B32",
-    status_error_text="#B00020",
+    status_error_text=RUST_RED_LIGHT,
 )
 
 DARK_THEME = DARK

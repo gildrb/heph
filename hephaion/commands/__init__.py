@@ -10,7 +10,6 @@ from hephaion.commands.compact import CompactCommand
 from hephaion.commands.display import (
     CostCommand,
     EvidenceCommand,
-    StatsCommand,
     TokensCommand,
     UsageCommand,
 )
@@ -80,7 +79,6 @@ def get_registry() -> CommandRegistry:
                 EvidenceCommand,
                 TokensCommand,
                 CostCommand,
-                StatsCommand,
                 PriorityCommand,
                 ExamCommand,
                 ExportCommand,
@@ -130,7 +128,6 @@ __all__ = [
     "RemindCommand",
     "SessionsCommand",
     "SettingsCommand",
-    "StatsCommand",
     "StatusCommand",
     "TokensCommand",
     "TurnCommand",

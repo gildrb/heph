@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from hephaion.chat.evidence import is_overview_query
 from hephaion.chat.orchestrator import _stabilized_intent_for_default_material_plan
 from hephaion.chat.turn_contract import (
     RETRIEVAL_STRATEGY_OVERVIEW,
@@ -35,5 +34,4 @@ def test_contentless_material_query_uses_overview_sampling(intent: str) -> None:
 
     assert stabilized.intent == "material_overview"
     assert stabilized.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-    assert is_overview_query(stabilized.retrieval_query)
-    assert stabilized.retrieval_query != user_input
+    assert stabilized.retrieval_query == ""

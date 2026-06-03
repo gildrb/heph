@@ -131,7 +131,7 @@ def offline_message(provider_name: str) -> str:
         "  · Review vocabulary with /vocabulary\n"
         "  · Browse materials with /materials\n"
         "  · Export the chat with /export\n"
-        "  · Check /stats for session progress\n"
+        "  · Check /status for session progress\n"
         "\n"
         "Heph will reconnect automatically when connectivity returns."
     )

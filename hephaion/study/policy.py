@@ -339,8 +339,10 @@ def _pedagogy_rewrite_instruction(move: LearningMove) -> str:
 
 
 def _looks_like_recall_answer_leak(normalized_reply: str, move: LearningMove) -> bool:
-    _ = (normalized_reply, move)
-    return False
+    if move.kind != "ask_recall":
+        return False
+    target = " ".join((move.target_topic or "").casefold().split())
+    return bool(target and target in normalized_reply)
 
 
 def move_for_plan(

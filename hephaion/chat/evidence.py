@@ -47,7 +47,6 @@ from hephaion.runtime import (
     to_chat_completion_messages,
 )
 from hephaion.study import EvidenceAssessment, LearningAction, LearningTurnPlan, assess_evidence
-from hephaion.study.overview import CANONICAL_OVERVIEW_QUERY
 from hephaion.study.priority import PriorityAnalysis, analyze_priority
 
 if TYPE_CHECKING:
@@ -262,6 +261,7 @@ def _direct_support_adjusted_assessment(
         and plan.requires_direct_evidence
         and plan.retrieval_query
         and query_terms_missing
+        and not expanded_prior_source_anchor
         and _query_preserves_user_terms(
             plan.retrieval_query,
             _source_answer_original_request(plan),
@@ -687,14 +687,6 @@ def adaptive_rag_budget(session: ChatSession) -> int:
     return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
 
 
-def is_overview_query(query: str) -> bool:
-    return _query_signature(query) == _query_signature(CANONICAL_OVERVIEW_QUERY)
-
-
-def _query_signature(query: str) -> str:
-    return " ".join(tokenize(query))
-
-
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
     if session.armory_path is None:
         return None
@@ -857,11 +849,22 @@ def _chunk_is_low_content(text: str) -> bool:
     alnum_count = sum(character.isalnum() for character in normalized)
     if alnum_count == 0:
         return True
+    if _short_year_dominated_text(normalized):
+        return True
     if _CONTACT_OR_URL_RE.search(normalized) and _low_content_density(normalized):
         return True
     punctuation_count = sum(character in ".,;:!?()[]{}<>/\\|" for character in normalized)
     alpha_count = sum(character.isalpha() for character in normalized)
     return len(normalized) <= _DUPLICATE_LOW_CONTENT_MAX_CHARS and punctuation_count > alpha_count
+
+
+def _short_year_dominated_text(text: str) -> bool:
+    tokens = tokenize(text)
+    return bool(
+        len(tokens) <= 8
+        and any(token.isdigit() and len(token) == 4 for token in tokens)
+        and not _overview_chunk_has_structural_signal(text)
+    )
 
 
 def _low_content_density(text: str) -> bool:
@@ -1028,14 +1031,35 @@ def _overview_document_chunks(document: ChunkedDocument) -> tuple[Chunk, ...]:
     )
 
 
-def _overview_document_sort_key(document: ChunkedDocument) -> tuple[int, str]:
-    return len(document.chunks), document.source.casefold()
+def _overview_document_sort_key(
+    document: ChunkedDocument,
+) -> tuple[int, int, int, int, int, int, int, str]:
+    chunks = _overview_document_chunks(document)
+    if not chunks:
+        return (1, 1, 1, 1, 1, 0, len(document.chunks), document.source.casefold())
+    best_chunk = chunks[0]
+    score_text = _overview_chunk_score_text(best_chunk.text)
+    covered = _overview_chunk_looks_like_cover_page(score_text)
+    substantive = _overview_chunk_content_score(score_text) >= _OVERVIEW_SUBSTANTIVE_MIN_SCORE
+    structural = substantive and _overview_chunk_has_structural_signal(score_text)
+    early = best_chunk.index < _OVERVIEW_DOCUMENT_SCAN_LIMIT
+    acceptable = substantive and not covered
+    return (
+        int(not early),
+        int(not structural),
+        int(not acceptable),
+        int(_overview_chunk_has_dense_enumeration(score_text)),
+        -_overview_chunk_content_score(score_text),
+        best_chunk.index,
+        len(document.chunks),
+        document.source.casefold(),
+    )
 
 
 def _overview_chunk_sort_key(
     source: str,
     chunk: Chunk,
-) -> tuple[int, int, int, int]:
+) -> tuple[int, int, int, int, int]:
     _ = source
     score_text = _overview_chunk_score_text(chunk.text)
     covered = _overview_chunk_looks_like_cover_page(score_text)
@@ -1047,6 +1071,7 @@ def _overview_chunk_sort_key(
         int(not early),
         int(not structural),
         int(not acceptable),
+        int(_overview_chunk_has_dense_enumeration(score_text)),
         chunk.index,
     )
 
@@ -1060,6 +1085,10 @@ def _overview_chunk_content_score(text: str) -> int:
 
 def _overview_chunk_has_structural_signal(text: str) -> bool:
     return any(_overview_character_is_structural_signal(character) for character in text)
+
+
+def _overview_chunk_has_dense_enumeration(text: str) -> bool:
+    return len(re.findall(r"(?:^|\s)\d{1,3}[.)]", text)) >= 2
 
 
 def _overview_character_is_structural_signal(character: str) -> bool:
@@ -1293,6 +1322,8 @@ def resolve_turn_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnE
         return expanded_evidence
     if turn_evidence := _expected_source_ref_evidence(session, plan):
         return turn_evidence
+    if _material_overview_plan(plan):
+        return _retrieval_query_evidence(session, plan)
     if plan.retrieval_query:
         return _retrieval_query_evidence(session, plan)
     return None
@@ -1480,15 +1511,19 @@ def _merge_prior_and_query_scored_chunks(
 
 
 def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnEvidence | None:
+    if _material_overview_plan(plan):
+        if plan.evidence_refs:
+            return build_turn_evidence_from_refs(
+                session,
+                list(plan.evidence_refs),
+                max_tokens=max(adaptive_rag_budget(session), _OVERVIEW_CONTEXT_TOKEN_BUDGET),
+            ) or build_turn_evidence_from_overview(session)
+        return build_turn_evidence_from_overview(session)
     if plan.retrieval_query is None:
         return None
-    if plan.action is LearningAction.PRESENT and is_overview_query(plan.retrieval_query):
-        return build_turn_evidence_from_overview(session)
     if plan.action is LearningAction.PRESENT and (
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     ):
-        if _material_overview_plan(plan):
-            return build_turn_evidence_from_overview(session)
         return build_turn_evidence_from_query(session, plan.retrieval_query) or (
             build_turn_evidence_from_overview(session)
         )
@@ -1532,7 +1567,6 @@ __all__ = [
     "evidence_refs",
     "evidence_trace_coverage",
     "evidence_trace_items",
-    "is_overview_query",
     "parse_source_ref",
     "resolve_transform_strategy",
     "resolve_turn_evidence",

@@ -36,14 +36,13 @@
 | /exit | Leave Heph |
 | /login | Authenticate with a subscription or API key |
 | /logout | Clear stored subscription or API-key credentials |
-| /status | Show armory, session, and model info |
+| /status | Show session, usage, armory, and review info |
 | /new | Start a new chat |
 | /armory | Browse, open, or create armories |
 | /compact | Summarize conversation to reduce context size |
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /stats | Show session, armory, and review stats |
 | /priority | Generate a printable priority PDF cheat sheet |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
