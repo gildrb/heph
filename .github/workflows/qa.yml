@@ -95,6 +95,7 @@ jobs:
       - name: Post QA report as PR comment
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           QA_RESULT: ${{ needs.qa.result }}
           REPO: ${{ github.repository }}

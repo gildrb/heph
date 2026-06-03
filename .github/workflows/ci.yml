@@ -567,6 +567,7 @@ jobs:
       - name: Post security findings on PR
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           FINDINGS=$(cat .artifacts/security-findings.txt 2>/dev/null || true)
@@ -645,7 +646,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          git -c http.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" fetch origin "pull/${PR_NUMBER}/head:pr-head" main
+          AUTHORIZATION=$(printf "x-access-token:%s" "$GITHUB_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTHORIZATION}" fetch origin "pull/${PR_NUMBER}/head:pr-head" main
       - name: Detect agent co-authorship
         id: detect
         continue-on-error: true
@@ -678,6 +680,7 @@ jobs:
       - name: Post agent attribution comment
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           OUTPUT=$(cat .artifacts/agent-detection.txt 2>/dev/null || true)
