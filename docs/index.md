@@ -35,11 +35,8 @@ Or with pip:
 pip install heph
 ```
 
-For PDF, DOCX, PPTX, and XLSX conversion support, install the optional Docling extra:
-
-```bash
-pip install "heph[docling]"
-```
+PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling so
+new armories can index common study materials without extra setup.
 
 Upgrade with:
 

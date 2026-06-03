@@ -82,6 +82,15 @@ class NoticeEvent:
     kind: str = field(default="notice", init=False)
 
 
+@dataclass(frozen=True, slots=True)
+class GuardrailEvent:
+    stage: str
+    action: str
+    message: str
+    metadata: dict[str, object] = field(default_factory=dict)
+    kind: str = field(default="guardrail", init=False)
+
+
 TurnEvent = (
     AssistantDeltaEvent
     | ToolCallEvent
@@ -89,6 +98,7 @@ TurnEvent = (
     | MaterialOperationEvent
     | CompactRequestEvent
     | TurnCompleteEvent
+    | GuardrailEvent
     | NoticeEvent
 )
 
@@ -98,6 +108,8 @@ def render_turn_event(event: TurnEvent) -> str:
         return event.delta
     if isinstance(event, NoticeEvent):
         return _render_notice(event)
+    if isinstance(event, GuardrailEvent):
+        return _render_guardrail_event(event)
     if isinstance(event, ToolCallEvent | ToolResultEvent | MaterialOperationEvent):
         return _render_display_event(event)
     if isinstance(event, CompactRequestEvent | TurnCompleteEvent):
@@ -115,6 +127,12 @@ def _render_notice(event: NoticeEvent) -> str:
     if event.code == "verification":
         return f"\n{event.message}\n"
     return f"\n[{event.message}]\n"
+
+
+def _render_guardrail_event(event: GuardrailEvent) -> str:
+    if event.metadata.get("silent") is True:
+        return ""
+    return f"\n[Guardrail {event.action}: {event.message}]\n"
 
 
 def _render_display_event(

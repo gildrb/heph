@@ -133,7 +133,7 @@ For advanced users, you can configure custom retrieval backends through optional
 
 ```bash
 uv sync --frozen --group rag  # Install BM25, embeddings, reranking
-uv sync --frozen --group docling  # Install document extraction extras
+# Docling document extraction is part of the core install.
 ```
 
 ### Profiling

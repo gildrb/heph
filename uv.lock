@@ -1051,6 +1051,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
+    { name = "docling" },
     { name = "keyring" },
     { name = "openai" },
     { name = "rich" },
@@ -1061,9 +1062,6 @@ dependencies = [
 [package.optional-dependencies]
 beir = [
     { name = "beir" },
-]
-docling = [
-    { name = "docling" },
 ]
 embeddings = [
     { name = "scikit-learn" },
@@ -1098,9 +1096,6 @@ dev = [
     { name = "ty" },
     { name = "vulture" },
 ]
-docling = [
-    { name = "docling" },
-]
 rag = [
     { name = "bm25s" },
     { name = "scikit-learn" },
@@ -1111,7 +1106,7 @@ rag = [
 requires-dist = [
     { name = "beir", marker = "extra == 'beir'", specifier = "==2.2.0" },
     { name = "certifi", specifier = "==2026.2.25" },
-    { name = "docling", marker = "extra == 'docling'", specifier = "==2.86.0" },
+    { name = "docling", specifier = "==2.86.0" },
     { name = "keyring", specifier = "==25.7.0" },
     { name = "matplotlib", marker = "extra == 'visualization'", specifier = "==3.10.9" },
     { name = "openai", specifier = "==2.24.0" },
@@ -1124,7 +1119,7 @@ requires-dist = [
     { name = "tiktoken", marker = "extra == 'rag'", specifier = "==0.13.0" },
     { name = "unicodeit", specifier = "==0.7.5" },
 ]
-provides-extras = ["embeddings", "docling", "rag", "fuzzy", "beir", "visualization"]
+provides-extras = ["embeddings", "rag", "fuzzy", "beir", "visualization"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1145,7 +1140,6 @@ dev = [
     { name = "ty", specifier = "==0.0.34" },
     { name = "vulture", specifier = "==2.16" },
 ]
-docling = [{ name = "docling", specifier = "==2.86.0" }]
 rag = [
     { name = "bm25s", specifier = "==0.3.5" },
     { name = "scikit-learn", specifier = "==1.8.0" },

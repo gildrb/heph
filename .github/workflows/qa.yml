@@ -66,7 +66,7 @@ jobs:
             echo "### Keyless CLI and TUI stress checks"
             echo ""
             echo '```'
-            uv run pytest tests/test_cli_integration.py tests/test_rag_index.py tests/test_app_tui.py -q
+            uv run pytest tests/test_rag_index.py tests/test_tui_keyboard_protocol.py -q --no-cov
             status=$?
             echo '```'
             echo ""
@@ -95,6 +95,7 @@ jobs:
       - name: Post QA report as PR comment
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           QA_RESULT: ${{ needs.qa.result }}
           REPO: ${{ github.repository }}

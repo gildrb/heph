@@ -34,7 +34,14 @@ stop_words  # Protocol param (hephaion/rag/optional_backends.py)
 sublinear_tf  # Protocol param (hephaion/rag/optional_backends.py)
 max_features  # Protocol param (hephaion/rag/optional_backends.py)
 token_pattern  # Protocol param (hephaion/rag/optional_backends.py)
+show_progress  # Protocol param (hephaion/rag/optional_backends.py)
+load_corpus  # Protocol param (hephaion/rag/optional_backends.py)
+mmap  # Protocol param (hephaion/rag/optional_backends.py)
 
 # select_option() accepts keybindings for API compatibility but no longer uses it.
 # NOTE: kept for backward-compatible call signature — callers may still pass it.
 keybindings  # unused variable (hephaion/terminal/__init__.py)
+
+# Textual inline flow CSS hooks are referenced by Textual using class attributes.
+css  # Textual class variable (hephaion/tui/inline_flows.py)
+work  # Textual decorator method (hephaion/tui/inline_flows.py)

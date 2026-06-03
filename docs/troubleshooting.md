@@ -120,7 +120,7 @@ heph index ~/.armories/my-armory
 1. Try higher quality PDFs if available
 2. Use OCR software to improve text layer
 3. Convert to text/Markdown manually
-4. Check if Docling extraction is working: `uv sync --frozen --group docling`
+4. Reinstall or update Heph if built-in Docling extraction is unavailable
 
 ### Index Out of Date
 

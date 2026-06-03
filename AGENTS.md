@@ -25,7 +25,6 @@ Protect this shape in every change:
 uv sync --frozen           # install all dependencies
 uv sync --frozen --group dev        # install dev tools (lint, type-check, test)
 uv sync --frozen --group rag        # install optional RAG backends
-uv sync --frozen --group docling    # install optional document extraction extras
 ```
 
 ## Run

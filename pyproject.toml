@@ -27,6 +27,7 @@ dependencies = [
     "certifi==2026.2.25",
     "textual==8.2.4",
     "unicodeit==0.7.5",
+    "docling==2.86.0",
 ]
 
 [project.urls]
@@ -38,9 +39,6 @@ Issues = "https://github.com/gildrb/heph/issues"
 embeddings = [
     "sentence-transformers==5.3.0",
     "scikit-learn==1.8.0",
-]
-docling = [
-    "docling==2.86.0",
 ]
 rag = [
     "pathspec==1.0.4",
@@ -340,14 +338,14 @@ forbidden_modules = ["hephaion.tui"]
 
 [tool.deptry]
 extend_exclude = ["tests"]
-# Optional RAG/docling deps are imported conditionally at runtime;
+# Docling and optional RAG deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on "hephaion" is a false positive — the project imports its own subpackages.
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
 # DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaion", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaion", "certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=hephaion --cov-report=term-missing --cov-fail-under=75"
@@ -386,7 +384,4 @@ rag = [
     "bm25s==0.3.5",
     "sentence-transformers==5.3.0",
     "scikit-learn==1.8.0",
-]
-docling = [
-    "docling==2.86.0",
 ]

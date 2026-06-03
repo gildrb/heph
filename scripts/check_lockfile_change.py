@@ -6,6 +6,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 _ALLOW_ENV = "HEPH_ALLOW_LOCKFILE_CHANGE"
@@ -59,7 +60,59 @@ def _lockfiles_from_git_diff(git_diff: str) -> tuple[str, ...]:
         capture_output=True,
         text=True,
     )
-    return tuple(line for line in completed.stdout.splitlines() if line)
+    return tuple(
+        path
+        for path in completed.stdout.splitlines()
+        if path and _lockfile_requires_dependency_review(git_diff, path)
+    )
+
+
+def _lockfile_requires_dependency_review(git_diff: str, path: str) -> bool:
+    before = _lockfile_package_payloads(_git_file_at_diff_base(git_diff, path))
+    after = _lockfile_package_payloads(Path(path).read_bytes())
+    return before != after
+
+
+def _git_file_at_diff_base(git_diff: str, path: str) -> bytes:
+    base_ref = _git_diff_base_ref(git_diff)
+    completed = subprocess.run(
+        ["git", "show", f"{base_ref}:{path}"],
+        check=True,
+        capture_output=True,
+    )
+    return completed.stdout
+
+
+def _git_diff_base_ref(git_diff: str) -> str:
+    if "..." not in git_diff:
+        return git_diff.rsplit("..", 1)[0]
+    left, right = git_diff.split("...", 1)
+    completed = subprocess.run(
+        ["git", "merge-base", left, right or "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _lockfile_package_payloads(content: bytes) -> tuple[str, ...]:
+    data = tomllib.loads(content.decode("utf-8"))
+    packages = data.get("package")
+    if not isinstance(packages, list):
+        return ()
+    return tuple(
+        sorted(
+            repr(package)
+            for package in packages
+            if isinstance(package, dict) and not _is_editable_project_package(package)
+        )
+    )
+
+
+def _is_editable_project_package(package: dict[object, object]) -> bool:
+    source = package.get("source")
+    return isinstance(source, dict) and source.get("editable") == "."
 
 
 def _working_tree_lockfiles() -> tuple[str, ...]:

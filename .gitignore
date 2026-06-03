@@ -85,8 +85,10 @@ autoresearch_helper.py
 
 tests/*
 !tests/conftest.py
+!tests/test_agent_guardrails.py
 !tests/test_chat_routing.py
 !tests/test_diagnostics_crashes.py
+!tests/test_safety_docling.py
 !tests/test_logging.py
 !tests/test_oauth.py
 !tests/test_commands_status.py
