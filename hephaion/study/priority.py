@@ -176,41 +176,6 @@ _WEB_PREREQ_USER_AGENT = "Heph/0.1 priority prerequisites"
 _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 _MODEL_HEARTBEAT_SECONDS = 10.0
 _MODEL_STREAM_PROGRESS_SECONDS = 8.0
-_LOW_INFORMATION_TOPIC_WORDS = frozenset(
-    {
-        "administrative",
-        "aufgabe",
-        "bearbeitungszeit",
-        "beispiel",
-        "block",
-        "decoded",
-        "describe",
-        "depends",
-        "die",
-        "exam",
-        "explain",
-        "formula",
-        "given",
-        "header",
-        "image",
-        "klausur",
-        "line",
-        "marks",
-        "midterm",
-        "name",
-        "noise",
-        "ohne",
-        "points",
-        "prerequisites",
-        "question",
-        "semester",
-        "student",
-        "through",
-        "unit",
-        "using",
-        "wir",
-    }
-)
 
 _SYMBOLIC_TOPIC_TOKEN_RE = re.compile(
     rf"^(?:{_LETTER_RE}{{1,2}}\d*|\d+|{_LETTER_RE}-{_LETTER_RE})$"
@@ -621,7 +586,8 @@ def _record_exam_chunk(
     require_structure: bool,
 ) -> None:
     state.past_exam_sources.add(chunk.source)
-    sections = tuple(_exam_sections(chunk.text)) if require_structure else (chunk.text,)
+    structured_sections = tuple(_exam_sections(chunk.text))
+    sections = structured_sections if require_structure and structured_sections else (chunk.text,)
     questions = tuple(_exam_questions(chunk.source, sections))
     for question in questions:
         state.record_exam_question(question)
@@ -634,24 +600,30 @@ def _record_exam_chunk(
 
 
 def _chunk_has_exam_structure(text: str) -> bool:
-    return any(_section_looks_like_exam_question(section) for section in _exam_sections(text))
+    return _mark_weight(text) > 0 or any(
+        _section_looks_like_exam_question(section) for section in _exam_sections(text)
+    )
 
 
 def _section_looks_like_exam_question(section: str) -> bool:
     prefix_match = _STRUCTURED_PROMPT_PREFIX_RE.match(section)
-    prefix = prefix_match.group(0).casefold() if prefix_match is not None else ""
-    return _mark_weight(section) > 0 or any(
-        keyword in prefix for keyword in ("aufgabe", "exam", "klausur", "question")
+    if _mark_weight(section) > 0:
+        return True
+    if prefix_match is None:
+        return False
+    prefix = prefix_match.group(0)
+    return any(char.isdecimal() for char in prefix) or _section_body_starts_like_prompt(
+        section[prefix_match.end() :]
     )
 
 
+def _section_body_starts_like_prompt(text: str) -> bool:
+    first_token_match = _WORD_SPLIT_RE.search(text)
+    return first_token_match is not None and first_token_match.group(0)[:1].isupper()
+
+
 def _chunk_is_exam_material(chunk: PriorityChunk) -> bool:
-    return _chunk_has_exam_structure(chunk.text) or _source_looks_like_exam(chunk.source)
-
-
-def _source_looks_like_exam(source: str) -> bool:
-    source_parts = [part for part in re.split(r"[^a-z0-9]+", source.casefold()) if part]
-    return bool({"exam", "exams", "midterm", "klausur"} & set(source_parts))
+    return _chunk_has_exam_structure(chunk.text)
 
 
 def _record_material_chunk(
@@ -830,11 +802,14 @@ def _chunk_progress_label(
     return label
 
 
-def _topic_terms(heading: str, text: str) -> list[str]:
+def _topic_terms(heading: str, text: str, *, keep_sparse_labels: bool = False) -> list[str]:
     raw = f"{heading}\n{text}"
     seen: set[str] = set()
     terms: list[str] = []
-    candidates = [*_heading_candidates(heading), *_candidate_topic_phrases(raw)]
+    candidates = [
+        *_heading_candidates(heading),
+        *_candidate_topic_phrases(raw, keep_sparse_labels=keep_sparse_labels),
+    ]
     for candidate in candidates:
         canonical = " ".join(candidate.casefold().split())
         if _valid_topic(canonical) and canonical not in seen:
@@ -891,8 +866,8 @@ def _web_prerequisites_for(
     return tuple(prerequisites)
 
 
-def _candidate_topic_phrases(raw: str) -> Iterator[str]:
-    topic_text = _topic_candidate_text(raw)
+def _candidate_topic_phrases(raw: str, *, keep_sparse_labels: bool = False) -> Iterator[str]:
+    topic_text = _topic_candidate_text(raw, keep_sparse_labels=keep_sparse_labels)
     yield from _heading_candidates(topic_text)
     for phrase_match in _TOPIC_SPAN_RE.finditer(topic_text):
         phrase = phrase_match.group(0)
@@ -948,8 +923,6 @@ def _heading_word_candidates(cleaned: str) -> Iterator[str]:
 def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
     if len(words) < 2:
         return
-    if _starts_with_low_information_word(phrase) and len(words[0]) >= 4:
-        yield words[0]
     if _should_emit_leading_content_word(phrase, words):
         yield words[0]
     for size in (2, 3):
@@ -968,36 +941,28 @@ def _should_emit_leading_content_word(phrase: str, words: list[str]) -> bool:
     )
 
 
-def _starts_with_low_information_word(phrase: str) -> bool:
-    first_token_match = _WORD_SPLIT_RE.search(phrase)
-    return (
-        first_token_match is not None
-        and first_token_match.group(0).casefold() in _LOW_INFORMATION_TOPIC_WORDS
-    )
-
-
 def _useful_topic_words(text: str) -> list[str]:
     return [
         word.lower()
         for word in _WORD_SPLIT_RE.findall(text)
-        if len(word) >= 4
-        and not word.isdigit()
-        and word.casefold() not in _LOW_INFORMATION_TOPIC_WORDS
+        if len(word) >= 4 and not word.isdigit()
     ]
 
 
-def _topic_candidate_text(raw: str) -> str:
+def _topic_candidate_text(raw: str, *, keep_sparse_labels: bool = False) -> str:
     return "\n".join(
-        unit for line in raw.splitlines() for unit in _topic_candidate_line_units(line)
+        unit
+        for line in raw.splitlines()
+        for unit in _topic_candidate_line_units(line, keep_sparse_labels=keep_sparse_labels)
     )
 
 
-def _topic_candidate_line_units(line: str) -> Iterator[str]:
+def _topic_candidate_line_units(line: str, *, keep_sparse_labels: bool = False) -> Iterator[str]:
     if not line.strip():
         return
     for unit in re.split(r"(?<=[.!?])\s+", line):
         cleaned = unit.strip()
-        if cleaned and not _is_boilerplate_line(cleaned):
+        if cleaned and (keep_sparse_labels or not _is_boilerplate_line(cleaned)):
             yield cleaned
 
 
@@ -1014,9 +979,11 @@ def _looks_like_sparse_label_line(text: str) -> bool:
     if not text.endswith("."):
         return False
     tokens = re.findall(rf"{_LETTER_RE}(?:{_WORD_BODY_RE}|')*", text[:-1])
-    if not 2 <= len(tokens) <= 5:
+    if not 1 <= len(tokens) <= 5:
         return False
-    return all(token[:1].isupper() for token in tokens)
+    return all(token[:1].isupper() for token in tokens) or (
+        len(tokens) <= 3 and tokens[0][:1].isupper()
+    )
 
 
 def _valid_topic(candidate: str) -> bool:
@@ -1147,10 +1114,11 @@ def _dependency_prerequisite_hints_for_sentence(
 
 
 def _dependency_sentence_parts(sentence: str) -> tuple[str, str] | None:
+    lower = sentence.casefold()
     for connector in (" depends on ", " requires "):
-        if connector in sentence.casefold():
-            before, after = sentence.split(connector.strip(), maxsplit=1)
-            return before, after
+        if connector in lower:
+            index = lower.index(connector)
+            return sentence[:index], sentence[index + len(connector) :]
     return None
 
 
@@ -1207,6 +1175,7 @@ def _exam_subquestion(
 def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:
     for section in sections:
         prompt_text = _strip_structured_prompt_prefix(section)
+        topic_text = _strip_leading_prompt_token(prompt_text)
         prompt = _topic_excerpt(prompt_text, "", max_chars=360)
         if not prompt:
             continue
@@ -1214,12 +1183,22 @@ def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityEx
             source=source,
             prompt=prompt,
             marks=_mark_weight(section),
-            topics=tuple(_topic_terms("", prompt_text)[:5]),
+            topics=tuple(_topic_terms("", topic_text, keep_sparse_labels=True)[:5]),
         )
 
 
 def _strip_structured_prompt_prefix(text: str) -> str:
     return _STRUCTURED_PROMPT_PREFIX_RE.sub("", text.strip(), count=1)
+
+
+def _strip_leading_prompt_token(text: str) -> str:
+    tokens = list(_WORD_SPLIT_RE.finditer(text))
+    if len(tokens) < 2:
+        return text
+    first = tokens[0]
+    if first.group(0)[:1].isupper():
+        return text[first.end() :].lstrip()
+    return text
 
 
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:
