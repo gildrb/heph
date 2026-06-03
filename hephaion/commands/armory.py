@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import filecmp
-import shlex
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,64 +13,10 @@ from hephaion.armory.search import (
 from hephaion.chat.session import ChatSession, refresh_armory_sources
 from hephaion.commands._base import Command, CommandResult, ensure_session
 from hephaion.materials import MATERIALS_DIR, material_display_name
+from hephaion.materials.importing import import_material_files, resolve_import_source
 from hephaion.rag.index import ArmoryIndex, build_index
 from hephaion.terminal import print_error, print_info, print_success
 
-_SUPPORTED_IMPORT_SUFFIXES = frozenset(
-    (
-        ".bash",
-        ".bib",
-        ".c",
-        ".cfg",
-        ".cpp",
-        ".csv",
-        ".css",
-        ".doc",
-        ".docx",
-        ".fish",
-        ".go",
-        ".graphql",
-        ".h",
-        ".hpp",
-        ".html",
-        ".ini",
-        ".java",
-        ".json",
-        ".kt",
-        ".log",
-        ".md",
-        ".mdown",
-        ".markdown",
-        ".odp",
-        ".ods",
-        ".odt",
-        ".pdf",
-        ".php",
-        ".ppt",
-        ".pptx",
-        ".py",
-        ".rb",
-        ".rst",
-        ".rtf",
-        ".rs",
-        ".sh",
-        ".sql",
-        ".svg",
-        ".swift",
-        ".tex",
-        ".toml",
-        ".ts",
-        ".tsv",
-        ".txt",
-        ".xls",
-        ".xlsx",
-        ".xml",
-        ".yaml",
-        ".yml",
-        ".zig",
-        ".zsh",
-    )
-)
 _INDEX_REMOVE_COMMANDS = frozenset(("remove", "rm", "delete"))
 
 
@@ -107,12 +50,13 @@ class ImportCommand(Command):
             print_error("Usage: /import <file-or-directory>")
             return CommandResult()
 
-        source = _resolve_import_source(raw)
+        source = resolve_import_source(raw)
         if not source.exists():
             print_error(f"Path not found: {source}")
             return CommandResult()
 
-        imported = _import_material_files(source, s.armory_path / MATERIALS_DIR)
+        result = import_material_files(source, s.armory_path / MATERIALS_DIR)
+        imported = list(result.imported)
         if not imported:
             print_info("No new files to import (unsupported format or already present).")
             return CommandResult()
@@ -155,81 +99,6 @@ class ExportCommand(Command):
         path.write_text("\n".join(lines), encoding="utf-8")
         print_success(f"Session exported to {path}")
         return CommandResult()
-
-
-def _import_material_files(source: Path, dest_dir: Path) -> list[str]:
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    imported: list[str] = []
-    for target in _import_targets(source):
-        dest = _next_import_destination(target, dest_dir)
-        if dest is None:
-            continue
-        shutil.copy2(target, dest)
-        imported.append(dest.name)
-    return imported
-
-
-def _import_targets(source: Path) -> list[Path]:
-    targets = sorted(source.rglob("*")) if source.is_dir() else [source]
-    return [target for target in targets if _supported_import_target(target, source)]
-
-
-def _supported_import_target(target: Path, source: Path) -> bool:
-    if target.is_symlink() or not target.is_file():
-        return False
-    if source.is_dir() and _path_has_hidden_part(target, source):
-        return False
-    return target.suffix.lower() in _SUPPORTED_IMPORT_SUFFIXES
-
-
-def _path_has_hidden_part(target: Path, source: Path) -> bool:
-    try:
-        parts = target.relative_to(source).parts
-    except ValueError:
-        return True
-    return any(part.startswith(".") for part in parts)
-
-
-def _resolve_import_source(raw: str) -> Path:
-    source = Path(raw).expanduser()
-    if source.exists():
-        return source.resolve()
-
-    try:
-        parts = shlex.split(raw)
-    except ValueError:
-        return source.resolve()
-
-    if len(parts) == 1:
-        return Path(parts[0]).expanduser().resolve()
-    return source.resolve()
-
-
-def _next_import_destination(target: Path, dest_dir: Path) -> Path | None:
-    dest = dest_dir / target.name
-    if not dest.exists():
-        return dest
-    if _same_file_content(target, dest):
-        return None
-
-    stem = target.stem
-    suffix = target.suffix
-    for index in range(2, 10_000):
-        candidate = dest_dir / f"{stem}-{index}{suffix}"
-        if not candidate.exists():
-            return candidate
-        if _same_file_content(target, candidate):
-            return None
-
-    msg = f"Could not find a free filename for {target.name}"
-    raise RuntimeError(msg)
-
-
-def _same_file_content(left: Path, right: Path) -> bool:
-    try:
-        return filecmp.cmp(left, right, shallow=False)
-    except OSError:
-        return False
 
 
 def _print_imported_files(imported: list[str]) -> None:

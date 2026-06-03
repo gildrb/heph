@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +26,7 @@ from hephaion.agent.tool_execution import (
     parse_tool_arguments,
     summarize_result,
 )
+from hephaion.agent.tool_schema import ToolSchema
 from hephaion.agent.tools import ToolRegistry, default_registry
 from hephaion.chat.events import (
     CompactRequestEvent,
@@ -357,6 +358,20 @@ def _new_loop_state(config: ChatConfig, conversation: Conversation) -> AgentLoop
     )
 
 
+def _restricted_tool_registry(
+    registry: ToolRegistry,
+    allowed_names: Sequence[str] | None,
+) -> ToolRegistry:
+    if allowed_names is None:
+        return registry
+    allowed = frozenset(allowed_names)
+    restricted = ToolRegistry()
+    for spec in registry.specs:
+        if spec.name in allowed:
+            restricted.register(spec)
+    return restricted
+
+
 def _log_agent_loop_start(config: ChatConfig, state: AgentLoopState, max_turns: int) -> None:
     _log.info(
         "agent_loop start",
@@ -478,7 +493,8 @@ def iter_agent_events(
     steering: Steering | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
-    tool_schemas: list[dict[str, object]] | None = None,
+    tool_schemas: list[ToolSchema] | None = None,
+    allowed_tool_names: Sequence[str] | None = None,
     registry: ToolRegistry | None = None,
     dry_run: bool = False,
 ) -> Iterator[TurnEvent]:
@@ -486,6 +502,9 @@ def iter_agent_events(
     retry = retry or RetryConfig()
     if registry is None:
         registry = default_registry
+    registry = _restricted_tool_registry(registry, allowed_tool_names)
+    if allowed_tool_names is not None and tool_schemas is None:
+        tool_schemas = registry.schemas
     state = _new_loop_state(config, conversation)
     _log_agent_loop_start(config, state, max_turns)
 

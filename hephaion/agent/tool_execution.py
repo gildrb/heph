@@ -23,6 +23,7 @@ _TOOL_DISPLAY_FIELDS = {
     "bash": ("Running", "command"),
     "read_file": ("Reading", "path"),
     "edit_file": ("Editing", "path"),
+    "create_named_armory": ("Creating armory", "name"),
     "search_materials": ("Searching materials", "query"),
 }
 type _ToolArgFormatter = Callable[[dict[str, object]], str]
@@ -345,6 +346,14 @@ def _format_open_material_args(args: dict[str, object]) -> str:
     return f"Opening material: {source}"
 
 
+def _format_import_materials_args(args: dict[str, object]) -> str:
+    source = _string_arg(args, "source_path")
+    target = _string_arg(args, "target_armory")
+    if target:
+        return f"Importing: {source} -> {target}"
+    return f"Importing: {source} -> current armory"
+
+
 def _format_compact_args(_args: dict[str, object]) -> str:
     return "Compacting conversation"
 
@@ -352,6 +361,7 @@ def _format_compact_args(_args: dict[str, object]) -> str:
 _TOOL_ARG_FORMATTERS: dict[str, _ToolArgFormatter] = {
     "write_file": _format_write_file_args,
     "list_files": _format_list_files_args,
+    "import_materials": _format_import_materials_args,
     "open_material": _format_open_material_args,
     "compact": _format_compact_args,
 }

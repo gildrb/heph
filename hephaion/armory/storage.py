@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ CHATS_DIR = ".hephaion/chats"
 TRACES_DIR = ".hephaion/traces"
 USAGE_DIR = ".hephaion/usage"
 TOOLS_DIR = ".hephaion/tools"
+DEFAULT_ARMORY_HOME_ENV = "HEPHAION_ARMORY_HOME"
 ARMORY_DIRS = (
     MATERIALS_DIR,
     INTERNAL_DIR,
@@ -36,6 +38,13 @@ class ArmoryValidationError(ArmoryError):
 
 def normalize_path(raw_path: str | Path) -> Path:
     return Path(raw_path).expanduser().resolve()
+
+
+def default_armory_home() -> Path:
+    configured = os.environ.get(DEFAULT_ARMORY_HOME_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".armories"
 
 
 def initialize(path: Path) -> None:

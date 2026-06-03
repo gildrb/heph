@@ -319,6 +319,7 @@ def startup_card_text() -> str:
         [
             "  Tips",
             "    Add files to materials/.",
+            "    Use exact armory names and paths.",
             "    Use @file for focus.",
             "    Ask for summaries or gaps.",
             "    /priority finds next steps.",

@@ -1,6 +1,8 @@
 <coding_guidelines>
 # Hephaion / Heph — Agent Guide
 
+NEVER create regex label lists / phrase-catching architecture and ALWAYS solve the problem structurally with this mindset: https://mariozechner.at/posts/2025-06-02-prompts-are-code/.
+
 ## Product Promise
 
 Hephaion is a **local document harness for accurate, cited answers**. Heph is
@@ -11,7 +13,6 @@ Protect this shape in every change:
 - Answers are grounded in user materials and citations remain verifiable.
 - Memory is scoped to the armory unless the user explicitly opts into a shared service.
 - Provider and model choices stay swappable; vendor-specific behavior remains optional.
-- Do not market bare-minimum plumbing as a feature in user-facing docs.
 - Never hardcode user-private corpus details: university names, course titles, lecturer names,
   campus platforms, armory names, local paths, or one-off source-file vocabulary. Retrieval and
   overview fixes must use provider-swappable prompts, semantic evidence handling, and generic
@@ -70,6 +71,7 @@ uv run heph armory init PATH    # create a new armory
   - Constants: `UPPER_SNAKE_CASE`
   - Private implementation helpers: leading underscore
 - Prefer clear, readable code over clever abstractions or micro-optimizations.
+- Never write one-line function wrappers.
 - Keep comments sparse and useful; explain why a non-obvious block exists.
 
 ## Type Checking Policy
@@ -210,11 +212,11 @@ Testing rules:
 - Voice: practical, private, verification-first, and grounded in user files.
 - Prefer concrete examples over abstract claims.
 - Use learning-oriented copy (`learn`, `learning`, `recall`, `practice`) in user-facing
-  docs. Reserve `study` for code/package names, command names, and exact feature labels.
+  docs.
 - Emphasize armories, materials/source files, RAG, citation verification,
   learning memory, recall practice, and model freedom.
 - Keep vendor-specific behavior optional unless the code truly requires it.
-- Avoid user-facing maintainer details and internal operations unless they help users.
+- Avoid user-facing maintainer details and internal operations.
 - When docs or wiki conflict with code or `docs/`, prefer code and repo docs.
 
 ## Diagnostics

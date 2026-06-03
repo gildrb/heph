@@ -20,6 +20,7 @@ from hephaion.study.artifacts import (
 from hephaion.study.controller import (
     LearningTurnPlan,
     apply_turn_result,
+    heph_action_plan,
     heph_help_plan,
     material_overview_plan,
     material_source_qa_plan,
@@ -108,6 +109,7 @@ __all__ = [
     "extract_academic_items",
     "generate_grounded_questions",
     "grounded_question_quality_issues",
+    "heph_action_plan",
     "heph_help_plan",
     "is_driven_learning_intent",
     "learner_assessment_from_state",

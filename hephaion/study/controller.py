@@ -116,6 +116,7 @@ class LearningTurnPlan:
     use_expected_source_refs: bool = False
     uses_overview_sampling: bool = False
     allow_tools: bool = True
+    allowed_tool_names: tuple[str, ...] | None = None
     buffer_response: bool = False
     stated_confidence: float | None = None
     learning_move: LearningMove | None = None
@@ -134,6 +135,7 @@ def _turn_plan(
     use_expected_source_refs: bool = False,
     uses_overview_sampling: bool = False,
     allow_tools: bool = False,
+    allowed_tool_names: tuple[str, ...] | None = None,
     buffer_response: bool = False,
     stated_confidence: float | None = None,
     learning_move: LearningMove | None = None,
@@ -150,6 +152,7 @@ def _turn_plan(
         use_expected_source_refs=use_expected_source_refs,
         uses_overview_sampling=uses_overview_sampling,
         allow_tools=allow_tools,
+        allowed_tool_names=allowed_tool_names,
         buffer_response=buffer_response,
         stated_confidence=stated_confidence,
         learning_move=learning_move,
@@ -411,6 +414,14 @@ def plain_chat_plan(
     )
 
 
+_HEPH_ACTION_TOOL_NAMES = (
+    "create_named_armory",
+    "import_materials",
+    "validate_armory",
+    "list_files",
+)
+
+
 def heph_help_plan(
     user_request: str,
     *,
@@ -422,6 +433,22 @@ def heph_help_plan(
         _heph_self_prompt(_normalize(user_request)),
         phase=phase,
         original_user_input=user_request,
+    )
+
+
+def heph_action_plan(
+    user_request: str,
+    *,
+    phase: LearningPhase = LearningPhase.PRESENTING,
+) -> LearningTurnPlan:
+    """Plan a product operation turn using exact, non-destructive setup tools."""
+    return _turn_plan(
+        LearningAction.CHAT,
+        _heph_action_prompt(_normalize(user_request)),
+        phase=phase,
+        original_user_input=user_request,
+        allow_tools=True,
+        allowed_tool_names=_HEPH_ACTION_TOOL_NAMES,
     )
 
 
@@ -444,6 +471,34 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
             "say what direct cited answer is missing for the resolved request. Do not claim the "
             "whole armory or all sources lack it unless this turn exhaustively checked every "
             "source.",
+        ),
+    )
+
+
+def _heph_action_prompt(query: str) -> str:
+    docs_context = heph_product_context()
+    context_block = (
+        f"Current Hephaion documentation excerpt:\n{docs_context}\n"
+        if docs_context
+        else "Current Hephaion documentation excerpt: unavailable.\n"
+    )
+    return _prompt_frame(
+        "Execute HEPH_ACTION.",
+        f"User request: {query}",
+        context_block,
+        rules=(
+            _SAME_LANGUAGE_USER_RULE,
+            "- Use only the provided Heph setup/import tools for filesystem changes.",
+            "- Treat armory names as exact. Never fuzzy-match, autocorrect, or substitute a "
+            "similar-looking armory name.",
+            "- Copy imports into materials/ only. Never move, delete, or overwrite different "
+            "original files.",
+            "- Set create_if_missing only when the user explicitly asks to create the target "
+            "armory.",
+            "- If a source path or target armory is missing or ambiguous, report the exact "
+            "missing value and stop instead of guessing.",
+            "- After tool results, answer with the exact action taken and target path.",
+            "- Do not use armory material retrieval or evidence citations for product actions.",
         ),
     )
 
@@ -687,7 +742,14 @@ def _review_prompt(item: str) -> str:
     )
 
 
-def _assess_prompt(item: str, attempt_count: int) -> str:
+def _assess_prompt(item: str, attempt_count: int, *, exam_bank_session: bool = False) -> str:
+    exam_bank_rule = (
+        "- This item came from the structured exam bank. After grading, include the retrieved "
+        "source-backed evaluation material for this prompt. Do not add evaluation content that "
+        "is not present in the retrieved evidence."
+        if exam_bank_session
+        else "- Do not reveal unrelated evaluation material beyond what the assessment needs."
+    )
     return _prompt_frame(
         "Execute ASSESS.",
         f"Current item: {item}",
@@ -715,6 +777,7 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
             "claim or say that the definition is still missing.",
             "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
             "corrections whenever IDs are available.",
+            exam_bank_rule,
             "- If the uploaded material does not contain enough evidence to assess "
             "confidently, say so clearly and default to PARTIAL:.",
             "- Be factual and direct. No praise. No generic encouragement.",
@@ -733,10 +796,14 @@ def plan_turn(
     memory_state: MemoryState | None = None,
 ) -> LearningTurnPlan:
     effective_memory = memory_state if memory_state is not None else MemoryState()
-    bounded_plan = _practice_stop_plan(
-        state,
-        due_reviews=due_reviews,
-        memory_state=effective_memory,
+    bounded_plan = (
+        None
+        if intent in {"heph_action", "heph_help"}
+        else _practice_stop_plan(
+            state,
+            due_reviews=due_reviews,
+            memory_state=effective_memory,
+        )
     )
     if bounded_plan is not None:
         return bounded_plan
@@ -850,6 +917,8 @@ def _plan_waiting_intent(
         return _open_material_plan_for_intent(user_input, intent)
     if intent == "priority_request":
         return _priority_plan(user_input, phase=state.phase)
+    if intent == "heph_action":
+        return heph_action_plan(user_input, phase=state.phase)
     if intent == "heph_help":
         return heph_help_plan(user_input, phase=state.phase)
     if intent == "chat":
@@ -883,8 +952,10 @@ def _plan_recall_phase_intent(
         return _open_material_plan_for_intent(user_input, intent)
     if intent == "priority_request":
         return _priority_plan(user_input, phase=state.phase)
+    if intent == "heph_action":
+        return heph_action_plan(user_input, phase=state.phase)
     if intent == "heph_help":
-        return _chat_prompt_plan(_heph_self_prompt(user_input), phase=state.phase)
+        return heph_help_plan(user_input, phase=state.phase)
     if intent == "chat":
         return plain_chat_plan(user_input, phase=state.phase)
     return _recall_assessment_plan(state, user_input, source_query)
@@ -895,6 +966,8 @@ def _plan_open_intent(
     user_input: str,
     intent: str,
 ) -> LearningTurnPlan:
+    if intent == "heph_action":
+        return heph_action_plan(user_input, phase=state.phase)
     if intent == "heph_help":
         return heph_help_plan(user_input, phase=state.phase)
     if intent == "chat":
@@ -1108,7 +1181,11 @@ def _recall_assessment_plan(
     confidence_match = _CONFIDENCE_RE.search(text)
     return _turn_plan(
         LearningAction.ASSESS,
-        _assess_prompt(state.current_item, state.attempt_count),
+        _assess_prompt(
+            state.current_item,
+            state.attempt_count,
+            exam_bank_session=state.practice_session_type == "exam",
+        ),
         phase=LearningPhase.ASSESS,
         retrieval_query=source_query,
         use_expected_source_refs=True,

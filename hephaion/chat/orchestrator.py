@@ -22,6 +22,7 @@ from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
+    ToolResultEvent,
     TurnCompleteEvent,
     TurnEvent,
 )
@@ -78,6 +79,7 @@ from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.logging import Timer, get_logger
 from hephaion.memory.workflow import schedule_memory_extraction
+from hephaion.product.context import heph_product_routing_context
 from hephaion.rag import EvidenceChunk, TurnEvidence
 from hephaion.rag.scoring import tokenize
 from hephaion.runtime import (
@@ -173,6 +175,7 @@ _MODEL_NORMALIZED_INTENTS = (
     "priority_request",
     "driven_learning_calibration",
     "wait",
+    "heph_action",
     "heph_help",
     "chat",
 )
@@ -292,6 +295,9 @@ Resolve routing hints for the current Heph turn; do not answer the user.
 Materials are the default subject. Keep the current user request primary; use prior context only
 to resolve references. New source content uses answer_from_evidence. Broad corpus views use
 overview. Specific facts, definitions, quotes, named concepts, or named sources use retrieve.
+Product/self explanation turns use heph_help with retrieval_strategy=none, not material_overview.
+Product operations that create, validate, or import armories/material files use heph_action with
+retrieval_strategy=none.
 Corpus-level synthesis, comparison, evaluation, ranking, prioritization, or judgment over the
 materials uses material_overview with retrieval_strategy=overview, even when the answer should
 name one resulting topic or source. Do not turn a corpus-level operation into a literal keyword
@@ -799,6 +805,15 @@ def _material_operation_event(
         operation=operation,
         message=message,
         metadata={key: value for key, value in metadata.items() if value not in ("", None)},
+    )
+
+
+def _tool_result_refreshes_current_armory(event: TurnEvent) -> bool:
+    return (
+        isinstance(event, ToolResultEvent)
+        and event.name == "import_materials"
+        and event.success
+        and event.metadata.get("refresh_current_armory") is True
     )
 
 
@@ -2609,6 +2624,25 @@ def _apply_turn_contract_to_plan(
     prior_contract: TurnContract | None,
 ) -> tuple[LearningTurnPlan, TurnContract]:
     contract = _contract_with_default_material_scope(plan, contract)
+    if contract.resolved_intent in {"heph_action", "heph_help"}:
+        updated_plan = replace(
+            plan,
+            original_user_input=contract.original_user_input,
+            retrieval_query=None,
+            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
+            evidence_refs=(),
+            requires_direct_evidence=False,
+            uses_overview_sampling=False,
+        )
+        updated_contract = replace(
+            contract,
+            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
+            retrieval_query="",
+            evidence_refs=(),
+            citation_required=False,
+            direct_evidence_required=False,
+        )
+        return updated_plan, updated_contract
     retrieval_query = _semantic_retrieval_query(plan, contract)
     retrieval_strategy = contract.retrieval_strategy
     retrieval_strategy, retrieval_query = _stabilized_followup_retrieval(
@@ -3635,6 +3669,7 @@ def _turn_contract_can_seed_followup(
         or bool(contract.evidence_refs)
         or (contract.prior_answer_reference and bool(contract.prior_turn_evidence_refs))
         or contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
+        or contract.resolved_intent in {"heph_action", "heph_help"}
     )
 
 
@@ -4948,6 +4983,15 @@ def _stabilized_followup_intent_resolution(
     user_input: str = "",
     prior_intent: str,
 ) -> TurnIntentResolution:
+    if resolution.intent in {"heph_action", "heph_help"}:
+        return replace(
+            resolution,
+            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
+            retrieval_query="",
+            direct_evidence_required=False,
+            prior_answer_positions=(),
+            prior_answer_position_basis="",
+        )
     if (
         resolution.direct_evidence_required
         and resolution.intent != "source_qa"
@@ -5095,6 +5139,14 @@ def _intent_normalization_context(
     prior_contract: TurnContract | None = None,
 ) -> str:
     lines: list[str] = []
+    if routing_context := heph_product_routing_context():
+        lines.extend(
+            (
+                "Heph self-knowledge routing context:",
+                routing_context,
+                "",
+            )
+        )
     if prior_context := _prior_turn_contract_intent_context(prior_contract, prior_intent):
         lines.extend(("Prior turn:", prior_context, ""))
     last_assistant = _last_assistant_message(conversation, user_input)
@@ -5657,13 +5709,6 @@ class TurnOrchestrator:
         prior_contract = _prior_contract_for_followup_seed(session)
         prior_intent = session.last_plan_intent
         intent_index = session.rag_index
-        if (
-            intent_index is None
-            and session.armory_path is not None
-            and session.config.base_url
-            and session.config.model
-        ):
-            intent_index = _ensure_rag_index(session)
         default_plan = plan_turn(
             original_learning_state,
             user_input,
@@ -5817,6 +5862,7 @@ class TurnOrchestrator:
                 user_input=user_input,
             ),
             tool_schemas=None if plan.allow_tools else [],
+            allowed_tool_names=plan.allowed_tool_names if plan.allow_tools else (),
             registry=session.tool_registry,
         ):
             yield from self._record_learning_agent_event(
@@ -5844,6 +5890,8 @@ class TurnOrchestrator:
         if isinstance(event, TurnCompleteEvent):
             buffer.completion_event = event
             return
+        if _tool_result_refreshes_current_armory(event):
+            self.session.refresh_armory_sources()
         yield event
 
     def _iter_empty_learning_reply_events(

@@ -16,6 +16,8 @@ from hephaion.agent.tools import (
     get_handler,
     run_bash,
     run_create_armory,
+    run_create_named_armory,
+    run_import_materials,
     run_memory,
     run_open_material,
     run_search_files,
@@ -286,6 +288,101 @@ class TestArmoryTools:
         assert result.success is False
         assert result.error == "invalid_armory"
 
+    def test_create_named_armory_uses_exact_home_name(self, tmp_path: Path) -> None:
+        home = tmp_path / "armories"
+
+        with patch.dict("os.environ", {"HEPHAION_ARMORY_HOME": str(home)}, clear=False):
+            result = run_create_named_armory("bfi-2", workspace=tmp_path)
+
+        assert result.success is True
+        assert result.metadata["created"] is True
+        assert (home / "bfi-2" / "materials").is_dir()
+        assert (home / "bfi-2" / ".hephaion" / "armory.toml").is_file()
+
+    def test_create_named_armory_rejects_path_like_name(self, tmp_path: Path) -> None:
+        result = run_create_named_armory("../bfi-2", workspace=tmp_path)
+
+        assert result.success is False
+        assert result.error == "invalid_armory_name"
+
+    def test_import_materials_copies_absolute_source_to_current_armory(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        armory = tmp_path / "current"
+        run_create_armory(".", workspace=armory)
+        source = tmp_path / "lecture.md"
+        source.write_text("source notes", encoding="utf-8")
+
+        result = run_import_materials(str(source), workspace=armory)
+
+        assert result.success is True
+        assert result.metadata["current_armory"] is True
+        assert result.metadata["refresh_current_armory"] is True
+        assert result.metadata["imported"] == ["lecture.md"]
+        assert (armory / "materials" / "lecture.md").read_text(encoding="utf-8") == "source notes"
+        assert source.read_text(encoding="utf-8") == "source notes"
+
+    def test_import_materials_rejects_missing_exact_armory_without_fuzzy_fallback(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        home = tmp_path / "armories"
+        armory = tmp_path / "current"
+        run_create_armory(".", workspace=armory)
+        run_create_armory("mfi-2", workspace=home)
+        source = tmp_path / "notes.md"
+        source.write_text("notes", encoding="utf-8")
+
+        with patch.dict("os.environ", {"HEPHAION_ARMORY_HOME": str(home)}, clear=False):
+            result = run_import_materials(str(source), target_armory="bfi-2", workspace=armory)
+
+        assert result.success is False
+        assert result.error == "missing_armory"
+        assert not (home / "bfi-2").exists()
+        assert not (home / "mfi-2" / "materials" / "notes.md").exists()
+
+    def test_import_materials_can_create_exact_target_when_explicit(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        home = tmp_path / "armories"
+        armory = tmp_path / "current"
+        run_create_armory(".", workspace=armory)
+        source = tmp_path / "notes.md"
+        source.write_text("notes", encoding="utf-8")
+
+        with patch.dict("os.environ", {"HEPHAION_ARMORY_HOME": str(home)}, clear=False):
+            result = run_import_materials(
+                str(source),
+                target_armory="bfi-2",
+                create_if_missing=True,
+                workspace=armory,
+            )
+
+        assert result.success is True
+        assert result.metadata["current_armory"] is False
+        assert (home / "bfi-2" / "materials" / "notes.md").read_text(encoding="utf-8") == "notes"
+
+    def test_import_materials_rejects_ambiguous_relative_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "current"
+        launch = tmp_path / "launch"
+        launch.mkdir()
+        run_create_armory(".", workspace=armory)
+        (armory / "shared.md").write_text("armory copy", encoding="utf-8")
+        (launch / "shared.md").write_text("launch copy", encoding="utf-8")
+        monkeypatch.chdir(launch)
+
+        result = run_import_materials("shared.md", workspace=armory)
+
+        assert result.success is False
+        assert result.error == "ambiguous_source_path"
+        assert not (armory / "materials" / "shared.md").exists()
+
     def test_search_materials_uses_indexed_armory_content(self, tmp_path: Path) -> None:
         run_create_armory(".", workspace=tmp_path)
         material = tmp_path / "materials" / "enzyme-notes.md"
@@ -538,6 +635,8 @@ class TestToolSchemas:
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]
         assert "create_armory" in names
         assert "validate_armory" in names
+        assert "create_named_armory" in names
+        assert "import_materials" in names
         assert "search_materials" in names
         assert "open_material" in names
         assert "memory" in names
@@ -549,6 +648,8 @@ class TestToolSchemas:
     def test_armory_handlers_registered(self):
         assert get_handler("create_armory") is not None
         assert get_handler("validate_armory") is not None
+        assert get_handler("create_named_armory") is not None
+        assert get_handler("import_materials") is not None
         assert get_handler("search_materials") is not None
         assert get_handler("open_material") is not None
         assert get_handler("memory") is not None

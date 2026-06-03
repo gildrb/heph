@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaion.armory.storage import (
     ArmoryError,
+    default_armory_home,
     initialize,
     normalize_path,
     read_marker,
@@ -19,15 +19,6 @@ from hephaion.armory.storage import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-DEFAULT_ARMORY_HOME_ENV = "HEPHAION_ARMORY_HOME"
-
-
-def default_armory_home() -> Path:
-    configured = os.environ.get(DEFAULT_ARMORY_HOME_ENV)
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".armories"
 
 
 def armory_shortcut_path(name: str, parent: str | None = None) -> Path:

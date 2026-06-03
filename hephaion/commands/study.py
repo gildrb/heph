@@ -17,7 +17,14 @@ from hephaion.study import (
     LearningPhase,
     RecallRating,
 )
-from hephaion.study.exam import select_exam_question, supporting_source_refs
+from hephaion.study.exam_bank import (
+    ExamBank,
+    ExamBankItem,
+    exam_bank_build_prompt,
+    exam_bank_path,
+    load_exam_bank,
+    select_exam_bank_item,
+)
 from hephaion.study.priority import (
     PriorityAnalysis,
     PriorityPdfError,
@@ -343,45 +350,97 @@ class ExamCommand(Command):
         if s.armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
             return CommandResult()
-        print_info(
-            "Active recall works best with materials aside unless your exam allows a cheat "
-            "sheet. Use the time limit as real exam pressure."
-        )
-        topic = args.strip()
-        chunks = list(load_or_build(s.armory_path).all_chunks)
-        question = select_exam_question(chunks, topic=topic)
-        if question is not None:
-            source_refs = [
-                question.source_ref,
-                *supporting_source_refs(chunks, question.question),
-            ]
-            s.learning_state.phase = LearningPhase.RECALL
-            s.learning_state.current_item = question.question
-            s.learning_state.expected_source_refs = source_refs
-            s.learning_state.attempt_count = 0
-            s.learning_state.last_feedback_type = LearningFeedbackType.CALIBRATING
-            s.learning_state.retrieval_query = question.question
-            s.learning_state.recall_started_at = datetime.now(UTC)
-            s.learning_state.last_recall_seconds = None
-            s.learning_state.last_recall_rating = RecallRating.NONE
-            print(
-                "\n".join(
-                    [
-                        "Exam question",
-                        f"Time limit: {question.time_limit_minutes} minutes",
-                        question.question,
-                        "Answer from memory. Do not open the material unless your exam allows it.",
-                    ]
-                )
+        topic = _exam_topic(args)
+        bank_path = exam_bank_path(s.armory_path)
+        if _exam_build_requested(args):
+            print_info("Building a structured exam bank from indexed materials...")
+            return CommandResult(output=f"__RESEND__:{exam_bank_build_prompt()}")
+        if not bank_path.is_file():
+            print_info(
+                "No structured exam bank found. Run /exam build once, then /exam starts "
+                "from the saved bank without filling the chat context."
             )
             return CommandResult()
-        scope = f"about {topic}" if topic else "from my past exams and materials"
-        prompt = (
-            f"Ask me one random exam-style question {scope}. Include a concrete time limit, "
-            "require me to reason from memory, and do not show the result, answer key, "
-            "rubric, source explanation, source IDs, or citations until after my attempt."
+
+        bank = _enabled_exam_bank(load_exam_bank(s.armory_path), s.disabled_source_files)
+        item = select_exam_bank_item(bank, topic=topic)
+        if item is not None:
+            _start_exam_recall(s, item)
+            _print_exam_item(item)
+            return CommandResult()
+        print_info(
+            "No eligible exam-bank items are available. Run /exam build to regenerate the "
+            "structured bank, or add material that pairs practice prompts with source-backed "
+            "evaluation refs."
         )
-        return CommandResult(output=f"__RESEND__:{prompt}")
+        return CommandResult()
+
+
+def _exam_build_requested(args: str) -> bool:
+    return args.strip().casefold() in {"build", "rebuild"}
+
+
+def _exam_topic(args: str) -> str:
+    stripped = args.strip()
+    return "" if _exam_build_requested(stripped) else stripped
+
+
+def _enabled_exam_bank(bank: ExamBank, disabled_sources: set[str]) -> ExamBank:
+    return ExamBank(
+        items=tuple(item for item in bank.items if _exam_item_enabled(item, disabled_sources))
+    )
+
+
+def _exam_item_enabled(item: ExamBankItem, disabled_sources: set[str]) -> bool:
+    return bool(
+        item.question
+        and _has_enabled_ref(item.question_source_refs, disabled_sources)
+        and _has_enabled_ref(item.result_source_refs, disabled_sources)
+    )
+
+
+def _has_enabled_ref(refs: Sequence[str], disabled_sources: set[str]) -> bool:
+    return any(_source_from_ref(ref) not in disabled_sources for ref in refs)
+
+
+def _source_from_ref(ref: str) -> str:
+    return ref.partition("#chunk=")[0]
+
+
+def _start_exam_recall(session: ChatSession, item: ExamBankItem) -> None:
+    session.learning_state.phase = LearningPhase.RECALL
+    session.learning_state.current_item = item.question
+    session.learning_state.expected_source_refs = item.source_refs
+    session.learning_state.attempt_count = 0
+    session.learning_state.last_feedback_type = LearningFeedbackType.CALIBRATING
+    session.learning_state.retrieval_query = item.question
+    session.learning_state.recall_started_at = datetime.now(UTC)
+    session.learning_state.last_recall_seconds = None
+    session.learning_state.last_recall_rating = RecallRating.NONE
+    session.learning_state.last_confidence = None
+    session.learning_state.hint_level = 0
+    session.learning_state.start_practice_session(
+        session_type="exam",
+        session_goal=", ".join(item.topics) or "structured exam-bank practice",
+        time_budget_minutes=None,
+    )
+
+
+def _print_exam_item(item: ExamBankItem) -> None:
+    print_info(
+        "Active recall works best with materials aside unless your exam allows a cheat "
+        "sheet. Use the time limit as real exam pressure."
+    )
+    print(
+        "\n".join(
+            [
+                "Exam question",
+                f"Time limit: {item.effective_time_limit_minutes} minutes",
+                item.question,
+                "Answer from memory. Then tell Heph what your result was.",
+            ]
+        )
+    )
 
 
 class PriorityCommand(Command):

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from hephaion.agent.runtime_notes import acceptance_criteria_notice
 from hephaion.agent.tool_execution import ToolCall, merge_tool_call_deltas
+from hephaion.agent.tool_schema import ToolSchema
 from hephaion.agent.tools import ToolRegistry
 from hephaion.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 from hephaion.logging import Timer
@@ -158,7 +159,7 @@ def _model_request_event(
 def _active_tool_schemas(
     config: ChatConfig,
     registry: ToolRegistry,
-    tool_schemas: list[dict[str, object]] | None,
+    tool_schemas: list[ToolSchema] | None,
 ) -> Sequence[object]:
     if config.provider_slug == "openai-codex":
         return []
@@ -195,7 +196,7 @@ def run_model_turn(
     retry: RetryConfig,
     abort: threading.Event | None,
     registry: ToolRegistry,
-    tool_schemas: list[dict[str, object]] | None,
+    tool_schemas: list[ToolSchema] | None,
     llm_messages: list[ApiMessage],
     turn_idx: int,
     turn_evidence: TurnEvidence | None,

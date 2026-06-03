@@ -119,6 +119,9 @@ class ChatSession:
         if tool_registry is not None:
             object.__setattr__(self, "_tool_registry", tool_registry)
 
+    def refresh_armory_sources(self) -> None:
+        refresh_armory_sources(self)
+
 
 class SessionError(Exception):
     pass

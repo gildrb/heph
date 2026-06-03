@@ -8,13 +8,16 @@ from typing import Protocol
 
 _LETTER = r"A-Za-zÀ-ÖØ-öø-ÿ"
 _QUESTION_PREFIX_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?(?:\d+\s*)?[:.)-]?\s*",
+    rf"^\s*(?:[-*]\s*)?"
+    rf"(?:(?:[{_LETTER}][{_LETTER}\s_-]{{0,40}})\s+)?"
+    r"(?P<number>\d+)\s*"
+    r"(?:(?P<meta_before>\[[^\]\n]{1,80}\]|\([^\)\n]{1,80}\))\s*)?"
+    r"(?P<delimiter>[:.)-])\s*"
+    r"(?:(?P<meta_after>\[[^\]\n]{1,80}\]|\([^\)\n]{1,80}\))\s*)?",
     re.IGNORECASE,
 )
 _PROBLEM_START_RE = re.compile(
-    r"^\s*(?:"
-    r"\d+\s*[.)]"
-    r")",
+    _QUESTION_PREFIX_RE.pattern,
     re.IGNORECASE,
 )
 _SUBQUESTION_START_RE = re.compile(
@@ -23,6 +26,7 @@ _SUBQUESTION_START_RE = re.compile(
 )
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _EXAM_PROMPT_NOISE_RE = re.compile(r"[�©@]|(?:\?[^.!?\n]{0,24}[=+\-*/^])")
+_MARK_NUMBER_RE = re.compile(r"\d+")
 
 
 class ExamChunk(Protocol):
@@ -86,13 +90,19 @@ def supporting_source_refs(
     scored = [
         scored_ref
         for chunk in chunks
-        if (scored_ref := _supporting_ref_score(chunk, question_terms)) is not None
+        if (scored_ref := _supporting_ref_score(chunk, question, question_terms)) is not None
     ]
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [source_ref for _score, source_ref in scored[:limit]]
 
 
-def _supporting_ref_score(chunk: ExamChunk, question_terms: set[str]) -> tuple[int, str] | None:
+def _supporting_ref_score(
+    chunk: ExamChunk,
+    question: str,
+    question_terms: set[str],
+) -> tuple[int, str] | None:
+    if _text_contains_question(chunk.text, question):
+        return None
     overlap = len(question_terms & _content_terms(chunk.text))
     if overlap <= 0:
         return None
@@ -104,14 +114,25 @@ def _iter_exam_questions(chunks: Sequence[ExamChunk]) -> list[ExamQuestion]:
     questions = [
         question
         for position, chunk in enumerate(chunk_list)
-        if _has_question_structure(chunk.text)
+        if _has_question_structure_at(chunk_list, position)
         for question in _chunk_exam_questions(chunk_list, position)
     ]
     return _dedupe_exam_questions(questions)
 
 
+def _has_question_structure_at(chunks: Sequence[ExamChunk], position: int) -> bool:
+    text = chunks[position].text
+    if _has_question_structure(text):
+        return True
+    return _has_subquestion_structure(text) and _same_source_before(chunks, position)
+
+
 def _has_question_structure(text: str) -> bool:
     return bool(_PROBLEM_START_RE.search(text))
+
+
+def _has_subquestion_structure(text: str) -> bool:
+    return any(_SUBQUESTION_START_RE.match(line) for line in text.splitlines())
 
 
 def _chunk_exam_questions(chunks: Sequence[ExamChunk], position: int) -> Iterator[ExamQuestion]:
@@ -126,7 +147,7 @@ def _exam_question(question: str, chunk: ExamChunk) -> ExamQuestion:
     return ExamQuestion(
         question=question,
         source_ref=f"{chunk.source}#chunk={chunk.index}",
-        marks=None,
+        marks=_marks_from_text(question),
     )
 
 
@@ -149,7 +170,7 @@ def _normalized_question_key(question: str) -> str:
 def _contextual_exam_text(chunks: Sequence[ExamChunk], position: int) -> str:
     chunk = chunks[position]
     parts: list[str] = []
-    if _same_source_before(chunks, position):
+    if _same_source_before(chunks, position) and not _has_question_structure(chunk.text):
         parts.append(chunks[position - 1].text)
     parts.append(chunk.text)
     if continuation := _next_chunk_continuation(chunks, position):
@@ -271,8 +292,24 @@ def _strip_question_prefix(line: str, prefix: re.Match[str] | None) -> str:
 
 
 def _question_with_prefix_marks(question: str, prefix: re.Match[str] | None) -> str:
-    _ = prefix
+    mark_label = _mark_label_from_prefix(prefix)
+    if mark_label and mark_label not in question:
+        return f"{question.rstrip()} {mark_label}"
     return question
+
+
+def _mark_label_from_prefix(prefix: re.Match[str] | None) -> str:
+    if prefix is None:
+        return ""
+    return (prefix.group("meta_before") or prefix.group("meta_after") or "").strip()
+
+
+def _marks_from_text(text: str) -> int | None:
+    tail_match = re.search(r"(?:\[[^\]]+\]|\([^)]*\d+[^)]*\))\s*$", text)
+    if tail_match is None:
+        return None
+    numbers = [int(value) for value in _MARK_NUMBER_RE.findall(tail_match.group(0))]
+    return sum(numbers) if numbers else None
 
 
 def _clean_prompt_question(question: str) -> str | None:
@@ -330,6 +367,16 @@ def _strip_blank_edges(lines: list[str]) -> list[str]:
     while lines and not lines[0]:
         lines.pop(0)
     return lines
+
+
+def _text_contains_question(text: str, question: str) -> bool:
+    normalized_text = _normalized_question_key(text)
+    normalized_question = _normalized_question_key(_question_without_trailing_metadata(question))
+    return bool(normalized_question and normalized_question in normalized_text)
+
+
+def _question_without_trailing_metadata(question: str) -> str:
+    return re.sub(r"\s*(?:\[[^\]]+\]|\([^)]*\d+[^)]*\))\s*$", "", question).strip()
 
 
 def _content_terms(text: str) -> set[str]:

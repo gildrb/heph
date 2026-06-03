@@ -4,7 +4,14 @@ from functools import lru_cache
 from pathlib import Path
 
 _MAX_CONTEXT_CHARS = 4000
+_MAX_ROUTING_CONTEXT_CHARS = 360
 _ASSISTANT_CONTEXT_PATH = Path("docs/developers/heph-context.md")
+_ROUTING_CONTEXT_LINES = (
+    "Heph/Hephaion is the local document harness; Heph is its assistant.",
+    "heph_help explains how Heph works, setup, commands, and settings.",
+    "heph_action performs exact product ops: create/validate/import armories or materials.",
+    "User-source/corpus-content intent stays material-scoped. Product intents use no retrieval.",
+)
 
 
 def _repo_readme_path() -> Path | None:
@@ -32,3 +39,11 @@ def heph_product_context() -> str:
     if not context_path.is_file():
         return ""
     return context_path.read_text(encoding="utf-8").strip()[:_MAX_CONTEXT_CHARS].strip()
+
+
+@lru_cache(maxsize=1)
+def heph_product_routing_context() -> str:
+    context = "\n".join(f"- {line}" for line in _ROUTING_CONTEXT_LINES)
+    if len(context) <= _MAX_ROUTING_CONTEXT_CHARS:
+        return context
+    return context[:_MAX_ROUTING_CONTEXT_CHARS].rstrip()
