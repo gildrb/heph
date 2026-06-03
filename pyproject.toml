@@ -28,6 +28,7 @@ dependencies = [
     "textual==8.2.4",
     "unicodeit==0.7.5",
     "docling==2.86.0",
+    "openai-guardrails==0.2.1",
 ]
 
 [project.urls]

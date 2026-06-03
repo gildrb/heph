@@ -35,6 +35,7 @@ class GuardrailDecision:
     stage: GuardrailStage
     action: GuardrailAction = GUARDRAIL_ACTION_ALLOW
     message: str = ""
+    replacement_text: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -60,6 +61,7 @@ def warn_guardrail(
         stage=stage,
         action=GUARDRAIL_ACTION_WARN,
         message=message,
+        replacement_text="",
         metadata=dict(metadata or {}),
     )
 
@@ -74,5 +76,6 @@ def block_guardrail(
         stage=stage,
         action=GUARDRAIL_ACTION_BLOCK,
         message=message,
+        replacement_text="",
         metadata=dict(metadata or {}),
     )

@@ -51,7 +51,14 @@ from hephaion.runtime import (
 )
 from hephaion.runtime.messages import api_content_text
 from hephaion.runtime.prompt_cache import StablePrefixBuilder
-from hephaion.safety import GuardrailDecision, GuardrailToolCall, check_tool_call_names
+from hephaion.safety import (
+    GuardrailDecision,
+    GuardrailMessage,
+    GuardrailToolCall,
+    check_openai_tool_calls,
+    check_openai_tool_results,
+    check_tool_call_names,
+)
 
 _log = get_logger("agent.dispatch")
 
@@ -422,6 +429,27 @@ def _guardrail_tool_calls(tool_calls: list[ToolCall]) -> tuple[GuardrailToolCall
     )
 
 
+def _guardrail_messages(api_messages: Sequence[ApiMessage]) -> tuple[GuardrailMessage, ...]:
+    return tuple(
+        GuardrailMessage(
+            role=message["role"],
+            content=api_content_text(message["content"]),
+        )
+        for message in api_messages
+    )
+
+
+def _guardrail_tool_results(tool_results: Sequence[ApiMessage]) -> tuple[GuardrailMessage, ...]:
+    return tuple(
+        GuardrailMessage(
+            role=message["role"],
+            content=api_content_text(message["content"]),
+        )
+        for message in tool_results
+        if message["role"] == "tool"
+    )
+
+
 def _blocked_tool_call_events(
     *,
     decision: GuardrailDecision,
@@ -470,8 +498,9 @@ def _tool_turn_events(
     model_turn_timer: Timer,
     turn_idx: int,
 ) -> Generator[TurnEvent, None, bool]:
+    guardrail_tool_calls = _guardrail_tool_calls(model_result_tool_calls)
     tool_decision = check_tool_call_names(
-        _guardrail_tool_calls(model_result_tool_calls),
+        guardrail_tool_calls,
         allowed_tool_names=frozenset(registry.tool_names),
     )
     if tool_decision.blocks:
@@ -492,6 +521,31 @@ def _tool_turn_events(
             action=tool_decision.action,
             message=tool_decision.message,
             metadata=tool_decision.metadata,
+        )
+
+    openai_tool_decision = check_openai_tool_calls(
+        guardrail_tool_calls,
+        conversation=_guardrail_messages(state.api_messages),
+        config=config,
+    )
+    if openai_tool_decision.blocks:
+        yield from _blocked_tool_call_events(
+            decision=openai_tool_decision,
+            conversation=conversation,
+            state=state,
+            usage=usage,
+            model_stream_state=model_stream_state,
+            model_result_text=model_result_text,
+            config=config,
+            turn_idx=turn_idx,
+        )
+        return True
+    if openai_tool_decision.warns:
+        yield GuardrailEvent(
+            stage=openai_tool_decision.stage,
+            action=openai_tool_decision.action,
+            message=openai_tool_decision.message,
+            metadata=openai_tool_decision.metadata,
         )
 
     _append_tool_call_message(
@@ -526,6 +580,31 @@ def _tool_turn_events(
         registry=registry,
         abort=abort,
     )
+    tool_result_decision = check_openai_tool_results(
+        _guardrail_tool_results(tool_results),
+        conversation=_guardrail_messages(state.api_messages),
+        tool_calls=guardrail_tool_calls,
+        config=config,
+    )
+    if tool_result_decision.blocks:
+        yield from _blocked_tool_call_events(
+            decision=tool_result_decision,
+            conversation=conversation,
+            state=state,
+            usage=usage,
+            model_stream_state=model_stream_state,
+            model_result_text=model_result_text,
+            config=config,
+            turn_idx=turn_idx,
+        )
+        return True
+    if tool_result_decision.warns:
+        yield GuardrailEvent(
+            stage=tool_result_decision.stage,
+            action=tool_result_decision.action,
+            message=tool_result_decision.message,
+            metadata=tool_result_decision.metadata,
+        )
     state.api_messages.extend(tool_results)
 
     _record_usage(

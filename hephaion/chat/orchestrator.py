@@ -96,8 +96,12 @@ from hephaion.runtime import (
 from hephaion.safety import (
     GUARDRAIL_ACTION_WARN,
     GUARDRAIL_STAGE_OUTPUT,
+    GuardrailDecision,
     GuardrailMessage,
+    check_openai_input,
+    check_openai_output,
     check_user_input,
+    should_buffer_openai_output,
 )
 from hephaion.study import (
     EvidenceAssessment,
@@ -5593,6 +5597,22 @@ def _overview_required_distinct_source_count(evidence: TurnEvidence) -> int:
     )
 
 
+def _guardrail_messages(conversation: Conversation) -> tuple[GuardrailMessage, ...]:
+    return tuple(
+        GuardrailMessage(role=message.role, content=message.content)
+        for message in conversation.messages
+    )
+
+
+def _guardrail_event(decision: GuardrailDecision) -> GuardrailEvent:
+    return GuardrailEvent(
+        stage=decision.stage,
+        action=decision.action,
+        message=decision.message,
+        metadata=decision.metadata,
+    )
+
+
 @dataclass(slots=True)
 class TurnOrchestrator:
     session: ChatSession
@@ -5617,28 +5637,30 @@ class TurnOrchestrator:
 
         input_decision = check_user_input(
             user_input,
-            conversation=tuple(
-                GuardrailMessage(role=message.role, content=message.content)
-                for message in session.conversation.messages
-            ),
+            conversation=_guardrail_messages(session.conversation),
         )
         if input_decision.blocks:
-            yield GuardrailEvent(
-                stage=input_decision.stage,
-                action=input_decision.action,
-                message=input_decision.message,
-                metadata=input_decision.metadata,
-            )
+            yield _guardrail_event(input_decision)
             self.last_reply = input_decision.message
             yield from _final_reply_events(self.last_reply)
             return
         if input_decision.warns:
-            yield GuardrailEvent(
-                stage=input_decision.stage,
-                action=input_decision.action,
-                message=input_decision.message,
-                metadata=input_decision.metadata,
-            )
+            yield _guardrail_event(input_decision)
+
+        openai_input_decision = check_openai_input(
+            user_input,
+            conversation=_guardrail_messages(session.conversation),
+            config=session.config,
+        )
+        if openai_input_decision.blocks:
+            yield _guardrail_event(openai_input_decision)
+            self.last_reply = openai_input_decision.message
+            yield from _final_reply_events(self.last_reply)
+            return
+        if openai_input_decision.warns:
+            yield _guardrail_event(openai_input_decision)
+        if openai_input_decision.replacement_text:
+            user_input = openai_input_decision.replacement_text
 
         session.conversation.add("user", user_input)
         session.trace.record_user_message(user_input)
@@ -5842,6 +5864,7 @@ class TurnOrchestrator:
     ) -> Iterator[TurnEvent]:
         session = self.session
         parts: list[str] = []
+        buffer_output = should_buffer_openai_output(session.config)
         for delta in stream_completion(
             session.config,
             session.conversation,
@@ -5852,12 +5875,24 @@ class TurnOrchestrator:
             if not delta.content:
                 continue
             parts.append(delta.content)
-            yield AssistantDeltaEvent(delta.content)
+            if not buffer_output:
+                yield AssistantDeltaEvent(delta.content)
 
-        if parts:
-            self.last_reply = "".join(parts)
-        else:
-            self.last_reply = _plain_empty_reply(user_input, session.config)
+        reply = "".join(parts) if parts else _plain_empty_reply(user_input, session.config)
+
+        output_decision = check_openai_output(
+            reply,
+            conversation=_guardrail_messages(session.conversation),
+            config=session.config,
+        )
+        if output_decision.blocks:
+            yield _guardrail_event(output_decision)
+            reply = output_decision.message
+        elif output_decision.warns:
+            yield _guardrail_event(output_decision)
+
+        self.last_reply = reply
+        if buffer_output or not parts or output_decision.blocks:
             yield AssistantDeltaEvent(self.last_reply)
 
         self._append_assistant_message(self.last_reply)
@@ -5921,8 +5956,10 @@ class TurnOrchestrator:
         buffer_output: bool,
     ) -> Iterator[TurnEvent]:
         if isinstance(event, AssistantDeltaEvent):
-            buffer.add_delta(event.delta, visible=not buffer_output)
-            if not buffer_output:
+            guardrail_buffer_output = should_buffer_openai_output(self.session.config)
+            visible = not buffer_output
+            buffer.add_delta(event.delta, visible=visible)
+            if visible and not guardrail_buffer_output:
                 yield event
             return
         if isinstance(event, TurnCompleteEvent):
@@ -6076,7 +6113,9 @@ class TurnOrchestrator:
         session = self.session
         plan = resolved.learning_plan
         assert plan is not None
-        streamed_reply = agent_output.streamed_reply
+        streamed_reply = (
+            "" if should_buffer_openai_output(session.config) else agent_output.streamed_reply
+        )
         raw_reply = agent_output.raw_reply
         visible_reply = agent_output.visible_reply
         completion_event = agent_output.completion_event
@@ -6103,12 +6142,29 @@ class TurnOrchestrator:
 
         if raw_reply:
             source_refs = _evidence_refs(resolved.turn_evidence)
-            final_reply = self._apply_learning_reply(
+            next_learning_state, final_reply = apply_turn_result(
                 original_learning_state,
                 plan,
                 visible_reply,
-                source_refs=source_refs,
+                source_refs,
             )
+            output_decision = check_openai_output(
+                final_reply,
+                conversation=_guardrail_messages(session.conversation),
+                config=session.config,
+            )
+            if output_decision.blocks:
+                session.learning_state = original_learning_state
+                self.last_reply = output_decision.message
+                self._append_assistant_message(self.last_reply)
+                yield _guardrail_event(output_decision)
+                yield from _final_reply_events(self.last_reply)
+                return
+            if output_decision.warns:
+                yield _guardrail_event(output_decision)
+            session.learning_state = next_learning_state
+            self.last_reply = final_reply
+            self._append_assistant_message(final_reply)
             self._record_learning_review_if_needed(
                 original_learning_state,
                 plan,

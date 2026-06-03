@@ -31,8 +31,14 @@ from hephaion.chat.turn_contract import (
     TurnIntentResolution,
 )
 from hephaion.product.context import heph_product_routing_context
-from hephaion.runtime import ChatConfig, Conversation
-from hephaion.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
+from hephaion.runtime import ChatConfig, CompletionDelta, Conversation
+from hephaion.safety import (
+    GUARDRAIL_STAGE_INPUT,
+    GUARDRAIL_STAGE_OUTPUT,
+    GuardrailDecision,
+    allow_guardrail,
+    block_guardrail,
+)
 from hephaion.study import LearningTurnPlan, material_overview_plan
 
 
@@ -160,6 +166,51 @@ def test_blocked_input_is_not_appended_or_traced(monkeypatch: pytest.MonkeyPatch
     assert isinstance(events[0], GuardrailEvent)
     assert session.conversation.messages == []
     trace.record_user_message.assert_not_called()
+
+
+def test_openai_pii_masking_replaces_persisted_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = ChatSession(
+        config=ChatConfig(
+            api_key="test-key",
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+        ),
+        conversation=Conversation(),
+        session_id="masked-input-session",
+    )
+    trace = MagicMock()
+    object.__setattr__(session, "trace", trace)
+    monkeypatch.setattr(
+        "hephaion.chat.orchestrator.check_openai_input",
+        lambda *_args, **_kwargs: GuardrailDecision(
+            stage=GUARDRAIL_STAGE_INPUT,
+            action="warn",
+            message="Masked personal data.",
+            replacement_text="Summarize the note for [EMAIL_ADDRESS].",
+        ),
+    )
+    monkeypatch.setattr(
+        "hephaion.chat.orchestrator.should_buffer_openai_output",
+        lambda _config: False,
+    )
+    monkeypatch.setattr(
+        "hephaion.chat.orchestrator.check_openai_output",
+        lambda *_args, **_kwargs: allow_guardrail(GUARDRAIL_STAGE_OUTPUT),
+    )
+    monkeypatch.setattr(
+        "hephaion.chat.orchestrator.stream_completion",
+        lambda *_args, **_kwargs: iter([CompletionDelta(content="Done.")]),
+    )
+    monkeypatch.setattr("hephaion.chat.orchestrator.schedule_memory_extraction", MagicMock())
+    monkeypatch.setattr("hephaion.chat.orchestrator.save_usage", MagicMock())
+
+    events = list(TurnOrchestrator(session).iter_events("Summarize for me@example.com."))
+
+    assert isinstance(events[0], GuardrailEvent)
+    assert session.conversation.messages[0].content == "Summarize the note for [EMAIL_ADDRESS]."
+    trace.record_user_message.assert_called_once_with("Summarize the note for [EMAIL_ADDRESS].")
 
 
 def test_armory_heph_help_route_does_not_prepare_material_index() -> None:

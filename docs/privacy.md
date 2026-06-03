@@ -52,6 +52,11 @@ When you ask a question, the following is sent to your configured model provider
 
 This is necessary for the model to process your request. Choose providers you trust.
 
+When the configured provider is OpenAI, Hephaion also runs OpenAI Guardrails by default for
+quality and safety checks such as PII detection, jailbreak/off-topic detection, and
+prompt-injection checks around tool use. Detected PII in user input is masked before the normal
+model request when possible.
+
 ### Provider Data Policies
 
 Different providers have different data policies:
@@ -136,6 +141,7 @@ Hephaion never writes API keys to:
 Hephaion makes network connections only to:
 
 1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
+   and provider-native quality guardrails when available
 2. **Package managers** (uv, pip) - for updates/dependencies
 3. **Optional diagnostics endpoints** - if you enable them
 
