@@ -76,6 +76,11 @@ export OPENAI_API_KEY="sk-..."
 
 Or use `/login` with your OpenAI account.
 
+The OpenAI API provider uses `OPENAI_API_KEY` or a key stored by `/login`.
+When that official API path is active, Heph also enables the OpenAI Guardrails
+adapter for provider-native quality checks. The separate OpenAI Codex subscription
+login uses its own backend and is not the same as an OpenAI API key.
+
 ### OpenRouter
 
 ```bash

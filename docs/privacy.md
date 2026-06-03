@@ -52,10 +52,12 @@ When you ask a question, the following is sent to your configured model provider
 
 This is necessary for the model to process your request. Choose providers you trust.
 
-When the configured provider is OpenAI, Hephaion also runs OpenAI Guardrails by default for
-quality and safety checks such as PII detection, jailbreak/off-topic detection, and
-prompt-injection checks around tool use. Detected PII in user input is masked before the normal
-model request when possible.
+When the configured provider is the official OpenAI API, Hephaion also runs OpenAI Guardrails
+by default for quality and safety checks such as PII detection, jailbreak/off-topic detection,
+and prompt-injection checks around tool use. Detected PII in user input is masked before the
+normal model request when possible. Non-OpenAI providers, OpenAI-compatible proxies, and the
+separate OpenAI Codex subscription backend continue to use Hephaion's local guardrails until
+they have their own provider-native adapters.
 
 ### Provider Data Policies
 

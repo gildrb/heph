@@ -24,6 +24,7 @@ _ENDPOINT_PREFIXES: dict[str, tuple[str, ...]] = {
     _normalize_endpoint("https://api.openai.com/v1"): _PROVIDER_PREFIXES["openai"],
     _normalize_endpoint("https://api.z.ai/api/paas/v4/"): _PROVIDER_PREFIXES["zai"],
 }
+_OFFICIAL_OPENAI_ENDPOINT = _normalize_endpoint("https://api.openai.com/v1")
 
 
 def _matches_prefixes(model_name: str, prefixes: tuple[str, ...]) -> bool:
@@ -56,3 +57,13 @@ def is_supported_model_for_provider(model_name: str, provider_slug: str) -> bool
     if prefixes is None:
         return True
     return _matches_prefixes(model_name, prefixes)
+
+
+def is_official_openai_api_config(provider_slug: str, base_url: str, *, has_api_key: bool) -> bool:
+    if not has_api_key:
+        return False
+    if provider_slug == "openai":
+        return True
+    if provider_slug == "openai-codex":
+        return False
+    return _normalize_endpoint(base_url) == _OFFICIAL_OPENAI_ENDPOINT

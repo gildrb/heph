@@ -13,6 +13,7 @@ from hephaion.providers.registry import get_registry as get_provider_registry
 type ModelChoice = tuple[str, str, str, bool]
 
 _DEFAULT_RECOMMENDATION_LIMIT = 6
+_PROVIDER_NATIVE_QUALITY_TAG = "provider-native-guardrails"
 _FAST_VARIANT_TERMS: tuple[tuple[str, float], ...] = (
     ("flash", 1.0),
     ("mini", 0.9),
@@ -186,6 +187,8 @@ def _tag_score(info: ModelInfo) -> float:
         score += 0.3
     if "router" in tags:
         score -= 1.0
+    if _PROVIDER_NATIVE_QUALITY_TAG in tags:
+        score += 0.4
     return score
 
 
@@ -225,6 +228,8 @@ def _recommendation_reasons(
             reasons.append("tool-capable")
         if "reasoning" in info.tags:
             reasons.append("reasoning-capable")
+        if _PROVIDER_NATIVE_QUALITY_TAG in info.tags:
+            reasons.append("provider-native guardrails")
     if is_keyless_endpoint(endpoint):
         reasons.append("no API key needed")
     if not reasons:

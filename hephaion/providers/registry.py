@@ -60,7 +60,7 @@ def _openai_models(provider: str) -> list[ModelInfo]:
             max_output,
             prompt_price,
             completion_price,
-            tags=tags,
+            tags=(*tags, "provider-native-guardrails") if provider == "openai" else tags,
             reasoning_efforts=_default_reasoning_efforts(tags),
             supports_tools="tools" in tags,
         )

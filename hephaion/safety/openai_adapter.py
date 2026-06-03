@@ -9,6 +9,7 @@ from typing import Protocol
 from guardrails import GuardrailsOpenAI
 from guardrails.types import GuardrailResult as SdkGuardrailResult
 
+from hephaion.providers.model_support import is_official_openai_api_config
 from hephaion.safety.contracts import (
     GUARDRAIL_STAGE_INPUT,
     GUARDRAIL_STAGE_OUTPUT,
@@ -23,8 +24,6 @@ from hephaion.safety.contracts import (
     warn_guardrail,
 )
 
-_OFFICIAL_OPENAI_ENDPOINT = "https://api.openai.com/v1"
-_OPENAI_PROVIDER_SLUGS = frozenset({"openai", "openai-codex"})
 _GUARDRAIL_MODEL = "gpt-4o-mini"
 _INPUT_SCOPE = (
     "Hephaion is a local document and learning harness. On-topic requests ask Heph to "
@@ -284,11 +283,11 @@ def _runner_for_config(config: GuardrailConfigProtocol) -> OpenAIGuardrailsRunne
 
 
 def _is_official_openai_config(config: GuardrailConfigProtocol) -> bool:
-    if not config.resolved_api_key:
-        return False
-    if config.provider_slug in _OPENAI_PROVIDER_SLUGS:
-        return True
-    return _normalized_endpoint(config.base_url) == _OFFICIAL_OPENAI_ENDPOINT
+    return is_official_openai_api_config(
+        config.provider_slug,
+        config.base_url,
+        has_api_key=bool(config.resolved_api_key),
+    )
 
 
 def _normalized_endpoint(base_url: str) -> str:

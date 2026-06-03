@@ -5,9 +5,11 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from hephaion.providers.model_support import is_official_openai_api_config
 from hephaion.runtime import ChatConfig
 from hephaion.safety import GuardrailMessage, GuardrailToolCall
 from hephaion.safety.openai_adapter import (
+    GuardrailConfigProtocol,
     OpenAIGuardrailResult,
     OpenAIGuardrailsRunner,
     check_openai_input,
@@ -39,7 +41,7 @@ class _FakeRunner(OpenAIGuardrailsRunner):
 class _FakeRunnerFactory:
     runner: _FakeRunner
 
-    def __call__(self, _config: ChatConfig) -> _FakeRunner:
+    def __call__(self, _config: GuardrailConfigProtocol) -> _FakeRunner:
         return self.runner
 
 
@@ -137,6 +139,29 @@ def test_non_openai_provider_keeps_provider_swappability() -> None:
 
     assert not decision.blocks
     assert fake_runner.calls == []
+
+
+def test_openai_api_detection_excludes_codex_subscription_backend() -> None:
+    assert is_official_openai_api_config(
+        "openai",
+        "https://api.openai.com/v1",
+        has_api_key=True,
+    )
+    assert is_official_openai_api_config(
+        "custom",
+        "https://api.openai.com/v1/",
+        has_api_key=True,
+    )
+    assert not is_official_openai_api_config(
+        "openai-codex",
+        "https://api.openai.com/v1",
+        has_api_key=True,
+    )
+    assert not is_official_openai_api_config(
+        "openai",
+        "https://api.openai.com/v1",
+        has_api_key=False,
+    )
 
 
 def test_openai_tool_call_prompt_injection_blocks_execution() -> None:

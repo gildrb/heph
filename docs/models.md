@@ -23,7 +23,7 @@ Hephaion works with multiple model providers, giving you flexibility in cost, pe
 - **Cost**: Pay-per-use or subscription
 - **Account**: API key or Codex subscription
 - **Models**: GPT-4, GPT-4 Turbo, GPT-3.5
-- **Best for**: Production use, reliable performance
+- **Best for**: Production use, reliable performance, provider-native quality guardrails
 
 ### Z.AI
 
@@ -75,6 +75,17 @@ live provider catalogs where supported, so new models can appear without a code
 release.
 
 ## Model-Specific Considerations
+
+### Provider-Native Adapters
+
+Heph keeps one local baseline across every model: retrieval, citation verification,
+armory-scoped memory, and provider-neutral guardrails. On top of that baseline,
+provider adapters map Heph's generic controls onto the vendor's official API behavior.
+
+OpenAI API models currently receive the strongest provider-native adapter: Heph uses
+the official OpenAI API/key path and runs OpenAI Guardrails for PII, jailbreak/off-topic,
+and prompt-injection checks. OpenAI-compatible proxies and non-OpenAI providers still
+use Heph's local guardrails until they get their own vendor-specific adapters.
 
 ### Context Window
 
