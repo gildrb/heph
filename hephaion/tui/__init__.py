@@ -266,7 +266,7 @@ _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
 _is_command_activity_line = is_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
-_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models", "/recommend", "/recommend-model"}
+_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
 _TUI_MANAGED_RESEND_COMMANDS = {"exam"}
 
 
@@ -432,7 +432,7 @@ class HephTui(
             with w.vertical(id="shell"):
                 yield w.static(_status_text(self.session), id="status")
                 yield w.static("", id=TRANSCRIPT_SPACER_ID)
-                yield w.rich_log(id=TRANSCRIPT_ID, markup=True, wrap=True, highlight=True)
+                yield w.rich_log(id=TRANSCRIPT_ID, markup=True, wrap=True, highlight=False)
                 with w.vertical(id="armory-inline"):
                     yield w.static("", id="armory-header")
                     yield w.static("", id="armory-breadcrumbs")

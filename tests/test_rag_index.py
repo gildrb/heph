@@ -517,20 +517,25 @@ class TestEvidenceCommand:
         assert "score" not in out
 
 
-class TestUsageCommand:
-    def test_outputs_single_compact_line(self, capsys: pytest.CaptureFixture[str]) -> None:
+class TestRemovedUsageCommand:
+    def test_usage_command_is_not_exported(self) -> None:
+        registry = commands.get_registry()
+
+        assert registry.find("usage") is None
+        assert not any(suggestion.name == "usage" for suggestion in registry.suggestions())
+        assert not hasattr(commands, "UsageCommand")
+
+    def test_status_outputs_session_usage(self) -> None:
         session = create_plain_session(ChatConfig(api_key="test-key"))
         session.usage.estimate_from_chars(400, 200, "gpt-5.4-mini")
 
-        result = commands.UsageCommand().handle(session, "")
+        result = commands.StatusCommand().handle(session, "")
 
-        assert capsys.readouterr().out == ""
         assert result.output is not None
-        assert "\n" not in result.output
-        assert result.output.startswith("Usage: 1 call(s);")
-        assert "100 prompt, 50 output, 150 total tokens" in result.output
+        assert "API calls: 1" in result.output
+        assert "Tokens:    150 (prompt: 100, completion: 50)" in result.output
 
-    def test_dispatch_prints_single_compact_line(
+    def test_dispatch_reports_usage_as_unknown_command(
         self,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -540,10 +545,8 @@ class TestUsageCommand:
         handle_input(session, "/usage", InputHistory([]))
 
         out = capsys.readouterr().out
-        assert out.count("\n") == 1
-        assert out.startswith("Usage: 1 call(s);")
-        assert "info:" not in out
-        assert "error:" not in out
+        assert "Unknown command: /usage" in out
+        assert "Type /help for available commands." in out
 
 
 class TestCompactCommandStatus:

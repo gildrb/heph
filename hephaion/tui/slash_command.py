@@ -9,6 +9,8 @@ from __future__ import annotations
 from hephaion.commands.suggestions import CommandSuggestion
 from hephaion.tui.slash_completion import SlashCompletionEngine
 
+_COMMAND_HELP_GAP = 4
+
 
 def tui_command_suggestions() -> list[CommandSuggestion]:
     from hephaion.commands import get_registry
@@ -29,8 +31,10 @@ def slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
 
 def command_help() -> str:
     suggestions = tui_command_suggestions()
-    lines = [
-        f"  /{suggestion.name}  {suggestion.description}"
-        for suggestion in sorted(suggestions, key=lambda s: s.name)
-    ]
+    label_width = max((len(f"/{suggestion.name}") for suggestion in suggestions), default=0)
+    gap = " " * _COMMAND_HELP_GAP
+    lines = []
+    for suggestion in sorted(suggestions, key=lambda s: s.name):
+        label = f"/{suggestion.name}"
+        lines.append(f"  {label:<{label_width}}{gap}{suggestion.description}")
     return "\n".join(lines)

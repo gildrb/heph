@@ -49,12 +49,10 @@
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming review reminders and due cards |
 | /models | Pick the active model |
-| /recommend-model | Recommend a quick, reliable model |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
 | /turn | Branch from an earlier completed turn |
 | /index | Refresh the current armory materials index |
-| /usage | Show token usage and cost for this session |
 | /vocabulary | Practice vocabulary translations from your materials |
 
 ## Environment variables

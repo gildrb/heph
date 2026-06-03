@@ -191,22 +191,3 @@ class CostCommand(Command):
         s = ensure_session(session)
         _update_visibility(s, args, "live_cost_visible", "Live cost", "Usage: /cost [show|hide]")
         return CommandResult()
-
-
-class UsageCommand(Command):
-    name = "usage"
-    description = "Show token usage and cost for this session"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        del args
-        s = ensure_session(session)
-        summary = s.usage.summary()
-        return CommandResult(
-            output=(
-                f"Usage: {summary['api_calls']} call(s); "
-                f"{summary['prompt_tokens']} prompt, "
-                f"{summary['completion_tokens']} output, "
-                f"{summary['total_tokens']} total tokens; "
-                f"${summary['cost_usd']:.4f}."
-            )
-        )

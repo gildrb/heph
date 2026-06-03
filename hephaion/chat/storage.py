@@ -7,6 +7,7 @@ from typing import TypedDict
 from uuid import uuid4
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.chat.titles import sanitize_title_text
 from hephaion.logging import get_logger
 from hephaion.runtime import Conversation
 
@@ -111,7 +112,7 @@ def _session_data(
 ) -> dict[str, object]:
     data: dict[str, object] = {
         "session_id": session_id,
-        "title": title,
+        "title": sanitize_title_text(title),
         "created_at": existing.get("created_at", now),
         "updated_at": now,
         "messages": [
@@ -161,7 +162,7 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
         },
     )
     title = data.get("title", "")
-    return conversation, title if isinstance(title, str) else ""
+    return conversation, sanitize_title_text(title) if isinstance(title, str) else ""
 
 
 def _conversation_from_data(data: dict[str, object]) -> Conversation:
@@ -203,7 +204,7 @@ def list_sessions(armory_path: Path) -> list[SessionRecord]:
             sessions.append(
                 {
                     "session_id": str(data.get("session_id", file_path.stem)),
-                    "title": str(data.get("title", "")),
+                    "title": sanitize_title_text(str(data.get("title", ""))),
                     "created_at": str(data.get("created_at", "")),
                     "updated_at": str(data.get("updated_at", "")),
                 }

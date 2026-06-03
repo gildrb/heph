@@ -11,10 +11,9 @@ from hephaion.commands.display import (
     CostCommand,
     EvidenceCommand,
     TokensCommand,
-    UsageCommand,
 )
 from hephaion.commands.help import ExitCommand, HelpCommand
-from hephaion.commands.model import ModelsCommand, RecommendCommand
+from hephaion.commands.model import ModelsCommand
 from hephaion.commands.session import (
     ArmoryCommand,
     NewCommand,
@@ -85,12 +84,10 @@ def get_registry() -> CommandRegistry:
                 ImportCommand,
                 RemindCommand,
                 ModelsCommand,
-                RecommendCommand,
                 SettingsCommand,
                 SessionsCommand,
                 TurnCommand,
                 IndexCommand,
-                UsageCommand,
                 VocabCommand,
             )
         )
@@ -124,14 +121,12 @@ __all__ = [
     "NewCommand",
     "PriorityCommand",
     "ProviderConfig",
-    "RecommendCommand",
     "RemindCommand",
     "SessionsCommand",
     "SettingsCommand",
     "StatusCommand",
     "TokensCommand",
     "TurnCommand",
-    "UsageCommand",
     "VocabCommand",
     # Re-exported helpers (for test monkeypatching)
     "confirm",
