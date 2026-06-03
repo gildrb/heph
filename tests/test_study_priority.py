@@ -122,12 +122,12 @@ def test_priority_analysis_uses_extracted_text_to_classify_generic_sources(
     index = ArmoryIndex(tmp_path)
     exam_chunk = _chunk(
         "materials/document-a.pdf",
-        "Klausur Administrative Header 2. Bearbeitungszeit 90 Minuten. "
-        "Aufgabe 1 [10 Punkte]: Explain Dijkstra shortest paths.",
+        "Assessment Header 2. Duration 90 minutes. "
+        "Question 1 [10 marks]: Explain Dijkstra shortest paths.",
     )
     slides_chunk = _chunk(
         "materials/document-b.pdf",
-        "Administrative Header 2. Sommersemester 2026. Vorlesung. "
+        "Administrative Header 2. Term 2026. Lecture. "
         "Table of contents. Dijkstra shortest paths use graph relaxation.",
     )
     index.documents = [
@@ -204,7 +204,12 @@ def test_priority_analysis_render_includes_exam_and_material_sources(tmp_path: P
         ChunkedDocument(
             source="materials/mock-exam.md",
             content_hash="exam",
-            chunks=[_chunk("materials/mock-exam.md", "Explain dynamic programming recurrence.")],
+            chunks=[
+                _chunk(
+                    "materials/mock-exam.md",
+                    "Question: Explain dynamic programming recurrence.",
+                )
+            ],
         ),
         ChunkedDocument(
             source="materials/lecture-dp.md",
@@ -293,8 +298,11 @@ def test_priority_analysis_weights_exam_marks(tmp_path: Path) -> None:
             source="materials/past-exams/2026.md",
             content_hash="exam",
             chunks=[
-                _chunk("materials/past-exams/2026.md", "Explain heaps. [4 marks]"),
-                _chunk("materials/past-exams/2026.md", "Explain graph shortest paths. [12 marks]"),
+                _chunk(
+                    "materials/past-exams/2026.md",
+                    "Question 1 [4 marks]: Explain heaps. "
+                    "Question 2 [12 marks]: Explain graph shortest paths.",
+                ),
             ],
         ),
     ]
@@ -325,7 +333,7 @@ def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
                     "materials/past-exams/mock-2025.md",
                     "Question 1 [12 marks]: Explain Dijkstra shortest paths and graph relaxation. "
                     "Question 2 [4 marks]: Explain heaps and priority queues. "
-                    "Question 3 [2 marks]: Image. Formula not decoded. Die und wir ist OCR noise.",
+                    "Question 3 [2 marks]: Image. Formula not decoded. Scanner footer.",
                 )
             ],
         ),
@@ -531,12 +539,12 @@ def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: P
     index = ArmoryIndex(tmp_path)
     index.documents = [
         ChunkedDocument(
-            source="materials/Folien_2026_04_13.pdf",
+            source="materials/slides_2026_04_13.pdf",
             content_hash="slides",
             chunks=[
                 _chunk(
-                    "materials/Folien_2026_04_13.pdf",
-                    "Formula not decoded. Image. Die und wir ist noise. "
+                    "materials/slides_2026_04_13.pdf",
+                    "Formula not decoded. Image. Scanner footer. "
                     "Gradient descent optimization uses learning rates.",
                 )
             ],
@@ -557,8 +565,7 @@ def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: P
 
     assert "formula-not-decoded" not in topics
     assert "image" not in topics
-    assert "die" not in topics
-    assert "ocr noise" not in topics
+    assert "scanner footer" not in topics
     assert "gradient descent" in topics
 
 
@@ -566,13 +573,13 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
     index = ArmoryIndex(tmp_path)
     index.documents = [
         ChunkedDocument(
-            source=f"materials/Folien_2026_04_{day}.pdf",
+            source=f"materials/slides_2026_04_{day}.pdf",
             content_hash=str(day),
             chunks=[
                 _chunk(
-                    f"materials/Folien_2026_04_{day}.pdf",
-                    "Administrative Header Sommersemester. Administrative line. "
-                    "Administrative block. Beispiel. Ohne Beweis. "
+                    f"materials/slides_2026_04_{day}.pdf",
+                    "Administrative Header Term. Administrative line. "
+                    "Administrative block. Reference Only. "
                     "Graph routing and packet scheduling.",
                 )
             ],
@@ -586,7 +593,7 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
             chunks=[
                 _chunk(
                     "materials/past-exams/mock.md",
-                    "Aufgabe 1 [8 Punkte]: Untersuchen Sie graph routing.",
+                    "Question 1 [8 marks]: Analyze graph routing.",
                 )
             ],
         )
@@ -596,7 +603,7 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
 
     assert "administrative line" not in topics
     assert "administrative block" not in topics
-    assert "ohne beweis" not in topics
+    assert "reference only" not in topics
     assert "graph routing" in topics
     assert topics["graph routing"].exam_marks == 8
 
