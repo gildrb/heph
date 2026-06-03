@@ -54,7 +54,7 @@ _SUBQUESTION_START_RE = re.compile(
     rf"(?<!{_LETTER_RE})(?:\({_LETTER_RE}\))\s+)",
     re.IGNORECASE,
 )
-_TOPIC_SPLIT_RE = re.compile(r"[,;]")
+_TOPIC_SPLIT_RE = re.compile(r"[,;]|\band\b", re.IGNORECASE)
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
 _WORD_SPLIT_RE = re.compile(rf"{_LETTER_RE}{_WORD_BODY_RE}*")
@@ -176,6 +176,41 @@ _WEB_PREREQ_USER_AGENT = "Heph/0.1 priority prerequisites"
 _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 _MODEL_HEARTBEAT_SECONDS = 10.0
 _MODEL_STREAM_PROGRESS_SECONDS = 8.0
+_LOW_INFORMATION_TOPIC_WORDS = frozenset(
+    {
+        "administrative",
+        "aufgabe",
+        "bearbeitungszeit",
+        "beispiel",
+        "block",
+        "decoded",
+        "describe",
+        "depends",
+        "die",
+        "exam",
+        "explain",
+        "formula",
+        "given",
+        "header",
+        "image",
+        "klausur",
+        "line",
+        "marks",
+        "midterm",
+        "name",
+        "noise",
+        "ohne",
+        "points",
+        "prerequisites",
+        "question",
+        "semester",
+        "student",
+        "through",
+        "unit",
+        "using",
+        "wir",
+    }
+)
 
 _SYMBOLIC_TOPIC_TOKEN_RE = re.compile(
     rf"^(?:{_LETTER_RE}{{1,2}}\d*|\d+|{_LETTER_RE}-{_LETTER_RE})$"
@@ -547,8 +582,15 @@ def _scan_priority_chunk(
         source_chunk_index=scan.source_chunk_positions[chunk.source],
         source_chunk_count=scan.source_chunk_counts[chunk.source],
     )
-    if _chunk_has_exam_structure(chunk.text):
-        _record_exam_chunk(state, chunk, chunk_label, chunk_started_at, progress)
+    if _chunk_is_exam_material(chunk):
+        _record_exam_chunk(
+            state,
+            chunk,
+            chunk_label,
+            chunk_started_at,
+            progress,
+            require_structure=_chunk_has_exam_structure(chunk.text),
+        )
         return
     _record_material_chunk(state, chunk, chunk_label, chunk_started_at, progress)
 
@@ -575,9 +617,12 @@ def _record_exam_chunk(
     chunk_label: str,
     chunk_started_at: float,
     progress: PriorityProgressReporter | None,
+    *,
+    require_structure: bool,
 ) -> None:
     state.past_exam_sources.add(chunk.source)
-    questions = tuple(_exam_questions(chunk.source, tuple(_exam_sections(chunk.text))))
+    sections = tuple(_exam_sections(chunk.text)) if require_structure else (chunk.text,)
+    questions = tuple(_exam_questions(chunk.source, sections))
     for question in questions:
         state.record_exam_question(question)
     topic_signal_count = len({term for question in questions for term in question.topics})
@@ -589,7 +634,24 @@ def _record_exam_chunk(
 
 
 def _chunk_has_exam_structure(text: str) -> bool:
-    return any(_exam_sections(text))
+    return any(_section_looks_like_exam_question(section) for section in _exam_sections(text))
+
+
+def _section_looks_like_exam_question(section: str) -> bool:
+    prefix_match = _STRUCTURED_PROMPT_PREFIX_RE.match(section)
+    prefix = prefix_match.group(0).casefold() if prefix_match is not None else ""
+    return _mark_weight(section) > 0 or any(
+        keyword in prefix for keyword in ("aufgabe", "exam", "klausur", "question")
+    )
+
+
+def _chunk_is_exam_material(chunk: PriorityChunk) -> bool:
+    return _chunk_has_exam_structure(chunk.text) or _source_looks_like_exam(chunk.source)
+
+
+def _source_looks_like_exam(source: str) -> bool:
+    source_parts = [part for part in re.split(r"[^a-z0-9]+", source.casefold()) if part]
+    return bool({"exam", "exams", "midterm", "klausur"} & set(source_parts))
 
 
 def _record_material_chunk(
@@ -812,10 +874,21 @@ def _web_prerequisites_for(
     topic: str,
     web_searcher: PriorityWebSearcher,
 ) -> tuple[PriorityWebPrerequisite, ...]:
-    # External snippets are not structured enough to mine prerequisite claims safely.
-    # When a model is available, prerequisite reasoning happens in the report prompt.
-    _ = (topic, web_searcher)
-    return ()
+    prerequisites: list[PriorityWebPrerequisite] = []
+    seen: set[str] = set()
+    for result in tuple(web_searcher(f"{topic} prerequisites"))[:_WEB_PREREQ_RESULTS]:
+        for term in _explicit_prerequisite_phrases(result.snippet):
+            if term in seen:
+                continue
+            seen.add(term)
+            prerequisites.append(
+                PriorityWebPrerequisite(
+                    term=term,
+                    source_title=result.title,
+                    source_url=result.url,
+                )
+            )
+    return tuple(prerequisites)
 
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
@@ -875,6 +948,8 @@ def _heading_word_candidates(cleaned: str) -> Iterator[str]:
 def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
     if len(words) < 2:
         return
+    if _starts_with_low_information_word(phrase) and len(words[0]) >= 4:
+        yield words[0]
     if _should_emit_leading_content_word(phrase, words):
         yield words[0]
     for size in (2, 3):
@@ -893,11 +968,21 @@ def _should_emit_leading_content_word(phrase: str, words: list[str]) -> bool:
     )
 
 
+def _starts_with_low_information_word(phrase: str) -> bool:
+    first_token_match = _WORD_SPLIT_RE.search(phrase)
+    return (
+        first_token_match is not None
+        and first_token_match.group(0).casefold() in _LOW_INFORMATION_TOPIC_WORDS
+    )
+
+
 def _useful_topic_words(text: str) -> list[str]:
     return [
         word.lower()
         for word in _WORD_SPLIT_RE.findall(text)
-        if len(word) >= 4 and not word.isdigit()
+        if len(word) >= 4
+        and not word.isdigit()
+        and word.casefold() not in _LOW_INFORMATION_TOPIC_WORDS
     ]
 
 
@@ -1001,13 +1086,43 @@ def _single_word_subset(left: set[str], right: set[str]) -> bool:
 
 
 def _explicit_prerequisites(text: str) -> list[str]:
-    _ = text
-    return []
+    prerequisites: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\bprerequisites?\s*:\s*([^.\n]+)", text, flags=re.IGNORECASE):
+        for prerequisite in _prerequisite_tokens(match.group(1)):
+            if prerequisite in seen:
+                continue
+            seen.add(prerequisite)
+            prerequisites.append(prerequisite)
+    return prerequisites
+
+
+def _explicit_prerequisite_phrases(text: str) -> list[str]:
+    prerequisites: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\bprerequisites?\s*:\s*([^.\n]+)", text, flags=re.IGNORECASE):
+        for raw_part in re.split(r",|\band\b", match.group(1), flags=re.IGNORECASE):
+            tokens = [
+                token.lower()
+                for token in _WORD_SPLIT_RE.findall(raw_part)
+                if len(token) >= 3 and not token.isdigit()
+            ]
+            if not tokens:
+                continue
+            phrase = " ".join(tokens[:3])
+            if phrase in seen:
+                continue
+            seen.add(phrase)
+            prerequisites.append(phrase)
+    return prerequisites
 
 
 def _dependency_prerequisites(text: str, terms: set[str]) -> dict[str, Counter[str]]:
-    _ = (text, terms)
-    return {}
+    prerequisites: dict[str, Counter[str]] = {}
+    for term, hints in _iter_dependency_prerequisite_hints(text, terms):
+        if hints:
+            prerequisites.setdefault(term, Counter()).update(hints)
+    return prerequisites
 
 
 def _iter_dependency_prerequisite_hints(
@@ -1026,12 +1141,16 @@ def _dependency_prerequisite_hints_for_sentence(
     if dependency is None:
         return
     before, after = dependency
-    for term in (term for term in terms if term in before):
+    normalized_before = before.casefold()
+    for term in (term for term in terms if term in normalized_before):
         yield term, _prerequisite_tokens(after)
 
 
 def _dependency_sentence_parts(sentence: str) -> tuple[str, str] | None:
-    _ = sentence
+    for connector in (" depends on ", " requires "):
+        if connector in sentence.casefold():
+            before, after = sentence.split(connector.strip(), maxsplit=1)
+            return before, after
     return None
 
 
@@ -1172,7 +1291,7 @@ def _prerequisites_for(
         for peer, count in hints.items()
         if _valid_prerequisite_peer(peer, term, exam_counts)
     ]
-    candidates.sort(key=lambda item: (-item[1], item[0]))
+    candidates.sort(key=lambda item: -item[1])
     return tuple(peer for peer, _count in candidates[:3])
 
 
