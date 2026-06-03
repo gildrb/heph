@@ -14,7 +14,7 @@ Optional extras:
 
 ```bash
 uv sync --group rag      # BM25, embeddings, reranking
-uv sync --group docling  # document extraction extras
+# Docling document extraction is part of the core install.
 ```
 
 Run the app from source:

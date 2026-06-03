@@ -9,6 +9,7 @@ import pytest
 
 from hephaion.chat.events import (
     AssistantDeltaEvent,
+    GuardrailEvent,
     MaterialOperationEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -31,6 +32,7 @@ from hephaion.chat.turn_contract import (
 )
 from hephaion.product.context import heph_product_routing_context
 from hephaion.runtime import ChatConfig, Conversation
+from hephaion.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
 from hephaion.study import LearningTurnPlan, material_overview_plan
 
 
@@ -138,6 +140,26 @@ def test_heph_action_turn_contract_can_seed_product_followups() -> None:
     )
 
     assert _turn_contract_can_seed_followup(contract, visible_evidence=None)
+
+
+def test_blocked_input_is_not_appended_or_traced(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="blocked-input-session",
+    )
+    trace = MagicMock()
+    object.__setattr__(session, "trace", trace)
+    monkeypatch.setattr(
+        "hephaion.chat.orchestrator.check_user_input",
+        lambda *_args, **_kwargs: block_guardrail(GUARDRAIL_STAGE_INPUT, "Input blocked."),
+    )
+
+    events = list(TurnOrchestrator(session).iter_events("blocked request"))
+
+    assert isinstance(events[0], GuardrailEvent)
+    assert session.conversation.messages == []
+    trace.record_user_message.assert_not_called()
 
 
 def test_armory_heph_help_route_does_not_prepare_material_index() -> None:

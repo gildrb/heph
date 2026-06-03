@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +29,9 @@ from hephaion.agent.tool_execution import (
 from hephaion.agent.tool_schema import ToolSchema
 from hephaion.agent.tools import ToolRegistry, default_registry
 from hephaion.chat.events import (
+    AssistantDeltaEvent,
     CompactRequestEvent,
+    GuardrailEvent,
     NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -49,6 +51,7 @@ from hephaion.runtime import (
 )
 from hephaion.runtime.messages import api_content_text
 from hephaion.runtime.prompt_cache import StablePrefixBuilder
+from hephaion.safety import GuardrailDecision, GuardrailToolCall, check_tool_call_names
 
 _log = get_logger("agent.dispatch")
 
@@ -408,6 +411,49 @@ def _abort_requested(
     return True
 
 
+def _guardrail_tool_calls(tool_calls: list[ToolCall]) -> tuple[GuardrailToolCall, ...]:
+    return tuple(
+        GuardrailToolCall(
+            call_id=tool_call.get("id", ""),
+            name=tool_call["function"]["name"],
+            arguments=tool_call["function"]["arguments"],
+        )
+        for tool_call in tool_calls
+    )
+
+
+def _blocked_tool_call_events(
+    *,
+    decision: GuardrailDecision,
+    conversation: Conversation,
+    state: AgentLoopState,
+    usage: SessionUsage | None,
+    model_stream_state: ModelStreamState,
+    model_result_text: str,
+    config: ChatConfig,
+    turn_idx: int,
+) -> Iterator[TurnEvent]:
+    _record_usage(
+        usage, model_stream_state.stream_usage, state.api_messages, model_result_text, config.model
+    )
+    yield GuardrailEvent(
+        stage=decision.stage,
+        action=decision.action,
+        message=decision.message,
+        metadata=decision.metadata,
+    )
+    state.api_messages.append({"role": "assistant", "content": decision.message})
+    conversation.add("assistant", decision.message)
+    yield AssistantDeltaEvent(decision.message)
+    yield TurnCompleteEvent(
+        full_text=decision.message,
+        turn_index=turn_idx,
+        latency_ms=state.loop_timer.ms,
+        finish_reason="guardrail",
+        tokens_remaining=state.budget.tokens_remaining(state.api_messages),
+    )
+
+
 def _tool_turn_events(
     *,
     config: ChatConfig,
@@ -423,7 +469,31 @@ def _tool_turn_events(
     model_stream_state: ModelStreamState,
     model_turn_timer: Timer,
     turn_idx: int,
-) -> Iterator[TurnEvent]:
+) -> Generator[TurnEvent, None, bool]:
+    tool_decision = check_tool_call_names(
+        _guardrail_tool_calls(model_result_tool_calls),
+        allowed_tool_names=frozenset(registry.tool_names),
+    )
+    if tool_decision.blocks:
+        yield from _blocked_tool_call_events(
+            decision=tool_decision,
+            conversation=conversation,
+            state=state,
+            usage=usage,
+            model_stream_state=model_stream_state,
+            model_result_text=model_result_text,
+            config=config,
+            turn_idx=turn_idx,
+        )
+        return True
+    if tool_decision.warns:
+        yield GuardrailEvent(
+            stage=tool_decision.stage,
+            action=tool_decision.action,
+            message=tool_decision.message,
+            metadata=tool_decision.metadata,
+        )
+
     _append_tool_call_message(
         conversation,
         state.api_messages,
@@ -479,6 +549,7 @@ def _tool_turn_events(
         yield NoticeEvent("Compacting conversation...", code="context_compact")
         state.api_messages[:] = auto_compact(state.api_messages, config, workspace)
         _sync_conversation(conversation, state.api_messages)
+    return False
 
 
 def iter_agent_events(
@@ -562,7 +633,7 @@ def iter_agent_events(
             )
             return
 
-        yield from _tool_turn_events(
+        turn_completed = yield from _tool_turn_events(
             config=config,
             conversation=conversation,
             workspace=workspace,
@@ -577,6 +648,8 @@ def iter_agent_events(
             model_turn_timer=model_result.turn_timer,
             turn_idx=turn_idx,
         )
+        if turn_completed:
+            return
 
     yield NoticeEvent("Agent loop reached maximum turns", code="max_turns")
     _log.warning(

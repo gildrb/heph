@@ -18,11 +18,7 @@ heph --version
 pip install heph
 ```
 
-Install the optional Docling extra if you want PDF, DOCX, PPTX, and XLSX conversion support:
-
-```bash
-pip install "heph[docling]"
-```
+PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling.
 
 ### Upgrade
 

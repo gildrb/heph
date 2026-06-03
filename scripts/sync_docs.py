@@ -432,10 +432,8 @@ def render_pip_install_block() -> str:
         "```bash\n"
         "pip install heph\n"
         "```\n\n"
-        "For PDF, DOCX, PPTX, and XLSX conversion support, install the optional Docling extra:\n\n"
-        "```bash\n"
-        'pip install "heph[docling]"\n'
-        "```"
+        "PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling so\n"
+        "new armories can index common study materials without extra setup."
     )
 
 

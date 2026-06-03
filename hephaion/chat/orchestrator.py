@@ -20,6 +20,7 @@ from hephaion.agent.citation import VerificationResult, verify_citations, verify
 from hephaion.agent.dispatch import iter_agent_events
 from hephaion.chat.events import (
     AssistantDeltaEvent,
+    GuardrailEvent,
     MaterialOperationEvent,
     NoticeEvent,
     ToolResultEvent,
@@ -91,6 +92,12 @@ from hephaion.runtime import (
     StreamRecoveryError,
     build_client,
     stream_completion,
+)
+from hephaion.safety import (
+    GUARDRAIL_ACTION_WARN,
+    GUARDRAIL_STAGE_OUTPUT,
+    GuardrailMessage,
+    check_user_input,
 )
 from hephaion.study import (
     EvidenceAssessment,
@@ -5608,6 +5615,31 @@ class TurnOrchestrator:
         self.last_internal_passes = 1
         self._last_reply_citation_required = None
 
+        input_decision = check_user_input(
+            user_input,
+            conversation=tuple(
+                GuardrailMessage(role=message.role, content=message.content)
+                for message in session.conversation.messages
+            ),
+        )
+        if input_decision.blocks:
+            yield GuardrailEvent(
+                stage=input_decision.stage,
+                action=input_decision.action,
+                message=input_decision.message,
+                metadata=input_decision.metadata,
+            )
+            self.last_reply = input_decision.message
+            yield from _final_reply_events(self.last_reply)
+            return
+        if input_decision.warns:
+            yield GuardrailEvent(
+                stage=input_decision.stage,
+                action=input_decision.action,
+                message=input_decision.message,
+                metadata=input_decision.metadata,
+            )
+
         session.conversation.add("user", user_input)
         session.trace.record_user_message(user_input)
         _log.info(
@@ -5637,6 +5669,12 @@ class TurnOrchestrator:
 
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
             if notice:
+                yield GuardrailEvent(
+                    stage=GUARDRAIL_STAGE_OUTPUT,
+                    action=GUARDRAIL_ACTION_WARN,
+                    message=notice,
+                    metadata={"code": "verification", "silent": True},
+                )
                 yield NoticeEvent(notice, code="verification")
         except StreamRecoveryError as rec:
             _log.warning(
