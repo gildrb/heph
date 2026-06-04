@@ -20,6 +20,10 @@ class ProviderProfileConfig(Protocol):
     model: str
 
 
+class ReasoningPayloadConfig(ProviderProfileConfig, Protocol):
+    reasoning_level: str
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderRequestProfile:
     name: str
@@ -77,6 +81,16 @@ def reasoning_payload_for_profile(
     if profile.reasoning_payload == "openrouter":
         return {"extra_body": {"reasoning": {"effort": level}}}
     return {"reasoning_effort": level}
+
+
+def reasoning_payload_for_config(
+    config: ReasoningPayloadConfig,
+    supported_levels: Iterable[str],
+) -> tuple[dict[str, object], bool]:
+    profile = request_profile_for_config(config)
+    payload = reasoning_payload_for_profile(profile, config.reasoning_level, supported_levels)
+    suppress_temperature = profile.suppress_temperature_when_reasoning and bool(payload)
+    return payload, suppress_temperature
 
 
 def _select_reasoning_level(requested_level: str, supported_levels: Iterable[str]) -> str | None:

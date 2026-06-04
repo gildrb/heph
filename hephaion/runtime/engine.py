@@ -33,10 +33,7 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, Self, cast
 from hephaion._types import is_string_mapping
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.logging import Timer, get_logger, redact_text
-from hephaion.providers.api_profiles import (
-    reasoning_payload_for_profile,
-    request_profile_for_config,
-)
+from hephaion.providers.api_profiles import reasoning_payload_for_config
 from hephaion.providers.endpoints import is_keyless_endpoint
 from hephaion.providers.keyring_store import resolve_key
 from hephaion.providers.model_support import is_supported_model_for_endpoint
@@ -1046,18 +1043,13 @@ def _request_kwargs(
         kwargs["tools"] = list(tools)
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
-    profile = request_profile_for_config(config)
-    reasoning_payload = _model_reasoning_payload(config)
-    if config.temperature is not None and not (
-        profile.suppress_temperature_when_reasoning and reasoning_payload
-    ):
+    reasoning_payload, suppress_temperature = reasoning_payload_for_config(
+        config, reasoning_levels_for_model(config.model, config.provider_slug or None)
+    )
+    if config.temperature is not None and not suppress_temperature:
         kwargs["temperature"] = config.temperature
     kwargs.update(reasoning_payload)
     return kwargs
-
-
-def _model_supports_reasoning(config: ChatConfig) -> bool:
-    return bool(reasoning_levels_for_model(config.model, config.provider_slug or None))
 
 
 def _model_reasoning_effort(config: ChatConfig) -> str | None:
@@ -1066,14 +1058,6 @@ def _model_reasoning_effort(config: ChatConfig) -> str | None:
         return None
     normalized = normalize_reasoning_level(config.reasoning_level)
     return normalized if normalized in levels else levels[0]
-
-
-def _model_reasoning_payload(config: ChatConfig) -> dict[str, object]:
-    levels = reasoning_levels_for_model(config.model, config.provider_slug or None)
-    if not levels:
-        return {}
-    profile = request_profile_for_config(config)
-    return reasoning_payload_for_profile(profile, config.reasoning_level, levels)
 
 
 def _usage_delta_from_chunk(
