@@ -1,5 +1,13 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/heph-lockup-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/heph-lockup-light.svg">
+    <img alt="Hephaion" src="docs/assets/heph-lockup-light.svg" width="50%">
+  </picture>
+</div>
+
 # Hephaion
 
 **Hephaion is a local document harness for accurate, cited answers.**

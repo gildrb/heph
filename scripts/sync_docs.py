@@ -483,6 +483,23 @@ def render_home_docs_section(*, docs_index: bool) -> str:
     return f"## Docs\n\n{bullets}"
 
 
+def render_readme_logo_block(*, docs_index: bool) -> str:
+    if docs_index:
+        return ""
+
+    dark_src = "docs/assets/heph-lockup-dark.svg"
+    light_src = "docs/assets/heph-lockup-light.svg"
+    return (
+        '<div align="center">\n'
+        "  <picture>\n"
+        f'    <source media="(prefers-color-scheme: dark)" srcset="{dark_src}">\n'
+        f'    <source media="(prefers-color-scheme: light)" srcset="{light_src}">\n'
+        f'    <img alt="Hephaion" src="{light_src}" width="50%">\n'
+        "  </picture>\n"
+        "</div>\n\n"
+    )
+
+
 def render_home_footer(*, docs_index: bool) -> str:
     if docs_index:
         return (
@@ -520,6 +537,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
+        "README_LOGO_BLOCK": render_readme_logo_block(docs_index=docs_index),
         "DOCS_SECTION": render_home_docs_section(docs_index=docs_index),
         "CONTRIBUTING_LINK": "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md",
         "FOOTER_SECTION": render_home_footer(docs_index=docs_index).strip(),
