@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import difflib
-import json
 import re
 import threading
 import unicodedata
@@ -13,11 +12,21 @@ from dataclasses import dataclass, field, replace
 from html import unescape
 from typing import TYPE_CHECKING
 
-import unicodeit
-
-from hephaion._types import is_string_mapping, parse_json_object_fragment
+from hephaion._types import parse_json_object_fragment
 from hephaion.agent.citation import VerificationResult, verify_citations, verify_response
 from hephaion.agent.dispatch import iter_agent_events
+from hephaion.chat.citation_patterns import (
+    _CITATION_ONLY_REPLY_RE,
+    _ESCAPED_EVIDENCE_CITATION_RE,
+    _EVIDENCE_CITATION_TEXT_RE,
+    _INLINE_QUOTED_TEXT_RE,
+    _OVERVIEW_CITATION_BRACKET_RE,
+    _OVERVIEW_CITATION_GROUP_RE,
+    _OVERVIEW_CITATION_ID_RE,
+    _OVERVIEW_CITATION_TOKEN_RE,
+    _PRIVATE_USE_EVIDENCE_CITATION_RE,
+    _TRAILING_EVIDENCE_CITATION_GROUP_RE,
+)
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     GuardrailEvent,
@@ -77,6 +86,15 @@ from hephaion.chat.material_state import (
     _should_use_material_answer_conversation_window,
     _tool_result_refreshes_current_armory,
     _writing_notice,
+)
+from hephaion.chat.reply_text import (
+    _citation_tail_keep_end,
+    _has_uncited_tail_after_last_citation,
+    _localize_deterministic_reply,
+    _strip_leading_control_json,
+    _strip_tool_call_markup,
+    _strip_unsolicited_learning_followup,
+    _unicode_math_reply,
 )
 from hephaion.chat.titles import derive_title
 from hephaion.chat.turn_contract import (
@@ -185,34 +203,10 @@ _MODEL_NORMALIZED_INTENTS = (
     "chat",
 )
 _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = 0.75
-_EVIDENCE_CITATION_TEXT_RE = re.compile(
-    r"\s*(?:\[|【)(?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*(?:\]|】)"
-)
-_ESCAPED_EVIDENCE_CITATION_RE = re.compile(r"\\\[((?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*)\\\]")
-_PRIVATE_USE_EVIDENCE_CITATION_RE = re.compile(
-    r"\ue200cite(?::|\ue202)((?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*)\ue201"
-)
-_INLINE_QUOTED_TEXT_RE = re.compile(r"[\"“”'](?P<text>[^\"“”']{2,80})[\"“”']")
-_OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
-_OVERVIEW_CITATION_BRACKET_RE = re.compile(
-    r"\[(?P<body>\s*(?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*\s*)\]"
-)
-_OVERVIEW_CITATION_TOKEN_RE = re.compile(r"(?:e|E)(?P<id>\d+)")
-_OVERVIEW_CITATION_GROUP_RE = re.compile(r"\[(?:e|E)\d+\](?:(?:\s|,\s*)*\[(?:e|E)\d+\])+")
-_TRAILING_EVIDENCE_CITATION_GROUP_RE = re.compile(r"(?:\s*\[(?:e|E)\d+\])+\s*$")
-_CITATION_ONLY_REPLY_RE = re.compile(r"^\s*(?:\[(?:e|E)\d+\]\s*)+(?:[.,;:])?\s*$")
 _THIN_EVIDENCE_POINTER_MAX_WORDS = 8
 _MARKDOWN_TABLE_SEPARATOR_LINE_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
 )
-_LATEX_INLINE_MATH_RE = re.compile(r"\\\((?P<expr>.+?)\\\)")
-_LATEX_DISPLAY_MATH_RE = re.compile(r"\\\[(?P<expr>.+?)\\\]", re.DOTALL)
-_LATEX_BARE_MATHBB_RE = re.compile(r"\\mathbb\s+(?P<symbol>[A-Za-z])")
-_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call\b[^>]*>.*?</tool_call>", re.IGNORECASE | re.DOTALL)
-_TOOL_CALL_OPEN_RE = re.compile(r"<tool_call\b[^>]*>", re.IGNORECASE)
-_TOOL_CALL_CLOSE_RE = re.compile(r"</tool_call>", re.IGNORECASE)
-_DETERMINISTIC_REPLY_LITERAL_RE = re.compile(r"`[^`]+`|/[\w-]+|\"[^\"]+\"")
-_ASSESSMENT_LABEL_RE = re.compile(r"^(?:CORRECT|PARTIAL|WRONG):")
 _OVERVIEW_MIN_WORDS = 24
 _OVERVIEW_MAX_WORDS = 110
 _OVERVIEW_MAX_CHARS = 700
@@ -243,21 +237,6 @@ _CONTINUABLE_MATERIAL_INTENTS = frozenset(
         "topic_presentation",
         "topic_drill",
     }
-)
-_LEADING_CONTROL_JSON_KEYS = frozenset(
-    {
-        "canonical_english_request",
-        "confidence",
-        "intent",
-        "query",
-        "retrieval_query",
-        "topic",
-    }
-)
-_MALFORMED_LEADING_CONTROL_JSON_RE = re.compile(
-    r"(?is)^\s*\{\s*\"(?:"
-    + "|".join(re.escape(key) for key in sorted(_LEADING_CONTROL_JSON_KEYS))
-    + r")\"\s*:\s*.*?\}\s*(?=[A-ZÄÖÜ])"
 )
 _OVERVIEW_CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
 _OVERVIEW_DATE_LINE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-zÄÖÜäöüß]+\s+\d{4}\b|\b\d{4}\b")
@@ -336,14 +315,6 @@ Place citations next to the topic, method, or example they support; omit specifi
 matching citation.
 Do not discuss retrieval, validation, truncation, or sampling, and do not add offers or next steps.
 """.strip()
-_DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT = """
-Rewrite an internal English fallback message for the user. Use the same language as the user's
-request when clear. If the request is English or the language is unclear, return the original
-English message. Preserve command literals, slash commands, paths, and quoted phrases exactly.
-Preserve any leading CORRECT:, PARTIAL:, or WRONG: assessment label exactly.
-Do not add facts, citations, source claims, apologies, or next actions.
-Return plain text only.
-""".strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,95 +365,6 @@ class _DeterministicLearningReply:
     internal_passes: int | None = None
     citation_required: bool | None = None
     updates_learning_state: bool = True
-
-
-def _localize_deterministic_reply(
-    reply: str,
-    *,
-    user_input: str,
-    config: ChatConfig | None,
-) -> str:
-    if not _should_localize_deterministic_reply(reply, user_input=user_input, config=config):
-        return reply
-
-    localized = _localized_deterministic_reply(reply, user_input=user_input, config=config)
-    return localized if _valid_localized_deterministic_reply(localized, original=reply) else reply
-
-
-def _should_localize_deterministic_reply(
-    reply: str,
-    *,
-    user_input: str,
-    config: ChatConfig | None,
-) -> bool:
-    return (
-        bool(reply.strip())
-        and bool(user_input.strip())
-        and config is not None
-        and bool(config.base_url)
-        and bool(config.model)
-    )
-
-
-def _localized_deterministic_reply(
-    reply: str,
-    *,
-    user_input: str,
-    config: ChatConfig | None,
-) -> str:
-    if config is None:
-        return ""
-    conversation = Conversation()
-    conversation.add("system", _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT)
-    conversation.add(
-        "user",
-        f"User request:\n{user_input.strip()}\n\nFallback message:\n{reply.strip()}",
-    )
-    parts: list[str] = []
-    try:
-        parts.extend(
-            delta.content
-            for delta in stream_completion(
-                config,
-                conversation,
-                retry=RetryConfig(max_retries=1),
-                client_factory=build_client,
-            )
-            if delta.content
-        )
-    except EngineError:
-        return ""
-    return _strip_tool_call_markup("".join(parts)).strip()
-
-
-def _valid_localized_deterministic_reply(localized: str, *, original: str) -> bool:
-    return (
-        bool(localized)
-        and not _localized_reply_too_long(localized, original)
-        and not _localized_reply_adds_citations(localized, original)
-        and _localized_reply_preserves_assessment_label(localized, original)
-        and _localized_reply_preserves_literals(localized, original)
-    )
-
-
-def _localized_reply_too_long(localized: str, original: str) -> bool:
-    return len(localized) > max(len(original) * 3, len(original) + 600)
-
-
-def _localized_reply_adds_citations(localized: str, original: str) -> bool:
-    return bool(_OVERVIEW_CITATION_ID_RE.search(localized)) and not bool(
-        _OVERVIEW_CITATION_ID_RE.search(original)
-    )
-
-
-def _localized_reply_preserves_assessment_label(localized: str, original: str) -> bool:
-    assessment_label = _ASSESSMENT_LABEL_RE.match(original.strip())
-    return assessment_label is None or localized.startswith(assessment_label.group(0))
-
-
-def _localized_reply_preserves_literals(localized: str, original: str) -> bool:
-    literals = _DETERMINISTIC_REPLY_LITERAL_RE.findall(original)
-    return all(literal in localized for literal in literals)
 
 
 def _repair_missing_evidence_citations(
@@ -648,104 +530,12 @@ def _normalize_structural_table_reply(reply: str) -> str:
     return _overview_pipe_table_as_markdown(reply) or reply
 
 
-def _unicode_math_reply(reply: str) -> str:
-    converted = _LATEX_DISPLAY_MATH_RE.sub(_unicode_math_match, reply)
-    converted = _LATEX_INLINE_MATH_RE.sub(_unicode_math_match, converted)
-    return _LATEX_BARE_MATHBB_RE.sub(_unicode_bare_mathbb_match, converted)
-
-
-def _unicode_math_match(match: re.Match[str]) -> str:
-    expression = match.group("expr").strip()
-    converted = unicodeit.replace(expression)
-    if _unicode_math_conversion_is_suspicious(converted):
-        return expression
-    return converted
-
-
-def _unicode_bare_mathbb_match(match: re.Match[str]) -> str:
-    expression = rf"\mathbb{{{match.group('symbol')}}}"
-    converted = unicodeit.replace(expression)
-    if _unicode_math_conversion_is_suspicious(converted):
-        return match.group(0)
-    return converted
-
-
-def _unicode_math_conversion_is_suspicious(converted: str) -> bool:
-    return "ł" in converted or "Ł" in converted
-
-
-def _strip_leading_control_json(reply: str) -> str:
-    if not reply.startswith("{"):
-        return reply
-    try:
-        payload, end = json.JSONDecoder().raw_decode(reply)
-    except json.JSONDecodeError:
-        return _strip_malformed_leading_control_json(reply)
-    tail = reply[end:].lstrip()
-    if not tail or not is_string_mapping(payload):
-        return reply
-    if _LEADING_CONTROL_JSON_KEYS.isdisjoint(payload):
-        return reply
-    return tail
-
-
-def _strip_malformed_leading_control_json(reply: str) -> str:
-    match = _MALFORMED_LEADING_CONTROL_JSON_RE.match(reply)
-    return reply[match.end() :].lstrip() if match else reply
-
-
 def _should_buffer_learning_output(plan: LearningTurnPlan) -> bool:
     return (
         plan.buffer_response
         or plan.action is LearningAction.CHAT
         or _plan_requires_citations(plan)
     )
-
-
-def _strip_unsolicited_learning_followup(reply: str) -> str:
-    if not reply.strip():
-        return reply
-    return _strip_uncited_tail_after_last_citation(reply)
-
-
-def _strip_uncited_tail_after_last_citation(reply: str) -> str:
-    citation_end = _last_citation_end(reply)
-    if citation_end is None:
-        return reply.strip()
-    keep_end = _citation_tail_keep_end(reply, citation_end)
-    if not reply[keep_end:].strip():
-        return reply.strip()
-    return reply[:keep_end].rstrip()
-
-
-def _has_uncited_tail_after_last_citation(reply: str) -> bool:
-    citation_end = _last_citation_end(reply)
-    if citation_end is None:
-        return False
-    keep_end = _citation_tail_keep_end(reply, citation_end)
-    return bool(reply[keep_end:].strip())
-
-
-def _last_citation_end(reply: str) -> int | None:
-    matches = tuple(_OVERVIEW_CITATION_ID_RE.finditer(reply))
-    if not matches:
-        return None
-    return matches[-1].end()
-
-
-def _citation_tail_keep_end(reply: str, citation_end: int) -> int:
-    keep_end = citation_end
-    while keep_end < len(reply) and reply[keep_end] in " \t.,;:)]}":
-        keep_end += 1
-    return keep_end
-
-
-def _strip_tool_call_markup(reply: str) -> str:
-    cleaned = _TOOL_CALL_BLOCK_RE.sub("", reply)
-    cleaned = _TOOL_CALL_OPEN_RE.sub("", cleaned)
-    cleaned = _TOOL_CALL_CLOSE_RE.sub("", cleaned)
-    kept_lines = [line for line in cleaned.splitlines() if "<tool_call" not in line.casefold()]
-    return "\n".join(kept_lines)
 
 
 def _run_bounded_internal_repairs(
