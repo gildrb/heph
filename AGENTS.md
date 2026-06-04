@@ -108,7 +108,7 @@ uv run heph armory init PATH    # create a new armory
   `runtime`, `chat`, `agent`, `rag`, `study`, or `materials`.
 - `memory` may use `runtime`, but must not import adapters, `chat`, or `agent`.
 - `study` remains a controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
-- `agent` must not import `chat.session`.
+- `agent` must not import `chat`.
 - Keep `chat.session` and `chat.orchestrator` independent at runtime.
 - `commands` must not import `tui`.
 - Standard top-level imports are the default.

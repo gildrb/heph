@@ -23,7 +23,6 @@ from hephaion.chat.events import (
     GuardrailEvent,
     MaterialOperationEvent,
     NoticeEvent,
-    ToolResultEvent,
     TurnCompleteEvent,
     TurnEvent,
 )
@@ -57,6 +56,16 @@ from hephaion.chat.evidence import (
 from hephaion.chat.evidence import (
     retrieval_audit_metadata as _retrieval_audit_metadata,
 )
+from hephaion.chat.material_state import (
+    _EVIDENCE_REQUIRED_ACTIONS,
+    _material_operation_events,
+    _missing_indexed_material_reply,
+    _no_matching_indexed_evidence_reply,
+    _reading_notice,
+    _should_use_material_answer_conversation_window,
+    _tool_result_refreshes_current_armory,
+    _writing_notice,
+)
 from hephaion.chat.titles import derive_title
 from hephaion.chat.turn_contract import (
     ANSWER_FORMAT_LIST,
@@ -76,6 +85,17 @@ from hephaion.chat.turn_contract import (
     turn_contract_from_resolution,
 )
 from hephaion.chat.turn_history import build_turn_snapshot
+from hephaion.chat.turn_predicates import (
+    _contract_followup_target,
+    _count_label,
+    _material_label,
+    _overview_turn,
+    _plural,
+    _readable_material_label,
+    _stored_turn_evidence,
+    _trace_excerpt,
+    _visible_turn_evidence,
+)
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.logging import Timer, get_logger
@@ -135,27 +155,6 @@ _rag_duration_hist = _meter.create_histogram(
     description="Duration of RAG retrieval queries",
 )
 
-_EVIDENCE_REQUIRED_ACTIONS = frozenset(
-    {
-        LearningAction.PRIORITY,
-        LearningAction.SOURCE_QA,
-        LearningAction.PRESENT,
-        LearningAction.HINT,
-        LearningAction.SIMPLIFY,
-        LearningAction.REVIEW,
-        LearningAction.ASSESS,
-    }
-)
-_MATERIAL_ANSWER_CONVERSATION_ACTIONS = frozenset(
-    {
-        LearningAction.PRIORITY,
-        LearningAction.SOURCE_QA,
-        LearningAction.PRESENT,
-        LearningAction.CALIBRATE,
-        LearningAction.SIMPLIFY,
-        LearningAction.REVIEW,
-    }
-)
 _BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
 _TRACE_TASK_BY_ACTION = {
@@ -398,18 +397,6 @@ class _DeterministicLearningReply:
     updates_learning_state: bool = True
 
 
-def _material_label(source: str) -> str:
-    name = source.rsplit("/", maxsplit=1)[-1]
-    return f"@{name or source}"
-
-
-def _readable_material_label(source: str) -> str:
-    name = source.rsplit("/", maxsplit=1)[-1] or source
-    stem = name.rsplit(".", maxsplit=1)[0]
-    readable = re.sub(r"[-_]+", " ", stem).strip()
-    return readable or name
-
-
 def _localize_deterministic_reply(
     reply: str,
     *,
@@ -499,147 +486,6 @@ def _localized_reply_preserves_literals(localized: str, original: str) -> bool:
     return all(literal in localized for literal in literals)
 
 
-def _missing_indexed_material_reply(session: ChatSession, action: LearningAction) -> str:
-    if not _requires_indexed_material(session, action):
-        return ""
-    index = session.rag_index
-    if index is None:
-        return _index_unavailable_reply()
-    return _indexed_material_state_reply(session, index)
-
-
-def _requires_indexed_material(session: ChatSession, action: LearningAction) -> bool:
-    return action in _EVIDENCE_REQUIRED_ACTIONS and session.source_file_count > 0
-
-
-def _indexed_material_state_reply(session: ChatSession, index: ArmoryIndex) -> str:
-    if index.chunk_count > 0:
-        if _has_enabled_indexed_material(session, index):
-            return ""
-        return _all_material_disabled_reply()
-    if sources := _enabled_unindexable_sources(session, index):
-        materials = _material_list_label(sources)
-        reasons = [index.unindexable_files[source] for source in sources]
-        return _unindexable_material_reply(materials, reasons)
-    return _empty_material_index_reply()
-
-
-def _has_enabled_indexed_material(session: ChatSession, index: ArmoryIndex) -> bool:
-    return any(
-        document.source not in session.disabled_source_files and document.chunks
-        for document in index.documents
-    )
-
-
-def _enabled_unindexable_sources(session: ChatSession, index: ArmoryIndex) -> list[str]:
-    return [
-        source
-        for source in sorted(index.unindexable_files)
-        if source not in session.disabled_source_files
-    ]
-
-
-def _material_list_label(sources: list[str]) -> str:
-    labels = [_material_label(source) for source in sources[:3]]
-    materials = ", ".join(labels)
-    if remaining := len(sources) - len(labels):
-        return f"{materials}, and {remaining} more"
-    return materials
-
-
-def _index_unavailable_reply() -> str:
-    return (
-        "The armory has visible materials, but Heph could not prepare the "
-        "searchable materials index for this turn. I cannot answer from outside "
-        "knowledge. Check the material files or run `heph index <armory>` to see "
-        "the indexing error directly."
-    )
-
-
-def _all_material_disabled_reply() -> str:
-    return (
-        "The armory has searchable materials, but all indexed material is currently "
-        "disabled. Enable at least one material with /materials before asking."
-    )
-
-
-def _empty_material_index_reply() -> str:
-    return (
-        "The armory has visible materials, but no searchable evidence is indexed yet. "
-        "I cannot answer from outside knowledge. Heph prepares the index "
-        "automatically when possible; run `heph index <armory>` to inspect the failure."
-    )
-
-
-def _no_matching_indexed_evidence_reply(
-    session: ChatSession,
-    plan: LearningTurnPlan,
-    contract: TurnContract | None = None,
-) -> str:
-    index = session.rag_index
-    if (
-        not _requires_indexed_material(session, plan.action)
-        or index is None
-        or not plan.retrieval_query
-        or not _has_enabled_indexed_material(session, index)
-    ):
-        return ""
-    request_text = _no_match_request_text(contract)
-    return (
-        "The enabled materials are indexed, but this turn did not retrieve matching evidence "
-        f"for the resolved request `{request_text}` using retrieval query "
-        f"`{plan.retrieval_query}`."
-    )
-
-
-def _no_match_request_text(contract: TurnContract | None) -> str:
-    if contract is None:
-        return "this request"
-    return (
-        contract.canonical_request
-        or _contract_followup_target(contract)
-        or contract.original_user_input
-        or "this request"
-    )
-
-
-def _unindexable_material_reply(materials: str, reasons: list[str]) -> str:
-    reason_text = [reason.lower() for reason in reasons]
-    if _all_reasons_contain(reason_text, "conversion backend unavailable"):
-        return (
-            f"I can see {materials}, but PDF/document conversion is unavailable in this "
-            "installation. I cannot answer from outside knowledge. Update or reinstall "
-            "Heph, then ask again or run `heph index <armory>` to verify indexing."
-        )
-    if _all_reasons_contain(reason_text, "docling conversion failed"):
-        return (
-            f"I can see {materials}, but document conversion did not extract searchable "
-            "text from it. I cannot answer from outside knowledge. Re-export, replace, "
-            "or convert the document to text/Markdown, then ask again."
-        )
-    if _all_reasons_contain(reason_text, "timed out"):
-        return (
-            f"I can see {materials}, but document conversion timed out before searchable "
-            "text was indexed. I cannot answer from outside knowledge. Re-export or "
-            "convert the material to text/Markdown, then ask again."
-        )
-    if _all_reasons_contain(reason_text, "docling"):
-        return (
-            f"I can see {materials}, but it is not searchable armory evidence yet. "
-            "I cannot answer from outside knowledge. Update Heph, then ask again "
-            "or run `heph index <armory>` to verify indexing."
-        )
-    return (
-        f"I can see {materials}, but no searchable text was indexed from it. "
-        "I cannot answer from outside knowledge. Convert the material to text or "
-        "Markdown, then ask again."
-    )
-
-
-def _all_reasons_contain(reasons: list[str], needle: str) -> bool:
-    return bool(reasons) and all(needle in reason for reason in reasons)
-
-
 def _repair_missing_evidence_citations(
     plan: LearningTurnPlan,
     reply: str,
@@ -705,26 +551,6 @@ def _evidence_bullet_lines(evidence: TurnEvidence, *, limit: int = 8) -> tuple[s
     )
 
 
-def _visible_turn_evidence(resolved: object) -> TurnEvidence | None:
-    if not isinstance(resolved, ResolvedTurnPlan):
-        return None
-    plan = resolved.learning_plan
-    if plan is not None and plan.action is LearningAction.CALIBRATE:
-        return None
-    return resolved.turn_evidence
-
-
-def _stored_turn_evidence(resolved: object) -> TurnEvidence | None:
-    if not isinstance(resolved, ResolvedTurnPlan):
-        return None
-    if (
-        resolved.learning_plan is not None
-        and resolved.learning_plan.action is LearningAction.CALIBRATE
-    ):
-        return resolved.turn_evidence
-    return _visible_turn_evidence(resolved)
-
-
 def _evidence_notice(resolved: ResolvedTurnPlan) -> str:
     visible_evidence = _visible_turn_evidence(resolved)
     if visible_evidence is None or not visible_evidence.items:
@@ -754,10 +580,6 @@ def _retrieved_evidence_notice(evidence: TurnEvidence) -> str:
         f"Using {len(refs)} retrieved evidence {_plural('excerpt', len(refs))}: "
         f"{_summarized_refs(refs)}"
     )
-
-
-def _plural(word: str, count: int) -> str:
-    return f"{word}{'' if count == 1 else 's'}"
 
 
 def _summarized_material_labels(sources: Sequence[str], *, limit: int = 4) -> str:
@@ -801,182 +623,6 @@ def _evidence_notice_metadata(
     if session is not None and plan is not None:
         metadata.update(_retrieval_audit_metadata(session, plan, resolved))
     return metadata
-
-
-def _material_operation_event(
-    operation: str,
-    message: str,
-    **metadata: object,
-) -> MaterialOperationEvent:
-    return MaterialOperationEvent(
-        operation=operation,
-        message=message,
-        metadata={key: value for key, value in metadata.items() if value not in ("", None)},
-    )
-
-
-def _tool_result_refreshes_current_armory(event: TurnEvent) -> bool:
-    return (
-        isinstance(event, ToolResultEvent)
-        and event.name == "import_materials"
-        and event.success
-        and event.metadata.get("refresh_current_armory") is True
-    )
-
-
-def _count_label(count: int, singular: str) -> str:
-    return f"{count} {singular}{'' if count == 1 else 's'}"
-
-
-def _material_operation_events(
-    session: ChatSession,
-    plan: LearningTurnPlan,
-    resolved: ResolvedTurnPlan,
-) -> Iterator[MaterialOperationEvent]:
-    if plan.action is LearningAction.CALIBRATE:
-        return
-    if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
-        return
-
-    evidence = _visible_turn_evidence(resolved)
-    index_counts = _enabled_index_counts(session)
-    yield from _index_ready_events(*index_counts)
-    yield from _material_operation_start_events(session, plan, evidence, index_counts)
-    yield from _material_evidence_events(plan, evidence, index_counts)
-
-
-def _enabled_index_counts(session: ChatSession) -> tuple[int, int]:
-    if session.rag_index is None:
-        return 0, 0
-    enabled_documents = [
-        document
-        for document in session.rag_index.documents
-        if document.source not in session.disabled_source_files and document.chunks
-    ]
-    return len(enabled_documents), sum(len(document.chunks) for document in enabled_documents)
-
-
-def _index_ready_events(
-    indexed_sources: int,
-    indexed_chunks: int,
-) -> Iterator[MaterialOperationEvent]:
-    if not (indexed_sources or indexed_chunks):
-        return
-    yield _material_operation_event(
-        "index_ready",
-        (
-            "Material index ready: "
-            f"{_count_label(indexed_sources, 'enabled source')}, "
-            f"{_count_label(indexed_chunks, 'chunk')}."
-        ),
-        indexed_sources=indexed_sources,
-        indexed_chunks=indexed_chunks,
-    )
-
-
-def _material_operation_start_events(
-    session: ChatSession,
-    plan: LearningTurnPlan,
-    evidence: TurnEvidence | None,
-    index_counts: tuple[int, int],
-) -> Iterator[MaterialOperationEvent]:
-    indexed_sources, indexed_chunks = index_counts
-    if _overview_turn(plan):
-        yield _overview_sampling_event(plan, evidence, indexed_sources)
-        return
-    if plan.use_expected_source_refs and session.learning_state.expected_source_refs:
-        yield _material_operation_event(
-            "open_stored_evidence",
-            (
-                "Opening stored material evidence from the current recall item: "
-                + ", ".join(session.learning_state.expected_source_refs[:3])
-            ),
-            refs=list(session.learning_state.expected_source_refs),
-        )
-        return
-    if plan.retrieval_query:
-        yield _material_operation_event(
-            "search_index",
-            f"Searching indexed materials for: {plan.retrieval_query}",
-            query=plan.retrieval_query,
-            indexed_sources=indexed_sources,
-            indexed_chunks=indexed_chunks,
-        )
-
-
-def _overview_sampling_event(
-    plan: LearningTurnPlan,
-    evidence: TurnEvidence | None,
-    indexed_sources: int,
-) -> MaterialOperationEvent:
-    sampled_sources = evidence.sampled_source_count if evidence else 0
-    total_sources = evidence.total_source_count if evidence else indexed_sources
-    evidence_blocks = len(evidence.items) if evidence else 0
-    return _material_operation_event(
-        "sample_overview",
-        (
-            f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
-            f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
-        ),
-        query=plan.retrieval_query,
-        evidence_blocks=evidence_blocks,
-        sampled_sources=sampled_sources,
-        total_sources=total_sources,
-    )
-
-
-def _material_evidence_events(
-    plan: LearningTurnPlan,
-    evidence: TurnEvidence | None,
-    index_counts: tuple[int, int],
-) -> Iterator[MaterialOperationEvent]:
-    indexed_sources, indexed_chunks = index_counts
-    if evidence is not None and evidence.items:
-        for item in evidence.items[:3]:
-            yield _material_operation_event(
-                "read_excerpt",
-                (
-                    f"Opened {item.source}#chunk={item.chunk_index}: "
-                    f"{_trace_excerpt(item.content, limit=180)}"
-                ),
-                evidence_id=item.evidence_id,
-                ref=f"{item.source}#chunk={item.chunk_index}",
-                source=item.source,
-                chunk=item.chunk_index,
-                score=round(item.score, 4),
-                text_excerpt=_trace_excerpt(item.content, limit=240),
-            )
-        return
-    if plan.retrieval_query:
-        yield _material_operation_event(
-            "search_result",
-            "Material search returned no matching indexed evidence.",
-            query=plan.retrieval_query,
-            indexed_sources=indexed_sources,
-            indexed_chunks=indexed_chunks,
-        )
-
-
-def _reading_notice(plan: LearningTurnPlan) -> str:
-    if plan.action is LearningAction.CALIBRATE:
-        return ""
-    if _overview_turn(plan):
-        return "Preparing the material index and reading enabled evidence for a corpus overview."
-    if plan.retrieval_query or plan.use_expected_source_refs:
-        return "Preparing the material index and reading relevant evidence."
-    return ""
-
-
-def _writing_notice(plan: LearningTurnPlan) -> str:
-    if plan.action is LearningAction.CALIBRATE:
-        return ""
-    if _overview_turn(plan):
-        return "Writing a grounded corpus overview."
-    if plan.action is LearningAction.CHAT and not (
-        plan.retrieval_query or plan.use_expected_source_refs
-    ):
-        return "Writing a response."
-    return "Writing a grounded response."
 
 
 def _user_visible_reply(plan: LearningTurnPlan, reply: str) -> str:
@@ -1475,16 +1121,6 @@ def _isolated_recall_conversation(
     return None
 
 
-def _should_use_material_answer_conversation_window(
-    plan: LearningTurnPlan,
-    _contract: TurnContract | None,
-) -> bool:
-    return (
-        plan.action in _MATERIAL_ANSWER_CONVERSATION_ACTIONS
-        and plan.action is not LearningAction.CALIBRATE
-    )
-
-
 def _learner_assessment_trace(
     plan: LearningTurnPlan | None,
     state: LearningState,
@@ -1535,13 +1171,6 @@ def _pedagogy_validation_trace(plan: LearningTurnPlan | None, reply: str) -> dic
         "suggested_next_action": validation.suggested_next_action or "",
         "move": plan.learning_move.kind,
     }
-
-
-def _trace_excerpt(text: str, *, limit: int = 500) -> str:
-    normalized = " ".join(text.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
 
 
 def _trace_task(plan: LearningTurnPlan | None) -> str:
@@ -2588,12 +2217,6 @@ def _evidence_assessment_prompt_line(assessment: EvidenceAssessment) -> str:
     )
 
 
-def _overview_turn(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and (
-        plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW or plan.uses_overview_sampling
-    )
-
-
 _PLAN_CONTRACT_LABEL_BY_ACTION: Mapping[LearningAction, str] = {
     LearningAction.PRIORITY: "material_overview",
     LearningAction.SOURCE_QA: "source_qa",
@@ -3382,13 +3005,6 @@ def _followup_target_phrase_query(contract: TurnContract) -> str:
     if not phrases:
         return ""
     return max(phrases, key=_semantic_query_specificity)
-
-
-def _contract_followup_target(contract: TurnContract) -> str:
-    target = contract.followup_target.strip()
-    if target.casefold() == RETRIEVAL_STRATEGY_NONE:
-        return ""
-    return target
 
 
 def _contract_retrieval_query(contract: TurnContract) -> str:
