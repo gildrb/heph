@@ -487,15 +487,9 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     if docs_index:
         return ""
 
-    dark_src = "docs/assets/heph-brandmark-dark.svg"
-    light_src = "docs/assets/heph-brandmark-light.svg"
     return (
         '<div align="center">\n'
-        "  <picture>\n"
-        f'    <source media="(prefers-color-scheme: dark)" srcset="{dark_src}">\n'
-        f'    <source media="(prefers-color-scheme: light)" srcset="{light_src}">\n'
-        f'    <img alt="Hephaion" src="{light_src}" width="18%">\n'
-        "  </picture>\n"
+        '  <img alt="Hephaion" src="docs/assets/heph-brandmark.svg" width="18%">\n'
         "</div>\n\n"
     )
 

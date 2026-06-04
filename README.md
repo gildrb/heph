@@ -1,11 +1,7 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/heph-brandmark-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/heph-brandmark-light.svg">
-    <img alt="Hephaion" src="docs/assets/heph-brandmark-light.svg" width="18%">
-  </picture>
+  <img alt="Hephaion" src="docs/assets/heph-brandmark.svg" width="18%">
 </div>
 
 # Hephaion

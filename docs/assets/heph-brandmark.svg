@@ -1,12 +1,23 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg width="100%" height="100%" viewBox="0 0 1130 848" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <style type="text/css"><![CDATA[
+        path {
+            fill: #000;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            path {
+                fill: #fff;
+            }
+        }
+    ]]></style>
     <g transform="matrix(1,0,0,1,0,0.088249)">
         <g transform="matrix(0.933148,0,0,0.933148,-14405.461113,-53450.82269)">
-            <path d="M16269.9747,57961.2546L16269.9747,57279.9884L16648.2844,57279.9884L16648.2844,58188.3434L16497.0635,58188.3434L16269.9747,57961.2546Z" style="fill:white;"/>
+            <path d="M16269.9747,57961.2546L16269.9747,57279.9884L16648.2844,57279.9884L16648.2844,58188.3434L16497.0635,58188.3434L16269.9747,57961.2546Z"/>
         </g>
         <g transform="matrix(0.933148,0,0,0.933148,-14405.461113,-53450.82269)">
-            <path d="M15437.48,57279.9884L16118.7462,57279.9884L16118.7462,57961.2546L15891.6575,58188.3434L15437.48,58188.3434L15437.48,57279.9884Z" style="fill:white;"/>
+            <path d="M15437.48,57279.9884L16118.7462,57279.9884L16118.7462,57961.2546L15891.6575,58188.3434L15437.48,58188.3434L15437.48,57279.9884Z"/>
         </g>
     </g>
 </svg>
