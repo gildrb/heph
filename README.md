@@ -2,9 +2,9 @@
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/heph-lockup-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/heph-lockup-light.svg">
-    <img alt="Hephaion" src="docs/assets/heph-lockup-light.svg" width="50%">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/heph-brandmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/heph-brandmark-light.svg">
+    <img alt="Hephaion" src="docs/assets/heph-brandmark-light.svg" width="18%">
   </picture>
 </div>
 
