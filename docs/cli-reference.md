@@ -60,6 +60,7 @@
 | Variable | Description |
 |---|---|
 | `CUSTOM_API_KEY` | API key for the custom provider entry. |
+| `DEEPSEEK_API_KEY` | API key for the DeepSeek API provider. |
 | `HEPHAION_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
 | `HEPHAION_API_KEY` | Global API key override that applies to any provider. |
 | `HEPHAION_BASE_URL` | Override the active API base URL. |

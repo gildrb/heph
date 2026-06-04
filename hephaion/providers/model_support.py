@@ -10,6 +10,7 @@ _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
     ),
     "openai": ("gpt-", "o"),
     "openai-codex": ("gpt-",),
+    "deepseek": ("deepseek-",),
     "zai": ("glm-",),
 }
 
@@ -22,6 +23,8 @@ _ENDPOINT_PREFIXES: dict[str, tuple[str, ...]] = {
     _normalize_endpoint("https://text.pollinations.ai/openai"): _PROVIDER_PREFIXES["pollinations"],
     _normalize_endpoint("https://openrouter.ai/api/v1"): _PROVIDER_PREFIXES["openrouter"],
     _normalize_endpoint("https://api.openai.com/v1"): _PROVIDER_PREFIXES["openai"],
+    _normalize_endpoint("https://api.deepseek.com"): _PROVIDER_PREFIXES["deepseek"],
+    _normalize_endpoint("https://api.deepseek.com/v1"): _PROVIDER_PREFIXES["deepseek"],
     _normalize_endpoint("https://api.z.ai/api/paas/v4/"): _PROVIDER_PREFIXES["zai"],
 }
 
