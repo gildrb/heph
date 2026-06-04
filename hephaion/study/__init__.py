@@ -18,17 +18,8 @@ from hephaion.study.artifacts import (
     validate_learning_artifacts,
 )
 from hephaion.study.controller import (
-    LearningTurnPlan,
     apply_turn_result,
-    heph_action_plan,
-    heph_help_plan,
-    material_overview_plan,
-    material_source_qa_plan,
-    material_topic_drill_plan,
-    material_topic_presentation_plan,
-    plain_chat_plan,
     plan_turn,
-    recall_clarification_plan,
 )
 from hephaion.study.knowledge import (
     AcademicItem,
@@ -62,6 +53,17 @@ from hephaion.study.policy import (
     parse_time_budget_minutes,
     session_type_from_text,
     validate_pedagogy,
+)
+from hephaion.study.prompt_plans import (
+    LearningTurnPlan,
+    heph_action_plan,
+    heph_help_plan,
+    material_overview_plan,
+    material_source_qa_plan,
+    material_topic_drill_plan,
+    material_topic_presentation_plan,
+    plain_chat_plan,
+    recall_clarification_plan,
 )
 from hephaion.study.state import (
     LearningAction,

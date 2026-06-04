@@ -35,16 +35,23 @@ from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.logging import Timer, get_logger, redact_text
 from hephaion.providers.api_profiles import reasoning_payload_for_config
 from hephaion.providers.endpoints import is_keyless_endpoint
-from hephaion.providers.keyring_store import resolve_key
 from hephaion.providers.model_support import is_supported_model_for_endpoint
 from hephaion.providers.oauth import load_credentials
 from hephaion.providers.reasoning import (
-    DEFAULT_REASONING_LEVEL,
     normalize_reasoning_level,
     reasoning_levels_for_model,
 )
 from hephaion.providers.registry import get_registry as get_provider_registry
 from hephaion.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
+from hephaion.runtime.config import ChatConfig, resolve_key
+from hephaion.runtime.conversation import Conversation, to_chat_completion_messages
+from hephaion.runtime.delta import CompletionDelta
+from hephaion.runtime.errors import (
+    EngineError,
+    RetryConfig,
+    StreamRecoveryError,
+    _RetryOpenAIStreamError,
+)
 from hephaion.runtime.messages import message_content_text
 from hephaion.runtime.prompt_cache import (
     MetricsLogger as PromptCacheMetricsLogger,
@@ -58,7 +65,7 @@ from hephaion.runtime.resilience import CircuitBreaker
 
 if TYPE_CHECKING:
     from openai import OpenAI, Stream
-    from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+    from openai.types.chat import ChatCompletionChunk
     from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 
@@ -100,6 +107,7 @@ class _MeterProtocol(Protocol):
 
 
 _log = get_logger("runtime.engine")
+_COMPAT_EXPORTS = (resolve_key,)
 _prompt_cache_builder = StablePrefixBuilder()
 _prompt_cache_metrics = PromptCacheMetricsLogger()
 
@@ -122,85 +130,6 @@ _circuit_breaker = CircuitBreaker(name="llm-default")
 def reset_provider_circuit_breaker() -> None:
     """Reset the shared provider circuit for diagnostics and retry harnesses."""
     _circuit_breaker.reset()
-
-
-@dataclass
-class ChatConfig:
-    """Configuration for the LLM engine.
-
-    API keys are resolved lazily at call time from the OS keychain →
-    environment variable → volatile in-memory store.  The ``api_key`` field
-    is kept for backward compatibility but should not be used to store raw
-    keys persistently.  Use the ``resolved_api_key`` property instead.
-    """
-
-    api_key: str = ""
-    base_url: str = ""
-    model: str = ""
-    max_tokens: int = 4096
-    rag_context_budget: int = 2000
-    reasoning_level: str = DEFAULT_REASONING_LEVEL
-    temperature: float | None = 0.0
-    feature_flags: frozenset[str] = field(default_factory=frozenset)
-    _provider_slug: str = field(default="", repr=False)
-    _provider_env: str = field(default="", repr=False)
-
-    def is_feature_enabled(self, flag: str) -> bool:
-        return flag in self.feature_flags
-
-    def __post_init__(self) -> None:
-        self.reasoning_level = normalize_reasoning_level(self.reasoning_level)
-        if self.temperature is not None:
-            self.temperature = min(2.0, max(0.0, self.temperature))
-
-    @property
-    def provider_slug(self) -> str:
-        return self._provider_slug
-
-    @property
-    def resolved_api_key(self) -> str:
-        if self._provider_slug:
-            if not self._provider_env:
-                return self.api_key
-            return resolve_key(self._provider_slug, self._provider_env)
-        return self.api_key
-
-    def apply_provider_reference(self, slug: str, env_var: str) -> None:
-        self._provider_slug = slug
-        self._provider_env = env_var
-
-
-class EngineError(Exception):
-    pass
-
-
-class StreamRecoveryError(EngineError):
-    """Raised when a streaming response was interrupted.
-
-    Carries the partial content that was already received (and possibly
-    displayed) so that callers can preserve it or retry.
-    """
-
-    def __init__(self, partial_content: str, last_error: Exception | None = None) -> None:
-        self.partial_content = partial_content
-        msg = f"Stream interrupted after {len(partial_content)} chars"
-        if last_error:
-            msg += f": {last_error}"
-        super().__init__(msg)
-        self.__cause__ = last_error
-
-
-class _RetryOpenAIStreamError(Exception):
-    def __init__(self, cause: Exception) -> None:
-        super().__init__(str(cause))
-        self.cause = cause
-
-
-@dataclass
-class RetryConfig:
-    max_retries: int = 3
-    base_delay: float = 1.0  # seconds
-    max_delay: float = 30.0  # seconds
 
 
 _retryable_types_cache: list[tuple[type[Exception], ...]] = []
@@ -252,28 +181,6 @@ _CODEX_BACKEND_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _CODEX_BACKEND_TIMEOUT_SECONDS = 30
 _PROVIDER_IP_RE = re.compile(r"\bIP:\s*(?:\d{1,3}\.){3}\d{1,3}\b", re.IGNORECASE)
 _MAX_PROVIDER_DETAIL_CHARS = 260
-
-
-@dataclass
-class Message:
-    role: str  # "system", "user", or "assistant"
-    content: str
-
-
-@dataclass
-class Conversation:
-    messages: list[Message] = field(default_factory=list)
-    _api_cache: list[ApiMessage] | None = field(default=None, init=False, repr=False)
-
-    def add(self, role: str, content: str) -> None:
-        self.messages.append(Message(role=role, content=content))
-        self._api_cache = None
-
-    def to_api_messages(self) -> list[ApiMessage]:
-        if self._api_cache is not None:
-            return self._api_cache
-        self._api_cache = [{"role": msg.role, "content": msg.content} for msg in self.messages]
-        return self._api_cache
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,10 +235,6 @@ class _OpenAIStreamProgress:
     @property
     def partial_content(self) -> str:
         return "".join(self.partial_parts)
-
-
-def to_chat_completion_messages(messages: list[ApiMessage]) -> list[ChatCompletionMessageParam]:
-    return cast("list[ChatCompletionMessageParam]", messages)
 
 
 def _provider_error_body(exc: Exception) -> dict[str, object] | None:
@@ -517,14 +420,6 @@ def _wait_backoff(
         return not abort.wait(timeout=jitter)
     time.sleep(jitter)
     return True
-
-
-@dataclass(frozen=True, slots=True)
-class CompletionDelta:
-    content: str | None = None
-    tool_calls: list[ToolCallDelta] | None = None
-    finish_reason: str = ""
-    usage: UsagePayload | None = None
 
 
 def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[ToolCallDelta]:

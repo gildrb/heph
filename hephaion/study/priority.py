@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import NoReturn, Protocol, Self
+from typing import NoReturn, Self
 
 from hephaion._types import is_string_mapping, parse_json_object_fragment
 from hephaion.materials import material_display_name
@@ -31,6 +31,27 @@ from hephaion.runtime import (
     RetryConfig,
     has_configured_access,
     stream_completion,
+)
+from hephaion.study.priority_topics import valid_priority_topic
+from hephaion.study.priority_types import (
+    PriorityCheatSheet,
+    PriorityCheatSheetTopic,
+    PriorityChunk,
+    PriorityExamQuestion,
+    PriorityPdfCompiler,
+    PriorityPdfError,
+    PriorityProgressReporter,
+    PriorityReport,
+    PrioritySource,
+    PriorityTopic,
+    PriorityTopicEvidence,
+    PriorityVerificationReport,
+    PriorityWebPrerequisite,
+    PriorityWebSearcher,
+    PriorityWebSearchResult,
+    _CheatSheetTopicSections,
+    _PriorityReportArtifacts,
+    _PriorityVerificationChecks,
 )
 from hephaion.terminal.palette import LIGHT_THEME
 
@@ -180,170 +201,6 @@ _MODEL_STREAM_PROGRESS_SECONDS = 8.0
 _SYMBOLIC_TOPIC_TOKEN_RE = re.compile(
     rf"^(?:{_LETTER_RE}{{1,2}}\d*|\d+|{_LETTER_RE}-{_LETTER_RE})$"
 )
-
-
-class PriorityChunk(Protocol):
-    source: str
-    index: int
-    char_start: int
-    char_end: int
-    heading: str
-    text: str
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityTopicEvidence:
-    source: str
-    heading: str
-    excerpt: str
-    marks: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityWebSearchResult:
-    title: str
-    url: str
-    snippet: str
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityWebPrerequisite:
-    term: str
-    source_title: str
-    source_url: str
-
-
-PriorityWebSearcher = Callable[[str], Iterable[PriorityWebSearchResult]]
-PriorityProgressReporter = Callable[[str], None]
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityExamQuestion:
-    source: str
-    prompt: str
-    marks: int
-    topics: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PrioritySource:
-    source_id: str
-    path: str
-    role: str
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityTopic:
-    topic: str
-    score: float
-    exam_hits: int
-    exam_marks: int
-    material_hits: int
-    sources: tuple[str, ...]
-    exam_source_frequency: int = 0
-    supporting_material_coverage: int = 0
-    confidence: float = 0.0
-    prerequisites: tuple[str, ...] = ()
-    web_prerequisites: tuple[PriorityWebPrerequisite, ...] = ()
-    evidence: tuple[PriorityTopicEvidence, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityCheatSheetTopic:
-    title: str
-    tier: str
-    source_ids: tuple[str, ...]
-    prerequisites: tuple[str, ...]
-    definitions: tuple[str, ...]
-    formulas: tuple[str, ...]
-    procedures: tuple[str, ...]
-    exam_tasks: tuple[str, ...]
-    pitfalls: tuple[str, ...]
-    uncertainty: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityCheatSheet:
-    title: str
-    generated_at: str
-    focus: str
-    sources: tuple[PrioritySource, ...]
-    topics: tuple[PriorityCheatSheetTopic, ...]
-    exam_questions: tuple[PriorityExamQuestion, ...]
-    uncertainties: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityVerificationReport:
-    extraction_ok: bool
-    priority_ok: bool
-    source_support_ok: bool
-    latex_ok: bool
-    pdf_ok: bool
-    anti_regression_ok: bool
-    practice_ok: bool
-    issues: tuple[str, ...] = ()
-    warnings: tuple[str, ...] = ()
-
-    @property
-    def passed(self) -> bool:
-        return all(
-            (
-                self.extraction_ok,
-                self.priority_ok,
-                self.source_support_ok,
-                self.latex_ok,
-                self.pdf_ok,
-                self.anti_regression_ok,
-                self.practice_ok,
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _PriorityVerificationChecks:
-    extraction_ok: bool
-    priority_ok: bool
-    source_support_ok: bool
-    latex_ok: bool
-    pdf_ok: bool
-    anti_regression_ok: bool
-    practice_ok: bool
-
-
-@dataclass(frozen=True, slots=True)
-class PriorityReport:
-    path: Path
-    used_model: bool
-    topic_count: int
-    source_count: int
-    tex_path: Path | None = None
-    sidecar_path: Path | None = None
-    verification: PriorityVerificationReport | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _PriorityReportArtifacts:
-    sheet: PriorityCheatSheet
-    tex_text: str
-    model_payload: dict[str, object] | None
-
-
-@dataclass(frozen=True, slots=True)
-class _CheatSheetTopicSections:
-    definitions: list[str]
-    formulas: list[str]
-    procedures: list[str]
-    exam_tasks: list[str]
-    pitfalls: list[str]
-
-
-class PriorityPdfError(RuntimeError):
-    pass
-
-
-class PriorityPdfCompiler(Protocol):
-    def compile(self, tex_path: Path, pdf_path: Path) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -812,7 +669,7 @@ def _topic_terms(heading: str, text: str, *, keep_sparse_labels: bool = False) -
     ]
     for candidate in candidates:
         canonical = " ".join(candidate.casefold().split())
-        if _valid_topic(canonical) and canonical not in seen:
+        if valid_priority_topic(canonical, _SYMBOLIC_TOPIC_TOKEN_RE) and canonical not in seen:
             terms.append(canonical)
             seen.add(canonical)
     return terms
@@ -984,23 +841,6 @@ def _looks_like_sparse_label_line(text: str) -> bool:
     return all(token[:1].isupper() for token in tokens) or (
         len(tokens) <= 3 and tokens[0][:1].isupper()
     )
-
-
-def _valid_topic(candidate: str) -> bool:
-    words = candidate.split()
-    return bool(words and not _invalid_topic_words(words) and len(words) <= 5)
-
-
-def _invalid_topic_words(words: list[str]) -> bool:
-    return any(_invalid_topic_word(word) for word in words) or _single_word_topic_too_short(words)
-
-
-def _invalid_topic_word(word: str) -> bool:
-    return len(word) <= 1 or _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) is not None
-
-
-def _single_word_topic_too_short(words: Sequence[str]) -> bool:
-    return len(words) == 1 and len(words[0]) < 4
 
 
 def _covered_by_preferred_topic(topic: PriorityTopic, topics: list[PriorityTopic]) -> bool:

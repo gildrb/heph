@@ -240,6 +240,17 @@ class StatusCommand(Command):
         return CommandResult(output=_session_status(s))
 
 
+class StatsCommand(StatusCommand):
+    name = "stats"
+    description = "Alias for /status with session and armory statistics"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        result = super().handle(session, args)
+        if result.output is not None:
+            print(result.output)
+        return CommandResult()
+
+
 class NewCommand(Command):
     name = "new"
     description = "Start a new chat"

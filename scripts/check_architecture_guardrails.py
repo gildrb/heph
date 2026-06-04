@@ -18,20 +18,19 @@ FUNCTION_LINE_THRESHOLD = 80
 COMPLEXITY_THRESHOLD = 11
 
 MODULE_LINE_BASELINE = {
-    "hephaion/agent/tools.py": 1486,
+    "hephaion/agent/tools.py": 1368,
     "hephaion/chat/evidence.py": 1574,
-    "hephaion/chat/orchestrator.py": 6538,
-    "hephaion/runtime/engine.py": 1710,
-    "hephaion/study/controller.py": 1740,
-    "hephaion/study/priority.py": 2520,
-    "hephaion/tui/__init__.py": 1615,
-    "hephaion/tui/inline_flows.py": 1643,
+    "hephaion/chat/orchestrator.py": 5529,
+    "hephaion/runtime/engine.py": 1608,
+    "hephaion/study/priority.py": 2376,
+    "hephaion/tui/__init__.py": 1039,
+    "hephaion/tui/inline_flows.py": 1364,
 }
 
 CLASS_LINE_BASELINE = {
     "hephaion/chat/orchestrator.py:TurnOrchestrator": 912,
     "hephaion/rag/index.py:ArmoryIndex": 628,
-    "hephaion/tui/__init__.py:HephTui": 1266,
+    "hephaion/tui/__init__.py:HephTui": 832,
     "hephaion/tui/inline_flows.py:TuiInlineFlowMixin": 860,
 }
 
@@ -123,11 +122,13 @@ FACADE_IMPORT_BASELINE = {
     "hephaion/rag/sparse.py": 1,
     "hephaion/study/priority.py": 2,
     "hephaion/terminal/input.py": 1,
-    "hephaion/tui/__init__.py": 8,
+    "hephaion/tui/__init__.py": 7,
     "hephaion/tui/armory.py": 2,
     "hephaion/tui/armory_browser.py": 3,
     "hephaion/tui/display_text.py": 3,
+    "hephaion/tui/external_commands.py": 2,
     "hephaion/tui/inline_flows.py": 4,
+    "hephaion/tui/inline_menu.py": 3,
     "hephaion/tui/materials.py": 2,
     "hephaion/tui/search_screen.py": 1,
     "hephaion/tui/session_actions.py": 3,

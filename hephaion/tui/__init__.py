@@ -5,24 +5,16 @@ Imports stay lazy so test suites can exercise dependency errors cleanly.
 
 from __future__ import annotations
 
-import os
 import subprocess  # nosec B404
 import sys
 import threading
 import time
 from collections.abc import Callable
-from contextlib import redirect_stderr, redirect_stdout, suppress
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar
 
 from hephaion.armory.search import SearchResult
-from hephaion.parameters.settings import (
-    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
-    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
-    ACTIVITY_TRACE_TOOL_CALLS,
-    load_app_settings,
-)
+from hephaion.parameters.settings import load_app_settings
 from hephaion.providers.catalog import prefetch_provider_model_catalogs
 from hephaion.providers.config import ProviderConfig
 from hephaion.providers.reasoning import next_reasoning_level, reasoning_levels_for_model
@@ -33,13 +25,6 @@ from hephaion.tui import armory as _tui_armory
 from hephaion.tui import widgets as _tui_widgets
 from hephaion.tui.armory import TuiArmoryMixin
 from hephaion.tui.armory_browser import _DirEntry
-from hephaion.tui.command_output import (
-    command_output_text,
-    filter_command_activity_details,
-    format_command_activity_details,
-    format_command_activity_line,
-    is_command_activity_line,
-)
 from hephaion.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
 )
@@ -56,21 +41,23 @@ from hephaion.tui.display_text import (
 from hephaion.tui.display_text import (
     armory_home_text as _armory_home_text,
 )
+from hephaion.tui.external_commands import (
+    TuiExternalCommandMixin,
+    _command_output_text,
+    _TuiCaptureWriter,
+)
 from hephaion.tui.flow_state import InlineFlow
 from hephaion.tui.history import TuiHistoryMixin
 from hephaion.tui.ids import (
     COMPLETION_POSITION_ID,
     COMPLETION_STACK_ID,
-    COMPLETION_STACK_SELECTOR,
     COMPOSER_FRAME_ID,
-    COMPOSER_FRAME_SELECTOR,
     COMPOSER_ID,
     COMPOSER_PROMPT_ID,
     COMPOSER_SELECTOR,
     FOOTER_HINTS_ID,
     FOOTER_HINTS_SELECTOR,
     INFO_PANEL_ID,
-    INFO_PANEL_SELECTOR,
     SUGGESTIONS_ID,
     SUGGESTIONS_SELECTOR,
     TRANSCRIPT_ID,
@@ -82,12 +69,25 @@ from hephaion.tui.keyboard_protocol import install_textual_modified_key_compat
 from hephaion.tui.keymap import armory_binding_keys
 from hephaion.tui.materials import TuiMaterialsMixin
 from hephaion.tui.render_state import DirtyRegion, TuiRenderCache
+from hephaion.tui.resize import (
+    _LIVE_RESIZE_POLL_SECONDS,
+    _RESIZE_REDRAW_DELAY_SECONDS,
+    _TERMINAL_CLEAR_SCREEN,
+    TuiResizeMixin,
+    _ResizeRedrawState,
+)
 from hephaion.tui.routing import (
-    TERMINAL_INTERACTIVE_COMMANDS,
+    TERMINAL_INTERACTIVE_COMMANDS as _TERMINAL_INTERACTIVE_COMMANDS,
+)
+from hephaion.tui.routing import (
     TuiInputRoute,
-    is_armory_command,
-    pending_input_requires_terminal,
     tui_input_route,
+)
+from hephaion.tui.routing import (
+    is_armory_command as _is_armory_command,
+)
+from hephaion.tui.routing import (
+    pending_input_requires_terminal as _pending_input_requires_terminal,
 )
 from hephaion.tui.search_screen import SearchScreen
 from hephaion.tui.session_actions import (
@@ -111,7 +111,7 @@ from hephaion.tui.session_actions import (
 from hephaion.tui.session_actions import (
     start_fresh_session as start_fresh_session,
 )
-from hephaion.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
+from hephaion.tui.session_state import TuiRuntimeState, TuiTranscriptEntry
 from hephaion.tui.slash_command import (
     command_help,
     slash_suggestion,
@@ -130,20 +130,29 @@ from hephaion.tui.slash_completion import (
 from hephaion.tui.slash_completion import (
     completion_menu_visible_slice as _completion_menu_visible_slice,
 )
-from hephaion.tui.slash_completion import (
-    slash_command_name as _slash_command_name,
-)
 from hephaion.tui.status import config_error, status_lines
-from hephaion.tui.streaming import run_tui_turn
 from hephaion.tui.style import _tui_css
 from hephaion.tui.transcript import TuiTranscriptMixin
 from hephaion.tui.turns import TuiTurnMixin
+
+_TUI_COMPAT_EXPORTS = (
+    InputHistory,
+    DirtyRegion,
+    _RESIZE_REDRAW_DELAY_SECONDS,
+    _TERMINAL_CLEAR_SCREEN,
+    _TERMINAL_INTERACTIVE_COMMANDS,
+    _is_armory_command,
+    _pending_input_requires_terminal,
+    _command_output_text,
+    _TuiCaptureWriter,
+    load_app_settings,
+)
 
 if TYPE_CHECKING:
     from rich.text import Text
 
     from hephaion.chat.session import ChatSession
-    from hephaion.commands import CommandRegistry, CommandResult
+    from hephaion.commands import CommandRegistry
 
 try:
     from rich.markdown import Markdown
@@ -154,8 +163,6 @@ try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
-    from textual.css.query import NoMatches
-    from textual.geometry import Size
     from textual.screen import Screen
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, RichLog, Static
@@ -168,8 +175,6 @@ except ImportError:
     events = None  # ty:ignore[invalid-assignment]
     App = object  # ty:ignore[invalid-assignment]
     ComposeResult = object  # ty:ignore[invalid-assignment]
-    NoMatches = Exception  # ty:ignore[invalid-assignment]
-    Size = None  # ty:ignore[invalid-assignment]
     Horizontal = object  # ty:ignore[invalid-assignment]
     Vertical = object  # ty:ignore[invalid-assignment]
     Screen = object  # ty:ignore[invalid-assignment]
@@ -211,38 +216,8 @@ _transparent_option_list_class = _tui_widgets._transparent_option_list_class
 
 _slash_suggestion = slash_suggestion
 
-_SIDEBAR_MIN_WINDOW_WIDTH = 120
-_COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _COMPLETION_DESCRIPTION_GAP = 4
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
-_LIVE_RESIZE_POLL_SECONDS = 1 / 60
-_RESIZE_REDRAW_DELAY_SECONDS = 0.075
-_TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
-# Textual already requests Kitty keyboard protocol flag 1. Modified Enter still
-# collapses to plain Enter in that mode, so Heph pushes report-all keyboard
-# events while the TUI is mounted and translates printable CSI-u key names in
-# the composer input layer.
-_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER = "\x1b[>9u"
-_TERMINAL_XTERM_MODIFIED_KEYS = "\x1b[>4;1m"
-_TERMINAL_KEYBOARD_PROTOCOL_POP = "\x1b[<u"
-_TERMINAL_XTERM_MODIFIED_KEYS_RESET = "\x1b[>4;0m"
-_RESIZE_SENSITIVE_SELECTORS = (
-    "#status",
-    TRANSCRIPT_SELECTOR,
-    "#transcript-spacer",
-    "#thinking-indicator",
-    "#armory-inline",
-    "#materials-inline",
-    COMPOSER_FRAME_SELECTOR,
-    f"#{COMPOSER_PROMPT_ID}",
-    COMPOSER_SELECTOR,
-    COMPLETION_STACK_SELECTOR,
-    SUGGESTIONS_SELECTOR,
-    f"#{COMPLETION_POSITION_ID}",
-    FOOTER_HINTS_SELECTOR,
-    INFO_PANEL_SELECTOR,
-)
-_RESIZE_MATERIALS_FOCUS_IDS = ("materials-list", "materials-list-right")
 # Textual owns mouse events so widgets can be clicked, while ALLOW_SELECT on
 # individual widgets keeps selection scoped to rendered text.
 _TUI_ENABLE_MOUSE = True
@@ -253,102 +228,17 @@ _command_help = command_help
 
 _TuiTranscriptEntry = TuiTranscriptEntry
 _TuiRuntimeState = TuiRuntimeState
-_TuiCaptureWriter = TuiCaptureWriter
-_TERMINAL_INTERACTIVE_COMMANDS = TERMINAL_INTERACTIVE_COMMANDS
-_pending_input_requires_terminal = pending_input_requires_terminal
-_is_armory_command = is_armory_command
 _tui_input_route = tui_input_route
 _TuiInputRoute = TuiInputRoute
 
-_command_output_text = command_output_text
-_filter_command_activity_details = filter_command_activity_details
-_format_command_activity_details = format_command_activity_details
-_format_command_activity_line = format_command_activity_line
-_is_command_activity_line = is_command_activity_line
-_RESEND_PREFIX = "__RESEND__:"
 _INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
-_TUI_MANAGED_RESEND_COMMANDS = {"exam"}
-
-
-@dataclass(slots=True)
-class _ManagedResendCommand:
-    result: CommandResult
-    output: str
-    resend_input: str
-
-
-@dataclass(slots=True)
-class _ResizeRedrawState:
-    """Track terminal-size observations separately from completed repair frames."""
-
-    last_size: tuple[int, int] | None = None
-    refresh_pending: bool = False
-    changed_while_pending: bool = False
-    quiet_until: float | None = None
-    timer_running: bool = False
-
-    def note_size(self, size: tuple[int, int]) -> bool:
-        if self.last_size == size:
-            return False
-        if self.refresh_pending:
-            self.changed_while_pending = True
-        self.last_size = size
-        return True
-
-    def schedule_trailing_refresh(self, *, now: float, delay: float) -> bool:
-        self.quiet_until = now + delay
-        self.refresh_pending = True
-        if self.timer_running:
-            return False
-        self.timer_running = True
-        return True
-
-    def refresh_delay(self, *, now: float) -> float | None:
-        if self.quiet_until is None:
-            self.timer_running = False
-            self.refresh_pending = False
-            return None
-        remaining = self.quiet_until - now
-        if remaining > 0:
-            return remaining
-        return 0.0
-
-    def finish_trailing_refresh(self) -> bool:
-        changed_while_pending = self.changed_while_pending
-        self.quiet_until = None
-        self.timer_running = False
-        self.refresh_pending = False
-        self.changed_while_pending = False
-        return changed_while_pending
-
-
-def _managed_resend_output(captured_output: str, command_output: str | None) -> tuple[str, str]:
-    if not command_output:
-        return captured_output, ""
-    if command_output.startswith(_RESEND_PREFIX):
-        return captured_output, command_output[len(_RESEND_PREFIX) :]
-    return "\n".join(part for part in (captured_output, command_output) if part), ""
-
-
-def _captured_command_output(
-    stdout: _TuiCaptureWriter,
-    stderr: _TuiCaptureWriter,
-    activity_trace_mode: str,
-) -> str:
-    output = _command_output_text(stdout, stderr)
-    if activity_trace_mode in {
-        ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
-        ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
-    }:
-        return _filter_command_activity_details(output)
-    return _format_command_activity_details(output)
-
-
 _InlineFlow = InlineFlow
 
 
 class HephTui(
     TuiHistoryMixin,
+    TuiResizeMixin,
+    TuiExternalCommandMixin,
     TuiInlineFlowMixin,
     TuiArmoryMixin,
     TuiMaterialsMixin,
@@ -492,276 +382,6 @@ class HephTui(
 
     def on_unmount(self) -> None:
         self._pop_terminal_keyboard_protocol()
-
-    def _push_terminal_keyboard_protocol(self) -> None:
-        self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER)
-        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS)
-
-    def _pop_terminal_keyboard_protocol(self) -> None:
-        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS_RESET)
-        self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_POP)
-
-    def _write_terminal_control(self, sequence: str) -> None:
-        driver = getattr(self, "_driver", None)
-        write = getattr(driver, "write", None)
-        flush = getattr(driver, "flush", None)
-        if not callable(write):
-            return
-        write(sequence)
-        if callable(flush):
-            flush()
-
-    def _initialize_layout_visibility(self) -> None:
-        visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
-        self._sidebar_width_visible = visible
-        self._set_sidebar_visible(
-            visible and not self._armory_inline_active and not self._materials_inline_active
-        )
-        self._refresh_compact_layout_class()
-
-    def _replay_transcript(self) -> None:
-        for index, entry in enumerate(self.state.transcript):
-            if index > 0:
-                self._write_transcript_gap()
-            self._write_transcript_entry(entry)
-
-    def _focus_composer(self) -> None:
-        composer = self.query_one(COMPOSER_SELECTOR, Input)
-        composer.select_on_focus = False
-        composer.focus()
-        self.set_focus(composer)
-
-    def _append_initial_cards(self) -> None:
-        if self.state.history_obj is not None and not self.state.startup_card_shown:
-            self.state.startup_card_shown = True
-            self._append_startup_card()
-        if self.session.armory_path is None and not self.state.armory_home_shown:
-            self.state.armory_home_shown = True
-            self._append_armory_home()
-
-    def _tui_session_seconds(self) -> int:
-        return max(0, int(time.monotonic() - self.state.tui_started_at))
-
-    def _tick_session_duration(self) -> None:
-        if self._focused_msg_index is None:
-            self._update_info_panel()
-
-    def _prefetch_model_catalogs(self) -> None:
-        try:
-            pc = ProviderConfig.load()
-        except Exception:
-            return
-        active = pc.get_active()
-        if active is not None:
-            prefetch_provider_model_catalogs(pc, provider_slugs={active.slug})
-
-    def on_app_focus(self, event: events.AppFocus) -> None:
-        if self._armory_inline_active or self._materials_inline_active:
-            composer = self.query_one(COMPOSER_SELECTOR, Input)
-            composer.focus()
-            self.set_focus(composer)
-            event.stop()
-
-    def on_click(self, event: events.Click) -> None:
-        if isinstance(event.widget, OptionList):
-            return
-        composer = self.query_one(COMPOSER_SELECTOR, Input)
-        if self.focused is not composer:
-            composer.focus()
-            self.set_focus(composer)
-
-    def on_mouse_move(self, event: events.MouseMove) -> None:
-        self._handle_suggestions_mouse_move(event)
-
-    def on_resize(self, event: events.Resize) -> None:
-        self._handle_resize_dimensions(event.size.width, event.size.height)
-
-    def _handle_resize_dimensions(self, width: int, height: int) -> None:
-        size = (width, height)
-        if not self._resize_redraw.note_size(size):
-            return
-        visible = width >= _SIDEBAR_MIN_WINDOW_WIDTH
-        self._sidebar_width_visible = visible
-        target = visible and not self._armory_inline_active and not self._materials_inline_active
-        self._set_sidebar_visible(target)
-        self._refresh_compact_layout_class(height=height)
-        self._invalidate_after_resize()
-
-    def _invalidate_after_resize(self) -> None:
-        self._clear_terminal_viewport()
-        self._clear_resize_sensitive_widget_caches()
-        self._render_cache.forget(*DirtyRegion)
-        self._transcript_render_width = None
-        self._refresh_status()
-        self._refresh_footer_hints()
-        self._update_info_panel()
-        self._schedule_transcript_reflow()
-        self.refresh(repaint=True, layout=True)
-        self._schedule_resize_refresh()
-
-    def _finish_resize_refresh(self) -> None:
-        self._resize_redraw_timer = None
-        refresh_delay = self._resize_redraw.refresh_delay(now=time.monotonic())
-        if refresh_delay is None:
-            return
-        if refresh_delay > 0:
-            self._resize_redraw_timer = self.set_timer(
-                refresh_delay,
-                self._finish_resize_refresh,
-            )
-            return
-        self._resize_redraw.finish_trailing_refresh()
-        if not self._core_widgets_available():
-            return
-        self._clear_resize_sensitive_widget_caches()
-        self._render_cache.forget(*DirtyRegion)
-        self._transcript_render_width = None
-        self._refresh_status()
-        self._refresh_footer_hints()
-        self._update_info_panel()
-        self._schedule_transcript_reflow()
-        self._restore_focus_after_resize()
-        self.refresh(repaint=True, layout=True)
-
-    def _schedule_resize_refresh(self) -> None:
-        should_start_timer = self._resize_redraw.schedule_trailing_refresh(
-            now=time.monotonic(),
-            delay=_RESIZE_REDRAW_DELAY_SECONDS,
-        )
-        if should_start_timer:
-            self._resize_redraw_timer = self.set_timer(
-                _RESIZE_REDRAW_DELAY_SECONDS,
-                self._finish_resize_refresh,
-            )
-
-    def _install_tty_resize_reader(self) -> None:
-        driver = getattr(self, "_driver", None)
-        fallback = getattr(driver, "_get_terminal_size", None)
-        if driver is None or not callable(fallback):
-            return
-
-        def get_terminal_size() -> tuple[int, int]:
-            terminal_size = self._terminal_size_from_tty()
-            if terminal_size is not None:
-                return terminal_size
-            return cast("Callable[[], tuple[int, int]]", fallback)()
-
-        driver._get_terminal_size = get_terminal_size
-
-    def _sync_terminal_size_from_tty(self) -> None:
-        terminal_size = self._terminal_size_from_tty()
-        if terminal_size is None or terminal_size == (self.size.width, self.size.height):
-            return
-
-        driver = getattr(self, "_driver", None)
-        if driver is not None:
-            with suppress(AttributeError):
-                driver._size = terminal_size
-        if Size is None:
-            return
-        width, height = terminal_size
-        resize_event = events.Resize(Size(width, height), Size(width, height))
-        self.post_message(resize_event)
-
-    def _terminal_size_from_tty(self) -> tuple[int, int] | None:
-        driver = getattr(self, "_driver", None)
-        fileno = getattr(driver, "fileno", None)
-        if not isinstance(fileno, int):
-            return None
-        try:
-            size = os.get_terminal_size(fileno)
-        except OSError:
-            return None
-        if size.columns <= 0 or size.lines <= 0:
-            return None
-        return size.columns, size.lines
-
-    def _clear_terminal_viewport(self) -> None:
-        driver = getattr(self, "_driver", None)
-        write = getattr(driver, "write", None)
-        flush = getattr(driver, "flush", None)
-        if not callable(write):
-            return
-        write(_TERMINAL_CLEAR_SCREEN)
-        if callable(flush):
-            flush()
-        self._force_full_screen_repaint()
-
-    def _force_full_screen_repaint(self) -> None:
-        self.screen.refresh(self.size.region, repaint=True, layout=True)
-
-    def _clear_resize_sensitive_widget_caches(self) -> None:
-        self.screen.clear_cached_dimensions()
-        self._force_full_screen_repaint()
-        for selector in _RESIZE_SENSITIVE_SELECTORS:
-            try:
-                widget = self.query_one(selector)
-            except NoMatches:
-                continue
-            widget.clear_cached_dimensions()
-            widget.refresh(repaint=True, layout=True)
-
-    def _restore_focus_after_resize(self) -> None:
-        if self._materials_inline_active:
-            focused_id = getattr(self.focused, "id", None)
-            if focused_id in _RESIZE_MATERIALS_FOCUS_IDS:
-                return
-            target = self._materials_focus_target_after_resize()
-            target.focus()
-            self.set_focus(target)
-            return
-        self._focus_composer()
-
-    def _materials_focus_target_after_resize(self) -> OptionList:
-        highlighted = self._materials_highlighted_index
-        if highlighted is not None and highlighted >= len(self._materials_columns[0]):
-            return self.query_one("#materials-list-right", OptionList)
-        return self.query_one("#materials-list", OptionList)
-
-    def _core_widgets_available(self) -> bool:
-        try:
-            self.query_one(COMPOSER_SELECTOR, Input)
-            self.query_one(SUGGESTIONS_SELECTOR, OptionList)
-            self.query_one(FOOTER_HINTS_SELECTOR, Static)
-        except NoMatches:
-            return False
-        return True
-
-    def _set_sidebar_visible(self, visible: bool) -> None:
-        if self._sidebar_actual_visible is visible:
-            return
-        self._sidebar_actual_visible = visible
-        display = "block" if visible else "none"
-        self.query_one(INFO_PANEL_SELECTOR, Static).styles.display = display
-        self._transcript_render_width = None
-        self._schedule_transcript_reflow()
-
-    def _update_static_region(
-        self,
-        selector: str,
-        widget_type: type[Static],
-        region: DirtyRegion,
-        renderable: object,
-    ) -> None:
-        plain = getattr(renderable, "plain", None)
-        snapshot = plain if isinstance(plain, str) else str(renderable)
-        if self._render_cache.should_update(region, snapshot):
-            content = renderable if isinstance(renderable, str) else cast("Text", renderable)
-            try:
-                self.query_one(selector, widget_type).update(content)
-            except NoMatches:
-                self._render_cache.forget(region)
-
-    def _refresh_compact_layout_class(self, *, height: int | None = None) -> None:
-        stack = self.query_one(COMPLETION_STACK_SELECTOR)
-        frame = self.query_one(COMPOSER_FRAME_SELECTOR)
-        layout_height = self.size.height if height is None else height
-        if layout_height <= _COMPACT_COMPLETION_STACK_MAX_HEIGHT:
-            stack.add_class("compact")
-            frame.add_class("compact")
-        else:
-            stack.remove_class("compact")
-            frame.remove_class("compact")
 
     def on_key(self, event: events.Key) -> None:
         composer = self.query_one(COMPOSER_SELECTOR, Input)
@@ -1250,172 +870,6 @@ class HephTui(
                 self._append_entry(message.content, "user")
             elif message.role == "assistant":
                 self._append_entry(message.content, "markdown")
-
-    def _handle_external_input(self, value: str) -> None:
-        if _pending_input_requires_terminal(value):
-            self.state.pending_input = value
-            self.exit()
-            return
-
-        self._thinking_label = "working"
-        self._append_user(value)
-        self.busy = True
-        self.abort_event.clear()
-        self._refresh_status()
-        self.run_worker(lambda: self._run_external_command(value), thread=True)
-
-    def _run_external_command(self, value: str) -> None:
-        from hephaion.terminal.input import handle_input
-
-        history = InputHistory(self.state.history)
-        activity_trace_mode = load_app_settings().activity_trace_mode
-        command_name = _slash_command_name(value)
-        if command_name in _TUI_MANAGED_RESEND_COMMANDS:
-            handled = self._run_tui_managed_resend_command(value, history, activity_trace_mode)
-            if handled:
-                return
-
-        streamed_line = False
-        stream_activity = activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS
-
-        def stream_notice(line: str) -> None:
-            nonlocal streamed_line
-            if not _is_command_activity_line(line):
-                return
-            streamed_line = True
-            self.call_from_thread(self._append_notice, _format_command_activity_line(line))
-
-        line_callback = stream_notice if stream_activity else None
-        stdout = _TuiCaptureWriter(on_line=line_callback)
-        stderr = _TuiCaptureWriter(on_line=line_callback)
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            new_session, should_continue = handle_input(self.session, value, history)
-        stdout.flush_pending()
-        stderr.flush_pending()
-        if streamed_line:
-            output = _filter_command_activity_details(_command_output_text(stdout, stderr))
-        else:
-            output = _captured_command_output(stdout, stderr, activity_trace_mode)
-        self.call_from_thread(
-            self._finish_external_command, new_session, history.entries, output, should_continue
-        )
-
-    def _run_tui_managed_resend_command(
-        self,
-        value: str,
-        history: InputHistory,
-        activity_trace_mode: str,
-    ) -> bool:
-        command = self._run_managed_resend_command(value, history, activity_trace_mode)
-        if command is None:
-            return False
-
-        if command.output:
-            self.call_from_thread(self._append_notice, command.output)
-
-        if command.result.should_exit:
-            self._finish_managed_resend_command(history, should_continue=False)
-            return True
-        if not command.resend_input:
-            self._finish_managed_resend_command(history)
-            return True
-
-        self._run_resend_input(command.resend_input, history)
-        return True
-
-    def _run_managed_resend_command(
-        self,
-        value: str,
-        history: InputHistory,
-        activity_trace_mode: str,
-    ) -> _ManagedResendCommand | None:
-        from hephaion.commands import get_registry
-
-        history.add(value)
-        command_name, _, command_args = value.strip()[1:].partition(" ")
-        cmd = get_registry().find(command_name.lower())
-        if cmd is None:
-            return None
-
-        stdout = _TuiCaptureWriter()
-        stderr = _TuiCaptureWriter()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            result = cmd.handle(self.session, command_args.strip())
-        if result.new_session is not None:
-            self.session = result.new_session
-
-        output = _captured_command_output(stdout, stderr, activity_trace_mode)
-        output, resend_input = _managed_resend_output(output, result.output)
-        self.state.history = history.entries
-        return _ManagedResendCommand(result=result, output=output, resend_input=resend_input)
-
-    def _run_resend_input(self, resend_input: str, history: InputHistory) -> None:
-        history.add(resend_input)
-        self.state.history = history.entries
-        config_error = _config_error(self.session)
-        if config_error is not None:
-            self.call_from_thread(self._append_error, config_error)
-            self._finish_managed_resend_command(history)
-            return
-
-        self._run_resend_chat_turn(resend_input)
-
-    def _run_resend_chat_turn(self, resend_input: str) -> None:
-        def on_reply(reply: str) -> None:
-            self.call_from_thread(self._append_assistant_reply, reply)
-
-        def on_notice(notice: str) -> None:
-            self.call_from_thread(self._append_notice, notice)
-
-        def on_activity(line: str) -> None:
-            self.call_from_thread(self._append_activity, line)
-
-        def on_error(error: str) -> None:
-            self.call_from_thread(self._append_error, error)
-
-        def on_finish() -> None:
-            self.call_from_thread(self._finish_turn)
-
-        run_tui_turn(
-            self.session,
-            resend_input,
-            self.abort_event,
-            on_reply=on_reply,
-            on_notice=on_notice,
-            on_error=on_error,
-            on_finish=on_finish,
-            on_activity=on_activity,
-        )
-
-    def _finish_managed_resend_command(
-        self,
-        history: InputHistory,
-        *,
-        output: str = "",
-        should_continue: bool = True,
-    ) -> None:
-        self.call_from_thread(
-            self._finish_external_command,
-            self.session,
-            history.entries,
-            output,
-            should_continue,
-        )
-
-    def _finish_external_command(
-        self,
-        new_session: ChatSession,
-        history_entries: list[str],
-        output: str,
-        should_continue: bool,
-    ) -> None:
-        self.session = new_session
-        self.state.history = history_entries
-        if output:
-            self._append_entry(output, "notice")
-        self._finish_turn()
-        if not should_continue:
-            self.exit()
 
     def _open_search(self) -> None:
         def on_search_result(result: object) -> None:

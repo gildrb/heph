@@ -188,10 +188,13 @@ class SlashCompletionEngine:
     ) -> list[CompletionCandidate]:
         candidates: list[CompletionCandidate] = []
         for command in commands:
-            replacement = self._matching_command_token(command, prefix)
-            if replacement is None:
+            replacements = self._matching_command_tokens(command, prefix)
+            if not replacements:
                 continue
-            candidates.append(self._command_candidate(replacement, command.description, body))
+            candidates.extend(
+                self._command_candidate(replacement, command.description, body)
+                for replacement in replacements
+            )
         if candidates or not prefix:
             return candidates
         return self._closest_command_candidates(prefix, body, commands)
@@ -251,10 +254,18 @@ class SlashCompletionEngine:
         command: CommandSuggestion,
         prefix: str,
     ) -> str | None:
-        for token in self._command_tokens(command):
-            if self._token_matches(token, prefix):
-                return token
-        return None
+        return next(iter(self._matching_command_tokens(command, prefix)), None)
+
+    def _matching_command_tokens(
+        self,
+        command: CommandSuggestion,
+        prefix: str,
+    ) -> tuple[str, ...]:
+        if not prefix:
+            return (command.name,)
+        return tuple(
+            token for token in self._command_tokens(command) if self._token_matches(token, prefix)
+        )
 
     def _token_matches(self, token: str, prefix: str) -> bool:
         normalized = token.lower()

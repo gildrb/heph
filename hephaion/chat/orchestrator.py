@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 from html import unescape
 from typing import TYPE_CHECKING
 
+import hephaion.chat.intent as _chat_intent
 from hephaion._types import parse_json_object_fragment
 from hephaion.agent.citation import VerificationResult, verify_citations, verify_response
 from hephaion.agent.dispatch import iter_agent_events
@@ -174,30 +175,17 @@ _rag_duration_hist = _meter.create_histogram(
     description="Duration of RAG retrieval queries",
 )
 
+_MODEL_NORMALIZED_INTENTS = _chat_intent.MODEL_NORMALIZED_INTENTS
+_MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = _chat_intent.MODEL_NORMALIZED_CONFIDENCE_THRESHOLD
+_LEARNING_INTENT_NORMALIZATION_SCHEMA = _chat_intent.LEARNING_INTENT_NORMALIZATION_SCHEMA
+_LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = (
+    _chat_intent.LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
+)
+_classifier_intent_from_payload = _chat_intent.classifier_intent_from_payload
+_normalized_learning_intent_from_payload = _chat_intent.normalized_learning_intent_from_payload
+_normalized_confidence = _chat_intent.normalized_confidence
 _BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
-_MODEL_NORMALIZED_INTENTS = (
-    "material_overview",
-    "source_qa",
-    "source_only_policy",
-    "topic_presentation",
-    "topic_drill",
-    "ready_for_recall",
-    "recall_clarification",
-    "recall_answer_attempt",
-    "reveal_request",
-    "hint_request",
-    "skip_request",
-    "scaffold_request",
-    "material_review",
-    "priority_request",
-    "driven_learning_calibration",
-    "wait",
-    "heph_action",
-    "heph_help",
-    "chat",
-)
-_MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = 0.75
 _THIN_EVIDENCE_POINTER_MAX_WORDS = 8
 _MARKDOWN_TABLE_SEPARATOR_LINE_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
@@ -237,68 +225,6 @@ _OVERVIEW_CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNO
 _OVERVIEW_DATE_LINE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-zÄÖÜäöüß]+\s+\d{4}\b|\b\d{4}\b")
 _OVERVIEW_FORMULA_RE = re.compile(r"(?:\\[a-zA-Z]+|[$=∑∫√≤≥→↦∀∃])")
 _OVERVIEW_LINE_MARKER_RE = re.compile(r"^[#*\-\d.\s:;()\[\]]+")
-_LEARNING_INTENT_NORMALIZATION_SCHEMA = "\n".join(
-    (
-        "{",
-        f'  "intent": "{" | ".join(_MODEL_NORMALIZED_INTENTS)}",',
-        '  "canonical_english_request": "concise English request preserving the user\'s intent",',
-        '  "is_followup": true,',
-        (
-            '  "followup_target": "what prior answer, cited claim, bullet, source, '
-            'or topic this refers to",'
-        ),
-        (
-            '  "answer_mode": "answer_from_evidence | transform_prior_answer | '
-            'reason_from_prior_evidence",'
-        ),
-        '  "answer_format": "plain | table | list",',
-        (
-            '  "retrieval_strategy": "retrieve | reuse_prior_evidence | '
-            'expand_prior_evidence | overview | none",'
-        ),
-        (
-            '  "retrieval_query": "semantic retrieval query derived from the '
-            'conversation, not filler words",'
-        ),
-        '  "direct_evidence_required": true,',
-        '  "prior_answer_reference": true,',
-        '  "prior_answer_positions": [1, 3],',
-        '  "prior_answer_position_basis": "cited_claims | list_items | none",',
-        '  "confidence": 0.0',
-        "}",
-    )
-)
-_LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
-Resolve routing hints for the current Heph turn; do not answer the user.
-
-Materials are the default subject. Keep the current user request primary; use prior context only
-to resolve references. New source content uses answer_from_evidence. Broad corpus views use
-overview. Specific facts, definitions, quotes, named concepts, or named sources use retrieve.
-Product/self explanation turns use heph_help with retrieval_strategy=none, not material_overview.
-Product operations that create, validate, or import armories/material files use heph_action with
-retrieval_strategy=none.
-Corpus-level synthesis, comparison, evaluation, ranking, prioritization, or judgment over the
-materials uses material_overview with retrieval_strategy=overview, even when the answer should
-name one resulting topic or source. Do not turn a corpus-level operation into a literal keyword
-lookup unless the user asks about a specific named concept, source, citation, or quoted claim.
-Set is_followup=false unless the current request explicitly depends on a prior answer, citation,
-source, listed item, table row, or continuing instruction. A fresh question about the materials is
-not a follow-up merely because previous turns exist.
-Use topic_drill only when the current user request asks Heph to quiz, drill, practice, or ask a
-recall question; never carry drill mode from the previous assistant question by inertia.
-Pure rewrites of a displayed prior answer use transform_prior_answer and reuse prior evidence.
-Requests that change the prior answer's length, language, format, or presentation without asking
-for a new source fact are transform_prior_answer turns, not source lookups.
-Questions about why a cited prior answer matters use reason_from_prior_evidence.
-Interpretation, relevance, implication, application, or cited synthesis follow-ups over a cited
-prior answer use reason_from_prior_evidence with direct_evidence_required=false. Set
-direct_evidence_required=true only when the requested answer is an exact quoted span, source or
-citation location, or whether a source states a specific claim.
-When the user points to cited/list/table positions in a prior answer, fill prior_answer_positions
-and prior_answer_position_basis.
-
-Return compact JSON only:
-""".strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
 Write a compact user-facing corpus overview from supplied evidence only. Use the user's request
 language for prose, even when evidence uses another language; preserve source terms. Prefer
@@ -4365,35 +4291,6 @@ def _model_json_payload(
     )
 
 
-def _classifier_intent_from_payload(
-    payload: Mapping[str, object] | None,
-) -> tuple[str, float]:
-    if payload is None:
-        return ("", 0.0)
-    raw_intent = payload.get("intent")
-    if not isinstance(raw_intent, str):
-        return ("", 0.0)
-    intent = re.sub(r"[^a-z0-9]+", "_", raw_intent.strip().casefold()).strip("_")
-    if intent not in _MODEL_NORMALIZED_INTENTS:
-        return ("", 0.0)
-    return (intent, _normalized_confidence(payload.get("confidence")))
-
-
-def _normalized_confidence(value: object) -> float:
-    if isinstance(value, (int, float)):
-        confidence = float(value)
-    elif isinstance(value, str):
-        try:
-            confidence = float(value.strip().rstrip("%"))
-        except ValueError:
-            return 0.0
-    else:
-        return 0.0
-    if confidence > 1.0:
-        confidence /= 100.0
-    return min(1.0, max(0.0, confidence))
-
-
 def _overview_heading_candidates(item: EvidenceChunk) -> tuple[str, ...]:
     candidates = (item.chunk.heading, *_overview_markdown_headings(item.content))
     return tuple(topic for candidate in candidates if (topic := _clean_overview_line(candidate)))
@@ -4708,7 +4605,6 @@ class TurnOrchestrator:
         self.last_reply = ""
         self.last_internal_passes = 1
         self._last_reply_citation_required = None
-
         input_decision = check_user_input(
             user_input,
             conversation=tuple(
@@ -5384,8 +5280,9 @@ class TurnOrchestrator:
         rag_timer = Timer()
         with rag_timer:
             resolved = self._resolve_turn_plan(plan)
-        if isinstance(resolved, ResolvedTurnPlan):
-            resolved = replace(resolved, retrieval_latency_ms=rag_timer.ms)
+        if not isinstance(resolved, ResolvedTurnPlan):
+            resolved = ResolvedTurnPlan(learning_plan=plan)
+        resolved = replace(resolved, retrieval_latency_ms=rag_timer.ms)
         session.last_turn_evidence = _stored_turn_evidence(resolved)
         if resolved.turn_evidence is not None:
             rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))

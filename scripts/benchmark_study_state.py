@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -33,11 +34,29 @@ from typing import NotRequired, TypedDict, cast
 from hephaion._types import is_string_mapping
 from hephaion.study import (
     LearningAction,
+    LearningPhase,
     LearningState,
     apply_turn_result,
     plan_turn,
 )
 from hephaion.study.schedule import RecallScheduleStore
+
+_READY_TURN_RE = re.compile(r"^\s*(?:ready|start|go)\s*[.!?]?\s*$", re.IGNORECASE)
+_PRESENTATION_REQUEST_RE = re.compile(
+    r"^\s*(?:define|explain|present|show|summarize|teach|walk\s+through)\b",
+    re.IGNORECASE,
+)
+_DRILL_REQUEST_RE = re.compile(r"\b(?:drill|quiz|practice|test)\b", re.IGNORECASE)
+_HINT_REQUEST_RE = re.compile(r"\b(?:hint|clue|help)\b", re.IGNORECASE)
+_MATERIAL_OVERVIEW_RE = re.compile(
+    r"\b(?:material|materials|source|sources)\b.*\b(?:about|cover|overview|summar)",
+    re.IGNORECASE,
+)
+_RECALL_CLARIFICATION_RE = re.compile(
+    r"^\s*(?:how|what|where|which|who|why)\b(?:\s+\S+){0,5}\s*[?]?\s*$",
+    re.IGNORECASE,
+)
+_SHORT_CHAT_RE = re.compile(r"^\s*[A-Za-zÀ-ÖØ-öø-ÿ]{2,12}\s*[.!?]?\s*$")
 
 
 class RawLearningTurn(TypedDict):
@@ -405,7 +424,7 @@ def _run_case(case: LearningStateCase, *, armory_path: Path) -> LearningStateCas
 
     for idx, turn in enumerate(case.turns, start=1):
         now += timedelta(seconds=turn.advance_seconds)
-        plan = plan_turn(state, turn.user)
+        plan = plan_turn(state, turn.user, intent=_benchmark_turn_intent(state, turn))
         next_state, _cleaned = apply_turn_result(
             state,
             plan,
@@ -506,6 +525,31 @@ def _run_case(case: LearningStateCase, *, armory_path: Path) -> LearningStateCas
         failures=tuple(failures),
         turns=tuple(turn_results),
     )
+
+
+def _benchmark_turn_intent(state: LearningState, turn: LearningTurnCase) -> str:
+    text = turn.user.strip()
+    if state.phase is LearningPhase.WAITING_FOR_READY:
+        if _READY_TURN_RE.fullmatch(text):
+            return "ready_for_recall"
+        return ""
+    if state.phase is LearningPhase.RECALL:
+        if _HINT_REQUEST_RE.search(text):
+            return "hint_request"
+        if _RECALL_CLARIFICATION_RE.match(text):
+            return "recall_clarification"
+        return ""
+    if _MATERIAL_OVERVIEW_RE.search(text):
+        return "material_overview"
+    if _DRILL_REQUEST_RE.search(text):
+        return "topic_drill"
+    if _READY_TURN_RE.fullmatch(text):
+        return "ready_for_recall"
+    if turn.source_refs or _PRESENTATION_REQUEST_RE.match(text):
+        return "topic_presentation"
+    if _SHORT_CHAT_RE.fullmatch(text):
+        return "chat"
+    return ""
 
 
 def _turn_failures(

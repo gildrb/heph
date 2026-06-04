@@ -11,7 +11,7 @@ from hephaion.chat.turn_contract import (
     TurnContract,
 )
 from hephaion.rag.context import TurnEvidence
-from hephaion.study.controller import LearningTurnPlan
+from hephaion.study.prompt_plans import LearningTurnPlan
 from hephaion.study.state import LearningAction
 
 

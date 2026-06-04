@@ -48,9 +48,12 @@
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming review reminders and due cards |
+| /memory | Show local armory memory status |
+| /recommend | List recommended model picks |
 | /models | Pick the active model |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
+| /stats | Alias for /status with session and armory statistics |
 | /turn | Branch from an earlier completed turn |
 | /index | Refresh the current armory materials index |
 | /vocabulary | Practice vocabulary translations from your materials |

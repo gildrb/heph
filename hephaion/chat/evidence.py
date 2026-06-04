@@ -61,11 +61,11 @@ _PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
 _DUPLICATE_LOW_CONTENT_MAX_CHARS = 240
 _DUPLICATE_LOW_CONTENT_MIN_SOURCES = 2
-_OVERVIEW_CHUNK_LIMIT = 10
+_OVERVIEW_CHUNK_LIMIT = _OVERVIEW_PRIMARY_SOURCE_LIMIT = 32
+_OVERVIEW_CITABLE_CHUNK_LIMIT = 10
 _OVERVIEW_CHUNKS_PER_DOCUMENT = 1
 _OVERVIEW_EXCERPT_CHAR_LIMIT = 260
 _OVERVIEW_CONTEXT_TOKEN_BUDGET = 2500
-_OVERVIEW_PRIMARY_SOURCE_LIMIT = 10
 _OVERVIEW_DOCUMENT_SCAN_LIMIT = 12
 _OVERVIEW_SUBSTANTIVE_MIN_SCORE = 16
 _CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
@@ -969,10 +969,10 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         if not scored:
             return None
         evidence = build_turn_evidence(
-            scored,
+            scored[:_OVERVIEW_CITABLE_CHUNK_LIMIT],
             max_tokens=max(adaptive_rag_budget(session), _OVERVIEW_CONTEXT_TOKEN_BUDGET),
         )
-        sampled_sources = {item.source for item in evidence.items}
+        sampled_sources = {item.chunk.source for item in scored}
         return TurnEvidence(
             items=evidence.items,
             sampled_source_count=len(sampled_sources),

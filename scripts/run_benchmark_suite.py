@@ -17,7 +17,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaion.chat import orchestrator as chat_orchestrator
+from hephaion.chat.intent import (
+    LEARNING_INTENT_NORMALIZATION_SCHEMA,
+    LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT,
+    normalized_learning_intent_from_payload,
+)
 from scripts import (
     benchmark_academic_items,
     benchmark_answers,
@@ -101,10 +105,10 @@ DEFAULT_REQUIRED_LEARNING_INTENT_LABELS = (
     "chat",
 )
 DEFAULT_REQUIRED_LEARNING_INTENT_PROMPT_PHRASES = (
-    "Classify the user's intent",
+    "Resolve routing hints",
     "Heph",
-    "any language",
-    "Return JSON only",
+    "Keep the current user request primary",
+    "Return compact JSON only",
 )
 DEFAULT_FORBIDDEN_LEARNING_INTENT_LANGUAGE_EXAMPLES = (
     "deutsch",
@@ -130,7 +134,7 @@ def _learning_state_dataset_path(suite_path: Path) -> Path:
 
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
     "hephaion/chat/orchestrator.py",
-    "hephaion/study/controller.py",
+    "hephaion/study/prompt_plans.py",
     "hephaion/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
@@ -453,8 +457,8 @@ def learning_intent_contract_report(
 ) -> LearningIntentContractReport:
     """Verify the learning intent classifier stays English-first and language-generic."""
     if schema is None or prompt is None:
-        schema = chat_orchestrator._LEARNING_INTENT_NORMALIZATION_SCHEMA
-        prompt = chat_orchestrator._LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
+        schema = LEARNING_INTENT_NORMALIZATION_SCHEMA
+        prompt = LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
 
     combined = f"{prompt}\n{schema}"
     combined_normalized = _normalized_contract_text(combined)
@@ -478,7 +482,7 @@ def learning_intent_contract_report(
     failures.extend(_language_generic_prompt_failures(language_generic_prompt_paths))
     parsed_intents: list[str] = []
     for intent in DEFAULT_REQUIRED_LEARNING_INTENT_LABELS:
-        parsed = chat_orchestrator._normalized_learning_intent_from_payload(
+        parsed = normalized_learning_intent_from_payload(
             {
                 "intent": intent.replace("_", " "),
                 "canonical_english_request": "source-grounded material request",

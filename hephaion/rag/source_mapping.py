@@ -5,6 +5,9 @@ from pathlib import Path
 
 from hephaion.rag.chunker import Chunk
 
+_PRESENTATION_SUFFIXES = {".ppt", ".pptx"}
+_PRESENTATION_SOURCE_TOKENS = {"deck", "decks", "folien", "presentation", "slide", "slides"}
+
 
 class SourceMappingError(Exception):
     pass
@@ -69,9 +72,21 @@ def evidence_location_label(source: str, chunk: Chunk, span: SourceLineSpan | No
         return line_label(span)
 
     ordinal = chunk.index + 1
-    if Path(source).suffix.lower() in {".ppt", ".pptx"}:
+    if _is_presentation_like_source(source):
         return f"slide/deck excerpt {ordinal}"
     return f"source excerpt {ordinal}"
+
+
+def _is_presentation_like_source(source: str) -> bool:
+    path = Path(source)
+    if path.suffix.lower() in _PRESENTATION_SUFFIXES:
+        return True
+
+    tokens: set[str] = set()
+    for part in path.parts:
+        normalized = Path(part).stem.lower().replace("_", "-").replace(" ", "-")
+        tokens.update(token for token in normalized.split("-") if token)
+    return not tokens.isdisjoint(_PRESENTATION_SOURCE_TOKENS)
 
 
 def source_excerpt(

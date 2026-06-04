@@ -18,8 +18,8 @@ from hephaion.study.state import LearningAction, LearningFeedbackType
 if TYPE_CHECKING:
     from hephaion.chat.evidence import ResolvedTurnPlan
     from hephaion.chat.session import ChatSession
-    from hephaion.study.controller import LearningTurnPlan
     from hephaion.study.policy import LearningMoveKind
+    from hephaion.study.prompt_plans import LearningTurnPlan
     from hephaion.study.schedule import RecallItemState, RecallScheduleStore
     from hephaion.study.state import LearningState
 

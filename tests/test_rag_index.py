@@ -479,14 +479,15 @@ class TestEvidenceCommand:
         commands.EvidenceCommand().handle(session, "")
 
         out = capsys.readouterr().out
-        assert "Last turn evidence: 1 excerpt(s) from 1 source(s)" in out
-        assert "Details: /evidence E1" in out
-        assert "E1  @python.md" in out
+        assert "Last turn sources:" in out
+        assert "materials/python.md" in out
+        assert "E1  lines 2-3; score=0.910" in out
+        assert "expand: /evidence E1" in out
+        assert "open:   /evidence E1 open" in out
         assert "line" in out
-        assert "score" not in out
         assert content not in out
 
-    def test_detail_shows_source_text_without_relevance_score(
+    def test_detail_shows_source_text_with_relevance_score(
         self,
         armory: Path,
         capsys: pytest.CaptureFixture[str],
@@ -514,7 +515,7 @@ class TestEvidenceCommand:
         out = capsys.readouterr().out
         assert "Source text:" in out
         assert content in out
-        assert "score" not in out
+        assert "score=0.910" in out
 
 
 class TestRemovedUsageCommand:
@@ -550,12 +551,12 @@ class TestRemovedUsageCommand:
 
 
 class TestCompactCommandStatus:
-    def test_memory_command_is_not_registered(self) -> None:
+    def test_memory_command_is_registered(self) -> None:
         registry = commands.get_registry()
 
-        assert registry.find("memory") is None
-        assert not any(suggestion.name == "memory" for suggestion in registry.suggestions())
-        assert not hasattr(commands, "MemoryCommand")
+        assert registry.find("memory") is not None
+        assert any(suggestion.name == "memory" for suggestion in registry.suggestions())
+        assert hasattr(commands, "MemoryCommand")
 
     def test_settings_fallback_is_single_plain_line(
         self,
@@ -570,7 +571,7 @@ class TestCompactCommandStatus:
         assert out.count("\n") == 1
         assert out.startswith("Settings are managed in the TUI with /settings.")
         assert "Theme:" in out
-        assert "activity trace:" in out
+        assert "Activity trace:" in out
         assert "info:" not in out
 
     def test_models_no_match_is_single_plain_line(

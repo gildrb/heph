@@ -30,10 +30,10 @@ class LoginCommand(Command):
         options = [
             MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
             MenuOption("OpenAI API key", "Use OpenAI API billing and models"),
-            MenuOption("DeepSeek API key", "Use DeepSeek's official API and reasoning controls"),
             MenuOption("OpenRouter API key", "Unlock OpenRouter models"),
             MenuOption("Z.AI API key", "Unlock GLM models"),
             MenuOption("Custom endpoint", "OpenAI-compatible base URL, model, and API key"),
+            MenuOption("DeepSeek API key", "Use DeepSeek's official API and reasoning controls"),
         ]
 
         selected = select_option("Login to provider", options)
@@ -41,10 +41,12 @@ class LoginCommand(Command):
             return CommandResult()
         if selected == 0:
             return self._login_openai_codex(session)
-        api_key_providers = ("openai", "deepseek", "openrouter", "zai")
+        api_key_providers = ("openai", "openrouter", "zai")
         if 1 <= selected <= len(api_key_providers):
             return self._login_api_key(session, api_key_providers[selected - 1])
-        return self._login_custom_endpoint(session)
+        if selected == 4:
+            return self._login_custom_endpoint(session)
+        return self._login_api_key(session, "deepseek")
 
     @staticmethod
     def _login_openai_codex(session: object) -> CommandResult:

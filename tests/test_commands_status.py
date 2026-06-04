@@ -11,14 +11,14 @@ from hephaion.materials.importing import import_material_files
 from hephaion.runtime import ChatConfig, Conversation
 
 
-def test_registry_exposes_status_without_stats() -> None:
+def test_registry_exposes_status_and_stats() -> None:
     registry = commands.get_registry()
     names = {suggestion.name for suggestion in registry.suggestions()}
 
     assert registry.find("status") is not None
     assert "status" in names
-    assert registry.find("stats") is None
-    assert "stats" not in names
+    assert registry.find("stats") is not None
+    assert "stats" in names
 
 
 def test_status_includes_session_usage_and_armory_stats(tmp_path: Path) -> None:

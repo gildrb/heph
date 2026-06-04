@@ -62,7 +62,7 @@ def request_profile_for_config(config: ProviderProfileConfig) -> ProviderRequest
         return _GENERIC_OPENAI_COMPATIBLE_PROFILE
     if model.startswith("deepseek-") and "deepseek.com" in endpoint:
         return _DEEPSEEK_PROFILE
-    if slug in {"pollinations", "custom"}:
+    if slug == "pollinations":
         return _NO_REASONING_PROFILE
     return _GENERIC_OPENAI_COMPATIBLE_PROFILE
 

@@ -64,7 +64,7 @@ DYNAMIC_IMPORT_MODULE_TARGET_CALLS: Final[frozenset[str]] = frozenset(
     }
 )
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
-    "hephaion/agent/tools.py": frozenset(
+    "hephaion/agent/tool_registry.py": frozenset(
         {
             "importlib.util.module_from_spec",
             "importlib.util.spec_from_file_location",
@@ -135,6 +135,12 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     "hephaion/tui/__init__.py": frozenset(
         {
             "hephaion.chat.cli",
+            "hephaion.commands",
+            "hephaion.terminal.input",
+        }
+    ),
+    "hephaion/tui/external_commands.py": frozenset(
+        {
             "hephaion.commands",
             "hephaion.terminal.input",
         }
@@ -343,6 +349,8 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 
 
 def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
+    if alias.name == "hephaion.chat.orchestrator" and alias.asname is not None:
+        return alias.asname, alias.name
     if alias.name == "importlib":
         return alias.asname or "importlib", "importlib"
     if not alias.name.startswith("importlib."):
@@ -432,6 +440,39 @@ class PolicyVisitor(ast.NodeVisitor):
     def _is_product_runtime_file(self) -> bool:
         return self.rel_path.startswith("hephaion/")
 
+    def _is_product_script_file(self) -> bool:
+        return self.rel_path.startswith("scripts/")
+
+    def _check_private_orchestrator_import(self, node: ast.AST, module: str | None) -> None:
+        if not self._is_product_script_file() or module != "hephaion.chat.orchestrator":
+            return
+        if not isinstance(node, ast.ImportFrom):
+            return
+        for alias in node.names:
+            if alias.name.startswith("_"):
+                self._add(
+                    node,
+                    (
+                        "product scripts must not import private names from "
+                        "`hephaion.chat.orchestrator`; use stable chat modules"
+                    ),
+                )
+
+    def _check_private_orchestrator_attribute(self, node: ast.AST, dotted: str | None) -> None:
+        if not self._is_product_script_file() or dotted is None:
+            return
+        resolved = self._resolve_import_alias(dotted)
+        if resolved is None:
+            return
+        if resolved.startswith("hephaion.chat.orchestrator._"):
+            self._add(
+                node,
+                (
+                    "product scripts must not access private names from "
+                    "`hephaion.chat.orchestrator`; use stable chat modules"
+                ),
+            )
+
     def _check_runtime_benchmark_import(self, node: ast.AST, module: str) -> None:
         if not self._is_product_runtime_file():
             return
@@ -497,6 +538,8 @@ class PolicyVisitor(ast.NodeVisitor):
                 if binding is not None:
                     local_name, canonical_name = binding
                     self._import_aliases[local_name] = canonical_name
+                if node.module == "hephaion.chat" and alias.name == "orchestrator":
+                    self._import_aliases[alias.asname or alias.name] = "hephaion.chat.orchestrator"
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
             [module]
         ):
@@ -507,6 +550,7 @@ class PolicyVisitor(ast.NodeVisitor):
             for alias in node.names:
                 if alias.name == "Any":
                     self._add(node, "explicit Any is forbidden")
+        self._check_private_orchestrator_import(node, node.module)
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -518,6 +562,7 @@ class PolicyVisitor(ast.NodeVisitor):
         dotted = _dotted_name(node)
         if dotted in {"typing.Any", "typing_extensions.Any"}:
             self._add(node, "explicit Any is forbidden")
+        self._check_private_orchestrator_attribute(node, dotted)
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:

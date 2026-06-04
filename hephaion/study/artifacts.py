@@ -98,6 +98,14 @@ class LearningArtifactValidationReport:
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9][A-Za-zÀ-ÖØ-öø-ÿ0-9_-]{2,}")
 _WHITESPACE_RE = re.compile(r"\s+")
 _CLOZE_RE = re.compile(r"\{\{c\d+::(?P<text>[^}]+)\}\}", re.IGNORECASE)
+_BROAD_SCOPE_RE = re.compile(
+    r"\b(?:all|entire|whole)\s+(?:class|course|document|lecture|module|textbook|unit)\b",
+    re.IGNORECASE,
+)
+_VAGUE_PROMPT_RE = re.compile(
+    r"^\s*(?:describe|explain|summarize)\s+(?:it|that|this)\s*[.?]?\s*$",
+    re.IGNORECASE,
+)
 _INVALID_DIFFICULTY_MESSAGE = "difficulty must be a LearningArtifactDifficulty"
 _MAX_ARTIFACT_REVIEW_INTERVAL_DAYS = 365
 type _ArtifactRule = tuple[str, str, Callable[[LearningArtifact], bool]]
@@ -410,7 +418,7 @@ def _text_shape_issues(
 
 
 def _is_overly_broad_text(text: str) -> bool:
-    return len(_TOKEN_RE.findall(text)) > 180
+    return len(_TOKEN_RE.findall(text)) > 180 or bool(_BROAD_SCOPE_RE.search(text))
 
 
 def _source_span_issues(
@@ -656,7 +664,7 @@ def _is_vague(text: str) -> bool:
     if not normalized:
         return False
     tokens = _significant_tokens(text)
-    return len(tokens) <= 1
+    return len(tokens) <= 1 or bool(_VAGUE_PROMPT_RE.match(text))
 
 
 def _clean(text: str) -> str:

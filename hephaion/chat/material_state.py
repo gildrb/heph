@@ -16,7 +16,7 @@ from hephaion.chat.turn_predicates import (
     _visible_turn_evidence,
 )
 from hephaion.rag.context import TurnEvidence
-from hephaion.study.controller import LearningTurnPlan
+from hephaion.study.prompt_plans import LearningTurnPlan
 from hephaion.study.state import LearningAction
 
 if TYPE_CHECKING:

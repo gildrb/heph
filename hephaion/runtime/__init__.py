@@ -6,14 +6,10 @@ from hephaion.runtime._api_types import (
     ToolCallDelta,
     UsagePayload,
 )
+from hephaion.runtime.config import ChatConfig
+from hephaion.runtime.conversation import Conversation, Message, to_chat_completion_messages
+from hephaion.runtime.delta import CompletionDelta
 from hephaion.runtime.engine import (
-    ChatConfig,
-    CompletionDelta,
-    Conversation,
-    EngineError,
-    Message,
-    RetryConfig,
-    StreamRecoveryError,
     build_client,
     has_configured_access,
     is_keyless_endpoint,
@@ -21,8 +17,8 @@ from hephaion.runtime.engine import (
     reset_provider_circuit_breaker,
     stream_completion,
     stream_reply,
-    to_chat_completion_messages,
 )
+from hephaion.runtime.errors import EngineError, RetryConfig, StreamRecoveryError
 from hephaion.runtime.messages import api_content_text, message_content_text
 from hephaion.runtime.resilience import (
     CircuitBreaker,

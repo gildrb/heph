@@ -89,23 +89,57 @@ request primitives live in **runtime** so chat, agent, memory, parameters, and
 providers do not import each other just to share message types or streaming
 helpers.
 
+## Core harness flow
+
+The correctness-critical chat harness follows a narrow reusable flow:
+
+```mermaid
+graph LR
+    Intent["intent classification"] --> Planning["turn planning"]
+    Planning --> Evidence["evidence resolution"]
+    Evidence --> Generation["generation / repair"]
+    Generation --> Finalization["verification / finalization"]
+```
+
+- `chat.intent` owns the classifier schema, prompt contract, and payload parser.
+- `chat.orchestrator` keeps `TurnOrchestrator`, `iter_chat_events`, and
+  `send_user_message` as public composition surfaces; behavior-specific helpers
+  should move into focused chat modules instead of growing the orchestrator.
+- `chat.evidence` owns retrieval resolution and assessment. Planning may request
+  current, prior, or overview evidence, but it should not perform adapter work.
+- Generation and repair must remain grounded in `TurnEvidence`, citation
+  verification, and structural reply checks before turn finalization records the
+  result, usage, memory scheduling, and learning state changes.
+
+Adapters follow the same split as the Codex Rust layout: core services stay
+reusable, while TUI/CLI/command surfaces compose them. TUI frame behavior such
+as resize handling and terminal protocol support lives in `tui.resize`;
+external slash-command and managed-resend execution lives in
+`tui.external_commands`; generic inline-menu rendering/filtering lives in
+`tui.inline_menu`; model picker label parsing lives in `tui.model_flow`.
+Study prompt construction and turn-plan contracts live in `study.prompt_plans`,
+while `study.controller` keeps learning routing and state transitions.
+Priority report data contracts live in `study.priority_types`; priority
+analysis, ranking, model execution, and rendering remain in `study.priority`.
+Plugin registry and dynamic armory tool loading lives in `agent.tool_registry`.
+
 ## Package layout
 
 ```
 hephaion/
   cli/          Command and automation dispatcher; launches the TUI by default
   commands/     Slash-command handlers for TUI and automation adapters
-  tui/          Textual interactive adapter: widgets, key handling, rendering
+  tui/          Textual adapter: lifecycle, widgets, inline menus, rendering
   terminal/     Terminal I/O, styling, prompts, history, command dispatch
   matching/     Fuzzy matching helpers for human-facing selectors
-  chat/         Session lifecycle, storage, turn orchestration — no adapter imports
-  runtime/      Shared LLM messages, config, client streaming, retry helpers
-  agent/        Prompt building, citation, tools — no adapter imports
+  chat/         Session lifecycle, intent contracts, evidence, turn orchestration — no adapter imports
+  runtime/      Shared LLM config, messages, errors, deltas, client streaming, retry helpers
+  agent/        Prompt building, citation, tool registry/handlers — no adapter imports
   providers/    LLM provider registry, config, auth — no adapter imports
   rag/          RAG chunking, indexing, retrieval — no adapter imports
   materials/    Study-file discovery, ignore rules, and material role classification
   armory/       Armory data and commands — no adapter imports
-  study/        Study controller — no adapter imports
+  study/        Prompt plans, learning controller, priority analysis — no adapter imports
   memory/       Memory extraction and storage — no adapter imports
   parameters/   Parameter management CLI — no adapter imports
   privacy/      Consent, anonymous install ID, release-time diagnostics config

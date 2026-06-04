@@ -263,6 +263,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         "Open Heph, the agent inside the Hephaion harness.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
+        f"  {parser.prog} gdp                     Open the known armory named gdp",
         f"  {parser.prog} course-notes            Open the known armory named course-notes",
         f"  {parser.prog} ./course-notes          Open an armory by path",
         f"  {parser.prog} armory course-notes    Create ~/.armories/course-notes",
@@ -362,10 +363,8 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    pathlib = importlib.import_module("pathlib")
-    prog = pathlib.Path(sys.argv[0]).name or "hephaion"
     parser = HephArgumentParser(
-        prog=prog,
+        prog="heph",
         description="TUI-first document CLI.",
         compact_help=True,
     )

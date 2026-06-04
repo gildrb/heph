@@ -10,12 +10,84 @@ from pathlib import PurePosixPath
 from typing import Protocol, cast
 
 _HEADING_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]\s+)(?P<text>.+?)\s*$")
+_LECTURE_HEADING_RE = re.compile(
+    r"^(?:lecture|vorlesung|session|unit)\s+(?P<number>\d+(?:[.-]\d+)*)\s*"
+    r"[-:\u2013\u2014]?\s*"
+    r"(?P<body>.+)$",
+    re.IGNORECASE,
+)
+_LABELED_DEFINITION_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:definition|def[.]?)\s*[:.)-]\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_IS_DEFINITION_RE = re.compile(
+    r"^\s*(?P<term>[A-ZÀ-ÖØ-Þa-zà-öø-ÿ][^.\n:]{2,80}?)\s+"
+    r"(?:are|concerns|denotes|describes|is|means|models|refers\s+to|represents|studies)"
+    r"\s+(?P<body>[^.\n]{8,260})(?:[.]|$)",
+    re.IGNORECASE,
+)
 _COLON_FACT_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?P<term>[A-ZÀ-ÖØ-Þa-zà-öø-ÿ][^:\n]{2,80}):\s*"
     r"(?P<body>[^.\n]{8,260})(?:[.]|$)"
 )
+_CUE_LABEL_RE = re.compile(
+    r"^(?:(?:answer|common\s+misconception|definition|example|figure|fig[.]?|learning\s+"
+    r"objective|lo|mark(?:ing)?\s+scheme|question|problem|q|rubric|solution|table|"
+    r"tbl[.]?)\b|\([a-z]\))",
+    re.IGNORECASE,
+)
+_QUESTION_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:question|problem|exercise|task|q)\s*"
+    r"(?:\d+(?:\.\d+)*|\([a-z]\))?(?:\s*\[[^\]]+\])?\s*[:.)-]\s*"
+    r"(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_ANSWER_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:answer|solution)\s*[:.)-]\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_RUBRIC_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:rubric|mark(?:ing)?\s+scheme|grading)\s*[:.)-]\s*"
+    r"(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_EXAM_SUBPART_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?\([a-z]\)\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_EXAMPLE_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?example\s*[:.)-]\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_FIGURE_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:figure|fig[.]?)\s*(?:\d+(?:\.\d+)*)?\s*[:.)-]\s*"
+    r"(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_TABLE_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:table|tbl[.]?)\s*(?:\d+(?:\.\d+)*)?\s*[:.)-]\s*"
+    r"(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_MISCONCEPTION_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?common\s+misconception\s*[:.)-]\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
+_LEARNING_OBJECTIVE_LINE_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:learning\s+objective|lo)\s*[:.)-]\s*(?P<body>.+?)\s*[.]?\s*$",
+    re.IGNORECASE,
+)
 _FORMULA_RE = re.compile(
     r"(?P<symbolic>[A-Za-z][A-Za-z0-9_]*\s*(?:=|≈|≃|<=|>=|≤|≥|->|→)\s*[^.\n]{2,160})"
+)
+_ACTIVE_RECALL_START_RE = re.compile(
+    r"^\s*(?:cloze\s+deletion|compare\s+and\s+contrast|correct|define|explain|fill|in\s+one"
+    r"\s+or\s+two\s+sentences|multiple\s+choice|past[- ]exam\s+style|state|what|why)\b",
+    re.IGNORECASE,
+)
+_COMPOUND_PROMPT_RE = re.compile(
+    r"\b(?:and|then)\s+(?:apply|compare|define|describe|evaluate|explain|justify|state|why)\b",
+    re.IGNORECASE,
 )
 _WHITESPACE_RE = re.compile(r"\s+")
 _CONTACT_OR_URL_RE = re.compile(r"(?:https?://|www\.|\S+@\S+)", re.IGNORECASE)
@@ -27,6 +99,24 @@ _SOURCE_LABEL_METADATA_RE = re.compile(
     r"(?:https?://|www\.|\S+@\S+)|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
     re.IGNORECASE,
 )
+_METADATA_CONCEPT_TOKENS = {
+    "date",
+    "deadline",
+    "email",
+    "file",
+    "instructor",
+    "lecturer",
+    "materials",
+    "office",
+    "page",
+    "professor",
+    "room",
+    "schedule",
+    "semester",
+    "slide",
+    "slides",
+    "source",
+}
 
 
 class KnowledgeChunk(Protocol):
@@ -50,7 +140,17 @@ class AcademicItemKind(StrEnum):
     EXAM_SKILL = "exam_skill"
 
 
-_PARAGRAPH_ITEM_PATTERNS: tuple[tuple[re.Pattern[str], AcademicItemKind], ...] = ()
+_PARAGRAPH_ITEM_PATTERNS: tuple[tuple[re.Pattern[str], AcademicItemKind], ...] = (
+    (_QUESTION_LINE_RE, AcademicItemKind.EXAM_QUESTION),
+    (_ANSWER_LINE_RE, AcademicItemKind.ANSWER),
+    (_RUBRIC_LINE_RE, AcademicItemKind.EXAM_SKILL),
+    (_EXAM_SUBPART_LINE_RE, AcademicItemKind.EXAM_SKILL),
+    (_EXAMPLE_LINE_RE, AcademicItemKind.EXAMPLE),
+    (_FIGURE_LINE_RE, AcademicItemKind.FIGURE),
+    (_TABLE_LINE_RE, AcademicItemKind.TABLE),
+    (_MISCONCEPTION_LINE_RE, AcademicItemKind.COMMON_MISCONCEPTION),
+    (_LEARNING_OBJECTIVE_LINE_RE, AcademicItemKind.LEARNING_OBJECTIVE),
+)
 _NODE_ITEM_FIELDS = {
     AcademicItemKind.DEFINITION: "definitions",
     AcademicItemKind.FORMULA: "formulas",
@@ -193,14 +293,20 @@ def grounded_question_quality_issues(question: GroundedQuestion) -> tuple[str, .
 
 def _looks_like_single_question(text: str) -> bool:
     stripped = text.strip()
-    return bool(stripped and stripped.endswith("?") and stripped.count("?") == 1)
+    return bool(
+        stripped
+        and (
+            (stripped.endswith("?") and stripped.count("?") == 1)
+            or _ACTIVE_RECALL_START_RE.match(stripped)
+        )
+    )
 
 
 def _looks_like_compound_question(text: str) -> bool:
     stripped = text.strip()
     if "\n" in stripped:
         return True
-    return stripped.count(";") > 1 or stripped.count(":") > 1
+    return stripped.count(";") > 1 or bool(_COMPOUND_PROMPT_RE.search(stripped))
 
 
 def _contains_internal_source_marker(text: str) -> bool:
@@ -208,15 +314,24 @@ def _contains_internal_source_marker(text: str) -> bool:
 
 
 def _concept_looks_like_metadata(text: str) -> bool:
-    return bool(_CONTACT_OR_URL_RE.search(text) or _DATE_ONLY_RE.fullmatch(text.strip()))
+    cleaned = _clean(text)
+    if not cleaned:
+        return True
+    tokens = {token.casefold() for token in re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ]+", cleaned)}
+    return bool(
+        _CONTACT_OR_URL_RE.search(cleaned)
+        or _DATE_ONLY_RE.fullmatch(cleaned)
+        or not tokens.isdisjoint(_METADATA_CONCEPT_TOKENS)
+    )
 
 
 def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[AcademicItem]:
     items = _heading_items(text, source_ref, source_label)
+    active_concept = items[0].concept if items else ""
     for paragraph in _paragraphs(text):
-        items.extend(_definition_items(paragraph, source_ref, source_label))
+        items.extend(_definition_items(paragraph, source_ref, source_label, active_concept))
         items.extend(_formula_items(paragraph, source_ref, source_label))
-        items.extend(_pattern_items(paragraph, source_ref, source_label))
+        items.extend(_pattern_items(paragraph, source_ref, source_label, active_concept))
     return items
 
 
@@ -228,24 +343,58 @@ def _heading_items(text: str, source_ref: str, source_label: str) -> list[Academ
             continue
         heading = _heading(cleaned)
         if heading is not None:
+            concept = _concept_text_from_heading(heading)
             items.append(
                 AcademicItem(
                     kind=AcademicItemKind.CONCEPT,
-                    text=heading,
+                    text=concept,
                     source_ref=source_ref,
-                    concept=heading,
+                    concept=concept,
                     source_label=source_label,
                 )
             )
     return items
 
 
-def _definition_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+def _definition_items(
+    paragraph: str,
+    source_ref: str,
+    source_label: str,
+    active_concept: str,
+) -> list[AcademicItem]:
+    if labeled_match := _LABELED_DEFINITION_RE.match(paragraph):
+        return _definition_item(
+            active_concept,
+            labeled_match.group("body"),
+            source_ref,
+            source_label,
+        )
+    if sentence_match := _IS_DEFINITION_RE.match(paragraph):
+        return _definition_item(
+            sentence_match.group("term"),
+            sentence_match.group("body"),
+            source_ref,
+            source_label,
+        )
     definition_match = _COLON_FACT_RE.match(paragraph)
     if definition_match is None:
         return []
-    concept = _clean(definition_match.group("term")).rstrip(":")
-    body = _clean(definition_match.group("body"))
+    return _definition_item(
+        definition_match.group("term"),
+        definition_match.group("body"),
+        source_ref,
+        source_label,
+    )
+
+
+def _definition_item(
+    concept_text: str,
+    body_text: str,
+    source_ref: str,
+    source_label: str,
+) -> list[AcademicItem]:
+    concept = _concept_text_from_heading(_clean(concept_text).rstrip(":"))
+    body = _clean_item_body(body_text)
     if not _valid_definition(concept, body):
         return []
     return [
@@ -260,7 +409,13 @@ def _definition_items(paragraph: str, source_ref: str, source_label: str) -> lis
 
 
 def _valid_definition(concept: str, body: str) -> bool:
-    return bool(concept and body and "," not in concept and len(concept.split()) <= 8)
+    return bool(
+        concept
+        and body
+        and "," not in concept
+        and len(concept.split()) <= 8
+        and not _definition_label_is_cue(concept)
+    )
 
 
 def _formula_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
@@ -280,16 +435,22 @@ def _formula_items(paragraph: str, source_ref: str, source_label: str) -> list[A
     ]
 
 
-def _pattern_items(paragraph: str, source_ref: str, source_label: str) -> list[AcademicItem]:
+def _pattern_items(
+    paragraph: str,
+    source_ref: str,
+    source_label: str,
+    active_concept: str,
+) -> list[AcademicItem]:
     items: list[AcademicItem] = []
     for pattern, kind in _PARAGRAPH_ITEM_PATTERNS:
         match = pattern.search(paragraph)
-        if match is None or not (item_text := _clean(match.group("body"))):
+        if match is None or not (item_text := _clean_item_body(match.group("body"))):
             continue
         item = AcademicItem(
             kind=kind,
             text=item_text,
             source_ref=source_ref,
+            concept=active_concept,
             source_label=source_label,
         )
         items.append(item)
@@ -318,6 +479,13 @@ def _heading(line: str) -> str | None:
     return heading
 
 
+def _concept_text_from_heading(text: str) -> str:
+    cleaned = _clean(text)
+    if lecture_match := _LECTURE_HEADING_RE.match(cleaned):
+        return _clean(lecture_match.group("body"))
+    return cleaned
+
+
 def _source_label_for_chunk(chunk: KnowledgeChunk) -> str:
     heading = _clean(str(getattr(chunk, "heading", "")))
     if heading:
@@ -337,12 +505,18 @@ def _source_label_from_ref(source_ref: str) -> str:
 
 def _canonical_source_label_text(text: str) -> str:
     cleaned = _clean(text.replace("_", " "))
+    if lecture_match := _LECTURE_HEADING_RE.match(cleaned):
+        cleaned = f"{lecture_match.group('number')} {lecture_match.group('body')}"
     label = cleaned.replace("-", " ")
     return _clean(label) or cleaned
 
 
 def _clean(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip(" \t-:;")
+
+
+def _clean_item_body(text: str) -> str:
+    return _clean(text).rstrip(".").strip()
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -372,13 +546,15 @@ def _flush_paragraph(paragraphs: list[str], current: list[str]) -> list[str]:
 
 
 def _is_standalone_paragraph_line(raw_line: str, line: str) -> bool:
-    _ = line
-    return raw_line.lstrip().startswith(("- ", "* ", "+ "))
+    return raw_line.lstrip().startswith(("- ", "* ", "+ ")) or _starts_cued_item(line)
 
 
 def _starts_cued_item(line: str) -> bool:
-    _ = line
-    return False
+    return bool(_CUE_LABEL_RE.match(line))
+
+
+def _definition_label_is_cue(label: str) -> bool:
+    return bool(_CUE_LABEL_RE.match(label))
 
 
 def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedQuestion]:

@@ -84,6 +84,12 @@ def register(
         help_text="Manage materials in an armory.",
         index_handler=index_handler,
     )
+    _register_material_commands(
+        subparsers,
+        name="source",
+        help_text=argparse.SUPPRESS,
+        index_handler=index_handler,
+    )
 
 
 __all__ = [

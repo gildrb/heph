@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
@@ -17,10 +17,8 @@ from hephaion.chat.session import (
     resume_session,
     save_session,
 )
-from hephaion.chat.titles import sanitize_title_text
 from hephaion.chat.turn_history import TurnSnapshot
 from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.matching import ranked_matches
 from hephaion.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_LABELS,
@@ -57,14 +55,41 @@ from hephaion.terminal import current_palette, set_theme
 from hephaion.terminal.palette import TRANSPARENT
 from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
 from hephaion.tui.flow_state import InlineFlow
+from hephaion.tui.inline_menu import (
+    _consume_inline_key,
+    _dedupe_inline_options,
+    _filtered_inline_options,
+    _inline_menu_label_width,
+    _inline_menu_option_text,
+    _inline_menu_scrolled_label_width,
+    _inline_menu_visible_label_width,
+    _inline_option_index,
+    _prompt_width,
+    _selected_inline_label,
+    _session_menu_option_text,
+    _session_option_description,
+    _turn_option_description,
+)
+from hephaion.tui.model_flow import (
+    _duplicate_model_names,
+    _model_choice_from_label,
+    _model_choice_label,
+    _model_flow_option,
+)
 from hephaion.tui.render_state import DirtyRegion, TuiRenderCache
 from hephaion.tui.session_state import TuiRuntimeState
 from hephaion.tui.slash_completion import (
     changed_highlight_indices,
     completion_menu_scroll_y,
-    completion_menu_visible_slice,
 )
 from hephaion.tui.style import _tui_css
+
+__all__ = [
+    "TuiInlineFlowMixin",
+    "_inline_menu_option_text",
+    "_model_choice_from_label",
+    "_model_choice_label",
+]
 
 try:
     from rich.text import Text as _RichText
@@ -76,7 +101,6 @@ except ImportError:
     RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from rich.text import Text
     from textual import events
     from textual.widget import Widget
 
@@ -97,12 +121,6 @@ _SESSION_LATEST_COMMANDS = {"resume", "last", "latest"}
 _TURN_LIST_COMMANDS = {"list", "history"}
 _TURN_BROWSE_COMMANDS = {"", "browse", "menu"}
 _TURN_LATEST_COMMANDS = {"resume", "last", "latest"}
-_INLINE_MENU_DESCRIPTION_GAP = 4
-_SESSION_OPTION_SEPARATOR = "\t"
-_SESSION_TITLE_GAP = 2
-_SESSION_METADATA_GAP = 2
-_OPTION_HORIZONTAL_PADDING = 4
-_TURN_PREVIEW_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -356,177 +374,6 @@ class _InlineFlowHost(Protocol):
     def _close_inline_flow(self, notice: str = "") -> None: ...
 
 
-def _inline_menu_option_text(
-    label: str,
-    description: str,
-    *,
-    selected: bool,
-    label_width: int = 0,
-) -> str | Text:
-    label = _inline_menu_visible_text(label)
-    description = _inline_menu_visible_text(description)
-    padded_width = max(label_width, len(label))
-    if _RichText is None:
-        if description:
-            return f"{label:<{padded_width}}{' ' * _INLINE_MENU_DESCRIPTION_GAP}{description}"
-        return label
-    palette = current_palette()
-    label_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
-    description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
-    text = _RichText()
-    text.append(f"{label:<{padded_width}}" if description else label, style=label_style)
-    if description:
-        text.append(" " * _INLINE_MENU_DESCRIPTION_GAP, style=description_style)
-        text.append(description, style=description_style)
-    return text
-
-
-def _inline_menu_visible_text(value: str) -> str:
-    return sanitize_title_text(value, max_chars=max(1, len(value)))
-
-
-def _session_option_description(entry: chat_storage.SessionRecord) -> str:
-    title = _inline_menu_visible_text(entry["title"]) or "(untitled)"
-    metadata = _inline_menu_visible_text(entry["updated_at"])
-    return f"{title}{_SESSION_OPTION_SEPARATOR}{metadata}"
-
-
-def _split_session_option_description(description: str) -> tuple[str, str]:
-    title, separator, metadata = description.partition(_SESSION_OPTION_SEPARATOR)
-    if separator:
-        return _inline_menu_visible_text(title), _inline_menu_visible_text(metadata)
-    return _inline_menu_visible_text(description), ""
-
-
-def _truncate_with_ellipsis(value: str, width: int) -> str:
-    if width <= 0:
-        return ""
-    if len(value) <= width:
-        return value
-    if width <= 3:
-        return "." * width
-    return f"{value[: width - 3]}..."
-
-
-def _session_menu_option_parts(
-    label: str,
-    description: str,
-    *,
-    label_width: int,
-    prompt_width: int,
-) -> tuple[str, str, str, str, str]:
-    label = _inline_menu_visible_text(label)
-    title, metadata = _split_session_option_description(description)
-    padded_label_width = max(label_width, len(label))
-    if prompt_width <= padded_label_width:
-        return _truncate_with_ellipsis(label, prompt_width), "", "", "", ""
-
-    label_text = f"{label:<{padded_label_width}}"
-    remaining_width = prompt_width - len(label_text)
-    title_gap = " " * min(_SESSION_TITLE_GAP, remaining_width)
-    remaining_width -= len(title_gap)
-
-    metadata_gap_width = 0
-    if metadata and remaining_width > _SESSION_METADATA_GAP:
-        metadata_gap_width = _SESSION_METADATA_GAP
-        metadata_width = remaining_width - metadata_gap_width
-        metadata = _truncate_with_ellipsis(metadata, metadata_width)
-    else:
-        metadata = ""
-
-    metadata_width = len(metadata)
-    title_width = remaining_width - metadata_gap_width - metadata_width
-    title_text = _truncate_with_ellipsis(title, title_width)
-    metadata_gap = ""
-    if metadata:
-        used_width = len(label_text) + len(title_gap) + len(title_text) + metadata_width
-        metadata_gap = " " * max(_SESSION_METADATA_GAP, prompt_width - used_width)
-    return label_text, title_gap, title_text, metadata_gap, metadata
-
-
-def _session_menu_option_text(
-    label: str,
-    description: str,
-    *,
-    selected: bool,
-    label_width: int,
-    prompt_width: int,
-) -> str | Text:
-    parts = _session_menu_option_parts(
-        label,
-        description,
-        label_width=label_width,
-        prompt_width=prompt_width,
-    )
-    if _RichText is None:
-        return "".join(parts)
-    palette = current_palette()
-    label_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
-    title_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
-    metadata_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
-    text = _RichText()
-    label_text, title_gap, title_text, metadata_gap, metadata = parts
-    text.append(label_text, style=label_style)
-    text.append(title_gap, style=title_style)
-    text.append(title_text, style=title_style)
-    text.append(metadata_gap, style=metadata_style)
-    text.append(metadata, style=metadata_style)
-    return text
-
-
-def _inline_menu_label_width(options: list[tuple[str, str]]) -> int:
-    return max((_inline_menu_visible_width(label) for label, _description in options), default=0)
-
-
-def _inline_menu_visible_width(value: str) -> int:
-    return len(_inline_menu_visible_text(value))
-
-
-def _turn_option_description(snapshot: TurnSnapshot) -> str:
-    preview = " ".join(snapshot.user_input.split())
-    if len(preview) > _TURN_PREVIEW_LIMIT:
-        preview = f"{preview[: _TURN_PREVIEW_LIMIT - 3]}..."
-    evidence_count = len(snapshot.evidence.items) if snapshot.evidence is not None else 0
-    evidence_label = f"{evidence_count} evidence" if evidence_count else "no evidence"
-    return f"{preview}  {evidence_label}"
-
-
-def _inline_menu_visible_label_width(
-    options: list[tuple[str, str]],
-    *,
-    highlighted: int,
-    rendered_height: int,
-) -> int:
-    visible_options = options[
-        completion_menu_visible_slice(
-            highlighted,
-            len(options),
-            rendered_height,
-        )
-    ]
-    return _inline_menu_label_width(visible_options)
-
-
-def _inline_menu_scrolled_label_width(
-    options: list[tuple[str, str]],
-    *,
-    scroll_y: int,
-    rendered_height: int,
-) -> int:
-    if not options:
-        return 0
-    visible_count = len(
-        options[
-            completion_menu_visible_slice(
-                0,
-                len(options),
-                rendered_height,
-            )
-        ]
-    )
-    return _inline_menu_label_width(options[scroll_y : scroll_y + visible_count])
-
-
 def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
     return {
         "Privacy & Diagnostics": host._open_privacy_flow,
@@ -641,7 +488,7 @@ class TuiInlineFlowMixin:
             rendered_height = suggestions.size.height
             if self._inline_flow.name == "sessions":
                 label_width = _inline_menu_label_width(options)
-                prompt_width = max(1, suggestions.size.width - _OPTION_HORIZONTAL_PADDING)
+                prompt_width = _prompt_width(suggestions.size.width, self._transcript_render_width)
                 prompts = [
                     _session_menu_option_text(
                         label,
@@ -696,7 +543,7 @@ class TuiInlineFlowMixin:
         options = self._inline_flow.options
         if self._inline_flow.name == "sessions":
             label_width = _inline_menu_label_width(options)
-            prompt_width = max(1, suggestions.size.width - _OPTION_HORIZONTAL_PADDING)
+            prompt_width = _prompt_width(suggestions.size.width, self._transcript_render_width)
         else:
             label_width = _inline_menu_scrolled_label_width(
                 options,
@@ -1442,68 +1289,6 @@ class TuiInlineFlowMixin:
         self.set_focus(composer)
 
 
-def _filtered_inline_options(
-    options: list[tuple[str, str]],
-    query: str,
-) -> list[tuple[str, str]]:
-    cleaned = query.strip()
-    if not cleaned:
-        return list(options)
-
-    normalized = cleaned.casefold()
-    direct = [option for option in options if normalized in f"{option[0]} {option[1]}".casefold()]
-    fuzzy = ranked_matches(
-        cleaned,
-        options,
-        key=lambda option: f"{option[0]} {option[1]}",
-        limit=len(options),
-        min_score=45.0,
-    )
-    return _dedupe_inline_options([*direct, *(match.value for match in fuzzy)])
-
-
-def _dedupe_inline_options(options: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
-    return list(dict.fromkeys(options))
-
-
-def _consume_inline_key(event: events.Key) -> bool:
-    event.prevent_default()
-    event.stop()
-    return True
-
-
-def _inline_option_index(options: list[tuple[str, str]], label: str | None) -> int:
-    if label is None:
-        return 0
-    for index, (option_label, _description) in enumerate(options):
-        if option_label == label:
-            return index
-    return 0
-
-
-def _selected_inline_label(host: _InlineFlowHost, value: str) -> str:
-    if label := _typed_inline_label(host, value):
-        return label
-    selected = _highlighted_inline_option_index(host)
-    return host._inline_flow.options[selected][0]
-
-
-def _typed_inline_label(host: _InlineFlowHost, value: str) -> str:
-    cleaned = value.strip().casefold()
-    if not cleaned:
-        return ""
-    for candidate, _description in [*host._inline_flow.options, *host._inline_flow.all_options]:
-        if candidate.casefold() == cleaned:
-            return candidate
-    return ""
-
-
-def _highlighted_inline_option_index(host: _InlineFlowHost) -> int:
-    suggestions = host.query_one("#suggestions", OptionList)
-    selected = suggestions.highlighted if suggestions.highlighted is not None else 0
-    return min(selected, len(host._inline_flow.options) - 1)
-
-
 def _open_settings_submenu(
     host: _InlineFlowHost,
     *,
@@ -1528,18 +1313,6 @@ def _setting_value_from_label(labels_by_value: dict[str, str], label: str) -> st
         if value_label == label:
             return value
     return None
-
-
-def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    seen: set[tuple[str, str]] = set()
-    deduped: list[tuple[str, str]] = []
-    for label, description in options:
-        key = (label.strip().casefold(), description.strip().casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append((label, description))
-    return deduped
 
 
 def _oauth_logout_targets(pc: ProviderConfig) -> list[_LogoutTarget]:
@@ -1589,55 +1362,3 @@ def _clear_logout_target(target: _LogoutTarget) -> None:
         oauth.clear_credentials(target.slug)
     else:
         clear_key(target.slug)
-
-
-def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str]:
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for _slug, model, _display_name, _is_free in choices:
-        if model in seen:
-            duplicates.add(model)
-        seen.add(model)
-    return duplicates
-
-
-def _model_flow_option(
-    *,
-    model: str,
-    display_name: str,
-    is_free: bool,
-    is_duplicate: bool,
-    is_current: bool,
-) -> tuple[str, str]:
-    description_tags = ["free" if is_free else "", "current" if is_current else ""]
-    description = "  ".join(["via " + display_name, *(tag for tag in description_tags if tag)])
-    return _model_choice_label(model, display_name, duplicate=is_duplicate), description
-
-
-def _model_choice_label(model: str, display_name: str, *, duplicate: bool) -> str:
-    if not duplicate:
-        return model
-    return f"{model} [{display_name}]"
-
-
-def _model_choice_from_label(
-    label: str,
-    choices: list[tuple[str, str, str, bool]],
-) -> tuple[str, str, str, bool] | None:
-    model, provider = _parse_model_choice_label(label)
-    for choice in choices:
-        _slug, choice_model, display_name, _is_free = choice
-        if choice_model != model:
-            continue
-        if provider is not None and display_name != provider:
-            continue
-        return choice
-    return None
-
-
-def _parse_model_choice_label(label: str) -> tuple[str, str | None]:
-    model = label.strip()
-    if model.endswith("]") and " [" in model:
-        model, bracketed_provider = model.rsplit(" [", 1)
-        return model, bracketed_provider[:-1]
-    return model, None

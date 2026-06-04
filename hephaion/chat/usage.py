@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeGuard
 
 from hephaion._types import is_string_mapping
 from hephaion.logging import get_logger
+from hephaion.runtime import usage as _runtime_usage
+from hephaion.runtime._api_types import ApiMessage
 from hephaion.runtime.usage import (
     ContextBudget,
     SessionUsage,
     TokenUsage,
-    estimate_conversation_tokens,
-    estimate_message_tokens,
     get_context_window,
 )
 
@@ -21,6 +22,26 @@ _log = get_logger("chat.usage")
 
 
 _USAGE_DIR = "usage"
+_encoder = _runtime_usage._encoder
+_get_pricing = _runtime_usage._get_pricing
+
+
+def estimate_message_tokens(content: str) -> int:
+    previous_encoder = _runtime_usage._encoder
+    _runtime_usage._encoder = _encoder
+    try:
+        return _runtime_usage.estimate_message_tokens(content)
+    finally:
+        _runtime_usage._encoder = previous_encoder
+
+
+def estimate_conversation_tokens(messages: Sequence[ApiMessage]) -> int:
+    previous_encoder = _runtime_usage._encoder
+    _runtime_usage._encoder = _encoder
+    try:
+        return _runtime_usage.estimate_conversation_tokens(messages)
+    finally:
+        _runtime_usage._encoder = previous_encoder
 
 
 def save_usage(
@@ -112,6 +133,7 @@ __all__ = [
     "ContextBudget",
     "SessionUsage",
     "TokenUsage",
+    "_get_pricing",
     "estimate_conversation_tokens",
     "estimate_message_tokens",
     "get_context_window",

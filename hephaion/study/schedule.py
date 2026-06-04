@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,10 @@ _MAX_INTERVAL_DAYS = 365
 _DESIRED_RETENTION = 0.9
 _FAST_RECALL_SECONDS = 30
 _SLOW_RECALL_SECONDS = 120
+_TRANSFER_PROMPT_RE = re.compile(
+    r"\b(?:apply|transfer|use)\b|\bnew\s+(?:case|example|scenario|situation)\b",
+    re.IGNORECASE,
+)
 type _NextActionRule = tuple[Callable[[RecallRating, float, float | None, int | None], bool], str]
 
 
@@ -548,10 +553,9 @@ def _transfer_success(
     correct: bool,
     explicit: bool | None,
 ) -> bool:
-    _ = (item, correct)
     if explicit is not None:
         return explicit
-    return False
+    return correct and bool(_TRANSFER_PROMPT_RE.search(item))
 
 
 def _record_error_and_intervention(

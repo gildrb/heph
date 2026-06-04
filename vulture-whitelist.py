@@ -25,6 +25,8 @@ expect_type  # Protocol param (hephaion/tui mixins)
 callback  # Protocol param (hephaion/tui mixins)
 is_default_css  # Protocol param (hephaion/tui/inline_flows.py)
 animate  # Protocol param (hephaion/tui/inline_flows.py)
+repaint  # Protocol param (hephaion/tui/resize.py)
+layout  # Protocol param (hephaion/tui/resize.py)
 
 # fake_iter callback params for iter_chat_events mock -- vulture sees them as unused
 session  # unused variable (tests/test_coverage_boost.py)

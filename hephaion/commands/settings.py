@@ -41,9 +41,9 @@ class SettingsCommand(Command):
         crash_reports = "enabled" if crash_reports_enabled() else "disabled"
         print(
             "Settings are managed in the TUI with /settings. "
-            f"Theme: {settings.theme}; activity trace: {activity}; "
-            f"vocabulary practice: {vocab}; default armory: {default_armory}; "
-            f"usage analytics: {analytics}; crash reports: {crash_reports}; "
-            f"provider: {provider}."
+            f"Theme: {settings.theme}; Activity trace: {activity}; "
+            f"Vocabulary practice: {vocab}; Default armory: {default_armory}; "
+            f"Usage analytics: {analytics}; Crash reports: {crash_reports}; "
+            f"Provider: {provider}."
         )
         return CommandResult()

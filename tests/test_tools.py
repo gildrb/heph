@@ -99,7 +99,7 @@ class TestRunBash:
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "0"}, clear=False),
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello")
 
@@ -112,8 +112,8 @@ class TestRunBash:
         completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {}, clear=True),
-            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -130,8 +130,8 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_ULTRA": "1"},
                 clear=False,
             ),
-            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             run_bash("git status")
 
@@ -141,9 +141,9 @@ class TestRunBash:
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.tools.shutil.which", return_value=None),
-            patch("hephaion.agent.tools._log.warning") as warning,
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value=None),
+            patch("hephaion.agent.shell_tools._log.warning") as warning,
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -159,9 +159,9 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_FALLBACK_ALLOWED": "0"},
                 clear=False,
             ),
-            patch("hephaion.agent.tools.shutil.which", return_value=None),
-            patch("hephaion.agent.tools._log.warning") as warning,
-            patch("hephaion.agent.tools.subprocess.run") as run,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value=None),
+            patch("hephaion.agent.shell_tools._log.warning") as warning,
+            patch("hephaion.agent.shell_tools.subprocess.run") as run,
         ):
             result = run_bash("git status")
 
@@ -173,10 +173,10 @@ class TestRunBash:
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.tools._log.warning") as warning,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.shell_tools._log.warning") as warning,
             patch(
-                "hephaion.agent.tools.subprocess.run",
+                "hephaion.agent.shell_tools.subprocess.run",
                 side_effect=[OSError("missing"), completed],
             ) as run,
         ):
@@ -196,10 +196,10 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_FALLBACK_ALLOWED": "0"},
                 clear=False,
             ),
-            patch("hephaion.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.tools._log.warning") as warning,
+            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaion.agent.shell_tools._log.warning") as warning,
             patch(
-                "hephaion.agent.tools.subprocess.run",
+                "hephaion.agent.shell_tools.subprocess.run",
                 side_effect=OSError("missing"),
             ) as run,
         ):
@@ -217,8 +217,8 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_MIN_COMMAND_CHARS": "999"},
                 clear=False,
             ),
-            patch("hephaion.agent.tools.shutil.which") as which,
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.shutil.which") as which,
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("ls")
 
@@ -231,8 +231,8 @@ class TestRunBash:
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.tools.shutil.which") as which,
-            patch("hephaion.agent.tools.subprocess.run", return_value=completed) as run,
+            patch("hephaion.agent.shell_tools.shutil.which") as which,
+            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello >&2")
 

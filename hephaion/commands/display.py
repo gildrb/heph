@@ -8,7 +8,6 @@ from hephaion.commands._base import (
     CommandResult,
     ensure_session,
 )
-from hephaion.materials import material_display_name
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.source_mapping import (
     SourceLineSpan,
@@ -58,30 +57,41 @@ def _item_path_and_span(
 
 
 def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, ...]) -> str:
-    source_count = len({item.source for item in items})
-    lines = [
-        f"Last turn evidence: {len(items)} excerpt(s) from {source_count} source(s).",
-        "Details: /evidence E1    Open: /evidence E1 open",
+    lines = ["Last turn sources:"]
+    previous_source: str | None = None
+    for item in items:
+        if item.source != previous_source:
+            lines.append(f"  {item.source}")
+            previous_source = item.source
+        lines.extend(_format_evidence_overview_item(session, item))
+    lines += [
         "",
+        "Expand exact source text: /evidence E1",
+        "Open source at line:      /evidence E1 open",
     ]
-    lines.extend(_format_evidence_overview_item(session, item) for item in items)
     return "\n".join(lines)
 
 
-def _format_evidence_overview_item(session: ChatSession, item: EvidenceChunk) -> str:
+def _format_evidence_overview_item(session: ChatSession, item: EvidenceChunk) -> list[str]:
     _, span = _item_path_and_span(session, item)
     location = evidence_location_label(item.source, item.chunk, span)
-    source = material_display_name(item.source)
-    return f"  {item.evidence_id}  @{source}  {location}"
+    lines = [f"    {item.evidence_id}  {location}; score={item.score:.3f}"]
+    if item.chunk.heading:
+        lines.append(f"      heading: {item.chunk.heading}")
+    lines += [
+        f"      expand: /evidence {item.evidence_id}",
+        f"      open:   /evidence {item.evidence_id} open",
+    ]
+    return lines
 
 
 def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
     path, span = _item_path_and_span(session, item)
-    source = material_display_name(item.source) if path is None else str(path)
+    source = item.source if path is None else str(path)
     location = evidence_location_label(item.source, item.chunk, span)
     lines = [
         f"{item.evidence_id}  {source}",
-        location,
+        f"{location}; score={item.score:.3f}",
     ]
     if item.chunk.heading:
         lines.append(f"heading: {item.chunk.heading}")

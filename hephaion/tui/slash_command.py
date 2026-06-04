@@ -10,6 +10,7 @@ from hephaion.commands.suggestions import CommandSuggestion
 from hephaion.tui.slash_completion import SlashCompletionEngine
 
 _COMMAND_HELP_GAP = 4
+_HELP_HIDDEN_COMMANDS = {"recommend"}
 
 
 def tui_command_suggestions() -> list[CommandSuggestion]:
@@ -30,7 +31,11 @@ def slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
 
 
 def command_help() -> str:
-    suggestions = tui_command_suggestions()
+    suggestions = [
+        suggestion
+        for suggestion in tui_command_suggestions()
+        if suggestion.name not in _HELP_HIDDEN_COMMANDS
+    ]
     label_width = max((len(f"/{suggestion.name}") for suggestion in suggestions), default=0)
     gap = " " * _COMMAND_HELP_GAP
     lines = []

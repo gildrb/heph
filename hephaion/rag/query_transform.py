@@ -66,6 +66,14 @@ class IdentityTransformer:
 
 
 _WORD_RE = re.compile(r"[a-zA-Z]{3,}")
+_SYNONYM_MAP: dict[str, tuple[str, ...]] = {
+    "create": ("build", "make", "generate"),
+    "error": ("bug", "issue", "fault"),
+    "find": ("search", "locate", "discover"),
+    "learn": ("study", "train", "practice"),
+    "method": ("approach", "technique", "procedure"),
+    "test": ("check", "verify", "validate"),
+}
 
 
 def _expand_with_wordnet(word: str) -> list[str]:
@@ -105,6 +113,7 @@ class QueryExpander:
 
         expansions: set[str] = set()
         for word in words:
+            expansions.update(_SYNONYM_MAP.get(word, ())[:3])
             if self._use_wordnet:
                 wn_synonyms = _expand_with_wordnet(word)
                 expansions.update(wn_synonyms[:3])
