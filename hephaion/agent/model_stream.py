@@ -11,7 +11,6 @@ from hephaion.agent.runtime_notes import acceptance_criteria_notice
 from hephaion.agent.tool_execution import ToolCall, merge_tool_call_deltas
 from hephaion.agent.tool_schema import ToolSchema
 from hephaion.agent.tools import ToolRegistry
-from hephaion.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 from hephaion.logging import Timer
 from hephaion.rag.context import TurnEvidence
 from hephaion.runtime import (
@@ -23,6 +22,7 @@ from hephaion.runtime import (
     build_client,
     stream_completion,
 )
+from hephaion.runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 
 _MODEL_STREAM_PROGRESS_SECONDS = 8.0
 

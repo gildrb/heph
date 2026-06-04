@@ -120,9 +120,9 @@ class _TextFormatter(logging.Formatter):
         return []
 
 
-_LOG_LEVEL_ENV = "HEPHAION_LOG_LEVEL"
-_LOG_FILE_ENV = "HEPHAION_LOG_FILE"
-_LOG_FORMAT_ENV = "HEPHAION_LOG_FORMAT"
+LOG_LEVEL_ENV = "HEPHAION_LOG_LEVEL"
+LOG_FILE_ENV = "HEPHAION_LOG_FILE"
+LOG_FORMAT_ENV = "HEPHAION_LOG_FORMAT"
 
 _hephaion_logger_initialised = False
 
@@ -146,7 +146,7 @@ def _ensure_hephaion_logger() -> None:
     logger.propagate = False
     if not logger.handlers:
         logger.addHandler(_stderr_handler(level, fmt))
-        if log_file := os.environ.get(_LOG_FILE_ENV):
+        if log_file := os.environ.get(LOG_FILE_ENV):
             logger.addHandler(_file_handler(Path(log_file), level))
     _quiet_noisy_loggers()
 
@@ -155,9 +155,9 @@ def _logging_config() -> tuple[int, str]:
     is_tty = sys.stderr.isatty()
     default_level_name = "ERROR" if is_tty else "WARNING"
     default_format = "text" if is_tty else "json"
-    level_name = os.environ.get(_LOG_LEVEL_ENV, default_level_name).upper()
+    level_name = os.environ.get(LOG_LEVEL_ENV, default_level_name).upper()
     return getattr(logging, level_name, logging.WARNING), os.environ.get(
-        _LOG_FORMAT_ENV,
+        LOG_FORMAT_ENV,
         default_format,
     ).lower()
 
