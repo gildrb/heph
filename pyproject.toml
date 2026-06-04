@@ -27,7 +27,7 @@ dependencies = [
     "certifi==2026.2.25",
     "textual==8.2.4",
     "unicodeit==0.7.5",
-    "docling==2.86.0",
+    "docling==2.94.0",
 ]
 
 [project.urls]
