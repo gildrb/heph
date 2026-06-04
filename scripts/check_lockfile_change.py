@@ -7,10 +7,12 @@ import os
 import subprocess
 import sys
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 _ALLOW_ENV = "HEPH_ALLOW_LOCKFILE_CHANGE"
 _TRUTHY = {"1", "true", "yes", "on"}
+_PYPROJECT = "pyproject.toml"
 
 
 def main() -> int:
@@ -54,6 +56,7 @@ def _changed_lockfiles(args: argparse.Namespace) -> tuple[str, ...]:
 
 
 def _lockfiles_from_git_diff(git_diff: str) -> tuple[str, ...]:
+    dependency_declarations_changed = _dependency_declarations_changed(git_diff)
     completed = subprocess.run(
         ["git", "diff", "--name-only", git_diff, "--", "uv.lock"],
         check=True,
@@ -63,20 +66,43 @@ def _lockfiles_from_git_diff(git_diff: str) -> tuple[str, ...]:
     return tuple(
         path
         for path in completed.stdout.splitlines()
-        if path and _lockfile_requires_dependency_review(git_diff, path)
+        if path
+        and _lockfile_requires_dependency_review(
+            git_diff,
+            path,
+            dependency_declarations_changed=dependency_declarations_changed,
+        )
     )
 
 
-def _lockfile_requires_dependency_review(git_diff: str, path: str) -> bool:
+def _lockfile_requires_dependency_review(
+    git_diff: str,
+    path: str,
+    *,
+    dependency_declarations_changed: bool,
+) -> bool:
+    if dependency_declarations_changed:
+        return False
     before = _lockfile_package_payloads(_git_file_at_diff_base(git_diff, path))
     after = _lockfile_package_payloads(Path(path).read_bytes())
     return before != after
 
 
+def _dependency_declarations_changed(git_diff: str) -> bool:
+    base_ref = _git_diff_base_ref(git_diff)
+    before = _pyproject_dependency_payloads(_git_file_at_ref(base_ref, _PYPROJECT))
+    after = _pyproject_dependency_payloads(Path(_PYPROJECT).read_bytes())
+    return before != after
+
+
 def _git_file_at_diff_base(git_diff: str, path: str) -> bytes:
     base_ref = _git_diff_base_ref(git_diff)
+    return _git_file_at_ref(base_ref, path)
+
+
+def _git_file_at_ref(ref: str, path: str) -> bytes:
     completed = subprocess.run(
-        ["git", "show", f"{base_ref}:{path}"],
+        ["git", "show", f"{ref}:{path}"],
         check=True,
         capture_output=True,
     )
@@ -110,9 +136,40 @@ def _lockfile_package_payloads(content: bytes) -> tuple[str, ...]:
     )
 
 
-def _is_editable_project_package(package: dict[object, object]) -> bool:
+def _pyproject_dependency_payloads(content: bytes) -> tuple[str, ...]:
+    data = tomllib.loads(content.decode("utf-8"))
+    payloads: list[str] = []
+    project = data.get("project")
+    if isinstance(project, dict):
+        dependencies = project.get("dependencies")
+        if isinstance(dependencies, list):
+            payloads.extend(repr(dependency) for dependency in dependencies)
+        optional_dependencies = project.get("optional-dependencies")
+        if isinstance(optional_dependencies, dict):
+            payloads.extend(
+                repr((group, dependency))
+                for group, dependencies in optional_dependencies.items()
+                if isinstance(group, str)
+                for dependency in dependencies
+                if isinstance(dependency, str)
+            )
+    dependency_groups = data.get("dependency-groups")
+    if isinstance(dependency_groups, dict):
+        payloads.extend(
+            repr((group, dependency))
+            for group, dependencies in dependency_groups.items()
+            if isinstance(group, str)
+            for dependency in dependencies
+            if isinstance(dependency, str)
+        )
+    return tuple(sorted(payloads))
+
+
+def _is_editable_project_package(package: Mapping[object, object]) -> bool:
     source = package.get("source")
-    return isinstance(source, dict) and source.get("editable") == "."
+    if not isinstance(source, Mapping):
+        return False
+    return any(key == "editable" and value == "." for key, value in source.items())
 
 
 def _working_tree_lockfiles() -> tuple[str, ...]:
