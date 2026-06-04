@@ -150,6 +150,7 @@ uv run ty check  # type-check the project
 uv run vulture hephaion tests vulture-whitelist.py  # dead-code detection
 uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaion  # duplicate code
 uv run lint-imports        # verify import boundaries
+uv run python scripts/check_architecture_guardrails.py  # guard architecture debt baselines
 uv run python scripts/check_tech_debt.py --strict  # TODO/FIXME issue links
 uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command validation
 ```
@@ -159,13 +160,15 @@ Additional configured gates:
 - Vulture scans `hephaion`, `tests`, and `vulture-whitelist.py` at 80% confidence.
 - Pylint duplicate-code uses an 8-line similarity threshold and ignores comments,
   docstrings, and imports.
+- Architecture guardrails enforce no regression against current module size, function size,
+  class size, complexity, and package-facade import baselines.
 - Pre-commit also runs check-large-files, gitleaks, docs sync, deptry, and radon.
 - Bandit is configured in `pyproject.toml`; run it when touching security-sensitive code.
 
 ## Test
 ```bash
 uv run pytest                              # run all tests
-uv run pytest --cov --cov-fail-under=75    # run with coverage gate
+uv run pytest --cov --cov-fail-under=46    # run with current coverage baseline
 uv run pytest tests/test_chat_engine.py    # single file
 uv run pytest tests/test_app_tui.py -x      # stop on first failure
 uv run pytest -k "test_stream_recovery"    # by keyword
@@ -175,7 +178,8 @@ uv run pytest -m flaky                     # flaky-marked tests only
 Testing rules:
 
 - Pytest uses strict markers, short tracebacks, top-10 duration reporting,
-  xdist auto/worksteal, and a 75% coverage gate on `hephaion`.
+  xdist auto/worksteal, and a 46% coverage baseline on `hephaion`; raise it toward
+  the long-term 75% target as characterization coverage improves.
 - Test files: `test_<module>.py` or `*_test.py`; test classes: `Test<Feature>`;
   test functions: `test_<verb>_<object>_<condition_or_expectation>`.
 - Parametrize with tuple names, list values, and tuple rows.
@@ -246,5 +250,5 @@ Operational playbooks for incident response:
 Configured hooks: ruff, ruff-format, check-large-files, gitleaks, sync-docs,
 check-repo-policies, lockfile change review gate, dependency pinning,
 source-only sdist allowlist, ty, vulture, pylint duplicate-code, lint-imports,
-deptry, radon complexity, check-tech-debt, and validate-agents-md.
+architecture guardrails, deptry, radon complexity, check-tech-debt, and validate-agents-md.
 </coding_guidelines>

@@ -50,8 +50,6 @@ from hephaion.rag.sparse import Bm25Retriever, DocumentBm25Retriever, TfidfRetri
 
 _log = get_logger("rag.retrieve")
 
-_EMBED_MODEL_ENV = "HEPHAION_EMBED_MODEL"
-_RERANK_MODEL_ENV = "HEPHAION_RERANK_MODEL"
 _MAX_QUERY_TOKENS = 160
 _QUERY_PREFIX_TOKENS = 40
 _QUERY_SUFFIX_TOKENS = 140

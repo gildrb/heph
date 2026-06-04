@@ -64,16 +64,6 @@ DYNAMIC_IMPORT_MODULE_TARGET_CALLS: Final[frozenset[str]] = frozenset(
     }
 )
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
-    "hephaion/app/cli.py": frozenset(
-        {
-            "importlib.import_module",
-        }
-    ),
-    "hephaion/app/workspace.py": frozenset(
-        {
-            "importlib.import_module",
-        }
-    ),
     "hephaion/agent/tools.py": frozenset(
         {
             "importlib.util.module_from_spec",

@@ -13,8 +13,8 @@ from typing import Final, cast
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.cli.main import build_parser
 from hephaion.commands import get_registry
-from hephaion.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
-from hephaion.memory.extract import _EXTRACTION_MODEL_ENV
+from hephaion.logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
+from hephaion.memory.extract import EXTRACTION_MODEL_ENV
 from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
@@ -25,7 +25,7 @@ from hephaion.privacy.consent import (
 )
 from hephaion.providers.config import default_config
 from hephaion.providers.keyring_store import GLOBAL_API_KEY_ENV
-from hephaion.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
+from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -338,12 +338,12 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             POSTHOG_TOKEN_ENV,
             POSTHOG_HOST_ENV,
             SENTRY_DSN_ENV,
-            _LOG_LEVEL_ENV,
-            _LOG_FILE_ENV,
-            _LOG_FORMAT_ENV,
-            _EMBED_MODEL_ENV,
-            _EXTRACTION_MODEL_ENV,
-            _RERANK_MODEL_ENV,
+            LOG_LEVEL_ENV,
+            LOG_FILE_ENV,
+            LOG_FORMAT_ENV,
+            EMBED_MODEL_ENV,
+            EXTRACTION_MODEL_ENV,
+            RERANK_MODEL_ENV,
             "HEPHAION_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,

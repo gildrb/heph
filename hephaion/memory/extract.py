@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletion
 
 _log = get_logger("memory.extract")
-_EXTRACTION_MODEL_ENV = "HEPHAION_EXTRACTION_MODEL"
+EXTRACTION_MODEL_ENV = "HEPHAION_EXTRACTION_MODEL"
 
 _EXTRACTION_SYSTEM_PROMPT = (
     "You curate sparse persistent memory for a local document agent. "
@@ -70,7 +70,7 @@ class ExtractedConcept(TypedDict):
 
 
 def _effective_extraction_config(config: ChatConfig) -> ChatConfig:
-    extraction_model = os.environ.get(_EXTRACTION_MODEL_ENV, "").strip()
+    extraction_model = os.environ.get(EXTRACTION_MODEL_ENV, "").strip()
     return replace(config, model=extraction_model) if extraction_model else config
 
 
