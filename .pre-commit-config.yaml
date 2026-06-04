@@ -73,6 +73,12 @@ repos:
         entry: uv run lint-imports
         types: [python]
         pass_filenames: false
+      - id: check-architecture-guardrails
+        name: architecture guardrails
+        language: python
+        entry: uv run python scripts/check_architecture_guardrails.py
+        types: [python]
+        pass_filenames: false
       - id: deptry
         name: deptry (unused-deps)
         language: python

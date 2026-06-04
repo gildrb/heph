@@ -28,17 +28,6 @@ from hephaion.agent.tool_execution import (
 )
 from hephaion.agent.tool_schema import ToolSchema
 from hephaion.agent.tools import ToolRegistry, default_registry
-from hephaion.chat.events import (
-    AssistantDeltaEvent,
-    CompactRequestEvent,
-    GuardrailEvent,
-    NoticeEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-    TurnCompleteEvent,
-    TurnEvent,
-)
-from hephaion.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaion.logging import Timer, get_logger
 from hephaion.rag.context import TurnEvidence
 from hephaion.runtime import (
@@ -49,8 +38,19 @@ from hephaion.runtime import (
     ToolCallDelta,
     UsagePayload,
 )
+from hephaion.runtime.events import (
+    AssistantDeltaEvent,
+    CompactRequestEvent,
+    GuardrailEvent,
+    NoticeEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+    TurnCompleteEvent,
+    TurnEvent,
+)
 from hephaion.runtime.messages import api_content_text
 from hephaion.runtime.prompt_cache import StablePrefixBuilder
+from hephaion.runtime.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaion.safety import GuardrailDecision, GuardrailToolCall, check_tool_call_names
 
 _log = get_logger("agent.dispatch")

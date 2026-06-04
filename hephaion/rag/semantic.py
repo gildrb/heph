@@ -6,6 +6,7 @@ import contextlib
 import os
 
 from hephaion.rag import optional_backends
+from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from hephaion.rag.index import ArmoryIndex
 from hephaion.rag.optional_backends import (
     CrossEncoderProtocol,
@@ -19,10 +20,8 @@ from hephaion.rag.scoring import (
     normalize_relative_rank_scores,
 )
 
-_EMBED_MODEL_ENV = "HEPHAION_EMBED_MODEL"
 _EMBED_MODEL_DEFAULT = "all-MiniLM-L6-v2"
 
-_RERANK_MODEL_ENV = "HEPHAION_RERANK_MODEL"
 _RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
@@ -42,7 +41,7 @@ class EmbeddingRetriever:
     ) -> None:
         self._index = index
         self._chunks = index.all_chunks
-        self._model_name = model_name or os.environ.get(_EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT)
+        self._model_name = model_name or os.environ.get(EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT)
         self._query_prefix = query_prefix
         self._document_prefix = document_prefix
         self._embeddings: list[list[float]] | None = None
@@ -119,7 +118,7 @@ class EmbeddingRetriever:
 
 class CrossEncoderReranker:
     def __init__(self, model_name: str | None = None) -> None:
-        self._model_name = model_name or os.environ.get(_RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT)
+        self._model_name = model_name or os.environ.get(RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT)
         self._model: CrossEncoderProtocol | None = None
 
     @property
