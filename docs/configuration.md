@@ -9,6 +9,7 @@ Hephaion can be configured through environment variables, TUI settings, and armo
 | Variable | Purpose |
 |----------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `ZAI_API_KEY` | Z.AI API key |
 | `CUSTOM_API_KEY` | Custom endpoint API key |
@@ -75,6 +76,15 @@ export OPENAI_API_KEY="sk-..."
 ```
 
 Or use `/login` with your OpenAI account.
+
+### DeepSeek
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."
+```
+
+DeepSeek uses Heph's provider profile adapter: reasoning models enable DeepSeek
+thinking mode and use DeepSeek's native reasoning effort values.
 
 ### OpenRouter
 

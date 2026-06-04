@@ -265,7 +265,7 @@ def _refresh_builtin_provider_fields(provider: Provider, default: Provider) -> b
 
 
 def _prepend_missing_builtin_models(provider: Provider, default: Provider) -> bool:
-    if provider.slug not in {"openai", "openai-codex"}:
+    if provider.slug not in {"openai", "openai-codex", "deepseek"}:
         return False
     missing_models = [model for model in default.models if model not in provider.models]
     if not missing_models:
@@ -320,6 +320,13 @@ def default_config() -> ProviderConfig:
                 endpoint="https://api.openai.com/v1",
                 api_key_env="",
                 models=_default_provider_models("openai-codex"),
+            ),
+            "deepseek": Provider(
+                slug="deepseek",
+                display_name="DeepSeek API",
+                endpoint="https://api.deepseek.com",
+                api_key_env="DEEPSEEK_API_KEY",
+                models=_default_provider_models("deepseek"),
             ),
             "zai": Provider(
                 slug="zai",

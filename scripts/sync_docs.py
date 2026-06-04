@@ -126,6 +126,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAION_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "HEPHAION_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
+    "DEEPSEEK_API_KEY": "API key for the DeepSeek API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
     "CUSTOM_API_KEY": "API key for the custom provider entry.",

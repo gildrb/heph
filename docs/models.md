@@ -25,6 +25,13 @@ Hephaion works with multiple model providers, giving you flexibility in cost, pe
 - **Models**: GPT-4, GPT-4 Turbo, GPT-3.5
 - **Best for**: Production use, reliable performance
 
+### DeepSeek
+
+- **Cost**: Pay-per-use
+- **Account**: API key required
+- **Models**: DeepSeek V4, DeepSeek Chat, DeepSeek Reasoner
+- **Best for**: Reasoning models through DeepSeek's official API semantics
+
 ### Z.AI
 
 - **Cost**: Pay-per-use
@@ -76,6 +83,22 @@ release.
 
 ## Model-Specific Considerations
 
+### Provider Adapters
+
+Hephaion keeps the document harness provider-swappable, but it does not send
+every model the same generic payload. Provider request profiles translate Heph's
+reasoning level into each API's native controls:
+
+- **OpenAI API** uses `reasoning_effort`.
+- **DeepSeek API** enables `thinking`, maps reasoning to DeepSeek's `high`/`max`
+  effort values, and omits temperature while thinking is active.
+- **OpenRouter** uses its nested `reasoning` payload for models that support it.
+- **Custom endpoints** receive only provider-neutral fields unless they match a
+  known official API profile.
+
+Native Anthropic and Google Gemini APIs require their own runtime transports, so
+they are not exposed as direct providers until those adapters exist.
+
 ### Context Window
 
 Different models have different context windows (maximum input size):
@@ -106,6 +129,7 @@ Larger context windows can handle more documents at once but may be slower.
 Different providers have different rate limits:
 
 - **OpenAI**: Varies by tier (3-5000 RPM)
+- **DeepSeek**: Depends on account tier and model
 - **OpenRouter**: Depends on underlying model
 - **Pollinations**: Generally lenient
 - **Custom**: Depends on your endpoint
