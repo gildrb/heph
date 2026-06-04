@@ -1,8 +1,8 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
-<div align="center">
-  <img alt="Hephaion" src="docs/assets/heph-brandmark.svg" width="18%">
-</div>
+<p align="center">
+  <img alt="Hephaion" src="https://gildrb.github.io/heph/logo-auto.svg" width="128">
+</p>
 
 # Hephaion
 

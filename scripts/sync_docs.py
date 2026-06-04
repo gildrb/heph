@@ -488,9 +488,10 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
         return ""
 
     return (
-        '<div align="center">\n'
-        '  <img alt="Hephaion" src="docs/assets/heph-brandmark.svg" width="18%">\n'
-        "</div>\n\n"
+        '<p align="center">\n'
+        '  <img alt="Hephaion" src="https://gildrb.github.io/heph/logo-auto.svg" '
+        'width="128">\n'
+        "</p>\n\n"
     )
 
 
