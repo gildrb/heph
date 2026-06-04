@@ -43,6 +43,39 @@ _OPENAI_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...
     ("gpt-4o-mini", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006, ()),
 )
 
+_DEEPSEEK_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...]], ...] = (
+    (
+        "deepseek-v4-pro",
+        "DeepSeek V4 Pro",
+        128_000,
+        8_192,
+        0.00014,
+        0.00028,
+        ("recommended", "reasoning", "tools"),
+    ),
+    (
+        "deepseek-v4-flash",
+        "DeepSeek V4 Flash",
+        128_000,
+        8_192,
+        0.00003,
+        0.00006,
+        ("recommended", "reasoning", "tools"),
+    ),
+    ("deepseek-chat", "DeepSeek Chat", 128_000, 8_192, 0.00014, 0.00028, ("tools",)),
+    (
+        "deepseek-reasoner",
+        "DeepSeek Reasoner",
+        64_000,
+        8_192,
+        0.00014,
+        0.00028,
+        ("reasoning", "tools"),
+    ),
+)
+
+_DEEPSEEK_REASONING_EFFORTS = ("high", "xhigh")
+
 
 def _default_reasoning_efforts(tags: tuple[str, ...]) -> tuple[str, ...]:
     if "reasoning" not in tags:
@@ -73,6 +106,32 @@ def _openai_models(provider: str) -> list[ModelInfo]:
             completion_price,
             tags,
         ) in _OPENAI_MODEL_ROWS
+    ]
+
+
+def _deepseek_models() -> list[ModelInfo]:
+    return [
+        ModelInfo(
+            name,
+            "deepseek",
+            display_name,
+            context_window,
+            max_output,
+            prompt_price,
+            completion_price,
+            tags=tags,
+            reasoning_efforts=_DEEPSEEK_REASONING_EFFORTS if "reasoning" in tags else (),
+            supports_tools="tools" in tags,
+        )
+        for (
+            name,
+            display_name,
+            context_window,
+            max_output,
+            prompt_price,
+            completion_price,
+            tags,
+        ) in _DEEPSEEK_MODEL_ROWS
     ]
 
 
@@ -136,6 +195,8 @@ _BUILTIN_MODELS: list[ModelInfo] = [
     *_openai_models("openai"),
     # --- OpenAI Codex subscription ---
     *_openai_models("openai-codex"),
+    # --- DeepSeek API ---
+    *_deepseek_models(),
     # --- Google (via OpenRouter) ---
     ModelInfo(
         "google/gemini-3-pro-preview",

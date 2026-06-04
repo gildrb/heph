@@ -13,9 +13,10 @@ from hephaion.providers.registry import get_registry as get_provider_registry
 _MODEL_PROVIDER_ORDER = {
     "openai": 0,
     "openai-codex": 1,
-    "openrouter": 2,
-    "zai": 3,
-    "pollinations": 4,
+    "deepseek": 2,
+    "openrouter": 3,
+    "zai": 4,
+    "pollinations": 5,
     "custom": 99,
 }
 
@@ -45,6 +46,7 @@ _POLLINATIONS_FAMILIES = (
 _SOURCE_LABELS = {
     "openai": "OpenAI API",
     "openai-codex": "OpenAI Codex",
+    "deepseek": "DeepSeek API",
     "openrouter": "OpenRouter",
     "pollinations": "Pollinations",
     "zai": "Z.AI",

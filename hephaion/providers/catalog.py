@@ -32,6 +32,7 @@ _CATALOG_CACHE_SECONDS = 10 * 60
 _DISABLE_LIVE_CATALOG_ENV = "HEPHAION_DISABLE_LIVE_MODELS"
 _MODELS_DEV_URL = "https://models.dev/api.json"
 _OPENAI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
+_DEEPSEEK_REASONING_EFFORTS = ("high", "xhigh")
 _DEFAULT_REASONING_EFFORTS = ("low", "medium", "high")
 
 
@@ -234,7 +235,7 @@ def _fetch_models_dev_payload() -> dict[str, object]:
 def _models_dev_model_infos(payload: dict[str, object]) -> list[ModelInfo]:
     return [
         info
-        for provider_slug in ("openai", "openai-codex", "openrouter")
+        for provider_slug in ("openai", "openai-codex", "deepseek", "openrouter")
         for info in _models_dev_provider_infos(payload, provider_slug)
     ]
 
@@ -286,6 +287,8 @@ def _models_dev_reasoning_efforts(
         return ()
     if provider_slug in {"openai", "openai-codex"}:
         return _OPENAI_REASONING_EFFORTS
+    if provider_slug == "deepseek":
+        return _DEEPSEEK_REASONING_EFFORTS
     return _DEFAULT_REASONING_EFFORTS
 
 
