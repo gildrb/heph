@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
+from memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 # ---------------------------------------------------------------------------
 # MemoryEntry

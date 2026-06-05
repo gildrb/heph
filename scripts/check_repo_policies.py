@@ -124,10 +124,10 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
 ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     "hephaion/agent/__init__.py": frozenset(
         {
-            "hephaion.agent.dispatch",
-            "hephaion.agent.prompt",
-            "hephaion.agent.tool_execution",
-            "hephaion.agent.tools",
+            "agent.dispatch",
+            "agent.prompt",
+            "agent.tool_execution",
+            "agent.tools",
         }
     ),
     "heph_ai/runtime/engine.py": frozenset(
@@ -137,13 +137,13 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "heph_interfaces/terminal/input.py": frozenset(
         {
-            "hephaion.chat.session",
+            "chat.session",
             "heph_ai.runtime",
         }
     ),
     "heph_interfaces/tui/__init__.py": frozenset(
         {
-            "hephaion.chat.cli",
+            "chat.cli",
             "heph.commands",
             "heph_interfaces.terminal.input",
         }
@@ -166,7 +166,7 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "heph_interfaces/tui/streaming.py": frozenset(
         {
-            "hephaion.chat.automation",
+            "chat.automation",
             "heph_ai.runtime",
         }
     ),
@@ -358,7 +358,7 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 
 
 def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
-    if alias.name == "hephaion.chat.orchestrator" and alias.asname is not None:
+    if alias.name == "chat.orchestrator" and alias.asname is not None:
         return alias.asname, alias.name
     if alias.name == "importlib":
         return alias.asname or "importlib", "importlib"
@@ -453,7 +453,7 @@ class PolicyVisitor(ast.NodeVisitor):
         return self.rel_path.startswith("scripts/")
 
     def _check_private_orchestrator_import(self, node: ast.AST, module: str | None) -> None:
-        if not self._is_product_script_file() or module != "hephaion.chat.orchestrator":
+        if not self._is_product_script_file() or module != "chat.orchestrator":
             return
         if not isinstance(node, ast.ImportFrom):
             return
@@ -463,7 +463,7 @@ class PolicyVisitor(ast.NodeVisitor):
                     node,
                     (
                         "product scripts must not import private names from "
-                        "`hephaion.chat.orchestrator`; use stable chat modules"
+                        "`chat.orchestrator`; use stable chat modules"
                     ),
                 )
 
@@ -473,12 +473,12 @@ class PolicyVisitor(ast.NodeVisitor):
         resolved = self._resolve_import_alias(dotted)
         if resolved is None:
             return
-        if resolved.startswith("hephaion.chat.orchestrator._"):
+        if resolved.startswith("chat.orchestrator._"):
             self._add(
                 node,
                 (
                     "product scripts must not access private names from "
-                    "`hephaion.chat.orchestrator`; use stable chat modules"
+                    "`chat.orchestrator`; use stable chat modules"
                 ),
             )
 
@@ -547,8 +547,8 @@ class PolicyVisitor(ast.NodeVisitor):
                 if binding is not None:
                     local_name, canonical_name = binding
                     self._import_aliases[local_name] = canonical_name
-                if node.module == "hephaion.chat" and alias.name == "orchestrator":
-                    self._import_aliases[alias.asname or alias.name] = "hephaion.chat.orchestrator"
+                if node.module == "chat" and alias.name == "orchestrator":
+                    self._import_aliases[alias.asname or alias.name] = "chat.orchestrator"
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
             [module]
         ):

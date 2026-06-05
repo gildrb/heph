@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from hephaion.study.artifacts import (
+from study.artifacts import (
     LearningArtifact,
     LearningArtifactDifficulty,
     LearningArtifactKind,
@@ -15,7 +15,7 @@ from hephaion.study.artifacts import (
     validate_learning_artifact,
     validate_learning_artifacts,
 )
-from hephaion.study.state import RecallRating
+from study.state import RecallRating
 
 SOURCE_REF = "materials/lecture.md#chunk=2"
 SOURCE_TEXT = (

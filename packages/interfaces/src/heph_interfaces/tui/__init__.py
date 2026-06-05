@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from heph_ai.palette import Theme
-from hephaion.parameters.settings import load_app_settings
+from parameters.settings import load_app_settings
 
 from heph_interfaces.terminal.history import InputHistory
 from heph_interfaces.terminal.theme_state import current_palette as current_palette
@@ -137,7 +137,7 @@ _TUI_COMPAT_EXPORTS = (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
     from heph_interfaces.tui.app_actions import _TimerLike
 

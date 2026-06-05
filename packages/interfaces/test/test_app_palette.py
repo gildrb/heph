@@ -7,7 +7,7 @@ from pathlib import Path
 
 import heph_ai.palette as theme_tokens
 import heph_interfaces.terminal as palette
-from hephaion.parameters.settings import THEME_PRESETS
+from parameters.settings import THEME_PRESETS
 
 _AA_NORMAL_TEXT_CONTRAST = 4.5
 _AA_LARGE_TEXT_CONTRAST = 3.0

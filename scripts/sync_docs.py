@@ -10,22 +10,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
 
+from chat.session import ARMORY_PLUGINS_TRUST_ENV
 from heph.cli.main import build_parser
 from heph.commands import get_registry
 from heph_ai.logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
 from heph_ai.providers.config import default_config
 from heph_ai.providers.keyring_store import GLOBAL_API_KEY_ENV
-from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
-from hephaion.memory.extract import EXTRACTION_MODEL_ENV
-from hephaion.parameters import cli as parameters_cli
-from hephaion.privacy.consent import (
+from memory.extract import EXTRACTION_MODEL_ENV
+from parameters import cli as parameters_cli
+from privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
     POSTHOG_HOST_ENV,
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
-from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"

@@ -6,35 +6,35 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from heph.product.context import heph_product_routing_context
-from heph_ai.runtime import ChatConfig, Conversation
-from hephaion.chat.events import (
+from chat.events import (
     AssistantDeltaEvent,
     GuardrailEvent,
     MaterialOperationEvent,
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from hephaion.chat.evidence import ResolvedTurnPlan, assess_turn_evidence
-from hephaion.chat.intent_resolution import (
+from chat.evidence import ResolvedTurnPlan, assess_turn_evidence
+from chat.intent_resolution import (
     _intent_normalization_context,
     _stabilized_followup_intent_resolution,
     _stabilized_intent_for_default_material_plan,
 )
-from hephaion.chat.orchestrator import TurnOrchestrator
-from hephaion.chat.session import ChatSession
-from hephaion.chat.turn_contract import (
+from chat.orchestrator import TurnOrchestrator
+from chat.session import ChatSession
+from chat.turn_contract import (
     RETRIEVAL_STRATEGY_NONE,
     RETRIEVAL_STRATEGY_OVERVIEW,
     RETRIEVAL_STRATEGY_RETRIEVE,
     TurnContract,
     TurnIntentResolution,
 )
-from hephaion.chat.turn_planning import (
+from chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
-from hephaion.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
-from hephaion.study import LearningTurnPlan, material_overview_plan
+from heph.product.context import heph_product_routing_context
+from heph_ai.runtime import ChatConfig, Conversation
+from safety import GUARDRAIL_STAGE_INPUT, block_guardrail
+from study import LearningTurnPlan, material_overview_plan
 
 
 @pytest.mark.parametrize("intent", ["", "source_qa"])
@@ -152,7 +152,7 @@ def test_blocked_input_is_not_appended_or_traced(monkeypatch: pytest.MonkeyPatch
     trace = MagicMock()
     object.__setattr__(session, "trace", trace)
     monkeypatch.setattr(
-        "hephaion.chat.turn_lifecycle.check_user_input",
+        "chat.turn_lifecycle.check_user_input",
         lambda *_args, **_kwargs: block_guardrail(GUARDRAIL_STAGE_INPUT, "Input blocked."),
     )
 
@@ -185,7 +185,7 @@ def test_armory_heph_help_route_does_not_prepare_material_index() -> None:
 
     with (
         patch(
-            "hephaion.chat.model_text._model_json_payload",
+            "chat.model_text._model_json_payload",
             return_value={
                 "intent": "heph_help",
                 "canonical_english_request": (
@@ -196,10 +196,10 @@ def test_armory_heph_help_route_does_not_prepare_material_index() -> None:
                 "confidence": 0.99,
             },
         ),
-        patch("hephaion.chat.armory_turn._ensure_rag_index") as ensure_index,
+        patch("chat.armory_turn._ensure_rag_index") as ensure_index,
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Use /login or /models to configure providers."),
@@ -213,8 +213,8 @@ def test_armory_heph_help_route_does_not_prepare_material_index() -> None:
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("How do I configure provider access here?"))
 
@@ -283,7 +283,7 @@ def test_armory_heph_action_route_uses_narrow_setup_tools(tmp_path: Path) -> Non
 
     with (
         patch(
-            "hephaion.chat.model_text._model_json_payload",
+            "chat.model_text._model_json_payload",
             return_value={
                 "intent": "heph_action",
                 "canonical_english_request": "Import notes.md into the current armory.",
@@ -292,11 +292,11 @@ def test_armory_heph_action_route_uses_narrow_setup_tools(tmp_path: Path) -> Non
                 "confidence": 0.99,
             },
         ),
-        patch("hephaion.chat.armory_turn._ensure_rag_index") as ensure_index,
+        patch("chat.armory_turn._ensure_rag_index") as ensure_index,
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
-        patch("hephaion.chat.turn_execution.iter_agent_events", return_value=tool_events) as agent,
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_execution.iter_agent_events", return_value=tool_events) as agent,
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("Import notes.md here."))
 

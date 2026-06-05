@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaion.armory.cli import default_armory_home
-from hephaion.armory.search import add_known_armory, get_last_armory, load_known_armory_entries
-from hephaion.armory.storage import MARKER_FILE, ArmoryError
-from hephaion.chat.session import validate_armory_path
+from armory.cli import default_armory_home
+from armory.search import add_known_armory, get_last_armory, load_known_armory_entries
+from armory.storage import MARKER_FILE, ArmoryError
+from chat.session import validate_armory_path
 
 
 def _append_unique(paths: list[Path], seen: set[Path], path: Path) -> None:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from chat.session import ChatSession
 from heph_interfaces.terminal import print_error, print_info, print_success
 from heph_interfaces.terminal.source_open import open_source_file
-from hephaion.chat.session import ChatSession
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
-from hephaion.rag.source_mapping import (
+from rag.context import EvidenceChunk, TurnEvidence
+from rag.source_mapping import (
     SourceLineSpan,
     SourceMappingError,
     chunk_line_span,

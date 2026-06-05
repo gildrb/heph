@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.source_mapping import (
+from rag.chunker import Chunk
+from rag.source_mapping import (
     SourceMappingError,
     chunk_line_span,
     resolve_source_path,

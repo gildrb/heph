@@ -6,18 +6,17 @@ import json
 import threading
 from pathlib import Path
 
-import hephaion.agent.dispatch as dispatch_mod
-import hephaion.agent.model_stream as model_stream_mod
+import agent.dispatch as dispatch_mod
+import agent.model_stream as model_stream_mod
 import pytest
-from heph_ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
-from hephaion.agent.dispatch import summarize_result
-from hephaion.agent.tool_execution import (
+from agent.dispatch import summarize_result
+from agent.tool_execution import (
     ToolCall,
     execute_tool_calls,
     format_tool_args,
     merge_tool_call_deltas,
 )
-from hephaion.agent.tools import (
+from agent.tools import (
     TOOL_SCHEMAS,
     get_handler,
     run_bash,
@@ -28,7 +27,7 @@ from hephaion.agent.tools import (
     run_write_file,
     safe_path,
 )
-from hephaion.chat.events import (
+from chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
     NoticeEvent,
@@ -36,6 +35,7 @@ from hephaion.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
+from heph_ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 
 from conftest import message_text
 

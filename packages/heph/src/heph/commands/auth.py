@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from chat.provider_selection import activate_provider_for_session
+from diagnostics.events import capture as capture_analytics
 from heph_ai.providers import keyring_store, oauth
 from heph_ai.providers.config import ProviderConfig
 from heph_ai.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
@@ -16,8 +18,6 @@ from heph_interfaces.terminal import (
     print_success,
     select_option,
 )
-from hephaion.chat.provider_selection import activate_provider_for_session
-from hephaion.diagnostics.events import capture as capture_analytics
 
 from heph.commands._base import Command, CommandResult, ensure_session
 

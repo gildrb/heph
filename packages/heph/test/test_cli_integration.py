@@ -7,26 +7,26 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-import hephaion.rag.health as rag_health
 import pytest
-from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
-from heph.cli.main import main as cli_main
-from heph.cli.main import sys as cli_sys
-from heph_ai.runtime import ChatConfig
-from heph_interfaces.tui import TuiDependencyError
-from hephaion.agent.dispatch import iter_agent_events
-from hephaion.armory.search import add_known_armory
-from hephaion.armory.storage import initialize
-from hephaion.chat import cli as chat_cli
-from hephaion.chat.events import (
+import rag.health as rag_health
+from agent.dispatch import iter_agent_events
+from armory.search import add_known_armory
+from armory.storage import initialize
+from chat import cli as chat_cli
+from chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
     TurnCompleteEvent,
 )
-from hephaion.chat.session import create_session
-from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
-from hephaion.rag.index import load_or_build
+from chat.session import create_session
+from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
+from heph.cli.main import main as cli_main
+from heph.cli.main import sys as cli_sys
+from heph_ai.runtime import ChatConfig
+from heph_interfaces.tui import TuiDependencyError
+from rag.health import ExtractionHealthIssue, ExtractionHealthReport
+from rag.index import load_or_build
 
 cli_main_module = sys.modules[cli_main.__module__]
 
@@ -431,7 +431,7 @@ def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> Non
             args.jsonl,
         )
 
-    monkeypatch.setattr("hephaion.chat.cli._cmd_chat_ask", fake_ask)
+    monkeypatch.setattr("chat.cli._cmd_chat_ask", fake_ask)
 
     run_argv(parser, ["chat", "ask", "--jsonl", "notes", "what", "is", "rag?"])
 

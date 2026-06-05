@@ -39,7 +39,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
     from rich.text import Text
 
     from heph_interfaces.tui.render_state import TuiRenderCache

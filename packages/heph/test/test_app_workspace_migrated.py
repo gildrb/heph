@@ -7,6 +7,20 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from armory.search import (
+    add_known_armory,
+    get_last_armory,
+    load_known_armories,
+    load_recent_armory_entries,
+    save_known_armories,
+    set_last_armory,
+)
+from armory.storage import initialize
+from chat.session import (
+    ChatSession,
+    create_plain_session,
+    create_session,
+)
 from heph import commands
 from heph.commands import CommandResult
 from heph_ai.runtime import ChatConfig
@@ -18,20 +32,6 @@ from heph_interfaces.tui.session_actions import (
     save_on_exit,
 )
 from heph_interfaces.tui.startup_discovery import discover_startup_armory
-from hephaion.armory.search import (
-    add_known_armory,
-    get_last_armory,
-    load_known_armories,
-    load_recent_armory_entries,
-    save_known_armories,
-    set_last_armory,
-)
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import (
-    ChatSession,
-    create_plain_session,
-    create_session,
-)
 
 
 @pytest.fixture

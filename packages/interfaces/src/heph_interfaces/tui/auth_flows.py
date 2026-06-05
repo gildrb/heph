@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol
 
+from chat.provider_selection import activate_provider_for_session
 from heph_ai.providers.config import ProviderConfig
 from heph_ai.providers.keyring_store import (
     GLOBAL_API_KEY_ENV,
@@ -15,12 +16,11 @@ from heph_ai.providers.keyring_store import (
     store_key,
 )
 from heph_ai.providers.oauth import clear_credentials, list_providers, login_openai_codex
-from hephaion.chat.provider_selection import activate_provider_for_session
 
 from heph_interfaces.tui.flow_state import InlineFlow
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 _P = ParamSpec("_P")
 

@@ -36,8 +36,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaion.agent.citation import verify_citations
-from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
+from agent.citation import verify_citations
+from rag import Chunk, EvidenceChunk, TurnEvidence
 
 
 class RawEvidence(TypedDict):

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from hephaion.agent.mutation_queue import FileMutationQueue, get_queue
+from agent.mutation_queue import FileMutationQueue, get_queue
 
 
 class TestFileMutationQueue:

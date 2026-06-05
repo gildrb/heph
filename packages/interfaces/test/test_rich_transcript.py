@@ -10,8 +10,8 @@ from heph_interfaces.tui.rich_transcript import (
     normalize_markdown_tables,
 )
 from heph_interfaces.tui.transcript import _EvidenceMarkdown
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from rag.chunker import Chunk
+from rag.context import EvidenceChunk, TurnEvidence
 from rich.console import Console
 from rich.segment import Segment
 from rich.style import Style

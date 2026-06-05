@@ -7,10 +7,10 @@ from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaion.armory.search import add_known_armory, set_last_armory
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.cli import resolve_armory_session as chat_resolve_armory_session
-from hephaion.chat.session import (
+from armory.search import add_known_armory, set_last_armory
+from chat import storage as chat_storage
+from chat.cli import resolve_armory_session as chat_resolve_armory_session
+from chat.session import (
     ChatSession,
     SessionError,
     create_plain_session,
@@ -19,8 +19,8 @@ from hephaion.chat.session import (
     save_session,
     session_has_messages,
 )
-from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.parameters.cli import load_config
+from diagnostics.events import capture as capture_analytics
+from parameters.cli import load_config
 
 from heph_interfaces.terminal import current_palette, print_error, print_info, set_theme
 from heph_interfaces.terminal.history import InputHistory

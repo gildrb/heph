@@ -180,35 +180,35 @@ The following packages cannot import anything from adapter packages:
 `heph.cli`, `heph.commands`, `heph_interfaces.tui`,
 `heph_interfaces.terminal.history` or `heph_interfaces.terminal.input`.
 
-- `hephaion.chat`
-- `hephaion.agent`
+- `chat`
+- `agent`
 - `heph_ai.providers`
-- `hephaion.rag`
-- `hephaion.armory`
-- `hephaion.study`
-- `hephaion.memory`
-- `hephaion.parameters`
-- `hephaion.materials`
+- `rag`
+- `armory`
+- `study`
+- `memory`
+- `parameters`
+- `materials`
 - `heph_ai.runtime`
-- `hephaion.vocab`
+- `vocab`
 - `heph_ai.logging`
 - `heph_ai.palette`
-- `hephaion.matching`
+- `matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`heph_ai.logging` and `hephaion.diagnostics.crashes` must not import from
+`heph_ai.logging` and `diagnostics.crashes` must not import from
 `heph.cli`, `heph.commands`, or `heph_interfaces.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
-`hephaion.chat.session` and `hephaion.chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
+`chat.session` and `chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
 
 ### Independent: materials
 
-`hephaion.materials` owns material discovery and ignore-policy parsing.
-It must not import `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
-`hephaion.rag` may import `materials`, but that dependency
+`materials` owns material discovery and ignore-policy parsing.
+It must not import `chat`, `agent`, or `rag`.
+`rag` may import `materials`, but that dependency
 is one-way.
 
 ### Low level: runtime
@@ -227,8 +227,8 @@ metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 
 ### Domain: memory and study
 
-`hephaion.memory` may use `runtime` to extract concepts, but it must not
-import adapters, `chat`, or `agent`. `hephaion.study` stays a pure
+`memory` may use `runtime` to extract concepts, but it must not
+import adapters, `chat`, or `agent`. `study` stays a pure
 controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
 
 ## Armory layout
@@ -307,11 +307,11 @@ graph TD
 
 Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
 
-- `hephaion.diagnostics.events` sends anonymous PostHog events only when a backend is
+- `diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.
-- `hephaion.diagnostics.crashes` sends redacted Sentry crash reports only when a
+- `diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `packages/hephaion/src/hephaion/privacy/release.py` is committed as a safe stub in the public
+- `packages/hephaion/src/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from hephaion.study.schedule import load_recall_schedule
-from hephaion.study.state import RecallRating
+from study.schedule import load_recall_schedule
+from study.state import RecallRating
 
 
 def test_recall_schedule_records_fast_easy_review(tmp_path) -> None:

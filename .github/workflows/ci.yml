@@ -136,7 +136,7 @@ jobs:
       - name: Bandit
         run: |
           start=$(date +%s%N)
-          uv run bandit -r packages/hephaion -c pyproject.toml
+          uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -c pyproject.toml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -228,7 +228,7 @@ jobs:
       - name: Vulture
         run: |
           start=$(date +%s%N)
-          uv run vulture packages/hephaion tests vulture-whitelist.py
+          uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| dead-code vulture | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -253,7 +253,7 @@ jobs:
       - name: Pylint duplicate-code
         run: |
           start=$(date +%s%N)
-          uv run pylint --disable=all --enable=duplicate-code packages/hephaion
+          uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| duplicate-code pylint | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -426,7 +426,11 @@ jobs:
       - name: Deptry
         run: |
           start=$(date +%s%N)
-          uv run deptry packages/hephaion
+          uv run deptry packages/ai/src --config packages/ai/pyproject.toml
+          uv run deptry packages/extensions/src --config packages/extensions/pyproject.toml
+          uv run deptry packages/heph/src --config packages/heph/pyproject.toml
+          uv run deptry packages/hephaion/src --config packages/hephaion/pyproject.toml
+          uv run deptry packages/interfaces/src --config packages/interfaces/pyproject.toml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| unused-deps deptry | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -451,7 +455,7 @@ jobs:
       - name: Radon complexity check
         run: |
           start=$(date +%s%N)
-          uv run radon cc packages/hephaion -a -nc --total-average
+          uv run radon cc packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -a -nc --total-average
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| complexity radon | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -476,7 +480,7 @@ jobs:
       - name: Build
         run: |
           start=$(date +%s%N)
-          uv build --build-constraints build-constraints.txt --require-hashes --no-sources
+          uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| build uv-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -538,7 +542,7 @@ jobs:
         run: |
           mkdir -p .artifacts
           start=$(date +%s%N)
-          FINDINGS=$(uv run bandit -r packages/hephaion -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
+          FINDINGS=$(uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
           echo "$FINDINGS" | tee .artifacts/security-findings.txt
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))

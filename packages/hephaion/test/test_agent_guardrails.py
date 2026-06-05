@@ -6,14 +6,14 @@ from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
+from agent.dispatch import AgentLoopState, _tool_turn_events, iter_agent_events
+from agent.model_stream import ModelStreamState, ModelTurnResult
+from agent.tool_execution import ToolCall
+from agent.tools import ToolRegistry
+from chat.events import GuardrailEvent, TurnCompleteEvent, TurnEvent
+from chat.usage import ContextBudget
 from heph_ai.logging import Timer
 from heph_ai.runtime import ChatConfig, Conversation
-from hephaion.agent.dispatch import AgentLoopState, _tool_turn_events, iter_agent_events
-from hephaion.agent.model_stream import ModelStreamState, ModelTurnResult
-from hephaion.agent.tool_execution import ToolCall
-from hephaion.agent.tools import ToolRegistry
-from hephaion.chat.events import GuardrailEvent, TurnCompleteEvent, TurnEvent
-from hephaion.chat.usage import ContextBudget
 
 
 def test_unknown_tool_call_is_blocked_before_execution(tmp_path: Path) -> None:
@@ -33,7 +33,7 @@ def test_unknown_tool_call_is_blocked_before_execution(tmp_path: Path) -> None:
         }
     ]
 
-    with patch("hephaion.agent.dispatch.execute_tool_calls") as execute_tool_calls:
+    with patch("agent.dispatch.execute_tool_calls") as execute_tool_calls:
         events = list(
             _tool_turn_events(
                 config=ChatConfig(model="test-model"),
@@ -79,7 +79,7 @@ def test_blocked_tool_call_completes_agent_loop(tmp_path: Path) -> None:
         yield from ()
         return model_result
 
-    with patch("hephaion.agent.dispatch.run_model_turn", side_effect=model_turn) as run_model_turn:
+    with patch("agent.dispatch.run_model_turn", side_effect=model_turn) as run_model_turn:
         events = list(
             iter_agent_events(
                 ChatConfig(model="test-model"),

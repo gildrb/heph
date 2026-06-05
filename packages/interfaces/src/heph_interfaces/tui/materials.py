@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, overload
 
-from hephaion.materials import material_display_name
+from materials import material_display_name
 
 from heph_interfaces.terminal import current_palette
 from heph_interfaces.tui.display_text import COMPOSER_PLACEHOLDER
@@ -25,7 +25,7 @@ from heph_interfaces.tui.textual_compat import (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
     from rich.text import Text
     from textual import events
     from textual.geometry import Size

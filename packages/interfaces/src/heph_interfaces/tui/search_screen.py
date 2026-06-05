@@ -7,7 +7,7 @@ import subprocess  # nosec B404
 import sys
 from typing import ClassVar
 
-from hephaion.armory.search import CrossArmoryIndex, SearchResult
+from armory.search import CrossArmoryIndex, SearchResult
 
 from heph_interfaces.terminal import Theme, current_palette
 from heph_interfaces.tui.startup_discovery import discover_available_armories

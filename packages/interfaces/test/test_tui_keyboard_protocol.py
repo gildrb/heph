@@ -6,11 +6,11 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from chat.session import create_plain_session
 from heph_ai.runtime import ChatConfig
 from heph_interfaces import tui
 from heph_interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
 from heph_interfaces.tui.widgets import csi_u_key_text
-from hephaion.chat.session import create_plain_session
 from textual import events
 from textual._xterm_parser import XTermParser
 

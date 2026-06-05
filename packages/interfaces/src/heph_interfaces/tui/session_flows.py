@@ -4,15 +4,15 @@ import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 
-import hephaion.chat.storage as chat_storage
-from hephaion.chat.session import (
+import chat.storage as chat_storage
+from chat.session import (
     SessionError,
     fork_session_at_turn,
     list_armory_sessions,
     resume_session,
     save_session,
 )
-from hephaion.chat.turn_history import TurnSnapshot
+from chat.turn_history import TurnSnapshot
 
 from heph_interfaces.tui.inline_menu import (
     _session_option_description,
@@ -26,7 +26,7 @@ except ImportError:
     RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")

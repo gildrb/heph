@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hephaion.agent.tools import (
+from agent.tools import (
     TOOL_SCHEMAS,
     BashResult,
     get_handler,
@@ -98,7 +98,7 @@ class TestRunBash:
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "0"}, clear=False),
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello")
 
@@ -111,8 +111,8 @@ class TestRunBash:
         completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {}, clear=True),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -129,8 +129,8 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_ULTRA": "1"},
                 clear=False,
             ),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             run_bash("git status")
 
@@ -140,9 +140,9 @@ class TestRunBash:
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value=None),
-            patch("hephaion.agent.shell_tools._log.warning") as warning,
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.shutil.which", return_value=None),
+            patch("agent.shell_tools._log.warning") as warning,
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
@@ -158,9 +158,9 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_FALLBACK_ALLOWED": "0"},
                 clear=False,
             ),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value=None),
-            patch("hephaion.agent.shell_tools._log.warning") as warning,
-            patch("hephaion.agent.shell_tools.subprocess.run") as run,
+            patch("agent.shell_tools.shutil.which", return_value=None),
+            patch("agent.shell_tools._log.warning") as warning,
+            patch("agent.shell_tools.subprocess.run") as run,
         ):
             result = run_bash("git status")
 
@@ -172,10 +172,10 @@ class TestRunBash:
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.shell_tools._log.warning") as warning,
+            patch("agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("agent.shell_tools._log.warning") as warning,
             patch(
-                "hephaion.agent.shell_tools.subprocess.run",
+                "agent.shell_tools.subprocess.run",
                 side_effect=[OSError("missing"), completed],
             ) as run,
         ):
@@ -195,10 +195,10 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_FALLBACK_ALLOWED": "0"},
                 clear=False,
             ),
-            patch("hephaion.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
-            patch("hephaion.agent.shell_tools._log.warning") as warning,
+            patch("agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("agent.shell_tools._log.warning") as warning,
             patch(
-                "hephaion.agent.shell_tools.subprocess.run",
+                "agent.shell_tools.subprocess.run",
                 side_effect=OSError("missing"),
             ) as run,
         ):
@@ -216,8 +216,8 @@ class TestRunBash:
                 {"HEPHAION_RTK": "1", "HEPHAION_RTK_MIN_COMMAND_CHARS": "999"},
                 clear=False,
             ),
-            patch("hephaion.agent.shell_tools.shutil.which") as which,
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.shutil.which") as which,
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("ls")
 
@@ -230,8 +230,8 @@ class TestRunBash:
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HEPHAION_RTK": "1"}, clear=False),
-            patch("hephaion.agent.shell_tools.shutil.which") as which,
-            patch("hephaion.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("agent.shell_tools.shutil.which") as which,
+            patch("agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("echo hello >&2")
 
@@ -518,7 +518,7 @@ class TestWebFetch:
         assert "Error" in result
 
     def test_rejects_url_credentials(self):
-        with patch("hephaion.agent.web_tools._open_without_redirect") as open_url:
+        with patch("agent.web_tools._open_without_redirect") as open_url:
             result = run_web_fetch("https://user:pass@example.com/test")
 
         assert "must not include credentials" in result
@@ -537,7 +537,7 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaion.agent.web_tools._open_without_redirect",
+            "agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/test")
@@ -548,7 +548,7 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         with patch(
-            "hephaion.agent.web_tools._open_without_redirect",
+            "agent.web_tools._open_without_redirect",
             side_effect=urllib.error.HTTPError(
                 "url",
                 404,
@@ -567,7 +567,7 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaion.agent.web_tools._open_without_redirect",
+            "agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/image.png")
@@ -586,8 +586,8 @@ class TestWebFetch:
             return []
 
         with (
-            patch("hephaion.agent.web_tools._resolve_hostname_ips", side_effect=resolve),
-            patch("hephaion.agent.web_tools._open_without_redirect", side_effect=redirect),
+            patch("agent.web_tools._resolve_hostname_ips", side_effect=resolve),
+            patch("agent.web_tools._open_without_redirect", side_effect=redirect),
         ):
             result = run_web_fetch("https://example.com/start")
 
@@ -605,11 +605,11 @@ class TestWebFetch:
 
         with (
             patch(
-                "hephaion.agent.web_tools._resolve_hostname_ips",
+                "agent.web_tools._resolve_hostname_ips",
                 return_value=["93.184.216.34"],
             ),
             patch(
-                "hephaion.agent.web_tools._open_without_redirect",
+                "agent.web_tools._open_without_redirect",
                 side_effect=[redirect, mock_response],
             ),
         ):

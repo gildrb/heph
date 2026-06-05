@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from agent.dispatch import _inject_turn_context
 from heph_ai.runtime import prompt_cache as prompt_cache_mod
 from heph_ai.runtime._api_types import ApiMessage
 from heph_ai.runtime.prompt_cache import (
@@ -11,9 +12,8 @@ from heph_ai.runtime.prompt_cache import (
     StablePrefixBuilder,
     annotate_anthropic_cache_breakpoints,
 )
-from hephaion.agent.dispatch import _inject_turn_context
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from rag.chunker import Chunk
+from rag.context import EvidenceChunk, TurnEvidence
 
 
 def _request(messages: list[ApiMessage]) -> PromptCacheRequest:

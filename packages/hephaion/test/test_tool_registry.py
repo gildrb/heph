@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaion.agent.dispatch import ToolCall, execute_tool_calls
-from hephaion.agent.tools import (
+from agent.dispatch import ToolCall, execute_tool_calls
+from agent.tools import (
     TOOL_SCHEMAS,
     ToolRegistry,
     ToolResult,
@@ -181,7 +181,7 @@ class TestPluginLoading:
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
         plugin_code = (
-            "from hephaion.agent.tools import ToolSpec\n"
+            "from agent.tools import ToolSpec\n"
             "def register(registry):\n"
             "    schema = {\n"
             "        'type': 'function',\n"
@@ -229,7 +229,7 @@ class TestPluginLoading:
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
         plugin_code = (
-            "from hephaion.agent.tools import ToolSpec\n"
+            "from agent.tools import ToolSpec\n"
             "def register(registry):\n"
             "    schema = {\n"
             "        'type': 'function',\n"

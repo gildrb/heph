@@ -6,8 +6,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from hephaion.rag.context import TurnEvidence
-from hephaion.rag.source_mapping import evidence_location_label
+from rag.context import TurnEvidence
+from rag.source_mapping import evidence_location_label
 
 try:
     from unicodeit import replace as _unicodeit_replace

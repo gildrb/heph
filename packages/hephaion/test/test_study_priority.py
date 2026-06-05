@@ -4,9 +4,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from hephaion.rag.chunker import Chunk, ChunkedDocument
-from hephaion.rag.index import ArmoryIndex
-from hephaion.study.priority import (
+from rag.chunker import Chunk, ChunkedDocument
+from rag.index import ArmoryIndex
+from study.priority import (
     ExternalLatexCompiler,
     PriorityWebSearchResult,
     analyze_priority,
@@ -44,7 +44,7 @@ def test_external_latex_compiler_disables_shell_escape(
         tex_path.with_suffix(".pdf").write_bytes(b"%PDF-1.4\n")
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    monkeypatch.setattr("hephaion.study.priority.subprocess.run", fake_run)
+    monkeypatch.setattr("study.priority.subprocess.run", fake_run)
 
     ExternalLatexCompiler(Path("/usr/bin/latexmk")).compile(tex_path, tmp_path / "latexmk.pdf")
     ExternalLatexCompiler(Path("/usr/bin/pdflatex")).compile(tex_path, tmp_path / "pdflatex.pdf")
@@ -66,7 +66,7 @@ def test_tectonic_compiler_uses_cached_packages_only(
         tex_path.with_suffix(".pdf").write_bytes(b"%PDF-1.4\n")
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    monkeypatch.setattr("hephaion.study.priority.subprocess.run", fake_run)
+    monkeypatch.setattr("study.priority.subprocess.run", fake_run)
 
     ExternalLatexCompiler(Path("/usr/bin/tectonic")).compile(tex_path, tmp_path / "tectonic.pdf")
 

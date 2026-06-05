@@ -174,7 +174,25 @@ exclude_dirs = [
 skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
-root_packages = ["heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"]
+root_packages = [
+    "agent",
+    "armory",
+    "chat",
+    "diagnostics",
+    "heph",
+    "heph_ai",
+    "heph_extensions",
+    "heph_interfaces",
+    "matching",
+    "materials",
+    "memory",
+    "parameters",
+    "privacy",
+    "rag",
+    "safety",
+    "study",
+    "vocab",
+]
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
@@ -184,7 +202,19 @@ source_modules = ["heph_ai"]
 forbidden_modules = [
     "heph",
     "heph_interfaces",
-    "hephaion",
+    "agent",
+    "armory",
+    "chat",
+    "diagnostics",
+    "matching",
+    "materials",
+    "memory",
+    "parameters",
+    "privacy",
+    "rag",
+    "safety",
+    "study",
+    "vocab",
 ]
 
 [[tool.importlinter.contracts]]
@@ -195,15 +225,41 @@ forbidden_modules = [
     "heph",
     "heph_interfaces",
     "heph_interfaces.tui",
-    "hephaion",
+    "agent",
+    "armory",
+    "chat",
+    "diagnostics",
+    "matching",
+    "materials",
+    "memory",
+    "parameters",
+    "privacy",
+    "rag",
+    "safety",
+    "study",
+    "vocab",
     "heph_ai.runtime",
     "heph_ai.providers",
 ]
 
 [[tool.importlinter.contracts]]
-name = "hephaion harness must not import app or interfaces"
+name = "hephaion harness concerns must not import app or interfaces"
 type = "forbidden"
-source_modules = ["hephaion"]
+source_modules = [
+    "agent",
+    "armory",
+    "chat",
+    "diagnostics",
+    "matching",
+    "materials",
+    "memory",
+    "parameters",
+    "privacy",
+    "rag",
+    "safety",
+    "study",
+    "vocab",
+]
 forbidden_modules = [
     "heph",
     "heph_interfaces",
@@ -212,50 +268,50 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
-source_modules = ["hephaion.materials"]
+source_modules = ["materials"]
 forbidden_modules = [
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
-    "hephaion.study",
+    "chat",
+    "agent",
+    "rag",
+    "study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "rag must not import agent, chat, or adapters"
 type = "forbidden"
-source_modules = ["hephaion.rag"]
+source_modules = ["rag"]
 forbidden_modules = [
-    "hephaion.agent",
-    "hephaion.chat",
-    "hephaion.study",
+    "agent",
+    "chat",
+    "study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
-source_modules = ["hephaion.memory"]
-forbidden_modules = ["hephaion.chat", "hephaion.agent"]
+source_modules = ["memory"]
+forbidden_modules = ["chat", "agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
-source_modules = ["hephaion.study"]
+source_modules = ["study"]
 forbidden_modules = [
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
+    "chat",
+    "agent",
+    "rag",
 ]
 
 [[tool.importlinter.contracts]]
 name = "agent must not import chat"
 type = "forbidden"
-source_modules = ["hephaion.agent"]
-forbidden_modules = ["hephaion.chat"]
+source_modules = ["agent"]
+forbidden_modules = ["chat"]
 
 [[tool.importlinter.contracts]]
 name = "chat.session and chat.orchestrator are independent (no runtime imports)"
 type = "independence"
-modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
+modules = ["chat.session", "chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
 name = "heph_interfaces must not import heph app composition"
@@ -282,7 +338,7 @@ extend_exclude = [
 per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion", "certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=heph --cov=heph_ai --cov=heph_extensions --cov=heph_interfaces --cov=hephaion --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=armory --cov=chat --cov=diagnostics --cov=heph --cov=heph_ai --cov=heph_extensions --cov=heph_interfaces --cov=materials --cov=memory --cov=parameters --cov=privacy --cov=rag --cov=safety --cov=study --cov=vocab --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",

@@ -11,14 +11,8 @@ from dataclasses import dataclass, field
 from threading import Event
 from typing import TYPE_CHECKING
 
-from heph_ai.runtime import (
-    EngineError,
-    StreamRecoveryError,
-    is_network_error,
-    offline_message,
-)
-from hephaion.chat.automation import iter_chat_events
-from hephaion.chat.events import (
+from chat.automation import iter_chat_events
+from chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
@@ -27,7 +21,13 @@ from hephaion.chat.events import (
     TurnCompleteEvent,
     TurnEvent,
 )
-from hephaion.parameters.settings import (
+from heph_ai.runtime import (
+    EngineError,
+    StreamRecoveryError,
+    is_network_error,
+    offline_message,
+)
+from parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -35,7 +35,7 @@ from hephaion.parameters.settings import (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 type _MaterialOperationRecorder = Callable[["_TurnActivitySummary", MaterialOperationEvent], None]
 

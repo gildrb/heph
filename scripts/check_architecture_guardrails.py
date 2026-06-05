@@ -10,119 +10,86 @@ from pathlib import Path
 from radon.complexity import cc_visit
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ROOT = ROOT / "packages" / "hephaion" / "src" / "hephaion"
+SOURCE_ROOT = ROOT / "packages" / "hephaion" / "src"
 
 MODULE_LINE_THRESHOLD = 1_200
 CLASS_LINE_THRESHOLD = 500
 FUNCTION_LINE_THRESHOLD = 80
 COMPLEXITY_THRESHOLD = 11
+SUPPORT_FACADE_MODULES = {"_types", "version"}
 
 MODULE_LINE_BASELINE: dict[str, int] = {}
 
 CLASS_LINE_BASELINE = {
-    "hephaion/rag/index.py:ArmoryIndex": 628,
+    "rag/index.py:ArmoryIndex": 628,
 }
 
 FUNCTION_LINE_BASELINE = {
-    "hephaion/agent/dispatch.py:_tool_turn_events": 96,
-    "hephaion/agent/dispatch.py:iter_agent_events": 109,
-    "hephaion/chat/intent_resolution.py:_stabilized_followup_intent_resolution": 119,
-    "hephaion/chat/turn_planning.py:_apply_turn_contract_to_plan": 197,
-    "hephaion/chat/turn_planning.py:_stabilized_followup_retrieval": 114,
-    "hephaion/cli/main.py:build_parser": 96,
-    "hephaion/rag/retrieve.py:retrieve": 111,
-    "hephaion/tui/armory_browser.py:_armory_browser_css": 116,
-    "hephaion/tui/style.py:_tui_css": 418,
-    "hephaion/tui/widgets.py:input_without_ctrl_a_class": 143,
+    "agent/dispatch.py:_tool_turn_events": 96,
+    "agent/dispatch.py:iter_agent_events": 109,
+    "chat/intent_resolution.py:_stabilized_followup_intent_resolution": 119,
+    "chat/turn_planning.py:_apply_turn_contract_to_plan": 197,
+    "chat/turn_planning.py:_stabilized_followup_retrieval": 114,
+    "rag/retrieve.py:retrieve": 111,
 }
 
 COMPLEXITY_BASELINE = {
-    "hephaion/agent/dispatch.py:iter_agent_events": 11,
-    "hephaion/chat/evidence.py:_expanded_prior_query_evidence": 11,
-    "hephaion/chat/intent_resolution.py:_stabilized_followup_intent_resolution": 33,
-    "hephaion/chat/intent_resolution.py:_stabilized_intent_for_default_material_plan": 14,
-    "hephaion/chat/intent_resolution.py:_transform_resolution_points_at_prior_answer": 11,
-    "hephaion/chat/learning_reply.py:_deterministic_learning_reply": 13,
-    "hephaion/chat/overview_reply.py:_overview_answer_has_bad_shape": 26,
-    "hephaion/chat/overview_reply.py:_overview_cue_looks_like_byline": 12,
-    "hephaion/chat/overview_reply.py:_overview_fallback_cue_is_substantive": 11,
-    "hephaion/chat/overview_reply.py:_overview_heading_is_sparse_title_block": 13,
-    "hephaion/chat/overview_reply.py:_overview_lead_prefix_within_budget": 16,
-    "hephaion/chat/overview_reply.py:_overview_model_fallback_candidates": 12,
-    "hephaion/chat/overview_reply.py:_overview_pipe_table_line_rows": 11,
-    "hephaion/chat/prior_answer.py:_prior_answer_position_absence_reply": 15,
-    "hephaion/chat/prior_answer.py:_prior_answer_prompt_context": 12,
-    "hephaion/chat/prior_answer.py:_prior_answer_single_citation_reply": 13,
-    "hephaion/chat/prior_answer.py:_prior_answer_target_phrase_reply": 11,
-    "hephaion/chat/reply_repair.py:_deterministic_evidence_pointer_repair": 11,
-    "hephaion/chat/reply_repair.py:_evidence_output_needs_model_repair": 11,
-    "hephaion/chat/reply_repair.py:_repair_structurally_invalid_evidence_output": 13,
-    "hephaion/chat/turn_planning.py:_apply_turn_contract_to_plan": 50,
-    "hephaion/chat/turn_planning.py:_contract_with_default_material_scope": 15,
-    "hephaion/chat/turn_planning.py:_expanded_prior_followup_query": 11,
-    "hephaion/chat/turn_planning.py:_stabilized_current_topic_query": 13,
-    "hephaion/chat/turn_planning.py:_stabilized_followup_retrieval": 62,
-    "hephaion/providers/model_recommendations.py:_recommendation_reasons": 14,
-    "hephaion/study/controller.py:_plan_recall_phase_intent": 14,
-    "hephaion/study/controller.py:_plan_waiting_intent": 11,
+    "agent/dispatch.py:iter_agent_events": 11,
+    "chat/evidence.py:_expanded_prior_query_evidence": 11,
+    "chat/intent_resolution.py:_stabilized_followup_intent_resolution": 33,
+    "chat/intent_resolution.py:_stabilized_intent_for_default_material_plan": 14,
+    "chat/intent_resolution.py:_transform_resolution_points_at_prior_answer": 11,
+    "chat/learning_reply.py:_deterministic_learning_reply": 13,
+    "chat/overview_reply.py:_overview_answer_has_bad_shape": 26,
+    "chat/overview_reply.py:_overview_cue_looks_like_byline": 12,
+    "chat/overview_reply.py:_overview_fallback_cue_is_substantive": 11,
+    "chat/overview_reply.py:_overview_heading_is_sparse_title_block": 13,
+    "chat/overview_reply.py:_overview_lead_prefix_within_budget": 16,
+    "chat/overview_reply.py:_overview_model_fallback_candidates": 12,
+    "chat/overview_reply.py:_overview_pipe_table_line_rows": 11,
+    "chat/prior_answer.py:_prior_answer_position_absence_reply": 15,
+    "chat/prior_answer.py:_prior_answer_prompt_context": 12,
+    "chat/prior_answer.py:_prior_answer_single_citation_reply": 13,
+    "chat/prior_answer.py:_prior_answer_target_phrase_reply": 11,
+    "chat/reply_repair.py:_deterministic_evidence_pointer_repair": 11,
+    "chat/reply_repair.py:_evidence_output_needs_model_repair": 11,
+    "chat/reply_repair.py:_repair_structurally_invalid_evidence_output": 13,
+    "chat/turn_planning.py:_apply_turn_contract_to_plan": 50,
+    "chat/turn_planning.py:_contract_with_default_material_scope": 15,
+    "chat/turn_planning.py:_expanded_prior_followup_query": 11,
+    "chat/turn_planning.py:_stabilized_current_topic_query": 13,
+    "chat/turn_planning.py:_stabilized_followup_retrieval": 62,
+    "study/controller.py:_plan_recall_phase_intent": 14,
+    "study/controller.py:_plan_waiting_intent": 11,
 }
 
 FACADE_IMPORT_BASELINE = {
-    "hephaion/agent/compact.py": 1,
-    "hephaion/agent/dispatch.py": 2,
-    "hephaion/agent/material_tools.py": 1,
-    "hephaion/agent/model_stream.py": 1,
-    "hephaion/agent/prompt.py": 1,
-    "hephaion/agent/runtime_notes.py": 1,
-    "hephaion/agent/tool_execution.py": 1,
-    "hephaion/agent/tools.py": 1,
-    "hephaion/armory/search.py": 1,
-    "hephaion/chat/compaction.py": 1,
-    "hephaion/chat/evidence.py": 3,
-    "hephaion/chat/session.py": 6,
-    "hephaion/chat/storage.py": 1,
-    "hephaion/chat/titles.py": 1,
-    "hephaion/chat/turn_history.py": 3,
-    "hephaion/chat/usage.py": 1,
-    "hephaion/commands/__init__.py": 1,
-    "hephaion/commands/armory.py": 2,
-    "hephaion/commands/auth.py": 2,
-    "hephaion/commands/compact.py": 1,
-    "hephaion/commands/display.py": 2,
-    "hephaion/commands/help.py": 1,
-    "hephaion/commands/model.py": 1,
-    "hephaion/commands/session.py": 3,
-    "hephaion/commands/study.py": 3,
-    "hephaion/memory/extract.py": 2,
-    "hephaion/memory/workflow.py": 2,
-    "hephaion/parameters/cli.py": 2,
-    "hephaion/providers/config.py": 1,
-    "hephaion/providers/keyring_store.py": 1,
-    "hephaion/rag/hybrid.py": 1,
-    "hephaion/rag/index.py": 1,
-    "hephaion/rag/retrieve.py": 1,
-    "hephaion/rag/semantic.py": 1,
-    "hephaion/rag/sparse.py": 1,
-    "hephaion/study/priority.py": 1,
-    "hephaion/terminal/input.py": 1,
-    "hephaion/tui/__init__.py": 4,
-    "hephaion/tui/armory.py": 2,
-    "hephaion/tui/armory_browser.py": 3,
-    "hephaion/tui/display_text.py": 3,
-    "hephaion/tui/external_commands.py": 2,
-    "hephaion/tui/inline_flows.py": 4,
-    "hephaion/tui/inline_menu.py": 3,
-    "hephaion/tui/materials.py": 2,
-    "hephaion/tui/search_screen.py": 1,
-    "hephaion/tui/session_actions.py": 3,
-    "hephaion/tui/slash_command.py": 1,
-    "hephaion/tui/status.py": 2,
-    "hephaion/tui/streaming.py": 1,
-    "hephaion/tui/style.py": 1,
-    "hephaion/tui/transcript.py": 1,
-    "hephaion/tui/transparent.py": 1,
-    "hephaion/tui/widgets.py": 1,
-    "hephaion/vocab/parser.py": 1,
+    "agent/compact.py": 1,
+    "agent/dispatch.py": 2,
+    "agent/material_tools.py": 1,
+    "agent/model_stream.py": 1,
+    "agent/prompt.py": 1,
+    "agent/runtime_notes.py": 1,
+    "agent/tool_execution.py": 1,
+    "agent/tools.py": 1,
+    "armory/search.py": 1,
+    "chat/compaction.py": 1,
+    "chat/evidence.py": 3,
+    "chat/session.py": 6,
+    "chat/storage.py": 1,
+    "chat/titles.py": 1,
+    "chat/turn_history.py": 3,
+    "chat/usage.py": 1,
+    "memory/extract.py": 2,
+    "memory/workflow.py": 2,
+    "parameters/cli.py": 2,
+    "rag/hybrid.py": 1,
+    "rag/index.py": 1,
+    "rag/retrieve.py": 1,
+    "rag/semantic.py": 1,
+    "rag/sparse.py": 1,
+    "study/priority.py": 1,
+    "vocab/parser.py": 1,
 }
 
 
@@ -145,7 +112,7 @@ def python_files() -> list[Path]:
 
 def rel_path(path: Path) -> str:
     if path.is_relative_to(SOURCE_ROOT):
-        return f"hephaion/{path.relative_to(SOURCE_ROOT).as_posix()}"
+        return path.relative_to(SOURCE_ROOT).as_posix()
     return path.relative_to(ROOT).as_posix()
 
 
@@ -178,7 +145,11 @@ def qualname(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
 
 
 def package_names() -> set[str]:
-    return {path.name for path in SOURCE_ROOT.iterdir() if (path / "__init__.py").exists()}
+    return {
+        path.name
+        for path in SOURCE_ROOT.iterdir()
+        if (path / "__init__.py").exists() and path.name not in SUPPORT_FACADE_MODULES
+    }
 
 
 def facade_import_count(tree: ast.AST, packages: set[str]) -> int:
@@ -193,7 +164,7 @@ def facade_import_count(tree: ast.AST, packages: set[str]) -> int:
 
 def _facade_module_count(module: str, packages: set[str]) -> int:
     parts = module.split(".")
-    if len(parts) == 2 and parts[0] == "hephaion" and parts[1] in packages:
+    if len(parts) == 1 and parts[0] in packages:
         return 1
     return 0
 

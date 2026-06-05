@@ -80,13 +80,13 @@ jobs:
         run: uv run ty check
 
       - name: Bandit
-        run: uv run bandit -r packages/hephaion -c pyproject.toml
+        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture packages/hephaion tests vulture-whitelist.py
+        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code packages/hephaion
+        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src
 
       - name: Pytest
         run: uv run pytest
@@ -108,7 +108,7 @@ jobs:
               stripped = value.strip()
               return json.dumps(stripped) if stripped else "None"
 
-          target = Path("packages/hephaion/privacy/release.py")
+          target = Path("packages/hephaion/src/privacy/release.py")
           target.write_text(
               "\n".join(
                   [
@@ -132,7 +132,7 @@ jobs:
           PY
 
       - name: Build package
-        run: uv build --build-constraints build-constraints.txt --require-hashes --no-sources
+        run: uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
 
       - name: Generate runtime SBOM
         run: |

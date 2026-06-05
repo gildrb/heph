@@ -5,16 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from heph_interfaces.terminal import print_error, print_info, print_success
-from hephaion.armory.search import (
+from armory.search import (
     add_known_armory,
     load_known_armories,
     remove_known_armory,
 )
-from hephaion.chat.session import ChatSession, refresh_armory_sources
-from hephaion.materials import MATERIALS_DIR, material_display_name
-from hephaion.materials.importing import import_material_files, resolve_import_source
-from hephaion.rag.index import ArmoryIndex, build_index
+from chat.session import ChatSession, refresh_armory_sources
+from heph_interfaces.terminal import print_error, print_info, print_success
+from materials import MATERIALS_DIR, material_display_name
+from materials.importing import import_material_files, resolve_import_source
+from rag.index import ArmoryIndex, build_index
 
 from heph.commands._base import Command, CommandResult, ensure_session
 

@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaion.rag import (
+from rag import (
     EvidenceReference,
     RetrievalMode,
     ScoredChunk,
@@ -32,7 +32,7 @@ from hephaion.rag import (
     load_or_build,
     retrieve,
 )
-from hephaion.rag.hybrid import (
+from rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,

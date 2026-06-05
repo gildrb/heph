@@ -63,7 +63,7 @@ def _is_explicit_armory_path(raw_path: str, candidate: Path) -> bool:
 
 
 def _known_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("armory.search")
     entries = search_index.load_known_armory_entries()
     shortcut_lower = shortcut.lower()
     valid_paths = [entry.path for entry in entries if entry.valid]
@@ -95,7 +95,7 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_index(args: argparse.Namespace) -> None:
-    rag_index = importlib.import_module("hephaion.rag.index")
+    rag_index = importlib.import_module("rag.index")
     armory_path = _validated_armory_path(args.path)
 
     def progress(action: str, detail: str) -> None:
@@ -112,7 +112,7 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
-    rag_health = importlib.import_module("hephaion.rag.health")
+    rag_health = importlib.import_module("rag.health")
     armory_path = _validated_armory_path(args.path)
 
     report = rag_health.scan_extraction_health(armory_path)
@@ -129,12 +129,12 @@ def _cmd_health(args: argparse.Namespace) -> None:
 
 
 def _cmd_chat_ask(args: argparse.Namespace) -> None:
-    chat_cli = importlib.import_module("hephaion.chat.cli")
+    chat_cli = importlib.import_module("chat.cli")
     chat_cli._cmd_chat_ask(args)
 
 
 def _validated_armory_path(path: str) -> Path:
-    armory_storage = importlib.import_module("hephaion.armory.storage")
+    armory_storage = importlib.import_module("armory.storage")
     try:
         armory_path = armory_storage.normalize_path(path)
         armory_storage.validate(armory_path)
@@ -315,7 +315,7 @@ def _move_armory_home(current_home: Path, target_home: Path) -> None:
         raise SystemExit(2)
     target_home.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(current_home), str(target_home))
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("armory.search")
     moved_paths = [
         target_home / path.relative_to(current_home) for path in search_index.load_known_armories()
     ]
@@ -324,7 +324,7 @@ def _move_armory_home(current_home: Path, target_home: Path) -> None:
 
 
 def _validate_armory_home(target_home: Path) -> Path:
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("armory.search")
     known_homes: list[Path] = []
     for entry in search_index.load_known_armory_entries():
         if not entry.valid or entry.path.parent.name != ".armories":
@@ -358,7 +358,7 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
             file=sys.stderr,
         )
         raise SystemExit(2)
-    armory_cli = importlib.import_module("hephaion.armory.cli")
+    armory_cli = importlib.import_module("armory.cli")
     target = armory_cli.armory_shortcut_path(argv[1])
     target_home = _validate_armory_home(target.parent)
     return ["armory", "init", str(target_home / target.name)]
@@ -398,10 +398,10 @@ def build_parser() -> argparse.ArgumentParser:
     tui.add_argument("path", nargs="?", help="Armory path or known armory name to open")
     tui.set_defaults(handler=_cmd_tui)
 
-    armory_cli = importlib.import_module("hephaion.armory.cli")
+    armory_cli = importlib.import_module("armory.cli")
     armory_cli.register(subparsers, post_init=_remember_initialized_armory)
 
-    materials_cli = importlib.import_module("hephaion.materials.cli")
+    materials_cli = importlib.import_module("materials.cli")
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
 
     index = subparsers.add_parser(
@@ -453,7 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
     ask.set_defaults(handler=_cmd_chat_ask)
 
-    register_config_commands = importlib.import_module("hephaion.parameters.cli").register
+    register_config_commands = importlib.import_module("parameters.cli").register
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 
@@ -461,7 +461,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _remember_initialized_armory(path: Path) -> None:
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("armory.search")
     search_index.add_known_armory(path)
 
 
@@ -513,8 +513,8 @@ def main() -> None:
 
 
 def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
-    analytics = importlib.import_module("hephaion.diagnostics.events")
-    diagnostics = importlib.import_module("hephaion.diagnostics.crashes")
+    analytics = importlib.import_module("diagnostics.events")
+    diagnostics = importlib.import_module("diagnostics.crashes")
     analytics.init_analytics()
     diagnostics.init_diagnostics()
     for message in _runtime_diagnostic_messages():
@@ -523,7 +523,7 @@ def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
 
 
 def _increment_session_count() -> None:
-    settings_mod = importlib.import_module("hephaion.parameters.settings")
+    settings_mod = importlib.import_module("parameters.settings")
     settings = settings_mod.load_raw_settings()
     count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
     settings["session_count"] = count

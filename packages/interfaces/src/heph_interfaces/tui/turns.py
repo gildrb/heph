@@ -6,12 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from hephaion.chat.session import save_session
+from chat.session import save_session
 
 from heph_interfaces.tui.streaming import run_tui_turn
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 
 class _TurnHost(Protocol):

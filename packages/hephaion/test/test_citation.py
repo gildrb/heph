@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from hephaion.agent.citation import (
+from agent.citation import (
     VerificationResult,
     extract_citations,
     format_verification_notice,
     verify_citations,
     verify_response,
 )
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import TurnEvidence, build_turn_evidence
-from hephaion.rag.retrieve import ScoredChunk
+from rag.chunker import Chunk
+from rag.context import TurnEvidence, build_turn_evidence
+from rag.retrieve import ScoredChunk
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from heph_interfaces.terminal.history import InputHistory
 
 if TYPE_CHECKING:
-    from hephaion.rag.context import TurnEvidence
+    from rag.context import TurnEvidence
 
 
 @dataclass

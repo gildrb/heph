@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 from heph_ai.palette import THEMES, Theme
-from hephaion.parameters.settings import DEFAULT_THEME
+from parameters.settings import DEFAULT_THEME
 
 _PALETTES: Final[dict[str, Theme]] = THEMES
 _current_theme_name = DEFAULT_THEME

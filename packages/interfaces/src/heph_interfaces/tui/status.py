@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from heph_ai.runtime import has_configured_access
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 STATUS_FIELD_GAP = "  "
 

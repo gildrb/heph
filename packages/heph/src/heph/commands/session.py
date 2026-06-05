@@ -6,11 +6,8 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from heph_ai.providers.endpoints import is_keyless_endpoint
-from heph_ai.runtime import has_configured_access
-from heph_interfaces.terminal import STYLE_DIM, print_error, print_info, print_success, styled
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.session import (
+from chat import storage as chat_storage
+from chat.session import (
     ChatSession,
     SessionError,
     create_plain_session,
@@ -18,12 +15,15 @@ from hephaion.chat.session import (
     save_session,
     session_has_messages,
 )
-from hephaion.chat.usage import load_usage_summaries
-from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.study.schedule import load_recall_schedule
-from hephaion.study.state import LearningFeedbackType
-from hephaion.vocab.parser import scan_armory
-from hephaion.vocab.state import VocabCardState, load_schedule, save_schedule
+from chat.usage import load_usage_summaries
+from diagnostics.events import capture as capture_analytics
+from heph_ai.providers.endpoints import is_keyless_endpoint
+from heph_ai.runtime import has_configured_access
+from heph_interfaces.terminal import STYLE_DIM, print_error, print_info, print_success, styled
+from study.schedule import load_recall_schedule
+from study.state import LearningFeedbackType
+from vocab.parser import scan_armory
+from vocab.state import VocabCardState, load_schedule, save_schedule
 
 from heph.commands._base import (
     Command,

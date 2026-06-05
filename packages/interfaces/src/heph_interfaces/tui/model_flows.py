@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 
+from chat.model_selection import switch_model
+from diagnostics.events import capture as capture_analytics
 from heph_ai.providers.config import ProviderConfig
 from heph_ai.providers.model_choices import configured_model_choices
-from hephaion.chat.model_selection import switch_model
-from hephaion.diagnostics.events import capture as capture_analytics
 
 from heph_interfaces.tui.flow_state import InlineFlow
 from heph_interfaces.tui.model_flow import (
@@ -21,7 +21,7 @@ except ImportError:
     Input = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")

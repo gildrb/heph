@@ -6,9 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from heph_ai.runtime import ChatConfig
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import (
+from armory.storage import initialize
+from chat.session import (
     SessionError,
     create_session,
     fork_session_at_turn,
@@ -16,14 +15,15 @@ from hephaion.chat.session import (
     resume_session,
     save_session,
 )
-from hephaion.chat.turn_contract import (
+from chat.turn_contract import (
     ANSWER_FORMAT_TABLE,
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
-from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
-from hephaion.rag.health import ExtractionHealthIssue
-from hephaion.study import (
+from heph_ai.runtime import ChatConfig
+from rag import Chunk, EvidenceChunk, TurnEvidence
+from rag.health import ExtractionHealthIssue
+from study import (
     LearningFeedbackType,
     LearningPhase,
     RecallRating,
@@ -320,7 +320,7 @@ def test_create_session_includes_extraction_health_warning(
             ),
         )
 
-    monkeypatch.setattr("hephaion.chat.session._scan_extraction_health_issues", fake_scan)
+    monkeypatch.setattr("chat.session._scan_extraction_health_issues", fake_scan)
 
     session = create_session(
         ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
@@ -413,7 +413,7 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
     plugin = armory / ".hephaion" / "tools" / "probe.py"
     plugin.write_text(
         "from pathlib import Path\n"
-        "from hephaion.agent.tools import ToolSpec\n"
+        "from agent.tools import ToolSpec\n"
         f"Path({str(marker)!r}).write_text('executed')\n"
         "def register(registry):\n"
         "    registry.register(ToolSpec(\n"

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from heph_ai.palette import TRANSPARENT
 from heph_ai.providers.config import ProviderConfig
-from hephaion.parameters.settings import (
+from parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
@@ -19,7 +19,7 @@ from hephaion.parameters.settings import (
     load_app_settings,
     save_setting,
 )
-from hephaion.privacy.consent import (
+from privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
     analytics_env_override,
@@ -76,9 +76,9 @@ except ImportError:
     RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat import storage as chat_storage
-    from hephaion.chat.session import ChatSession
-    from hephaion.chat.turn_history import TurnSnapshot
+    from chat import storage as chat_storage
+    from chat.session import ChatSession
+    from chat.turn_history import TurnSnapshot
     from textual import events
     from textual.widget import Widget
 

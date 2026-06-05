@@ -8,16 +8,16 @@ import stat
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import hephaion.rag.context as rag_context_module
 import pytest
-from heph_ai.runtime import ApiMessage, Conversation, ToolCallDelta
-from hephaion.agent.compact import (
+import rag.context as rag_context_module
+from agent.compact import (
     KEEP_RECENT,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaion.agent.dispatch import _sync_conversation
+from agent.dispatch import _sync_conversation
+from heph_ai.runtime import ApiMessage, Conversation, ToolCallDelta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -224,7 +224,7 @@ class TestAutoCompact:
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -277,7 +277,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -302,7 +302,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -322,7 +322,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=4)
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -338,7 +338,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="Cached summary.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -360,7 +360,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="summary token=compact-secret")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 
@@ -382,7 +382,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, empty_client = self._mock_config_and_client(summary="")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: empty_client,
         )
 
@@ -394,7 +394,7 @@ class TestAutoCompact:
 
         _config, retry_client = self._mock_config_and_client(summary="Recovered summary.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: retry_client,
         )
 
@@ -414,7 +414,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client(summary="Cached summary.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
         auto_compact(messages, config, tmp_path)
@@ -422,7 +422,7 @@ class TestAutoCompact:
         failing_client = MagicMock()
         failing_client.chat.completions.create.side_effect = AssertionError("unexpected LLM call")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: failing_client,
         )
 
@@ -439,7 +439,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, first_client = self._mock_config_and_client(summary="First summary.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: first_client,
         )
         auto_compact(messages, config, tmp_path)
@@ -448,7 +448,7 @@ class TestAutoCompact:
         changed[1]["content"] = "changed_exchange_0"
         _config, second_client = self._mock_config_and_client(summary="Second summary.")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: second_client,
         )
 
@@ -472,7 +472,7 @@ class TestAutoCompact:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
         monkeypatch.setattr(
-            "hephaion.agent.compact.build_client",
+            "agent.compact.build_client",
             lambda _c: mock_client,
         )
 

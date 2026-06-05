@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from hephaion.armory.search import (
+from armory.search import (
     CrossArmoryIndex,
     SearchResult,
     _chunk_text,
@@ -14,7 +14,7 @@ from hephaion.armory.search import (
     load_known_armory_entries,
     remove_known_armory,
 )
-from hephaion.armory.storage import initialize
+from armory.storage import initialize
 
 
 def _make_material_file(armory: Path, name: str, content: str) -> Path:
@@ -98,8 +98,8 @@ def test_known_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     def fake_save(key: str, value: object) -> None:
         raw_settings[key] = value
 
-    monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
-    monkeypatch.setattr("hephaion.armory.search.save_setting", fake_save)
+    monkeypatch.setattr("armory.search.load_raw_settings", fake_load)
+    monkeypatch.setattr("armory.search.save_setting", fake_save)
 
     paths = add_known_armory(armory)
     assert len(paths) == 1
@@ -124,7 +124,7 @@ def test_known_armory_entries_include_missing_paths(
     def fake_load() -> dict[str, object]:
         return dict(raw_settings)
 
-    monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
+    monkeypatch.setattr("armory.search.load_raw_settings", fake_load)
 
     entries = load_known_armory_entries()
 
@@ -148,8 +148,8 @@ def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.Monk
     def fake_save(key: str, value: object) -> None:
         raw_settings[key] = value
 
-    monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
-    monkeypatch.setattr("hephaion.armory.search.save_setting", fake_save)
+    monkeypatch.setattr("armory.search.load_raw_settings", fake_load)
+    monkeypatch.setattr("armory.search.save_setting", fake_save)
 
     add_known_armory(armory)
     paths = add_known_armory(armory)

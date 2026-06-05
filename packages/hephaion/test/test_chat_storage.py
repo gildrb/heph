@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from heph_ai.runtime import Conversation
-from hephaion.armory.storage import initialize
-from hephaion.chat.storage import (
+from armory.storage import initialize
+from chat.storage import (
     ChatStorageError,
     list_sessions,
     load,
@@ -16,6 +15,7 @@ from hephaion.chat.storage import (
     new_session_id,
     save,
 )
+from heph_ai.runtime import Conversation
 
 
 def _init_armory(tmp_path: Path) -> Path:

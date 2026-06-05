@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from armory.storage import initialize
+from chat.session import ChatSession
 from heph import commands
 from heph_ai.runtime import ChatConfig, Conversation
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import ChatSession
-from hephaion.materials.importing import import_material_files
+from materials.importing import import_material_files
 
 
 def test_registry_exposes_status_and_stats() -> None:

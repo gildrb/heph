@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from chat.session import save_session
 from heph_ai.providers.config import ProviderConfig
 from heph_interfaces.terminal import (
     confirm,
@@ -10,7 +11,6 @@ from heph_interfaces.terminal import (
     print_success,
 )
 from heph_interfaces.terminal.input import set_command_registry_fn
-from hephaion.chat.session import save_session
 
 from heph.commands._base import Command, CommandResult, set_registry_fn
 from heph.commands.armory import ExportCommand, ImportCommand, IndexCommand

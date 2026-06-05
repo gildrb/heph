@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING, Protocol, cast
 import heph.commands as heph_commands
 import heph_interfaces.tui.display_text as tui_display_text
 import pytest
+from armory.search import KnownArmory, add_known_armory
+from armory.storage import initialize
+from chat import storage as chat_storage
+from chat.session import ChatSession, record_turn_snapshot
 from heph_ai.palette import DARK_THEME, LIGHT_THEME
 from heph_ai.providers.config import ProviderConfig, default_config
 from heph_ai.providers.registry import ModelInfo, get_registry
@@ -37,11 +41,7 @@ from heph_interfaces.tui.model_flow import (
 )
 from heph_interfaces.tui.transparent import Region as _Region
 from heph_interfaces.tui.transparent import style_without_black_background
-from hephaion.armory.search import KnownArmory, add_known_armory
-from hephaion.armory.storage import initialize
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.session import ChatSession, record_turn_snapshot
-from hephaion.parameters import settings as settings_store
+from parameters import settings as settings_store
 from rich.segment import Segment
 from rich.text import Text
 from textual import events

@@ -18,7 +18,7 @@ from heph_ai.palette import (
     Theme,
     ansi_fg,
 )
-from hephaion.parameters.settings import DEFAULT_THEME
+from parameters.settings import DEFAULT_THEME
 
 from heph_interfaces.terminal.theme_state import (
     current_palette,

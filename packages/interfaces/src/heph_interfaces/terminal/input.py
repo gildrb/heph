@@ -12,7 +12,7 @@ from heph_interfaces.terminal import (
 from heph_interfaces.terminal.history import InputHistory
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
 
 
 class CommandResultProtocol(Protocol):

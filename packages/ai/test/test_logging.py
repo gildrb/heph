@@ -6,8 +6,10 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Generator
 from pathlib import Path
 
+import heph_ai.logging as logging_module
 import pytest
 from heph_ai.logging import (
     Timer,
@@ -29,6 +31,33 @@ def trace_dir(tmp_path: Path) -> Path:
     armory.mkdir()
     (armory / ".hephaion").mkdir()
     return armory
+
+
+@pytest.fixture(autouse=True)
+def reset_hephaion_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Keep env-driven logger initialization isolated between tests."""
+    for env_name in ("HEPHAION_LOG_FILE", "HEPHAION_LOG_LEVEL", "HEPHAION_LOG_FORMAT"):
+        monkeypatch.delenv(env_name, raising=False)
+
+    logger = logging.getLogger("hephaion")
+    previous_handlers = list(logger.handlers)
+    previous_level = logger.level
+    previous_propagate = logger.propagate
+    for handler in previous_handlers:
+        logger.removeHandler(handler)
+    logging_module._hephaion_logger_initialised = False
+
+    try:
+        yield
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+        for handler in previous_handlers:
+            logger.addHandler(handler)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+        logging_module._hephaion_logger_initialised = False
 
 
 # ---------------------------------------------------------------------------

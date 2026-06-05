@@ -48,3 +48,6 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "heph"
 module-root = "src"
+
+[tool.deptry]
+per_rule_ignores = { DEP002 = ["hephaion"], DEP003 = ["agent", "armory", "chat", "diagnostics", "materials", "parameters", "privacy", "rag", "study", "vocab"] }

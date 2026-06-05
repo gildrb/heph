@@ -24,3 +24,6 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "heph_interfaces"
 module-root = "src"
+
+[tool.deptry]
+per_rule_ignores = { DEP002 = ["hephaion"], DEP003 = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from hephaion.chat.automation import event_to_json_object
-from hephaion.chat.events import (
+from chat.automation import event_to_json_object
+from chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
     MaterialOperationEvent,

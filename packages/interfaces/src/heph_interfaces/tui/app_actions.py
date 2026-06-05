@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from hephaion.armory.search import SearchResult
+from armory.search import SearchResult
 
 from heph_interfaces.tui.command_access import get_registry
 from heph_interfaces.tui.display_text import armory_home_text as _armory_home_text
@@ -29,7 +29,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
     from textual.widget import Widget
 
     from heph_interfaces.tui.flow_state import InlineFlow

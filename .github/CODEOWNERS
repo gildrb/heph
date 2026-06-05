@@ -10,20 +10,20 @@
 /packages/hephaion/terminal/  @gildrb
 
 # LLM engine and chat
-/packages/hephaion/chat/      @gildrb
-/packages/hephaion/agent/     @gildrb
+/packages/hephaion/src/chat/      @gildrb
+/packages/hephaion/src/agent/     @gildrb
 /packages/hephaion/runtime/   @gildrb
 
 # Providers and authentication
 /packages/hephaion/providers/ @gildrb
 
 # Armory and knowledge
-/packages/hephaion/armory/       @gildrb
-/packages/hephaion/materials/    @gildrb
-/packages/hephaion/rag/          @gildrb
-/packages/hephaion/study/        @gildrb
-/packages/hephaion/memory/       @gildrb
-/packages/hephaion/parameters/   @gildrb
+/packages/hephaion/src/armory/       @gildrb
+/packages/hephaion/src/materials/    @gildrb
+/packages/hephaion/src/rag/          @gildrb
+/packages/hephaion/src/study/        @gildrb
+/packages/hephaion/src/memory/       @gildrb
+/packages/hephaion/src/parameters/   @gildrb
 
 # Security-critical redaction code
 /packages/hephaion/logging.py    @gildrb

@@ -20,15 +20,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
-from hephaion.armory.search import (
+from armory.search import (
     MAX_RECENT_ARMORIES,
     KnownArmory,
     load_known_armory_entries,
     load_recent_armory_entries,
 )
-from hephaion.armory.storage import MARKER_FILE, ArmoryError, initialize
-from hephaion.matching import ranked_matches
-from hephaion.materials import count_material_files
+from armory.storage import MARKER_FILE, ArmoryError, initialize
+from matching import ranked_matches
+from materials import count_material_files
 
 from heph_interfaces.terminal import Theme, current_palette
 from heph_interfaces.tui.startup_discovery import discover_available_armories

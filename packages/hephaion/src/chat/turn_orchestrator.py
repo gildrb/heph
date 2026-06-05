@@ -1,0 +1,32 @@
+"""Composable turn orchestrator implementation."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from heph_ai.runtime.errors import RetryConfig
+
+from chat.armory_turn import ArmoryTurnMixin
+from chat.turn_execution import TurnExecutionMixin
+from chat.turn_finalization import TurnFinalizationMixin
+from chat.turn_lifecycle import TurnLifecycleMixin
+
+if TYPE_CHECKING:
+    from chat.session import ChatSession
+
+
+@dataclass(slots=True)
+class TurnOrchestrator(
+    TurnLifecycleMixin,
+    ArmoryTurnMixin,
+    TurnExecutionMixin,
+    TurnFinalizationMixin,
+):
+    """Compose turn lifecycle, planning, execution, and finalization services."""
+
+    session: ChatSession
+    retry: RetryConfig | None = None
+    last_reply: str = field(default="", init=False)
+    last_internal_passes: int = field(default=1, init=False)
+    _last_reply_citation_required: bool | None = field(default=None, init=False)

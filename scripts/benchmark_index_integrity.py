@@ -25,8 +25,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaion.rag import load_or_build
-from hephaion.rag.health import (
+from rag import load_or_build
+from rag.health import (
     DEFAULT_EXTRACTION_FORBIDDEN_TEXT,
     scan_extraction_health,
 )

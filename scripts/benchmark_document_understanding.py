@@ -17,12 +17,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
+from chat.evidence import build_turn_evidence_from_overview
+from chat.session import ChatSession
 from heph_ai.runtime import ChatConfig, Conversation
-from hephaion.chat.evidence import build_turn_evidence_from_overview
-from hephaion.chat.session import ChatSession
-from hephaion.materials import MaterialRole, infer_material_role_from_text, material_manifest
-from hephaion.rag import ArmoryIndex, load_or_build
-from hephaion.rag.health import scan_extraction_health
+from materials import MaterialRole, infer_material_role_from_text, material_manifest
+from rag import ArmoryIndex, load_or_build
+from rag.health import scan_extraction_health
 
 _KNOWN_ROLES = frozenset(
     {

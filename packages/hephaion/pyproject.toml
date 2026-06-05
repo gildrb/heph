@@ -21,7 +21,23 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "hephaion"
+module-name = [
+    "_types",
+    "agent",
+    "armory",
+    "chat",
+    "diagnostics",
+    "matching",
+    "materials",
+    "memory",
+    "parameters",
+    "privacy",
+    "rag",
+    "safety",
+    "study",
+    "version",
+    "vocab",
+]
 module-root = "src"
 
 [tool.deptry]

@@ -8,64 +8,63 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
-import hephaion.chat.evidence as evidence_module
+import chat.evidence as evidence_module
 import pytest
-from heph_ai.runtime import ChatConfig, CompletionDelta, Conversation, EngineError
-from hephaion._types import is_string_mapping
-from hephaion.chat.agent_request import _learning_agent_request
-from hephaion.chat.events import (
+from _types import is_string_mapping
+from chat.agent_request import _learning_agent_request
+from chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
     TurnCompleteEvent,
 )
-from hephaion.chat.evidence import (
+from chat.evidence import (
     ResolvedTurnPlan,
     assess_turn_evidence,
     evidence_assessment_trace,
     evidence_refs,
     resolve_turn_evidence,
 )
-from hephaion.chat.evidence_notices import _evidence_notice, _evidence_notice_metadata
-from hephaion.chat.intent_resolution import (
+from chat.evidence_notices import _evidence_notice, _evidence_notice_metadata
+from chat.intent_resolution import (
     _classified_user_intent,
     _resolved_user_intent,
     _stabilized_followup_intent_resolution,
     _stabilized_intent_for_named_material,
     _unresolved_followup_intent_resolution,
 )
-from hephaion.chat.learning_reply import (
+from chat.learning_reply import (
     _deterministic_learning_reply,
     _empty_learning_reply,
 )
-from hephaion.chat.learning_signals import _learning_practice_context
-from hephaion.chat.material_state import (
+from chat.learning_signals import _learning_practice_context
+from chat.material_state import (
     _missing_indexed_material_reply,
     _no_matching_indexed_evidence_reply,
 )
-from hephaion.chat.model_text import _model_json_payload
-from hephaion.chat.orchestrator import TurnOrchestrator
-from hephaion.chat.overview_reply import (
+from chat.model_text import _model_json_payload
+from chat.orchestrator import TurnOrchestrator
+from chat.overview_reply import (
     _needs_overview_fallback,
     _overview_fallback_reply,
 )
-from hephaion.chat.prior_answer import (
+from chat.prior_answer import (
     _learning_extra_system_prompt,
     _prior_answer_cited_claims,
     _prior_answer_prompt_context,
     _turn_contract_prompt_context,
 )
-from hephaion.chat.reply_repair import (
+from chat.reply_repair import (
     _run_bounded_internal_repairs,
     _should_buffer_learning_output,
     _user_visible_reply,
 )
-from hephaion.chat.reply_text import (
+from chat.reply_text import (
     _localize_deterministic_reply,
     _unicode_math_reply,
 )
-from hephaion.chat.session import ChatSession
-from hephaion.chat.turn_contract import (
+from chat.session import ChatSession
+from chat.turn_contract import (
     ANSWER_FORMAT_LIST,
     ANSWER_FORMAT_PLAIN,
     ANSWER_FORMAT_TABLE,
@@ -80,18 +79,19 @@ from hephaion.chat.turn_contract import (
     TurnContract,
     TurnIntentResolution,
 )
-from hephaion.chat.turn_planning import (
+from chat.turn_planning import (
     _apply_turn_contract_to_plan,
     _reset_unreplayable_followup_state,
     _resolved_turn_intent,
     _turn_contract_can_seed_followup,
     _turn_contract_with_prior_replay_state,
 )
-from hephaion.chat.turn_predicates import _stored_turn_evidence
-from hephaion.chat.turn_query import _semantic_query_specificity
-from hephaion.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
-from hephaion.rag.chunker import ChunkedDocument
-from hephaion.study import (
+from chat.turn_predicates import _stored_turn_evidence
+from chat.turn_query import _semantic_query_specificity
+from heph_ai.runtime import ChatConfig, CompletionDelta, Conversation, EngineError
+from rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
+from rag.chunker import ChunkedDocument
+from study import (
     LearningAction,
     LearningFeedbackType,
     LearningPhase,
@@ -102,7 +102,7 @@ from hephaion.study import (
     material_topic_presentation_plan,
     plan_turn,
 )
-from hephaion.study.schedule import load_recall_schedule
+from study.schedule import load_recall_schedule
 
 
 def _chunk(source: str = "notes.md", index: int = 0, text: str = "compactness material") -> Chunk:
@@ -219,7 +219,7 @@ def test_source_qa_repair_uses_compact_model_repair_when_reply_has_no_citations(
     config = ChatConfig(base_url="https://local.test/v1", model="repair")
 
     with patch(
-        "hephaion.chat.model_text.stream_completion",
+        "chat.model_text.stream_completion",
         return_value=iter(
             [CompletionDelta(content="Compactness uses open covers in this material [E1].")]
         ),
@@ -1018,7 +1018,7 @@ def test_classified_user_intent_normalizes_model_json_payload(
 ) -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
-    with patch("hephaion.chat.model_text._model_json_payload", return_value=payload) as model_json:
+    with patch("chat.model_text._model_json_payload", return_value=payload) as model_json:
         intent = _classified_user_intent(
             "nochmal",
             config=config,
@@ -1040,7 +1040,7 @@ def test_resolved_user_intent_treats_classifier_engine_errors_as_low_confidence(
 
     with (
         patch(
-            "hephaion.chat.model_text.stream_completion",
+            "chat.model_text.stream_completion",
             side_effect=EngineError("timed out"),
         ),
     ):
@@ -1069,7 +1069,7 @@ def test_low_confidence_followup_reuses_prior_surface_instead_of_literal_request
 
     with (
         patch(
-            "hephaion.chat.model_text.stream_completion",
+            "chat.model_text.stream_completion",
             side_effect=EngineError("timed out"),
         ),
     ):
@@ -1138,7 +1138,7 @@ def test_resolved_user_intent_preserves_semantic_followup_query() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "source_qa",
             "canonical_english_request": (
@@ -1185,7 +1185,7 @@ def test_resolved_user_intent_includes_prior_turn_contract_state() -> None:
     )
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "material_overview",
             "canonical_english_request": "Explain why the prior material overview matters.",
@@ -1218,7 +1218,7 @@ def test_resolved_user_intent_preserves_prior_answer_transform_mode() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "material_overview",
             "canonical_english_request": "Present the previous overview in another language.",
@@ -1274,7 +1274,7 @@ def test_low_confidence_followup_reuses_prior_answer_instead_of_literal_search()
     )
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "material_overview",
             "confidence": 0.0,
@@ -1307,7 +1307,7 @@ def test_low_confidence_substantive_followup_reuses_prior_context() -> None:
     )
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "material_overview",
             "confidence": 0.0,
@@ -1332,7 +1332,7 @@ def test_resolved_user_intent_preserves_prior_answer_reference() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "source_qa",
             "canonical_english_request": "Explain the source-backed claim in the prior answer.",
@@ -1364,7 +1364,7 @@ def test_resolved_user_intent_preserves_table_format() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
     with patch(
-        "hephaion.chat.model_text._model_json_payload",
+        "chat.model_text._model_json_payload",
         return_value={
             "intent": "material_overview",
             "canonical_english_request": "Create a compact table about the material corpus.",
@@ -1396,7 +1396,7 @@ def test_model_json_payload_parses_streamed_json_fragment() -> None:
     config = ChatConfig(base_url="https://local.test/v1", model="classifier")
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value='prefix {"intent": "chat", "confidence": 0.91} suffix',
     ):
         payload = _model_json_payload(config, system_prompt="system", user_prompt="user")
@@ -1414,7 +1414,7 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(intent="topic_presentation"),
         ) as classify,
         patch.object(
@@ -1432,7 +1432,7 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
             ),
         ) as resolve,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Answer [E1]"),
@@ -1440,9 +1440,9 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("Explain compactness"))
 
@@ -1472,7 +1472,7 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
 
     with (
         patch(
-            "hephaion.chat.model_text._model_json_payload",
+            "chat.model_text._model_json_payload",
             return_value={
                 "intent": "source_qa",
                 "canonical_english_request": "Where the material defines compactness.",
@@ -1482,7 +1482,7 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
         ) as model_payload,
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Source answer [E1]"),
@@ -1490,9 +1490,9 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("Where is compactness defined?"))
 
@@ -1535,9 +1535,9 @@ def test_successful_turn_contract_keeps_only_visible_cited_evidence_refs() -> No
     )
 
     with (
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         orchestrator._finalize_successful_turn("Use one excerpt.", resolved, latency_ms=1.0)
 
@@ -1568,9 +1568,9 @@ def test_successful_turn_contract_preserves_uncited_turn_without_evidence_refs()
     )
 
     with (
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         orchestrator._finalize_successful_turn("Find the exact phrase.", resolved, latency_ms=1.0)
 
@@ -1602,7 +1602,7 @@ def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> N
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="Explain another implication of the previous cited answer.",
@@ -1617,7 +1617,7 @@ def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> N
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Follow-up answer [E1]"),
@@ -1625,9 +1625,9 @@ def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> N
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("what else?"))
 
@@ -1664,7 +1664,7 @@ def test_followup_literal_retrieval_query_expands_prior_evidence() -> None:
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="Compare compactness with the prior cited topic.",
@@ -1679,7 +1679,7 @@ def test_followup_literal_retrieval_query_expands_prior_evidence() -> None:
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Comparison answer [E1]"),
@@ -1687,9 +1687,9 @@ def test_followup_literal_retrieval_query_expands_prior_evidence() -> None:
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("Compare that with the topic before it."))
 
@@ -1725,7 +1725,7 @@ def test_followup_semantic_retrieval_query_expands_prior_evidence() -> None:
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="priority_request",
                 canonical_request=(
@@ -1742,7 +1742,7 @@ def test_followup_semantic_retrieval_query_expands_prior_evidence() -> None:
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Review feedback and spacing [E1]"),
@@ -1750,9 +1750,9 @@ def test_followup_semantic_retrieval_query_expands_prior_evidence() -> None:
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("What should I revisit before continuing?"))
 
@@ -1785,7 +1785,7 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="Explain the study-methods evidence about feedback.",
@@ -1800,7 +1800,7 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Focused answer [E1]"),
@@ -1808,9 +1808,9 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("Explain that part more."))
 
@@ -1887,7 +1887,7 @@ def test_answer_transform_followup_reuses_prior_evidence_without_source_search()
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="material_overview",
                 canonical_request="Translate the prior material overview into German.",
@@ -1904,7 +1904,7 @@ def test_answer_transform_followup_reuses_prior_evidence_without_source_search()
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Deutsche Uebersicht [E1]"),
@@ -1912,9 +1912,9 @@ def test_answer_transform_followup_reuses_prior_evidence_without_source_search()
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("auf deutsch"))
 
@@ -1956,7 +1956,7 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request=(
@@ -1975,7 +1975,7 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Those topics matter as foundations [E1]."),
@@ -1989,9 +1989,9 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("why is that important?"))
 
@@ -2027,7 +2027,7 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="Compare the last two points from the previous explanation.",
@@ -2045,7 +2045,7 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
             side_effect=resolve,
         ) as resolved,
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Focused answer [E1]"),
@@ -2053,9 +2053,9 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         list(orchestrator.iter_events("Compare the last two points."))
 
@@ -2099,9 +2099,9 @@ def test_expand_prior_evidence_merges_prior_refs_with_query_results() -> None:
     )
 
     with (
-        patch("hephaion.chat.evidence.ensure_rag_index", return_value=index),
+        patch("chat.evidence.ensure_rag_index", return_value=index),
         patch(
-            "hephaion.chat.evidence._retrieve_query_scored_chunks",
+            "chat.evidence._retrieve_query_scored_chunks",
             return_value=MagicMock(scored=[ScoredChunk(query_chunk, 0.7)]),
         ),
     ):
@@ -2158,9 +2158,9 @@ def test_expand_prior_source_qa_filters_query_results_to_resolved_query() -> Non
     )
 
     with (
-        patch("hephaion.chat.evidence.ensure_rag_index", return_value=index),
+        patch("chat.evidence.ensure_rag_index", return_value=index),
         patch(
-            "hephaion.chat.evidence._retrieve_query_scored_chunks",
+            "chat.evidence._retrieve_query_scored_chunks",
             return_value=MagicMock(
                 scored=[
                     ScoredChunk(adjacent_query_chunk, 0.9),
@@ -2198,7 +2198,7 @@ def test_turn_evidence_filters_low_content_chunks_from_refs_and_overview() -> No
         ),
     )
 
-    with patch("hephaion.chat.evidence.ensure_rag_index", return_value=index):
+    with patch("chat.evidence.ensure_rag_index", return_value=index):
         from_refs = resolve_turn_evidence(
             session,
             replace(
@@ -2249,7 +2249,7 @@ def test_overview_sampler_prefers_substantive_primary_material() -> None:
         ),
     )
 
-    with patch("hephaion.chat.evidence.ensure_rag_index", return_value=index):
+    with patch("chat.evidence.ensure_rag_index", return_value=index):
         overview = resolve_turn_evidence(
             session,
             material_overview_plan("what is the material about"),
@@ -2290,7 +2290,7 @@ def test_overview_sampler_prefers_early_structural_content_over_dense_logistics(
         ),
     )
 
-    with patch("hephaion.chat.evidence.ensure_rag_index", return_value=index):
+    with patch("chat.evidence.ensure_rag_index", return_value=index):
         overview = resolve_turn_evidence(
             session,
             material_overview_plan("what is the material about"),
@@ -2332,7 +2332,7 @@ def test_overview_sampler_keeps_secondary_material_to_tail_when_primary_is_avail
     )
     index = _index(*primary_documents, secondary_document)
 
-    with patch("hephaion.chat.evidence.ensure_rag_index", return_value=index):
+    with patch("chat.evidence.ensure_rag_index", return_value=index):
         overview = resolve_turn_evidence(
             session,
             material_overview_plan("what is the material about"),
@@ -2376,8 +2376,8 @@ def test_material_overview_followup_reuses_prior_overview_refs_before_query_expa
     )
 
     with (
-        patch("hephaion.chat.evidence.ensure_rag_index", return_value=index),
-        patch("hephaion.chat.evidence._retrieve_query_scored_chunks") as retrieve_query,
+        patch("chat.evidence.ensure_rag_index", return_value=index),
+        patch("chat.evidence._retrieve_query_scored_chunks") as retrieve_query,
     ):
         overview = resolve_turn_evidence(session, plan)
 
@@ -2410,11 +2410,11 @@ def test_specific_present_turn_with_overview_strategy_uses_query_evidence() -> N
 
     with (
         patch(
-            "hephaion.chat.evidence.build_turn_evidence_from_query",
+            "chat.evidence.build_turn_evidence_from_query",
             return_value=query_evidence,
         ) as query,
         patch(
-            "hephaion.chat.evidence.build_turn_evidence_from_overview",
+            "chat.evidence.build_turn_evidence_from_overview",
             return_value=overview_evidence,
         ) as overview,
     ):
@@ -2924,7 +2924,7 @@ def test_overview_retrieval_strategy_uses_corpus_sampler_even_with_model_query()
     )
 
     with patch(
-        "hephaion.chat.evidence.build_turn_evidence_from_overview",
+        "chat.evidence.build_turn_evidence_from_overview",
         return_value=overview_evidence,
     ) as overview:
         resolved = resolve_turn_evidence(session, plan)
@@ -3399,11 +3399,11 @@ def test_deterministic_missing_index_reply_still_applies_classified_plan() -> No
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(intent="source_qa"),
         ),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("Where is compactness defined?"))
 
@@ -3585,7 +3585,7 @@ def test_overview_fallback_reply_uses_model_repair_with_citations() -> None:
         "same extracted material [E1]."
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=model_reply):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=model_reply):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -3619,7 +3619,7 @@ def test_overview_fallback_compacts_rejected_citation_inventory_before_model_rep
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3658,7 +3658,7 @@ def test_overview_fallback_compacts_comma_separated_citation_inventory() -> None
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3715,7 +3715,7 @@ def test_overview_model_fallback_trims_long_cited_synthesis_block() -> None:
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value=model_reply,
     ):
         reply = _overview_fallback_reply(
@@ -3762,7 +3762,7 @@ def test_overview_fallback_replaces_multi_group_inventory_with_evidence_cues() -
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3800,7 +3800,7 @@ def test_overview_fallback_trims_long_rejected_citation_inventory_before_model_r
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3850,7 +3850,7 @@ def test_overview_fallback_keeps_leading_synthesis_when_rejected_draft_has_bulle
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3899,7 +3899,7 @@ def test_overview_table_fallback_trims_table_block_instead_of_preamble() -> None
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3940,7 +3940,7 @@ def test_overview_table_fallback_splits_collapsed_pipe_table() -> None:
     )
 
     with patch(
-        "hephaion.chat.model_text._stream_one_shot_model_text",
+        "chat.model_text._stream_one_shot_model_text",
         return_value="",
     ) as repair_model:
         reply = _overview_fallback_reply(
@@ -3968,7 +3968,7 @@ def test_overview_fallback_uses_deterministic_reply_when_model_repair_fails() ->
         total=5,
     )
 
-    with patch("hephaion.chat.model_text._model_json_payload", return_value={"answer": "uncited"}):
+    with patch("chat.model_text._model_json_payload", return_value={"answer": "uncited"}):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -3994,7 +3994,7 @@ def test_overview_fallback_skips_title_metadata_for_substantive_cues() -> None:
         total=2,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4035,7 +4035,7 @@ def test_overview_fallback_skips_byline_and_symbolic_fragments() -> None:
         total=4,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4076,7 +4076,7 @@ def test_overview_fallback_prefers_primary_material_over_secondary_tasks() -> No
         total=4,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4110,7 +4110,7 @@ def test_overview_fallback_skips_clipped_sentence_fragments() -> None:
         total=3,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4136,7 +4136,7 @@ def test_overview_table_request_uses_table_fallback_instead_of_failure_notice() 
         answer_format=ANSWER_FORMAT_TABLE,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4165,7 +4165,7 @@ def test_overview_list_request_uses_list_fallback_instead_of_prose() -> None:
         answer_format=ANSWER_FORMAT_LIST,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4340,7 +4340,7 @@ def test_overview_deterministic_fallback_covers_representative_source_slice() ->
         total=6,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4361,7 +4361,7 @@ def test_overview_deterministic_fallback_skips_repeated_cross_source_cues() -> N
         total=3,
     )
 
-    with patch("hephaion.chat.model_text._stream_one_shot_model_text", return_value=""):
+    with patch("chat.model_text._stream_one_shot_model_text", return_value=""):
         reply = _overview_fallback_reply(
             plan,
             evidence,
@@ -4405,7 +4405,7 @@ def test_localize_deterministic_reply_rejects_added_citations_and_preserves_orig
     config = ChatConfig(base_url="https://local.test/v1", model="localizer")
 
     with patch(
-        "hephaion.chat.reply_text.stream_completion",
+        "chat.reply_text.stream_completion",
         return_value=iter([CompletionDelta(content="Übersetzt [E99]")]),
     ):
         reply = _localize_deterministic_reply(
@@ -4506,7 +4506,7 @@ def test_internal_repair_replaces_thin_source_pointer_with_top_evidence() -> Non
     config = ChatConfig(base_url="https://local.test/v1", model="repair")
 
     with patch(
-        "hephaion.chat.model_text.stream_completion",
+        "chat.model_text.stream_completion",
         return_value=iter(
             [
                 CompletionDelta(
@@ -5811,12 +5811,12 @@ def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> 
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._classified_user_intent",
+            "chat.intent_resolution._classified_user_intent",
             return_value="material_review",
         ),
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", return_value=resolved),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Review [E1]"),
@@ -5824,9 +5824,9 @@ def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> 
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("review"))
 
@@ -5856,7 +5856,7 @@ def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() 
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="material_overview",
                 canonical_request="Provide an overview of the material contents.",
@@ -5866,7 +5866,7 @@ def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() 
         ),
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Overview [E1]"),
@@ -5874,9 +5874,9 @@ def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() 
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("what is the material about"))
 
@@ -5907,7 +5907,7 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="What is the material about?",
@@ -5918,7 +5918,7 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
         ),
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Overview [E1]"),
@@ -5926,9 +5926,9 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("what is the material about"))
 
@@ -5959,7 +5959,7 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._resolved_user_intent",
+            "chat.intent_resolution._resolved_user_intent",
             return_value=TurnIntentResolution(
                 intent="source_qa",
                 canonical_request="What is compactness?",
@@ -5970,7 +5970,7 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
         ),
         patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
         patch(
-            "hephaion.chat.turn_execution.iter_agent_events",
+            "chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
                     AssistantDeltaEvent("Compactness uses finite subcovers [E1]."),
@@ -5984,9 +5984,9 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
                 ]
             ),
         ),
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         events = list(orchestrator.iter_events("what is compactness"))
 
@@ -6047,9 +6047,9 @@ def test_no_evidence_turn_does_not_replace_followup_anchor() -> None:
     )
 
     with (
-        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
-        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
-        patch("hephaion.chat.turn_finalization.save_usage"),
+        patch("chat.turn_finalization.verify_response", return_value=""),
+        patch("chat.turn_finalization.schedule_memory_extraction"),
+        patch("chat.turn_finalization.save_usage"),
     ):
         orchestrator._finalize_successful_turn("Unsupported lookup.", resolved, latency_ms=1.0)
 
@@ -6514,9 +6514,9 @@ def test_plain_orchestrator_does_not_classify_without_armory() -> None:
     orchestrator = TurnOrchestrator(session)
 
     with (
-        patch("hephaion.chat.intent_resolution._classified_user_intent") as classify,
+        patch("chat.intent_resolution._classified_user_intent") as classify,
         patch(
-            "hephaion.chat.turn_execution.stream_completion",
+            "chat.turn_execution.stream_completion",
             return_value=iter([CompletionDelta(content="plain")]),
         ) as stream,
     ):
@@ -6536,7 +6536,7 @@ def test_orchestrator_rolls_back_on_engine_error() -> None:
 
     with (
         patch(
-            "hephaion.chat.intent_resolution._classified_user_intent",
+            "chat.intent_resolution._classified_user_intent",
             return_value="topic_presentation",
         ),
         patch.object(

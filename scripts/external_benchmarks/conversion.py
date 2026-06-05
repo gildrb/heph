@@ -16,7 +16,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from hephaion.armory import storage
+from armory import storage
 
 SCHEMA_VERSION = "external-adapter-report-v1"
 RAG_DATASET_NAME = "rag.jsonl"

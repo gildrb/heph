@@ -6,7 +6,7 @@ import stat
 from pathlib import Path
 
 import pytest
-from hephaion.parameters import settings
+from parameters import settings
 
 
 def test_load_raw_settings_refreshes_when_config_path_changes(

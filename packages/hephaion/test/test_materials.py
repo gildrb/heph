@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from hephaion.armory.storage import initialize
-from hephaion.materials import (
+from armory.storage import initialize
+from materials import (
     count_material_files,
     infer_material_role,
     infer_material_role_from_text,

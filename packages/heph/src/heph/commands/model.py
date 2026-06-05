@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from chat.model_selection import switch_model
+from diagnostics.events import capture as capture_analytics
 from heph_ai.providers.config import ProviderConfig
 from heph_ai.providers.endpoints import is_keyless_endpoint
 from heph_ai.providers.model_choices import configured_model_choices, model_free_description
@@ -15,8 +17,6 @@ from heph_interfaces.terminal import (
     select_option,
     styled,
 )
-from hephaion.chat.model_selection import switch_model
-from hephaion.diagnostics.events import capture as capture_analytics
 
 from heph.commands._base import Command, CommandResult, ensure_session
 

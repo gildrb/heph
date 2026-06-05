@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from hephaion.armory import storage
+from armory import storage
 
 from scripts import create_benchmark_manifest
 

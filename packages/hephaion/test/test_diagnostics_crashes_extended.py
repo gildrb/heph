@@ -1,8 +1,8 @@
-"""Tests for the local diagnostics shims exposed via hephaion.diagnostics.crashes."""
+"""Tests for the local diagnostics shims exposed via diagnostics.crashes."""
 
 from __future__ import annotations
 
-from hephaion.diagnostics.crashes import (
+from diagnostics.crashes import (
     _NoopCounter,
     _NoopGauge,
     _NoopHistogram,

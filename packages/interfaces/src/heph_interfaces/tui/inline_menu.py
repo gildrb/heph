@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.titles import sanitize_title_text
-from hephaion.chat.turn_history import TurnSnapshot
-from hephaion.matching import ranked_matches
+from chat import storage as chat_storage
+from chat.titles import sanitize_title_text
+from chat.turn_history import TurnSnapshot
+from matching import ranked_matches
 
 from heph_interfaces.terminal import current_palette
 from heph_interfaces.tui.flow_state import InlineFlow

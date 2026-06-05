@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import heph.commands.auth as _commands_auth
 import pytest
+from chat.session import ChatSession
 from heph import commands
 from heph_ai.providers.config import ProviderConfig
 from heph_ai.providers.oauth import OAuthCredentials
 from heph_ai.runtime import ChatConfig, Conversation
-from hephaion.chat.session import ChatSession
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:

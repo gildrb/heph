@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from armory.search import load_known_armories
 from heph_ai.runtime import has_configured_access
-from hephaion.armory.search import load_known_armories
-from hephaion.materials import material_display_name
+from materials import material_display_name
 
 from heph_interfaces.terminal import current_palette
 from heph_interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
@@ -21,7 +21,7 @@ except ImportError:
     _RichText = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from chat.session import ChatSession
     from rich.text import Text
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 31

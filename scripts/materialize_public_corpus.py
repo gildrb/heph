@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
-from hephaion.armory import storage
+from armory import storage
 
 _ALLOWED_URL_SCHEMES = frozenset({"https"})
 _DOWNLOAD_TIMEOUT_SECONDS = 60
