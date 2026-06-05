@@ -80,6 +80,7 @@ from chat.turn_contract import (
     TurnContract,
     TurnIntentResolution,
 )
+from chat.turn_contract_checks import _plan_requires_citations
 from chat.turn_planning import (
     _apply_turn_contract_to_plan,
     _reset_unreplayable_followup_state,
@@ -4982,6 +4983,34 @@ def test_source_grounded_turns_buffer_until_postprocessed() -> None:
     assert _should_buffer_learning_output(_plan(action=LearningAction.SOURCE_QA))
     assert _should_buffer_learning_output(_plan(action=LearningAction.CHAT))
     assert not _should_buffer_learning_output(_plan(action=LearningAction.WAIT_READY_REMINDER))
+
+
+def test_retrieved_chat_turn_requires_citations() -> None:
+    assert _plan_requires_citations(
+        _plan(action=LearningAction.CHAT, retrieval_query="source backed procedure")
+    )
+    assert not _plan_requires_citations(_plan(action=LearningAction.CHAT, retrieval_query=None))
+
+
+def test_retrieved_chat_repair_appends_citation_when_reply_has_no_evidence_ids() -> None:
+    plan = _plan(action=LearningAction.CHAT, retrieval_query="source backed procedure")
+    evidence = _turn_evidence(
+        _evidence(
+            "E1",
+            "materials/source.md",
+            content="The material says the procedure uses polynomial roots.",
+        )
+    )
+
+    repaired, _passes = _run_bounded_internal_repairs(
+        plan,
+        "The material is relevant because it practices polynomial roots.",
+        evidence,
+        user_input="why is this relevant?",
+        config=ChatConfig(),
+    )
+
+    assert repaired == "The material is relevant because it practices polynomial roots. [E1]"
 
 
 def test_resolved_turn_intent_prefers_contract_state() -> None:

@@ -67,6 +67,13 @@ def _material_overview_turn(
 def _plan_requires_citations(plan: LearningTurnPlan | None) -> bool:
     if plan is None:
         return False
+    if plan.action is LearningAction.CHAT:
+        return bool(
+            plan.retrieval_query
+            or plan.evidence_refs
+            or plan.use_expected_source_refs
+            or plan.requires_direct_evidence
+        )
     return plan.action in {
         LearningAction.PRESENT,
         LearningAction.SOURCE_QA,
