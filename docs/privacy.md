@@ -17,6 +17,7 @@ All your data is stored locally in your armory:
 │   ├── memory.json     # Learning memory (local only)
 │   ├── chats/          # Chat history (local only)
 │   ├── traces/         # Session traces (local only)
+│   ├── learning/       # Harness attempt logs and local policy artifacts
 │   └── usage/          # Token/cost snapshots (local only)
 ```
 
@@ -27,6 +28,7 @@ All your data is stored locally in your armory:
 - Learning memory is local to each armory
 - Retrieval indexes are built and stored locally
 - Session traces and usage snapshots stay local to the armory
+- Harness learning attempts and policy artifacts stay local to the armory
 
 ### Local Traces
 
@@ -41,6 +43,18 @@ they can still include private user content such as:
 
 Treat trace files as private armory data when backing up, syncing, or sharing an
 armory.
+
+### Local Learning Attempts
+
+Heph can record local harness-attempt data under `.hephaion/learning/` so future
+policies can learn which retrieval or retry action helped. These files can
+include raw questions, retrieved excerpts, replies, structural reward
+components, and policy artifacts. They are not sent through analytics or crash
+reporting.
+
+Treat `.hephaion/learning/` as private armory data. Any future export flow must
+be explicit; metadata-only export should be the default, and private-content
+export should require separate confirmation.
 
 ## What Goes to Model Providers
 

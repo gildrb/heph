@@ -15,6 +15,7 @@ An armory is the core organizational unit in Hephaion. It's a normal directory t
 │   ├── index/          # Retrieval index
 │   ├── memory/         # Learning memory
 │   ├── chats/          # Chat history
+│   ├── learning/       # Local harness attempt logs and policy artifacts
 │   └── ignore          # File ignore patterns
 └── README.md           # Optional description
 ```
@@ -140,6 +141,9 @@ Each armory maintains its own learning memory:
 
 Memory is stored in `.hephaion/memory/` and is completely local.
 
+Harness attempt logs and policy artifacts are stored in `.hephaion/learning/`
+and are also local to the armory.
+
 ## Sharing Armories
 
 ### Via Git
@@ -152,7 +156,8 @@ git commit -m "Initial armory"
 # Push to your preferred git host
 ```
 
-Note: `.hephaion/index/`, `.hephaion/memory/`, and `.hephaion/chats/` are gitignored by default.
+Note: `.hephaion/index/`, `.hephaion/memory/`, `.hephaion/chats/`, and
+`.hephaion/learning/` are gitignored by default.
 
 ### Manual Copy
 

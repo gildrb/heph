@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from ai.logging import Timer, get_logger
 from ai.runtime.conversation import Message
 
-from hephaion.agent.citation import verify_response
+from hephaion.agent.citation import verify_citations, verify_response
 from hephaion.chat.events import MaterialOperationEvent
 from hephaion.chat.evidence import (
     ResolvedTurnPlan,
@@ -57,6 +57,11 @@ from hephaion.chat.turn_predicates import (
 )
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
+from hephaion.learning.environment import LiveHephEnv
+from hephaion.learning.observation import build_attempt_observation
+from hephaion.learning.policy import StaticAttemptPolicy
+from hephaion.learning.reward import score_attempt_reward
+from hephaion.learning.storage import new_attempt_record
 from hephaion.memory.workflow import schedule_memory_extraction
 from hephaion.rag.context import TurnEvidence
 from hephaion.study.prompt_plans import LearningTurnPlan
@@ -157,6 +162,7 @@ class TurnFinalizationMixin:
         self._record_successful_reply(
             resolved,
             visible_evidence,
+            user_input=user_input,
             latency_ms=latency_ms,
             notice=notice,
         )
@@ -206,15 +212,78 @@ class TurnFinalizationMixin:
         resolved: ResolvedTurnPlan,
         visible_evidence: TurnEvidence | None,
         *,
+        user_input: str,
         latency_ms: float,
         notice: str,
     ) -> None:
         self._log_successful_reply(visible_evidence, latency_ms=latency_ms)
+        self._record_learning_attempt(
+            resolved,
+            visible_evidence,
+            user_input=user_input,
+            latency_ms=latency_ms,
+        )
         self._trace_successful_reply(
             resolved,
             visible_evidence,
             latency_ms=latency_ms,
             notice=notice,
+        )
+
+    def _record_learning_attempt(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+        *,
+        user_input: str,
+        latency_ms: float,
+    ) -> None:
+        session = self.session
+        if session.armory_path is None:
+            return
+        contract = resolved.turn_contract
+        citation_result = verify_citations(self.last_reply, visible_evidence)
+        observation = build_attempt_observation(
+            attempt_index=1,
+            intent=contract.resolved_intent if contract is not None else "",
+            answer_mode=contract.answer_mode if contract is not None else "",
+            retrieval_strategy=contract.retrieval_strategy if contract is not None else "",
+            citation_required=contract.citation_required if contract is not None else False,
+            evidence=visible_evidence,
+            evidence_assessment=resolved.evidence_assessment,
+            citation_result=citation_result,
+            reply=self.last_reply,
+            latency_ms=latency_ms,
+            internal_passes=self.last_internal_passes,
+        )
+        action = StaticAttemptPolicy().choose(observation)
+        reward = score_attempt_reward(
+            observation,
+            accepted=action.value == "accept",
+            abstained=action.value == "abstain",
+        )
+        record = new_attempt_record(
+            session_id=session.session_id,
+            turn_id=f"{session.session_id}:{len(session.turn_history) + 1}",
+            action=action,
+            observation=observation,
+            reward=reward,
+            user_input=user_input,
+            reply=self.last_reply,
+            evidence=visible_evidence,
+        )
+        try:
+            LiveHephEnv(session.armory_path).record(record)
+        except OSError:
+            _log.warning("failed to record local learning attempt", exc_info=True)
+            return
+        session.trace.record_session_event(
+            "learning_attempt",
+            action=action.value,
+            reward=reward.total,
+            reward_components={
+                component.name: round(component.value, 4) for component in reward.components
+            },
         )
 
     def _log_successful_reply(

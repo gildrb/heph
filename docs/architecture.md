@@ -248,6 +248,7 @@ my-armory/
     history             # input history for this armory (created on use)
     memory.json         # extracted armory memory
     rag_index.json      # persisted retrieval index
+    learning/           # local harness attempts, replay data, and policies
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
   materials/            # user study files, indexed for RAG
