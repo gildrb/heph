@@ -57,6 +57,33 @@ TY_IGNORE_POLICY_MESSAGE: Final[str] = (
     f"ty suppressions must use `{TY_IGNORE_MARKER}[exact-diagnostic]`"
 )
 BENCHMARK_ONLY_TOP_LEVEL_MODULES: Final[frozenset[str]] = frozenset({"benchmarks", "scripts"})
+EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
+    {
+        "agent",
+        "armory",
+        "chat",
+        "cli",
+        "commands",
+        "diagnostics",
+        "matching",
+        "materials",
+        "memory",
+        "parameters",
+        "privacy",
+        "product",
+        "providers",
+        "rag",
+        "runtime",
+        "safety",
+        "study",
+        "terminal",
+        "tui",
+        "vocab",
+    }
+)
+EXTENSION_CONTRACTS_POLICY_MESSAGE: Final[str] = (
+    "extension contracts must not import concrete product, harness, AI, or interface modules"
+)
 RUNTIME_BENCHMARK_PATH_MARKERS: Final[tuple[str, ...]] = (
     ".artifacts",
     ".artifacts/",
@@ -493,6 +520,13 @@ class PolicyVisitor(ast.NodeVisitor):
                 f"product runtime modules must not import benchmark-only module `{module}`",
             )
 
+    def _check_extension_contract_import(self, node: ast.AST, module: str | None) -> None:
+        if self.rel_path != "extensions/extension_contracts.py" or module is None:
+            return
+        top_level = module.lstrip(".").split(".", maxsplit=1)[0]
+        if top_level in EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS:
+            self._add(node, EXTENSION_CONTRACTS_POLICY_MESSAGE)
+
     def _check_runtime_benchmark_path(self, node: ast.AST, value: str) -> None:
         if not self._is_product_runtime_file():
             return
@@ -539,6 +573,7 @@ class PolicyVisitor(ast.NodeVisitor):
             self._add(node, "deferred imports are forbidden outside module scope")
         for module in modules:
             self._check_runtime_benchmark_import(node, module)
+            self._check_extension_contract_import(node, module)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -557,6 +592,7 @@ class PolicyVisitor(ast.NodeVisitor):
             self._add(node, "deferred imports are forbidden outside module scope")
         if node.level == 0 and node.module is not None:
             self._check_runtime_benchmark_import(node, node.module)
+        self._check_extension_contract_import(node, node.module)
         if node.module in {"typing", "typing_extensions"}:
             for alias in node.names:
                 if alias.name == "Any":

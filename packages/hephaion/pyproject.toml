@@ -41,7 +41,7 @@ module-name = [
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai_diagnostics", "ai_logging", "ai_types", "palette", "providers", "runtime"], heph-extensions = ["self_knowledge"] }
+package_module_name_map = { heph-ai = ["ai_diagnostics", "ai_logging", "ai_types", "palette", "providers", "runtime"], heph-extensions = ["extension_contracts"] }
 # These imports are optional enhancement paths with in-code fallbacks or
 # dynamic availability checks.
 per_rule_ignores = { DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"], DEP002 = ["docling"] }

@@ -194,7 +194,6 @@ root_packages = [
     "rag",
     "runtime",
     "safety",
-    "self_knowledge",
     "study",
     "terminal",
     "tui",
@@ -225,33 +224,6 @@ forbidden_modules = [
     "study",
     "tui",
     "vocab",
-]
-
-[[tool.importlinter.contracts]]
-name = "extension contracts stay contract-first"
-type = "forbidden"
-source_modules = ["self_knowledge"]
-forbidden_modules = [
-    "agent",
-    "armory",
-    "chat",
-    "cli",
-    "commands",
-    "diagnostics",
-    "matching",
-    "materials",
-    "memory",
-    "parameters",
-    "privacy",
-    "product",
-    "rag",
-    "safety",
-    "study",
-    "terminal",
-    "tui",
-    "vocab",
-    "runtime",
-    "providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -353,7 +325,7 @@ extend_exclude = [
 per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai_diagnostics --cov=ai_logging --cov=ai_types --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=providers --cov=rag --cov=runtime --cov=safety --cov=self_knowledge --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai_diagnostics --cov=ai_logging --cov=ai_types --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=extension_contracts --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=providers --cov=rag --cov=runtime --cov=safety --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",

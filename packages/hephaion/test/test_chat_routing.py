@@ -61,7 +61,7 @@ def test_contentless_material_query_uses_overview_sampling(intent: str) -> None:
     assert stabilized.retrieval_query == ""
 
 
-def test_intent_context_includes_heph_self_knowledge_domain() -> None:
+def test_intent_context_includes_heph_extension_contract_domain() -> None:
     routing_context = heph_product_routing_context()
     context = _intent_normalization_context(
         "How does the harness store memory?",
