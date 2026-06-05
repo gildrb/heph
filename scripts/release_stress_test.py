@@ -7,11 +7,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+EXPECTED_DISTRIBUTIONS = frozenset(
+    {"heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"}
+)
+
 
 def main() -> int:
     args = _build_parser().parse_args()
-    wheel = _single_wheel(args.dist)
-    sdist = _single_sdist(args.dist)
+    wheels = _release_artifacts(args.dist, suffix=".whl")
+    sdists = _release_artifacts(args.dist, suffix=".tar.gz")
     with tempfile.TemporaryDirectory(prefix="heph-release-stress-", dir=Path.cwd()) as temp_dir:
         work_dir = Path(temp_dir)
         venv = work_dir / "venv"
@@ -28,25 +32,26 @@ def main() -> int:
                 ":all:",
                 "--no-binary",
                 "antlr4-python3-runtime,pylatexenc,unicodeit",
-                str(wheel),
+                *(str(wheel) for wheel in wheels.values()),
             ],
             cwd=work_dir,
         )
         _run([str(_venv_executable(venv, "heph")), "--version"], cwd=work_dir)
-        _run(
-            [
-                "uv",
-                "build",
-                "--wheel",
-                "--build-constraints",
-                str(args.build_constraints.resolve()),
-                "--require-hashes",
-                "--out-dir",
-                str(work_dir / "sdist-wheel"),
-                str(sdist),
-            ],
-            cwd=work_dir,
-        )
+        for name, sdist in sdists.items():
+            _run(
+                [
+                    "uv",
+                    "build",
+                    "--wheel",
+                    "--build-constraints",
+                    str(args.build_constraints.resolve()),
+                    "--require-hashes",
+                    "--out-dir",
+                    str(work_dir / "sdist-wheel" / name),
+                    str(sdist),
+                ],
+                cwd=work_dir,
+            )
     return 0
 
 
@@ -58,18 +63,27 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _single_wheel(dist: Path) -> Path:
-    wheels = sorted(dist.glob("*.whl"))
-    if len(wheels) != 1:
-        raise SystemExit(f"expected exactly one wheel in {dist}, found {len(wheels)}")
-    return wheels[0].resolve()
+def _release_artifacts(dist: Path, *, suffix: str) -> dict[str, Path]:
+    artifacts: dict[str, Path] = {}
+    for path in sorted(dist.glob(f"*{suffix}")):
+        distribution = _distribution_name(path, suffix=suffix)
+        if distribution in artifacts:
+            raise SystemExit(f"duplicate {distribution} artifact in {dist}")
+        artifacts[distribution] = path.resolve()
+    missing = sorted(EXPECTED_DISTRIBUTIONS - artifacts.keys())
+    extra = sorted(artifacts.keys() - EXPECTED_DISTRIBUTIONS)
+    if missing or extra:
+        raise SystemExit(
+            f"unexpected {suffix} artifacts in {dist}: missing={missing}, extra={extra}"
+        )
+    return artifacts
 
 
-def _single_sdist(dist: Path) -> Path:
-    sdists = sorted(dist.glob("*.tar.gz"))
-    if len(sdists) != 1:
-        raise SystemExit(f"expected exactly one sdist in {dist}, found {len(sdists)}")
-    return sdists[0].resolve()
+def _distribution_name(path: Path, *, suffix: str) -> str:
+    stem = path.name.removesuffix(suffix)
+    if suffix == ".whl":
+        return stem.split("-", maxsplit=1)[0]
+    return stem.rsplit("-", maxsplit=1)[0]
 
 
 def _venv_python(venv: Path) -> Path:

@@ -15,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from hephaion.runtime import ChatConfig
+from heph_ai.runtime import ChatConfig
 
 from scripts import benchmark_answers, compare_benchmark_reports, replay_answer_benchmark
 

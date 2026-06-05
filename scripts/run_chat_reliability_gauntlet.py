@@ -20,6 +20,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
+from heph_ai.runtime import (
+    ChatConfig,
+    Conversation,
+    EngineError,
+    Message,
+    reset_provider_circuit_breaker,
+    stream_reply,
+)
 from hephaion._types import is_string_mapping, parse_json_object_fragment
 from hephaion.agent.citation import verify_citations, verify_response
 from hephaion.chat.automation import iter_chat_events
@@ -33,14 +41,6 @@ from hephaion.chat.turn_contract import (
     TurnContract,
 )
 from hephaion.rag import EvidenceChunk, TurnEvidence
-from hephaion.runtime import (
-    ChatConfig,
-    Conversation,
-    EngineError,
-    Message,
-    reset_provider_circuit_breaker,
-    stream_reply,
-)
 from hephaion.study import LearningState
 
 from scripts.create_chat_reliability_fixture import (

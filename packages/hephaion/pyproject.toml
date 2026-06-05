@@ -1,0 +1,30 @@
+[project]
+name = "hephaion"
+version = "0.1.0"
+description = "Correctness harness for grounded, cited Heph answers"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.13"
+dependencies = [
+    "docling==2.94.0",
+    "heph-ai==0.1.0",
+    "heph-extensions==0.1.0",
+    "unicodeit==0.7.5",
+]
+
+[tool.uv.sources]
+heph-ai = { workspace = true }
+heph-extensions = { workspace = true }
+
+[build-system]
+requires = ["uv_build==0.11.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "hephaion"
+module-root = "src"
+
+[tool.deptry]
+# These imports are optional enhancement paths with in-code fallbacks or
+# dynamic availability checks.
+per_rule_ignores = { DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"], DEP002 = ["docling"] }

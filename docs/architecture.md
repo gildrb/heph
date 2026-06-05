@@ -12,20 +12,18 @@ the harness, and extensible surfaces:
 
 ```
 packages/
-  heph/        Model-facing identity, self-knowledge, prompt contracts, state
-    identity/  Stable self-description and conversational identity
-    prompts/   Prompt programs treated as code
-    state/     Declarative JSON/Markdown state contracts
-  hephaion/    Correctness harness, retrieval, citations, runtime, persistence
-  interfaces/  User-facing shells and integrations such as TUI/CLI surfaces
-  extensions/  User-extensible workflows, tools, prompts, and integrations
+  heph/        App package: command entrypoint, identity, product composition
+  hephaion/    Correctness harness: turns, grounding, citations, memory/study
+  ai/          Import package `heph_ai`: providers, runtime, logging, palette
+  interfaces/  Import package `heph_interfaces`: CLI/TUI/terminal adapters
+  extensions/  Import package `heph_extensions`: extension contracts
 ```
 
-`packages/hephaion` is the current importable `hephaion` package.
-`heph`, `interfaces`, and `extensions` are migration roots. Moving code into them
-must preserve the product promise: Heph is the thing the user talks to, while
-Hephaion is the harness that prepares context, runs loops, validates grounding,
-streams events, records state, and persists sessions.
+Each package uses its own `src/` and `test/` tree where useful. Heph is the
+thing the user talks to and the canonical console command (`heph`), while
+`hephaion` remains a command alias. Hephaion is the harness that prepares
+context, runs loops, validates grounding, streams events, records state, and
+persists sessions.
 
 The long-term goal is a closed kernel with an open extension plane. Heph and
 Hephaion should know their own contracts well enough that a user can ask Heph to
@@ -42,98 +40,59 @@ should not hardcode semantic dispatch for every possible user phrase.
 
 ## Architecture tiers
 
-- **Heph target package**: `heph`. This owns the future model-facing identity,
-  self-knowledge, prompt programs, and declarative state contracts.
-- **Core reusable packages**: `runtime`, `providers`, `logging`, `matching`,
-  `terminal.palette`, `_types`. These are the most copyable packages and must
-  not import product workflow packages.
+- **Heph app package**: `heph`. This owns the console command target, product
+  composition, Heph identity, and self-knowledge surfaces.
+- **AI package**: `heph_ai`. This owns provider configuration/auth, model
+  catalogs, runtime streaming, retry, usage, logging, palette, prompt-cache
+  request shaping, and conversation/message primitives.
 - **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
-  `study`. These may model Heph agent concepts, but must not depend on
-  adapters, CLI command handlers, TUI modules, or chat session orchestration.
+  `study` under `hephaion`. These model harness state and materials but must not
+  depend on app or adapter packages.
 - **Application services**: `chat` and focused workflow modules. These compose
-  core/domain packages into session lifecycle, evidence, memory workflows, and
-  turn orchestration.
-- **Interfaces**: `tui`, `cli`, `commands`, and terminal compatibility
-  modules. The TUI is the human interface; the CLI is the command and automation
-  skeleton. Interface packages may depend broadly, but reusable decisions should be
-  promoted into services or domain packages instead of staying in adapter code.
+  AI/domain packages into session lifecycle, evidence, memory workflows, and
+  turn orchestration inside the `hephaion` harness.
+- **Interfaces**: `heph_interfaces`. This owns Textual TUI, CLI-facing terminal
+  behavior, keybindings, transcript/composer/status rendering, and adapter
+  diagnostics. It is not a reusable TUI framework. Interface packages may depend
+  broadly, but reusable decisions should be promoted into services or domain
+  packages instead of staying in adapter code.
   Interface modes should expose the same harness as interactive TUI,
   print/plain CLI, JSON streaming, and future RPC/process integration surfaces
   without duplicating core routing, validation, or extension decisions.
-- **Extension targets**: `packages/extensions` and future interface packages.
-  User-modifiable behavior should depend on stable contracts, not modify Heph
-  identity or Hephaion harness internals directly. If a requested capability is
-  user-specific and not part of the correctness harness, prefer an extension seam
-  over another built-in branch.
+- **Extensions**: `heph_extensions`. This package owns stable extension
+  contracts for user tools, prompt/workflow hooks, and examples. User-modifiable
+  behavior should depend on stable contracts, not modify Heph identity or
+  Hephaion harness internals directly.
 
 ## Dependency flow
 
 ```mermaid
 graph TD
-    CLI[cli] --> TUI[tui]
-    CLI --> Commands[commands]
-    TUI --> Chat[chat]
-    TUI --> Commands
-    Commands --> Chat
-    Commands --> Providers[providers]
-    Commands --> Runtime[runtime]
-    Commands --> Armory[armory]
-    Commands --> Study[study]
-    Commands --> Memory[memory]
-    Commands --> Parameters[parameters]
-    Commands --> Materials[materials]
-    Commands --> Logging[logging]
-    Commands --> Palette[palette]
-    Commands --> RAG[rag]
-    Commands --> Vocab[vocab]
-
-    Chat --> Agent
-    Chat --> Providers
-    Chat --> Runtime
-    Chat --> Logging
-    Chat --> Memory
-
-    Agent --> Providers
-    Agent --> Runtime
-    Agent --> Logging
-    Agent --> Memory
-
-    Memory --> Runtime
-    Parameters --> Runtime
-
+    Heph[heph app] --> Interfaces[heph_interfaces adapters]
+    Heph --> Harness[hephaion harness]
+    Heph --> AI[heph_ai]
+    Heph --> Extensions[heph_extensions]
+    Interfaces --> Harness
+    Interfaces --> AI
+    Interfaces --> Extensions
+    Harness --> AI
+    Harness --> Extensions
+    Harness --> Materials[materials]
+    Harness --> RAG[rag]
+    Harness --> Study[study]
+    Harness --> Memory[memory]
+    Harness --> Agent[agent]
     RAG --> Materials
-
-    Vocab --> Logging
-
-    Providers --> Logging
-    Providers --> Palette
-
-    Study --> Logging
-
-    Armory --> Logging
-
-    Parameters --> Logging
-
-    Materials --> Logging
-
-    Logging --> Palette
-
-    Runtime -->|API calls| LLM[OpenAI / Anthropic / etc.]
-    Providers -->|Key storage| Keyring[OS Keyring]
-
-    Agent -->|RAG index| FileStore[Armory Files]
-    Chat -->|Session state| FileStore
+    AI -->|API calls| LLM[OpenAI / Anthropic / etc.]
+    Harness -->|Armory and sessions| FileStore[Armory Files]
 ```
 
-The top layer is the interface surface: **tui**, **cli**, **commands**,
-and **terminal**. `tui` is the primary interactive Textual interface; `cli` is
-the public command dispatcher for launching the TUI, automation, and one-shot
-commands. `commands` contains slash-command handlers, and `terminal` owns
-low-level terminal I/O, styling, history, and command dispatch. Reusable packages communicate
-through their public APIs and must not import adapter packages. Shared LLM
-request primitives live in **runtime** so chat, agent, memory, parameters, and
-providers do not import each other just to share message types or streaming
-helpers.
+The top layer is the app surface: `heph` wires command entrypoints and composes
+the interface adapters, harness, AI runtime, and extension contracts.
+`heph_interfaces` owns human and process adapters. Reusable packages communicate
+through public APIs and must not import adapter packages. Shared LLM request
+primitives live in `heph_ai.runtime` so chat, agent, memory, and study workflows
+do not import each other just to share message types or streaming helpers.
 
 ## Core harness flow
 
@@ -218,28 +177,28 @@ packages/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`hephaion.cli`, `hephaion.commands`, `hephaion.tui`,
-`hephaion.terminal.history` or `hephaion.terminal.input`.
+`heph.cli`, `heph.commands`, `heph_interfaces.tui`,
+`heph_interfaces.terminal.history` or `heph_interfaces.terminal.input`.
 
 - `hephaion.chat`
 - `hephaion.agent`
-- `hephaion.providers`
+- `heph_ai.providers`
 - `hephaion.rag`
 - `hephaion.armory`
 - `hephaion.study`
 - `hephaion.memory`
 - `hephaion.parameters`
 - `hephaion.materials`
-- `hephaion.runtime`
+- `heph_ai.runtime`
 - `hephaion.vocab`
-- `hephaion.logging`
-- `hephaion.terminal.palette`
+- `heph_ai.logging`
+- `heph_ai.palette`
 - `hephaion.matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`hephaion.logging` and `hephaion.diagnostics.crashes` must not import from
-`hephaion.cli`, `hephaion.commands`, or `hephaion.tui`.
+`heph_ai.logging` and `hephaion.diagnostics.crashes` must not import from
+`heph.cli`, `heph.commands`, or `heph_interfaces.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
@@ -254,7 +213,7 @@ is one-way.
 
 ### Low level: runtime
 
-`hephaion.runtime` owns shared LLM primitives such as `ChatConfig`,
+`heph_ai.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
 and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
 `materials`, `memory`, or `armory`. Providers may be used by runtime, but
@@ -262,7 +221,7 @@ providers must not import product workflow packages.
 
 ### Core: providers
 
-`hephaion.providers` owns provider configuration, model catalogs, registry
+`heph_ai.providers` owns provider configuration, model catalogs, registry
 metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 `rag`, `study`, or `materials`.
 
@@ -352,7 +311,7 @@ Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
   configured and the user explicitly opts in.
 - `hephaion.diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `packages/hephaion/privacy/release.py` is committed as a safe stub in the public
+- `packages/hephaion/src/hephaion/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom

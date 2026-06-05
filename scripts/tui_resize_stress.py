@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree, which
 
-from hephaion.tui.display_text import COMPOSER_PLACEHOLDER
+from heph_interfaces.tui.display_text import COMPOSER_PLACEHOLDER
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WIDTH = 150

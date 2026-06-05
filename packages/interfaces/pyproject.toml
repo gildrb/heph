@@ -1,0 +1,26 @@
+[project]
+name = "heph-interfaces"
+version = "0.1.0"
+description = "CLI/TUI adapter interfaces for Heph"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.13"
+dependencies = [
+    "heph-ai==0.1.0",
+    "hephaion==0.1.0",
+    "rich==14.3.3",
+    "textual==8.2.4",
+    "unicodeit==0.7.5",
+]
+
+[tool.uv.sources]
+heph-ai = { workspace = true }
+hephaion = { workspace = true }
+
+[build-system]
+requires = ["uv_build==0.11.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "heph_interfaces"
+module-root = "src"

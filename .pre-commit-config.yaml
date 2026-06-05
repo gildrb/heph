@@ -58,13 +58,13 @@ repos:
       - id: vulture
         name: vulture (dead-code)
         language: python
-        entry: uv run vulture packages/hephaion tests vulture-whitelist.py
+        entry: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
         types: [python]
         pass_filenames: false
       - id: pylint-duplicate-code
         name: pylint (duplicate-code)
         language: python
-        entry: uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/hephaion
+        entry: uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src
         types: [python]
         pass_filenames: false
       - id: lint-imports
@@ -81,14 +81,14 @@ repos:
         pass_filenames: false
       - id: deptry
         name: deptry (unused-deps)
-        language: python
-        entry: uv run deptry packages/hephaion
+        language: system
+        entry: bash -c 'uv run deptry packages/ai/src --config packages/ai/pyproject.toml && uv run deptry packages/extensions/src --config packages/extensions/pyproject.toml && uv run deptry packages/heph/src --config packages/heph/pyproject.toml && uv run deptry packages/hephaion/src --config packages/hephaion/pyproject.toml && uv run deptry packages/interfaces/src --config packages/interfaces/pyproject.toml'
         types: [python]
         pass_filenames: false
       - id: radon-complexity
         name: radon (complexity)
         language: python
-        entry: uv run radon cc packages/hephaion -a -nc
+        entry: uv run radon cc packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -a -nc
         types: [python]
         pass_filenames: false
       - id: check-tech-debt

@@ -10,7 +10,7 @@ from pathlib import Path
 from radon.complexity import cc_visit
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ROOT = ROOT / "packages" / "hephaion"
+SOURCE_ROOT = ROOT / "packages" / "hephaion" / "src" / "hephaion"
 
 MODULE_LINE_THRESHOLD = 1_200
 CLASS_LINE_THRESHOLD = 500

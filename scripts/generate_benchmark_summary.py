@@ -1679,7 +1679,7 @@ def _visualization_notes(include_visualizations: bool) -> tuple[str, ...]:
     if importlib.util.find_spec("matplotlib") is None:
         return (
             "Visualization extras were requested but are not installed; Markdown output was "
-            "generated without charts. Install with `uv sync --extra visualization`.",
+            "generated without charts. Install with `uv sync --group visualization`.",
         )
     return (
         "Visualization extras are installed; deterministic Markdown tables remain the canonical "

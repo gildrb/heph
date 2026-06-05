@@ -13,9 +13,23 @@ from pathlib import Path
 from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-HEPHAION_SOURCE_ROOT: Final[Path] = REPO_ROOT / "packages" / "hephaion"
+PACKAGE_IMPORT_ROOTS: Final[dict[Path, str]] = {
+    REPO_ROOT / "packages" / "ai" / "src" / "heph_ai": "heph_ai",
+    REPO_ROOT / "packages" / "extensions" / "src" / "heph_extensions": "heph_extensions",
+    REPO_ROOT / "packages" / "heph" / "src" / "heph": "heph",
+    REPO_ROOT / "packages" / "hephaion" / "src" / "hephaion": "hephaion",
+    REPO_ROOT / "packages" / "interfaces" / "src" / "heph_interfaces": "heph_interfaces",
+}
+PACKAGE_TEST_ROOTS: Final[dict[Path, str]] = {
+    REPO_ROOT / "packages" / "ai" / "test": "heph_ai/test",
+    REPO_ROOT / "packages" / "extensions" / "test": "heph_extensions/test",
+    REPO_ROOT / "packages" / "heph" / "test": "heph/test",
+    REPO_ROOT / "packages" / "hephaion" / "test": "hephaion/test",
+    REPO_ROOT / "packages" / "interfaces" / "test": "heph_interfaces/test",
+}
 SCAN_ROOTS: Final[tuple[Path, ...]] = (
-    HEPHAION_SOURCE_ROOT,
+    *PACKAGE_IMPORT_ROOTS.keys(),
+    *PACKAGE_TEST_ROOTS.keys(),
     REPO_ROOT / "tests",
     REPO_ROOT / "scripts",
     REPO_ROOT / "vulture-whitelist.py",
@@ -81,7 +95,7 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
-    "hephaion/cli/main.py": frozenset(
+    "heph/cli/main.py": frozenset(
         {
             "importlib.import_module",
         }
@@ -101,7 +115,7 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
-    "tests/test_rag_retrieve.py": frozenset(
+    "hephaion/test/test_rag_retrieve.py": frozenset(
         {
             "importlib.import_module",
         }
@@ -116,44 +130,44 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "hephaion.agent.tools",
         }
     ),
-    "hephaion/runtime/engine.py": frozenset(
+    "heph_ai/runtime/engine.py": frozenset(
         {
             "openai",
         }
     ),
-    "hephaion/terminal/input.py": frozenset(
+    "heph_interfaces/terminal/input.py": frozenset(
         {
             "hephaion.chat.session",
-            "hephaion.runtime",
+            "heph_ai.runtime",
         }
     ),
-    "hephaion/tui/__init__.py": frozenset(
+    "heph_interfaces/tui/__init__.py": frozenset(
         {
             "hephaion.chat.cli",
-            "hephaion.commands",
-            "hephaion.terminal.input",
+            "heph.commands",
+            "heph_interfaces.terminal.input",
         }
     ),
-    "hephaion/tui/external_commands.py": frozenset(
+    "heph_interfaces/tui/external_commands.py": frozenset(
         {
-            "hephaion.commands",
-            "hephaion.terminal.input",
+            "heph_interfaces.tui.command_access",
+            "heph_interfaces.terminal.input",
         }
     ),
-    "hephaion/tui/slash_command.py": frozenset(
+    "heph_interfaces/tui/slash_command.py": frozenset(
         {
-            "hephaion.commands",
+            "heph.commands",
         }
     ),
-    "hephaion/tui/status.py": frozenset(
+    "heph_interfaces/tui/status.py": frozenset(
         {
-            "hephaion.runtime",
+            "heph_ai.runtime",
         }
     ),
-    "hephaion/tui/streaming.py": frozenset(
+    "heph_interfaces/tui/streaming.py": frozenset(
         {
             "hephaion.chat.automation",
-            "hephaion.runtime",
+            "heph_ai.runtime",
         }
     ),
 }
@@ -433,7 +447,7 @@ class PolicyVisitor(ast.NodeVisitor):
         )
 
     def _is_product_runtime_file(self) -> bool:
-        return self.rel_path.startswith("hephaion/")
+        return self.rel_path.startswith(("heph/", "heph_ai/", "heph_interfaces/", "hephaion/"))
 
     def _is_product_script_file(self) -> bool:
         return self.rel_path.startswith("scripts/")
@@ -800,8 +814,12 @@ def _check_duplicate_prompt_rules() -> list[Violation]:
 
 
 def _repo_relative_path(path: Path) -> str:
-    if path.is_relative_to(HEPHAION_SOURCE_ROOT):
-        return f"hephaion/{path.relative_to(HEPHAION_SOURCE_ROOT).as_posix()}"
+    for package_root, import_root in PACKAGE_IMPORT_ROOTS.items():
+        if path.is_relative_to(package_root):
+            return f"{import_root}/{path.relative_to(package_root).as_posix()}"
+    for package_root, logical_root in PACKAGE_TEST_ROOTS.items():
+        if path.is_relative_to(package_root):
+            return f"{logical_root}/{path.relative_to(package_root).as_posix()}"
     try:
         return path.relative_to(REPO_ROOT).as_posix()
     except ValueError:

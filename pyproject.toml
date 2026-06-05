@@ -1,66 +1,21 @@
-[project]
-name = "heph"
-version = "0.1.0"
-description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
-readme = "README.md"
-license = "GPL-3.0-only"
-license-files = ["LICENSE"]
-authors = [
-    { name = "Gil", email = "hi@gildrb.com" }
-]
-requires-python = ">=3.13"
-keywords = ["cli", "documents", "llm", "rag", "retrieval", "learning"]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Environment :: Console",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Utilities",
-    "Typing :: Typed",
-]
-dependencies = [
-    "keyring==25.7.0",
-    "openai==2.24.0",
-    "rich==14.3.3",
-    "certifi==2026.2.25",
-    "textual==8.2.4",
-    "unicodeit==0.7.5",
-    "docling==2.94.0",
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "packages/ai",
+    "packages/extensions",
+    "packages/heph",
+    "packages/hephaion",
+    "packages/interfaces",
 ]
 
-[project.urls]
-Homepage = "https://github.com/gildrb/heph"
-Repository = "https://github.com/gildrb/heph"
-Issues = "https://github.com/gildrb/heph/issues"
-
-[project.optional-dependencies]
-embeddings = [
-    "sentence-transformers==5.3.0",
-    "scikit-learn==1.8.0",
-]
-rag = [
-    "pathspec==1.0.4",
-    "tiktoken==0.13.0",
-]
-fuzzy = [
-    "rapidfuzz==3.14.5",
-]
-beir = [
-    "beir==2.2.0",
-]
-visualization = [
-    "matplotlib==3.10.9",
-]
-
-[project.scripts]
-hephaion = "hephaion.cli.main:main"
-heph = "hephaion.cli.main:main"
-
-[build-system]
-requires = ["uv_build==0.11.11"]
-build-backend = "uv_build"
+[tool.uv.sources]
+heph = { workspace = true }
+heph-ai = { workspace = true }
+heph-extensions = { workspace = true }
+heph-interfaces = { workspace = true }
+hephaion = { workspace = true }
 
 [tool.ruff]
 line-length = 99
@@ -138,8 +93,8 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
-"packages/hephaion/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
-"packages/hephaion/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"packages/ai/src/heph_ai/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
+"packages/ai/src/heph_ai/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
@@ -150,15 +105,23 @@ parametrize-values-row-type = "tuple"
 mark-parentheses = false
 raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeError", "OSError"]
 
-[tool.uv.build-backend]
-module-name = "hephaion"
-module-root = "packages"
-
 [tool.ty.environment]
 python-version = "3.13"
 
 [tool.ty.src]
-include = ["packages/hephaion", "tests"]
+include = [
+    "packages/ai/src",
+    "packages/ai/test",
+    "packages/extensions/src",
+    "packages/extensions/test",
+    "packages/heph/src",
+    "packages/heph/test",
+    "packages/hephaion/src",
+    "packages/hephaion/test",
+    "packages/interfaces/src",
+    "packages/interfaces/test",
+    "tests",
+]
 exclude = ["vulture-whitelist.py", ".venv"]
 
 [tool.ty.rules]
@@ -182,55 +145,68 @@ score = false
 
 [tool.vulture]
 min_confidence = 80
-paths = ["packages/hephaion", "tests", "vulture-whitelist.py"]
+paths = [
+    "packages/ai/src",
+    "packages/ai/test",
+    "packages/extensions/src",
+    "packages/extensions/test",
+    "packages/heph/src",
+    "packages/heph/test",
+    "packages/hephaion/src",
+    "packages/hephaion/test",
+    "packages/interfaces/src",
+    "packages/interfaces/test",
+    "tests",
+    "vulture-whitelist.py",
+]
 
 [tool.bandit]
 severity = "low"
 confidence = "low"
-exclude_dirs = ["tests"]
+exclude_dirs = [
+    "packages/ai/test",
+    "packages/extensions/test",
+    "packages/heph/test",
+    "packages/hephaion/test",
+    "packages/interfaces/test",
+    "tests",
+]
 skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
-root_packages = ["hephaion"]
+root_packages = ["heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"]
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
-name = "logging must not import adapters"
+name = "heph_ai must stay below product workflows"
 type = "forbidden"
-source_modules = ["hephaion.logging"]
+source_modules = ["heph_ai"]
 forbidden_modules = [
-    "hephaion.cli",
-    "hephaion.commands",
-    "hephaion.tui",
+    "heph",
+    "heph_interfaces",
+    "hephaion",
 ]
 
 [[tool.importlinter.contracts]]
-name = "reusable packages must not import adapters"
+name = "heph_extensions stays contract-first"
 type = "forbidden"
-source_modules = [
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
-    "hephaion.providers",
-    "hephaion.armory",
-    "hephaion.study",
-    "hephaion.memory",
-    "hephaion.materials",
-    "hephaion.parameters",
-    "hephaion.runtime",
-    "hephaion.logging",
-    "hephaion.terminal.palette",
-    "hephaion.matching",
-    "hephaion.privacy",
-    "hephaion.diagnostics",
-    "hephaion.vocab",
-]
+source_modules = ["heph_extensions"]
 forbidden_modules = [
-    "hephaion.cli",
-    "hephaion.commands",
-    "hephaion.terminal.history",
-    "hephaion.terminal.input",
-    "hephaion.tui",
+    "heph",
+    "heph_interfaces",
+    "heph_interfaces.tui",
+    "hephaion",
+    "heph_ai.runtime",
+    "heph_ai.providers",
+]
+
+[[tool.importlinter.contracts]]
+name = "hephaion harness must not import app or interfaces"
+type = "forbidden"
+source_modules = ["hephaion"]
+forbidden_modules = [
+    "heph",
+    "heph_interfaces",
 ]
 
 [[tool.importlinter.contracts]]
@@ -238,7 +214,6 @@ name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
 source_modules = ["hephaion.materials"]
 forbidden_modules = [
-    "hephaion.tui",
     "hephaion.chat",
     "hephaion.agent",
     "hephaion.rag",
@@ -252,51 +227,20 @@ source_modules = ["hephaion.rag"]
 forbidden_modules = [
     "hephaion.agent",
     "hephaion.chat",
-    "hephaion.tui",
     "hephaion.study",
-]
-
-[[tool.importlinter.contracts]]
-name = "runtime must stay below product workflows"
-type = "forbidden"
-source_modules = ["hephaion.runtime"]
-forbidden_modules = [
-    "hephaion.tui",
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
-    "hephaion.study",
-    "hephaion.materials",
-    "hephaion.memory",
-    "hephaion.armory",
-]
-
-[[tool.importlinter.contracts]]
-name = "providers must stay below product workflows"
-type = "forbidden"
-source_modules = ["hephaion.providers"]
-forbidden_modules = [
-    "hephaion.tui",
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
-    "hephaion.runtime",
-    "hephaion.study",
-    "hephaion.materials",
 ]
 
 [[tool.importlinter.contracts]]
 name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
 source_modules = ["hephaion.memory"]
-forbidden_modules = ["hephaion.tui", "hephaion.chat", "hephaion.agent"]
+forbidden_modules = ["hephaion.chat", "hephaion.agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
 source_modules = ["hephaion.study"]
 forbidden_modules = [
-    "hephaion.tui",
     "hephaion.chat",
     "hephaion.agent",
     "hephaion.rag",
@@ -314,23 +258,20 @@ type = "independence"
 modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
-name = "diagnostics must not import adapters"
+name = "heph_interfaces must not import heph app composition"
 type = "forbidden"
-source_modules = ["hephaion.diagnostics"]
-forbidden_modules = [
-    "hephaion.cli",
-    "hephaion.commands",
-    "hephaion.tui",
-]
-
-[[tool.importlinter.contracts]]
-name = "commands must not import tui"
-type = "forbidden"
-source_modules = ["hephaion.commands"]
-forbidden_modules = ["hephaion.tui"]
+source_modules = ["heph_interfaces"]
+forbidden_modules = ["heph"]
 
 [tool.deptry]
-extend_exclude = ["tests"]
+extend_exclude = [
+    "packages/ai/test",
+    "packages/extensions/test",
+    "packages/heph/test",
+    "packages/hephaion/test",
+    "packages/interfaces/test",
+    "tests",
+]
 # Docling and optional RAG deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on "hephaion" is a false positive — the project imports its own subpackages.
@@ -338,11 +279,18 @@ extend_exclude = ["tests"]
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
 # DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaion", "certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion", "certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=hephaion --cov-report=term-missing --cov-fail-under=46"
-testpaths = ["tests"]
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=heph --cov=heph_ai --cov=heph_extensions --cov=heph_interfaces --cov=hephaion --cov-report=term-missing --cov-fail-under=46"
+testpaths = [
+    "packages/ai/test",
+    "packages/extensions/test",
+    "packages/heph/test",
+    "packages/hephaion/test",
+    "packages/interfaces/test",
+    "tests",
+]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
@@ -378,4 +326,10 @@ rag = [
     "bm25s==0.3.5",
     "sentence-transformers==5.3.0",
     "scikit-learn==1.8.0",
+]
+beir = [
+    "beir==2.2.0",
+]
+visualization = [
+    "matplotlib==3.10.8",
 ]
