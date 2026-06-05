@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from _types import is_object_list, is_string_mapping
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 _log = get_logger("memory")
 

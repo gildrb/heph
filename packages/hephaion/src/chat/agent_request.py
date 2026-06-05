@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from runtime.conversation import Conversation, Message
+from ai.runtime.conversation import Conversation, Message
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningState
 

@@ -4,12 +4,12 @@ import json
 from typing import Self
 
 import pytest
-from providers import catalog
-from providers.catalog import LiveProviderCatalog
-from providers.config import default_config
-from providers.model_choices import configured_model_choices, model_picker_columns
-from providers.reasoning import reasoning_levels_for_model
-from providers.registry import ModelInfo, get_registry
+from ai.providers import catalog
+from ai.providers.catalog import LiveProviderCatalog
+from ai.providers.config import default_config
+from ai.providers.model_choices import configured_model_choices, model_picker_columns
+from ai.providers.reasoning import reasoning_levels_for_model
+from ai.providers.registry import ModelInfo, get_registry
 
 
 def _openrouter_live_catalog() -> LiveProviderCatalog:

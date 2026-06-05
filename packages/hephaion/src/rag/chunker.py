@@ -40,7 +40,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol, cast
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 from rag.vector import cosine_similarity, embedding_rows
 

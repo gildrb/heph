@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from ai.runtime.conversation import Conversation, Message
 from rag.context import TurnEvidence
-from runtime.conversation import Conversation, Message
 
 from chat.citation_patterns import (
     _OVERVIEW_CITATION_ID_RE,

@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ai.runtime import ChatConfig
 from memory import MemoryStore
 from memory.extract import extract_and_store, extract_from_exchange
-from runtime import ChatConfig
 
 
 def _make_config() -> ChatConfig:

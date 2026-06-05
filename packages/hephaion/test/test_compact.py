@@ -17,7 +17,7 @@ from agent.compact import (
     micro_compact,
 )
 from agent.dispatch import _sync_conversation
-from runtime import ApiMessage, Conversation, ToolCallDelta
+from ai.runtime import ApiMessage, Conversation, ToolCallDelta
 
 # ---------------------------------------------------------------------------
 # Helpers

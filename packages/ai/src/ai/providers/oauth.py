@@ -21,13 +21,12 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 import certifi
-from ai_logging import get_logger
-from ai_types import is_string_mapping
-from palette import LIGHT_THEME
 
-from providers.volatile_keys import clear_volatile_key
+from ai.logging import get_logger
+from ai.providers.volatile_keys import clear_volatile_key
+from ai.types import is_string_mapping
 
-_log = get_logger("providers.oauth")
+_log = get_logger("ai.providers.oauth")
 
 _AUTH_DIR = Path.home() / ".config" / "hephaion"
 _AUTH_FILE = _AUTH_DIR / "auth.json"
@@ -39,6 +38,7 @@ _REDIRECT_URI = "http://localhost:1455/auth/callback"
 _SCOPE = "openid profile email offline_access"
 _CALLBACK_PORT = 1455
 _CALLBACK_TIMEOUT_SECONDS = 120
+_ERROR_TEXT_COLOR = "#B00020"
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
 _SUCCESS_HTML = (
@@ -51,7 +51,7 @@ _SUCCESS_HTML = (
 _ERROR_HTML_TEMPLATE = (
     "<!DOCTYPE html><html><body"
     " style='font-family:sans-serif;text-align:center;padding:2em'>"
-    f"<h2 style='color:{LIGHT_THEME.status_error_text}'>Authentication failed</h2>"
+    f"<h2 style='color:{_ERROR_TEXT_COLOR}'>Authentication failed</h2>"
     "<p>{error}</p></body></html>"
 )
 

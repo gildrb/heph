@@ -4,9 +4,9 @@ Hephaion owns the correctness-critical harness:
 
 `intent -> planning -> evidence -> generation/repair -> verification/finalization`
 
-It may depend on AI primitives from `runtime`, `providers`, `ai_logging`, and
-related `packages/ai/src` concerns, plus extension contracts, but it does not
-import the app package or interface adapters.
+It may depend on `ai.*` primitives plus extension contracts, but it does not
+import Heph or interface adapters. Hephaion protects correctness; Heph owns the
+agent brain that decides how to use this harness.
 
 ## Ownership
 
@@ -24,27 +24,32 @@ The package owns:
 - `study` and `vocab`: learning state, recall scheduling, assessment, priority
   analysis, and drills;
 - `privacy` and `diagnostics`: local consent, safe release stubs, anonymous
-  opt-in events, and redacted crash reporting.
+  opt-in events, armory-scoped traces, and redacted crash reporting.
+
+The current `agent` and `chat` modules still host migration-era loop mechanics.
+Preserve their guardrail and evidence responsibilities, but move new
+conversational strategy, research orchestration, and Heph-facing persona toward
+Heph-facing modules.
 
 ## Dependency Direction
 
 Allowed direction:
 
 ```text
-hephaion -> heph-ai
-hephaion -> heph-extensions
+hephaion -> ai
+hephaion -> extensions
 rag -> materials
-chat -> rag / memory / study / agent / runtime
+chat -> rag / memory / study / agent / ai.runtime
 ```
 
 Forbidden direction:
 
 ```text
 hephaion -> heph
-hephaion -> heph-interfaces
+hephaion -> interfaces
 materials -> rag / chat / agent / study
 study -> chat / agent / rag / adapters
-runtime -> hephaion
+ai -> hephaion
 ```
 
 Integration tests may exercise app and interface composition when they are
@@ -53,5 +58,9 @@ testing migrated workflows, but runtime source should keep the harness portable.
 ## Migration Pressure
 
 If a harness module starts to render UI, parse command-line arguments, or know
-about TUI keybindings, move that behavior to `heph-interfaces` or `heph`. If a
-module starts to know provider SDK details, move that part to `heph-ai`.
+about TUI keybindings, move that behavior to Interfaces or Heph. If a module
+starts to know provider SDK details, move that part to AI.
+
+If a harness module starts to decide who Heph is, how Heph should talk, or how
+Heph should conduct research beyond invoking correctness services, move that
+behavior to Heph and keep Hephaion as the validation boundary.

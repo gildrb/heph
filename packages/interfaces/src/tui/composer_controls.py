@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from providers.catalog import prefetch_provider_model_catalogs
-from providers.config import ProviderConfig
-from providers.reasoning import next_reasoning_level, reasoning_levels_for_model
+from ai.providers.catalog import prefetch_provider_model_catalogs
+from ai.providers.config import ProviderConfig
+from ai.providers.reasoning import next_reasoning_level, reasoning_levels_for_model
 from terminal.theme_state import current_palette
 
 import tui.widgets as _tui_widgets

@@ -8,14 +8,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ai_types import is_object_list, is_string_mapping
-
-from providers.keyring_store import resolve_key
-from providers.model_support import filter_supported_models
-from providers.registry import builtin_models
+from ai.providers.keyring_store import resolve_key
+from ai.providers.model_support import filter_supported_models
+from ai.providers.registry import builtin_models
+from ai.types import is_object_list, is_string_mapping
 
 if TYPE_CHECKING:
-    from runtime import ChatConfig
+    from ai.runtime import ChatConfig
 
 _CONFIG_DIR = Path.home() / ".config" / "hephaion"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"

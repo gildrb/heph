@@ -1,15 +1,15 @@
 """Shared LLM runtime primitives used across Heph packages."""
 
-from runtime._api_types import (
+from ai.runtime._api_types import (
     ApiMessage,
     ContentPart,
     ToolCallDelta,
     UsagePayload,
 )
-from runtime.config import ChatConfig
-from runtime.conversation import Conversation, Message, to_chat_completion_messages
-from runtime.delta import CompletionDelta
-from runtime.engine import (
+from ai.runtime.config import ChatConfig
+from ai.runtime.conversation import Conversation, Message, to_chat_completion_messages
+from ai.runtime.delta import CompletionDelta
+from ai.runtime.engine import (
     build_client,
     has_configured_access,
     is_keyless_endpoint,
@@ -18,9 +18,9 @@ from runtime.engine import (
     stream_completion,
     stream_reply,
 )
-from runtime.errors import EngineError, RetryConfig, StreamRecoveryError
-from runtime.messages import api_content_text, message_content_text
-from runtime.resilience import (
+from ai.runtime.errors import EngineError, RetryConfig, StreamRecoveryError
+from ai.runtime.messages import api_content_text, message_content_text
+from ai.runtime.resilience import (
     CircuitBreaker,
     CircuitState,
     is_network_error,

@@ -9,8 +9,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
-from providers.catalog import prefetch_provider_model_catalogs
-from providers.config import ProviderConfig
+from ai.providers.catalog import prefetch_provider_model_catalogs
+from ai.providers.config import ProviderConfig
 
 from tui.ids import (
     COMPLETION_STACK_SELECTOR,

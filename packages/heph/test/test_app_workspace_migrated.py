@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import commands
 import pytest
+from ai.runtime import ChatConfig
 from armory.search import (
     add_known_armory,
     get_last_armory,
@@ -23,7 +24,6 @@ from chat.session import (
     create_session,
 )
 from commands import CommandResult
-from runtime import ChatConfig
 from terminal.history import InputHistory
 from terminal.input import handle_input
 from tui.session_actions import (

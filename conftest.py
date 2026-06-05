@@ -13,25 +13,25 @@ import pytest
 # Avoid writing .pyc files during test runs
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-import ai_logging as _log_mod
+import ai.logging as _log_mod
+import ai.providers.catalog as _provider_catalog_mod
+import ai.providers.config as _provider_config_mod
+import ai.providers.keyring_store as _ks
+import ai.providers.oauth as _oauth_mod
+import ai.runtime.engine as _engine_mod
+import ai.runtime.resilience as _res_mod
 import chat.turn_finalization as _turn_finalization_mod
 import commands as _commands_mod
 import diagnostics.crashes as _obs_mod
 import parameters.settings as _settings_mod
 import privacy.consent as _privacy_mod
-import providers.catalog as _provider_catalog_mod
-import providers.config as _provider_config_mod
-import providers.keyring_store as _ks
-import providers.oauth as _oauth_mod
 import rag.chunker as _rag_chunker_mod
 import rag.optional_backends as _rag_optional_mod
-import runtime.engine as _engine_mod
-import runtime.resilience as _res_mod
 import tui.command_access as _tui_command_access
 from agent.tools import ToolHandlerResult, ToolSpec
+from ai.runtime import ApiMessage, ChatConfig
 from armory.storage import initialize
 from chat.session import create_session
-from runtime import ApiMessage, ChatConfig
 from terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
@@ -146,8 +146,8 @@ def isolated_auth_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simple
     auth_dir = tmp_path / "auth_test"
     auth_dir.mkdir(parents=True, exist_ok=True)
     auth_file = auth_dir / "auth.json"
-    monkeypatch.setattr("providers.oauth._AUTH_DIR", auth_dir)
-    monkeypatch.setattr("providers.oauth._AUTH_FILE", auth_file)
+    monkeypatch.setattr("ai.providers.oauth._AUTH_DIR", auth_dir)
+    monkeypatch.setattr("ai.providers.oauth._AUTH_FILE", auth_file)
     return SimpleNamespace(auth_dir=auth_dir, auth_file=auth_file)
 
 

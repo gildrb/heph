@@ -7,8 +7,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from ai_diagnostics import get_meter
-from ai_logging import get_logger
+from ai.diagnostics import get_meter
+from ai.logging import get_logger
 
 _log = get_logger("chat.resilience")
 _meter = get_meter("chat.resilience")

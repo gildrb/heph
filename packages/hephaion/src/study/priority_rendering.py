@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from _types import is_string_mapping
-from palette import LIGHT_THEME
 
 from study.priority_analysis import PriorityAnalysis, priority_tier
 from study.priority_types import (
@@ -36,6 +35,7 @@ max arg sqrt frac left right cdots ldots dots text
 """.strip()
 _ALLOWED_LATEX_MATH_COMMANDS = frozenset(_ALLOWED_LATEX_MATH_COMMAND_NAMES.split())
 _ALLOWED_LATEX_MATH_SYMBOL_COMMANDS = frozenset({",", ";", ":", "!", " ", "_"})
+_SOURCE_TEXT_COLOR = "666666"
 
 
 def build_priority_cheat_sheet(
@@ -80,9 +80,7 @@ def render_priority_latex(sheet: PriorityCheatSheet) -> str:
         r"\setlength{\parskip}{1.5pt}",
         r"\setlist[itemize]{leftmargin=*,topsep=1pt,itemsep=1pt,parsep=0pt}",
         r"\setlist[enumerate]{leftmargin=*,topsep=1pt,itemsep=1pt,parsep=0pt}",
-        r"\definecolor{hephSourceText}{HTML}{"
-        + LIGHT_THEME.text_muted.removeprefix("#").upper()
-        + "}",
+        r"\definecolor{hephSourceText}{HTML}{" + _SOURCE_TEXT_COLOR + "}",
         r"\newcommand{\sourceids}[1]{\textcolor{hephSourceText}{\footnotesize #1}}",
         r"\newcommand{\topicrule}{\vspace{2pt}\hrule\vspace{3pt}}",
         r"\pagestyle{empty}",

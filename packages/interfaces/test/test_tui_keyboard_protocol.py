@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 import tui
+from ai.runtime import ChatConfig
 from chat.session import create_plain_session
-from runtime import ChatConfig
 from textual import events
 from textual._xterm_parser import XTermParser
 from tui.keyboard_protocol import install_textual_modified_key_compat

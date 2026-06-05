@@ -1,8 +1,8 @@
-# Heph App
+# Heph Architecture
 
-Heph is the user-facing app and agent identity. It composes the interface
-adapters, correctness harness, AI runtime, and extension contracts into the
-console command.
+Heph is the agent brain the user talks to. It owns agent identity,
+research/talking orchestration, and the command entrypoint, then composes the
+interface adapters, Hephaion harness, AI runtime, and extension contracts.
 
 ## Ownership
 
@@ -12,28 +12,35 @@ The package owns:
   subcommand dispatch;
 - `commands`: slash-command registry and command implementations that coordinate
   lower packages;
-- `product`: product context bridge into extension contracts;
+- `product`: temporary self-knowledge bridge into extension contracts;
 - `identity`, `prompts`, and `state`: declarative homes for Heph's stable
   self-description and model-facing behavior.
+
+New conversational strategy, research orchestration, and Heph-facing identity
+belong here. The current `hephaion/agent` and `hephaion/chat` modules still
+contain migration-era loop mechanics; new work should move the agent-brain
+boundary toward Heph while continuing to call Hephaion for correctness checks.
 
 ## Dependency Direction
 
 Allowed direction:
 
 ```text
-heph -> heph-ai
+heph -> ai
 heph -> hephaion
-heph -> heph-interfaces
-heph -> heph-extensions
+heph -> interfaces
+heph -> extensions
 ```
 
-The app may compose broadly, but it should not own reusable behavior. If command
+Heph may compose broadly, but lower packages must not import Heph. If command
 code begins to contain retrieval, citation, memory, provider, or TUI mechanics,
-move the reusable decision into the package that owns that concern and keep the
-command as orchestration.
+move the reusable decision into the package that owns that concern.
+
+Commands may use terminal output helpers, but they must not import `tui`
+internals. The TUI adapter calls the command registry; command logic does not
+know widgets, flows, or keybindings.
 
 ## Migration Pressure
 
-This package should grow through clearer composition, identity, and command
-boundaries, not through new god modules. Heph is the user-facing app surface;
-the harness and interfaces are still separate packages.
+This package should grow through clearer identity and command boundaries, not
+through new god modules. The harness and interfaces are separate packages.

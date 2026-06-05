@@ -54,4 +54,4 @@ module-name = [
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["providers", "runtime"], heph-extensions = ["extension_contracts"], heph-interfaces = ["terminal", "tui"], hephaion = ["agent", "armory", "chat", "diagnostics", "materials", "memory", "parameters", "privacy", "rag", "study", "vocab"] }
+package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extension_contracts"], heph-interfaces = ["palette", "terminal", "tui"], hephaion = ["agent", "armory", "chat", "diagnostics", "materials", "memory", "parameters", "privacy", "rag", "study", "vocab"] }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from runtime import Conversation
+from ai.runtime import Conversation
 
 _TITLE_MAX_CHARS = 60
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")

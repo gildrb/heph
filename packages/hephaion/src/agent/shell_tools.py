@@ -10,7 +10,7 @@ import subprocess  # nosec B404
 import time
 from dataclasses import dataclass
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 _log = get_logger("agent.tools")
 

@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 import rag.health as rag_health
 from agent.dispatch import iter_agent_events
+from ai.runtime import ChatConfig
 from armory.search import add_known_armory
 from armory.storage import initialize
 from chat import cli as chat_cli
@@ -25,7 +26,6 @@ from cli.main import main as cli_main
 from cli.main import sys as cli_sys
 from rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from rag.index import load_or_build
-from runtime import ChatConfig
 from tui import TuiDependencyError
 
 cli_main_module = sys.modules[cli_main.__module__]

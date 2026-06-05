@@ -7,9 +7,9 @@ from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from ai_logging import Timer, get_logger
-from runtime.conversation import Message
-from runtime.errors import EngineError, StreamRecoveryError
+from ai.logging import Timer, get_logger
+from ai.runtime.conversation import Message
+from ai.runtime.errors import EngineError, StreamRecoveryError
 from safety.contracts import (
     GUARDRAIL_ACTION_WARN,
     GUARDRAIL_STAGE_OUTPUT,

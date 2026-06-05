@@ -12,11 +12,10 @@ import json
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from ai_logging import get_logger
+from ai.logging import get_logger
+from ai.runtime._api_types import ApiMessage, ContentPart
 
-from runtime._api_types import ApiMessage, ContentPart
-
-_log = get_logger("runtime.prompt_cache")
+_log = get_logger("ai.runtime.prompt_cache")
 
 
 @dataclass(frozen=True, slots=True)

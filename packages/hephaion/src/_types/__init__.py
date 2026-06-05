@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ai_types import (
+from ai.types import (
     JSONObject,
     JSONPrimitive,
     JSONValue,

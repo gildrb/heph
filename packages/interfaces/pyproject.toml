@@ -23,10 +23,11 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = [
+    "palette",
     "terminal",
     "tui",
 ]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["palette", "providers", "runtime"], hephaion = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }
+package_module_name_map = { heph-ai = ["ai"], hephaion = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }

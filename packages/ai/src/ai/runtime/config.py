@@ -7,14 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import cast
 
-from providers.keyring_store import resolve_key as _resolve_key
-from providers.reasoning import DEFAULT_REASONING_LEVEL, normalize_reasoning_level
+from ai.providers.keyring_store import resolve_key as _resolve_key
+from ai.providers.reasoning import DEFAULT_REASONING_LEVEL, normalize_reasoning_level
 
 
 def resolve_key(slug: str, env_var: str = "") -> str:
-    """Resolve provider keys while honoring the old runtime.engine monkeypatch target."""
+    """Resolve provider keys while honoring the old ai.runtime.engine monkeypatch target."""
 
-    engine_module = sys.modules.get("runtime.engine")
+    engine_module = sys.modules.get("ai.runtime.engine")
     engine_resolver = getattr(engine_module, "resolve_key", None)
     if callable(engine_resolver) and engine_resolver is not resolve_key:
         resolver = cast("Callable[[str, str], str]", engine_resolver)

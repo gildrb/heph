@@ -9,11 +9,10 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-import ai_logging as logging_module
+import ai.logging as logging_module
 import pytest
-from ai_logging import (
+from ai.logging import (
     Timer,
-    TraceWriter,
     _JsonFormatter,
     _TextFormatter,
     get_logger,
@@ -251,116 +250,6 @@ class TestTimer:
     def test_context_manager_returns_self(self) -> None:
         with Timer() as t:
             assert isinstance(t, Timer)
-
-
-# ---------------------------------------------------------------------------
-# TraceWriter
-# ---------------------------------------------------------------------------
-
-
-class TestTraceWriter:
-    def test_no_armory_no_file(self) -> None:
-        tw = TraceWriter("sess1", armory_path=None)
-        assert tw.path is None
-        # Should not raise
-        tw.record_user_message("hello")
-
-    def test_creates_trace_file(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess1", armory_path=trace_dir)
-        tw.record_user_message("hello world")
-        tw.close()
-
-        trace_path = trace_dir / ".hephaion" / "traces" / "sess1.jsonl"
-        assert trace_path.exists()
-        lines = trace_path.read_text().strip().split("\n")
-        assert len(lines) == 1
-        data = json.loads(lines[0])
-        assert data["type"] == "user_message"
-        assert data["content"] == "hello world"
-        assert "ts" in data
-
-    def test_record_rag_retrieve(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess6", armory_path=trace_dir)
-        tw.record_rag_retrieve(
-            query="what is async await?",
-            top_k=5,
-            retrieved=3,
-            scores=[0.95, 0.82, 0.71],
-            latency_ms=120.3,
-            chunks=[
-                {
-                    "ref": "materials/notes.md#chunk=0",
-                    "score": 0.95,
-                    "text_excerpt": "async await suspends work without blocking the thread",
-                }
-            ],
-        )
-        tw.close()
-
-        data = json.loads((trace_dir / ".hephaion" / "traces" / "sess6.jsonl").read_text().strip())
-        assert data["type"] == "rag_retrieve"
-        assert data["retrieved"] == 3
-        assert data["scores"] == [0.95, 0.82, 0.71]
-        assert data["chunks"][0]["ref"] == "materials/notes.md#chunk=0"
-        assert "async await" in data["chunks"][0]["text_excerpt"]
-
-    def test_record_rag_retrieve_redacts_nested_chunk_secrets(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess6-secret", armory_path=trace_dir)
-        tw.record_rag_retrieve(
-            query="secret",
-            top_k=1,
-            retrieved=1,
-            scores=[1.0],
-            latency_ms=1.0,
-            chunks=[
-                {
-                    "ref": "materials/secrets.md#chunk=0",
-                    "text_excerpt": "AWS key AKIAIOSFODNN7EXAMPLE should not persist",
-                }
-            ],
-        )
-        tw.close()
-
-        raw = (trace_dir / ".hephaion" / "traces" / "sess6-secret.jsonl").read_text()
-        assert "AKIAIOSFODNN7EXAMPLE" not in raw
-        assert "***REDACTED***" in raw
-
-    def test_record_session_event(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess7", armory_path=trace_dir)
-        tw.record_session_event("created", model="glm-5")
-        tw.record_session_event("saved", path="/tmp/save.json")
-        tw.close()
-
-        lines = (
-            (trace_dir / ".hephaion" / "traces" / "sess7.jsonl").read_text().strip().split("\n")
-        )
-        assert len(lines) == 2
-        assert json.loads(lines[0])["event"] == "created"
-        assert json.loads(lines[1])["event"] == "saved"
-
-    def test_append_mode(self, trace_dir: Path) -> None:
-        # First write
-        tw = TraceWriter("sess8", armory_path=trace_dir)
-        tw.record_user_message("first")
-        tw.close()
-
-        # Second write (append)
-        tw2 = TraceWriter("sess8", armory_path=trace_dir)
-        tw2.record_user_message("second")
-        tw2.close()
-
-        lines = (
-            (trace_dir / ".hephaion" / "traces" / "sess8.jsonl").read_text().strip().split("\n")
-        )
-        assert len(lines) == 2
-        assert json.loads(lines[0])["content"] == "first"
-        assert json.loads(lines[1])["content"] == "second"
-
-    def test_close_idempotent(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess9", armory_path=trace_dir)
-        tw.record_user_message("hello")
-        tw.close()
-        tw.close()  # Should not raise
 
 
 # ---------------------------------------------------------------------------

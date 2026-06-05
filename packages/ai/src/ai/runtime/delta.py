@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from runtime._api_types import ToolCallDelta, UsagePayload
+from ai.runtime._api_types import ToolCallDelta, UsagePayload
 
 
 @dataclass(frozen=True, slots=True)

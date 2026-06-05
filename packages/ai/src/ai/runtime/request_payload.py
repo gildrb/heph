@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from providers.api_profiles import reasoning_payload_for_config
-from providers.reasoning import (
+from ai.providers.api_profiles import reasoning_payload_for_config
+from ai.providers.reasoning import (
     normalize_reasoning_level,
     reasoning_levels_for_model,
 )
-
-from runtime._api_types import ApiMessage
-from runtime.config import ChatConfig
-from runtime.conversation import to_chat_completion_messages
+from ai.runtime._api_types import ApiMessage
+from ai.runtime.config import ChatConfig
+from ai.runtime.conversation import to_chat_completion_messages
 
 
 def request_kwargs(

@@ -1,8 +1,7 @@
-"""Structured logging, redaction, and local trace files."""
+"""Structured logging, redaction, and timers."""
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
@@ -12,10 +11,22 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import ClassVar, Self, TextIO
+from typing import ClassVar, Self
 
-from ai_types import is_object_list, is_string_mapping
-from palette import DARK_THEME, ansi_fg
+from ai.types import is_object_list, is_string_mapping
+
+_LOG_TEXT_MUTED = "#6F6F6F"
+_LOG_ACCENT = "#D06A4A"
+_LOG_ERROR = "#FF6B5A"
+
+
+def _ansi_fg(hex_color: str) -> str:
+    color = hex_color.lstrip("#")
+    red = int(color[0:2], 16)
+    green = int(color[2:4], 16)
+    blue = int(color[4:6], 16)
+    return f"\033[38;2;{red};{green};{blue}m"
+
 
 # -- Redaction / scrubbing ---------------------------------------------------
 
@@ -53,6 +64,10 @@ def _redact_dict(data: Mapping[str, object]) -> dict[str, object]:
     return {key: _redact_value(key, value) for key, value in data.items()}
 
 
+def redact_mapping(data: Mapping[str, object]) -> dict[str, object]:
+    return _redact_dict(data)
+
+
 def _redact_value(key: str, value: object) -> object:
     if any(pattern.search(key) for pattern in _SENSITIVE_KEY_PATTERNS):
         return _REDACTED
@@ -87,14 +102,14 @@ class _JsonFormatter(logging.Formatter):
 
 class _TextFormatter(logging.Formatter):
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": ansi_fg(DARK_THEME.text_muted),
-        "INFO": ansi_fg(DARK_THEME.action_primary_bg),
-        "WARNING": ansi_fg(DARK_THEME.action_primary_bg),
-        "ERROR": ansi_fg(DARK_THEME.status_error_text),
-        "CRITICAL": f"\033[1m{ansi_fg(DARK_THEME.status_error_text)}",
+        "DEBUG": _ansi_fg(_LOG_TEXT_MUTED),
+        "INFO": _ansi_fg(_LOG_ACCENT),
+        "WARNING": _ansi_fg(_LOG_ACCENT),
+        "ERROR": _ansi_fg(_LOG_ERROR),
+        "CRITICAL": f"\033[1m{_ansi_fg(_LOG_ERROR)}",
     }
     _RESET = "\033[0m"
-    _DIM = f"\033[2m{ansi_fg(DARK_THEME.text_muted)}"
+    _DIM = f"\033[2m{_ansi_fg(_LOG_TEXT_MUTED)}"
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")
@@ -199,108 +214,3 @@ class Timer:
     @property
     def ms(self) -> float:
         return (self._end - self._start) * 1000
-
-
-_TRACES_DIR = "traces"
-
-
-class TraceWriter:
-    def __init__(self, session_id: str, armory_path: Path | None = None) -> None:
-        # Defense-in-depth: reject path traversal in session_id.
-        if "/" in session_id or "\\" in session_id or ".." in session_id:
-            raise ValueError(f"Invalid session_id: {session_id}")
-        self.session_id = session_id
-        self._armory_path = armory_path
-        self._path: Path | None = None
-        self._file_handle: TextIO | None = None
-        self._log = get_logger("trace")
-
-    @property
-    def path(self) -> Path | None:
-        if self._path is None and self._armory_path is not None:
-            self._path = self._armory_path / ".hephaion" / _TRACES_DIR / f"{self.session_id}.jsonl"
-        return self._path
-
-    def _write(self, event: Mapping[str, object]) -> None:
-        file_handle = self._trace_file_handle()
-        if file_handle is None:
-            return
-        line = json.dumps(_redact_dict(event), default=str, ensure_ascii=False)
-        try:
-            file_handle.write(line + "\n")
-            file_handle.flush()
-        except OSError as exc:
-            self._log.warning("trace write failed", extra={"fields": {"error": str(exc)}})
-
-    def _trace_file_handle(self) -> TextIO | None:
-        if self._file_handle is not None:
-            return self._file_handle
-        if self._armory_path is None:
-            return None
-        path = self.path
-        assert path is not None
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._file_handle = path.open("a", encoding="utf-8")
-        return self._file_handle
-
-    @staticmethod
-    def _ts() -> str:
-        return datetime.now(UTC).isoformat()
-
-    def record_user_message(self, content: str) -> None:
-        self._write({"type": "user_message", "ts": self._ts(), "content": content})
-
-    def record_rag_retrieve(
-        self,
-        *,
-        query: str,
-        top_k: int,
-        retrieved: int,
-        scores: list[float],
-        latency_ms: float,
-        chunks: list[Mapping[str, object]] | None = None,
-    ) -> None:
-        event: dict[str, object] = {
-            "type": "rag_retrieve",
-            "ts": self._ts(),
-            "query": query[:200],
-            "top_k": top_k,
-            "retrieved": retrieved,
-            "scores": [round(s, 4) for s in scores],
-            "latency_ms": round(latency_ms, 1),
-        }
-        if chunks is not None:
-            event["chunks"] = chunks
-        self._write(event)
-
-    def record_material_operation(
-        self,
-        *,
-        operation: str,
-        message: str,
-        metadata: Mapping[str, object] | None = None,
-    ) -> None:
-        event: dict[str, object] = {
-            "type": "material_operation",
-            "ts": self._ts(),
-            "operation": operation,
-            "message": message,
-        }
-        if metadata:
-            event["metadata"] = dict(metadata)
-        self._write(event)
-
-    def record_session_event(self, event: str, **details: object) -> None:
-        entry: dict[str, object] = {
-            "type": "session",
-            "ts": self._ts(),
-            "event": event,
-        }
-        entry.update(details)
-        self._write(entry)
-
-    def close(self) -> None:
-        if self._file_handle is not None:
-            with contextlib.suppress(OSError):
-                self._file_handle.close()
-            self._file_handle = None

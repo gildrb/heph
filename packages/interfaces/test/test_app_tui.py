@@ -16,17 +16,17 @@ import commands as heph_commands
 import pytest
 import tui
 import tui.display_text as tui_display_text
+from ai.providers.config import ProviderConfig, default_config
+from ai.providers.registry import ModelInfo, get_registry
+from ai.runtime import ChatConfig, Conversation
 from armory.search import KnownArmory, add_known_armory
 from armory.storage import initialize
 from chat import storage as chat_storage
 from chat.session import ChatSession, record_turn_snapshot
 from palette import DARK_THEME, LIGHT_THEME
 from parameters import settings as settings_store
-from providers.config import ProviderConfig, default_config
-from providers.registry import ModelInfo, get_registry
 from rich.segment import Segment
 from rich.text import Text
-from runtime import ChatConfig, Conversation
 from terminal import current_theme_name, set_theme
 from textual import events
 from textual._xterm_parser import XTermParser
@@ -597,7 +597,7 @@ def test_tui_config_error_allows_openai_codex_oauth(
         session_id="session-test",
     )
     monkeypatch.setattr(
-        "runtime.engine.load_credentials",
+        "ai.runtime.engine.load_credentials",
         lambda _provider, **_kwargs: object(),
     )
 
@@ -618,7 +618,7 @@ def test_tui_config_error_names_missing_openai_codex_oauth(
         session_id="session-test",
     )
     monkeypatch.setattr(
-        "runtime.engine.load_credentials",
+        "ai.runtime.engine.load_credentials",
         lambda _provider, **_kwargs: None,
     )
 

@@ -9,11 +9,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 from agent.dispatch import iter_agent_events
-from chat.events import AssistantDeltaEvent, render_turn_event
-from chat.orchestrator import TurnOrchestrator
-from chat.session import ChatSession, send_user_message
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from runtime import (
+from ai.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -21,7 +17,11 @@ from runtime import (
     StreamRecoveryError,
     stream_reply,
 )
-from runtime.engine import _wait_backoff, get_reply, is_retryable_error
+from ai.runtime.engine import _wait_backoff, get_reply, is_retryable_error
+from chat.events import AssistantDeltaEvent, render_turn_event
+from chat.orchestrator import TurnOrchestrator
+from chat.session import ChatSession, send_user_message
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -241,7 +241,7 @@ class TestStreamReplyRetry:
         mock_client.chat.completions.create.return_value = iter(chunks)
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Hi ", "there"]
@@ -258,7 +258,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Recovered"]
@@ -275,7 +275,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["OK"]
@@ -287,7 +287,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -302,7 +302,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -316,7 +316,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -335,7 +335,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -353,7 +353,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -371,7 +371,7 @@ class TestStreamReplyRetry:
         ]
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Retry OK"]
@@ -383,7 +383,7 @@ class TestStreamReplyRetry:
         abort.set()
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), abort=abort, retry=retry))
 
         assert result == []
@@ -399,7 +399,7 @@ class TestStreamReplyRetry:
         threading.Timer(0.01, abort.set).start()
 
         retry = RetryConfig(max_retries=5, base_delay=10.0, max_delay=30.0)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), abort=abort, retry=retry))
 
         assert result == []
@@ -414,7 +414,7 @@ class TestStreamReplyRetry:
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM stream failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
@@ -435,7 +435,7 @@ class TestGetReply:
         mock_client.chat.completions.create.return_value = iter(chunks)
 
         retry = RetryConfig(max_retries=0, base_delay=0.01)
-        with patch("runtime.engine.build_client", return_value=mock_client):
+        with patch("ai.runtime.engine.build_client", return_value=mock_client):
             result = get_reply(_config(), _conv(), retry=retry)
 
         assert result == "Hello world"
@@ -446,7 +446,7 @@ class TestGetReply:
 
         retry = RetryConfig(max_retries=0, base_delay=0.01)
         with (
-            patch("runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             get_reply(_config(), _conv(), retry=retry)

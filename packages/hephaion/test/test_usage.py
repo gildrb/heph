@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import ai.runtime.usage as runtime_usage_module
 import chat.usage as usage_module
 import pytest
-import runtime.usage as runtime_usage_module
+from ai.runtime import ApiMessage, UsagePayload
 from chat.usage import (
     ContextBudget,
     SessionUsage,
@@ -17,7 +18,6 @@ from chat.usage import (
     get_context_window,
     save_usage,
 )
-from runtime import ApiMessage, UsagePayload
 
 # ---------------------------------------------------------------------------
 # TokenUsage

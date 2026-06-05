@@ -17,12 +17,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
+from ai.runtime import ChatConfig, Conversation
 from chat.evidence import build_turn_evidence_from_overview
 from chat.session import ChatSession
 from materials import MaterialRole, infer_material_role_from_text, material_manifest
 from rag import ArmoryIndex, load_or_build
 from rag.health import scan_extraction_health
-from runtime import ChatConfig, Conversation
 
 _KNOWN_ROLES = frozenset(
     {

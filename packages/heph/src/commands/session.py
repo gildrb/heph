@@ -6,6 +6,8 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.runtime import has_configured_access
 from chat import storage as chat_storage
 from chat.session import (
     ChatSession,
@@ -17,8 +19,6 @@ from chat.session import (
 )
 from chat.usage import load_usage_summaries
 from diagnostics.events import capture as capture_analytics
-from providers.endpoints import is_keyless_endpoint
-from runtime import has_configured_access
 from study.schedule import load_recall_schedule
 from study.state import LearningFeedbackType
 from terminal import STYLE_DIM, print_error, print_info, print_success, styled

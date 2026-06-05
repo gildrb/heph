@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from providers.access import provider_is_accessible
-from providers.catalog import hydrate_provider_models
-from providers.config import Provider, ProviderConfig
-from providers.endpoints import is_keyless_endpoint
-from providers.registry import get_registry as get_provider_registry
+from ai.providers.access import provider_is_accessible
+from ai.providers.catalog import hydrate_provider_models
+from ai.providers.config import Provider, ProviderConfig
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.registry import get_registry as get_provider_registry
 
 _MODEL_PROVIDER_ORDER = {
     "openai": 0,

@@ -22,6 +22,14 @@ from typing import NotRequired, TypedDict, cast
 
 from _types import is_string_mapping, parse_json_object_fragment
 from agent.citation import verify_citations, verify_response
+from ai.runtime import (
+    ChatConfig,
+    Conversation,
+    EngineError,
+    Message,
+    reset_provider_circuit_breaker,
+    stream_reply,
+)
 from chat.automation import iter_chat_events
 from chat.compaction import compact_session
 from chat.events import AssistantDeltaEvent, TurnCompleteEvent
@@ -33,14 +41,6 @@ from chat.turn_contract import (
     TurnContract,
 )
 from rag import EvidenceChunk, TurnEvidence
-from runtime import (
-    ChatConfig,
-    Conversation,
-    EngineError,
-    Message,
-    reset_provider_circuit_breaker,
-    stream_reply,
-)
 from study import LearningState
 
 from scripts.create_chat_reliability_fixture import (

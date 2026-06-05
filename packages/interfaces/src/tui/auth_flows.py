@@ -5,9 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol
 
-from chat.provider_selection import activate_provider_for_session
-from providers.config import ProviderConfig
-from providers.keyring_store import (
+from ai.providers.config import ProviderConfig
+from ai.providers.keyring_store import (
     GLOBAL_API_KEY_ENV,
     clear_key,
     get_volatile,
@@ -15,7 +14,8 @@ from providers.keyring_store import (
     set_volatile,
     store_key,
 )
-from providers.oauth import clear_credentials, list_providers, login_openai_codex
+from ai.providers.oauth import clear_credentials, list_providers, login_openai_codex
+from chat.provider_selection import activate_provider_for_session
 
 from tui.flow_state import InlineFlow
 

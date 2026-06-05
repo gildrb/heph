@@ -4,16 +4,16 @@ from unittest.mock import MagicMock
 
 import pytest
 from agent.dispatch import _inject_turn_context
-from rag.chunker import Chunk
-from rag.context import EvidenceChunk, TurnEvidence
-from runtime import prompt_cache as prompt_cache_mod
-from runtime._api_types import ApiMessage
-from runtime.prompt_cache import (
+from ai.runtime import prompt_cache as prompt_cache_mod
+from ai.runtime._api_types import ApiMessage
+from ai.runtime.prompt_cache import (
     MetricsLogger,
     PromptCacheRequest,
     StablePrefixBuilder,
     annotate_anthropic_cache_breakpoints,
 )
+from rag.chunker import Chunk
+from rag.context import EvidenceChunk, TurnEvidence
 
 
 def _request(messages: list[ApiMessage]) -> PromptCacheRequest:

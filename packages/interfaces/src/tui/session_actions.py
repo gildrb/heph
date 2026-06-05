@@ -32,7 +32,7 @@ from tui.startup_discovery import (
 )
 
 if TYPE_CHECKING:
-    from runtime import ChatConfig
+    from ai.runtime import ChatConfig
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaion"
 

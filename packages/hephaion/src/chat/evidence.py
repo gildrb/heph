@@ -6,7 +6,13 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ai_logging import Timer, get_logger
+from ai.logging import Timer, get_logger
+from ai.runtime import (
+    ChatConfig,
+    Conversation,
+    build_client,
+    to_chat_completion_messages,
+)
 from rag import (
     ArmoryIndex,
     Chunk,
@@ -28,12 +34,6 @@ from rag.query_audit import (
 )
 from rag.query_transform import PromptFn
 from rag.retrieval_types import EvidenceReference
-from runtime import (
-    ChatConfig,
-    Conversation,
-    build_client,
-    to_chat_completion_messages,
-)
 from study import EvidenceAssessment, LearningAction, LearningTurnPlan
 from study.priority import PriorityAnalysis, analyze_priority
 

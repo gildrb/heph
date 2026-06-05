@@ -7,8 +7,8 @@ from collections.abc import Generator, Iterator
 from typing import TYPE_CHECKING
 
 from agent.dispatch import iter_agent_events
-from runtime.engine import build_client, stream_completion
-from runtime.errors import RetryConfig
+from ai.runtime.engine import build_client, stream_completion
+from ai.runtime.errors import RetryConfig
 from study.controller import apply_turn_result
 from study.policy import LearningMoveKind
 from study.prompt_plans import LearningTurnPlan

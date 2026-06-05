@@ -6,9 +6,9 @@ import re
 from html import unescape
 
 from agent.citation import VerificationResult, verify_citations
+from ai.runtime.config import ChatConfig
+from ai.runtime.conversation import Conversation
 from rag.context import EvidenceChunk, TurnEvidence
-from runtime.config import ChatConfig
-from runtime.conversation import Conversation
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction
 

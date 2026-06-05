@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from runtime._api_types import ApiMessage
+from ai.runtime._api_types import ApiMessage
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam

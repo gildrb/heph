@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Final, Self
 
 from _types import is_object_list, is_string_mapping
-from ai_logging import get_logger, redact_text
+from ai.logging import get_logger, redact_text
 from privacy.consent import (
     crash_reports_backend_available,
     crash_reports_enabled,

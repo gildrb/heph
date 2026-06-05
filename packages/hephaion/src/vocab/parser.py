@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 from materials import MATERIALS_DIR
 
 _log = get_logger("vocab.parser")

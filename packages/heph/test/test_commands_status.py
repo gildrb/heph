@@ -4,10 +4,10 @@ from pathlib import Path
 
 import commands
 import pytest
+from ai.runtime import ChatConfig, Conversation
 from armory.storage import initialize
 from chat.session import ChatSession
 from materials.importing import import_material_files
-from runtime import ChatConfig, Conversation
 
 
 def test_registry_exposes_status_and_stats() -> None:

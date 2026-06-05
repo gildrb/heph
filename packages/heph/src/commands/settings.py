@@ -7,6 +7,7 @@ carrying a second terminal menu implementation.
 
 from __future__ import annotations
 
+from ai.providers.config import ProviderConfig
 from parameters.settings import (
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -17,7 +18,6 @@ from privacy.consent import (
     analytics_enabled,
     crash_reports_enabled,
 )
-from providers.config import ProviderConfig
 
 from commands._base import Command, CommandResult, ensure_session
 

@@ -25,8 +25,8 @@ from typing import Final
 import keyring
 from keyring.errors import KeyringError
 
-from providers import volatile_keys as _volatile_keys
-from providers.oauth import resolve_oauth_key
+from ai.providers import volatile_keys as _volatile_keys
+from ai.providers.oauth import resolve_oauth_key
 
 _SERVICE_PREFIX = "hephaion"
 _USERNAME = "api_key"

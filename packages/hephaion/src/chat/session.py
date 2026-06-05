@@ -14,15 +14,16 @@ from pathlib import Path
 from agent.prompt import build_system_prompt
 from agent.steering import Steering
 from agent.tools import ToolRegistry, default_registry
-from ai_logging import TraceWriter, get_logger
+from ai.logging import get_logger
+from ai.runtime import ChatConfig, Conversation, Message
 from armory.storage import normalize_path, read_marker, validate
 from diagnostics.crashes import set_session_context
 from diagnostics.events import capture as capture_analytics
+from diagnostics.traces import TraceWriter
 from materials import iter_material_files
 from memory import MemoryStore, load_memory
 from rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
 from rag.health import ExtractionHealthIssue, scan_extraction_health
-from runtime import ChatConfig, Conversation, Message
 from study import LearningState
 
 from chat import storage as chat_storage

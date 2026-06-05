@@ -15,7 +15,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
-from ai_logging import Timer, get_logger
+from ai.logging import Timer, get_logger
 
 MutationFn = Callable[..., str]
 _log = get_logger("agent.mutation_queue")

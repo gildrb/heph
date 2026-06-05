@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from providers.model_support import (
+from ai.providers.model_support import (
     filter_supported_models,
     is_supported_model_for_endpoint,
     is_supported_model_for_provider,

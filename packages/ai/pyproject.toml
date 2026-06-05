@@ -17,12 +17,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = [
-    "ai_diagnostics",
-    "ai_logging",
-    "ai_types",
-    "palette",
-    "providers",
-    "runtime",
+    "ai",
 ]
 module-root = "src"
 

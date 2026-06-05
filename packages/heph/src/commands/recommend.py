@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from providers.config import ProviderConfig
-from providers.model_recommendations import recommended_model_choices
+from ai.providers.config import ProviderConfig
+from ai.providers.model_recommendations import recommended_model_choices
 
 from commands._base import Command, CommandResult, ensure_session
 

@@ -25,40 +25,39 @@ from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 
-from ai_diagnostics import get_meter, get_tracer
-from ai_logging import Timer, get_logger, redact_text
-from ai_types import is_string_mapping
-from providers.endpoints import is_keyless_endpoint
-from providers.model_support import is_supported_model_for_endpoint
-from providers.oauth import load_credentials
-from providers.registry import get_registry as get_provider_registry
-
-from runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
-from runtime.codex_backend import (
+from ai.diagnostics import get_meter, get_tracer
+from ai.logging import Timer, get_logger, redact_text
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.model_support import is_supported_model_for_endpoint
+from ai.providers.oauth import load_credentials
+from ai.providers.registry import get_registry as get_provider_registry
+from ai.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
+from ai.runtime.codex_backend import (
     codex_backend_auth,
     stream_codex_backend_completion,
 )
-from runtime.config import ChatConfig, resolve_key
-from runtime.conversation import Conversation
-from runtime.delta import CompletionDelta
-from runtime.errors import (
+from ai.runtime.config import ChatConfig, resolve_key
+from ai.runtime.conversation import Conversation
+from ai.runtime.delta import CompletionDelta
+from ai.runtime.errors import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
     _RetryOpenAIStreamError,
 )
-from runtime.prompt_cache import (
+from ai.runtime.prompt_cache import (
     MetricsLogger as PromptCacheMetricsLogger,
 )
-from runtime.prompt_cache import (
+from ai.runtime.prompt_cache import (
     PromptCacheRequest,
     StablePrefixBuilder,
     annotate_anthropic_cache_breakpoints,
 )
-from runtime.request_payload import request_kwargs as build_request_kwargs
-from runtime.resilience import CircuitBreaker
-from runtime.tool_deltas import normalize_tool_calls
-from runtime.usage_payload import extract_usage
+from ai.runtime.request_payload import request_kwargs as build_request_kwargs
+from ai.runtime.resilience import CircuitBreaker
+from ai.runtime.tool_deltas import normalize_tool_calls
+from ai.runtime.usage_payload import extract_usage
+from ai.types import is_string_mapping
 
 if TYPE_CHECKING:
     from openai import OpenAI, Stream
@@ -89,13 +88,13 @@ class _MeterProtocol(Protocol):
     def create_counter(self, name: str, **kwargs: object) -> _CounterProtocol: ...
 
 
-_log = get_logger("runtime.engine")
+_log = get_logger("ai.runtime.engine")
 _COMPAT_EXPORTS = (resolve_key,)
 _prompt_cache_builder = StablePrefixBuilder()
 _prompt_cache_metrics = PromptCacheMetricsLogger()
 
-_tracer: _TracerProtocol = get_tracer("runtime.engine")  # ty:ignore[invalid-assignment]
-_meter: _MeterProtocol = get_meter("runtime.engine")
+_tracer: _TracerProtocol = get_tracer("ai.runtime.engine")  # ty:ignore[invalid-assignment]
+_meter: _MeterProtocol = get_meter("ai.runtime.engine")
 
 _llm_duration_hist = _meter.create_histogram(
     "llm.request.duration",

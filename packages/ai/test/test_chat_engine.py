@@ -9,8 +9,8 @@ from email.message import Message as HttpHeaders
 from typing import Never, Self
 
 import pytest
-from providers.registry import ModelInfo, get_registry
-from runtime import (
+from ai.providers.registry import ModelInfo, get_registry
+from ai.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -19,8 +19,8 @@ from runtime import (
     codex_backend,
     missing_api_key_message,
 )
-from runtime import engine as runtime_engine
-from runtime.request_payload import request_kwargs
+from ai.runtime import engine as runtime_engine
+from ai.runtime.request_payload import request_kwargs
 
 
 class _Span:
@@ -85,7 +85,7 @@ def test_keyless_provider_does_not_resolve_key(monkeypatch: pytest.MonkeyPatch) 
         raise AssertionError("resolved key")
 
     monkeypatch.setattr(
-        "runtime.engine.resolve_key",
+        "ai.runtime.engine.resolve_key",
         fail_resolve,
     )
 

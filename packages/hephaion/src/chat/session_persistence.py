@@ -6,7 +6,7 @@ import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 from diagnostics.events import capture as capture_analytics
 
 import chat.storage as chat_storage

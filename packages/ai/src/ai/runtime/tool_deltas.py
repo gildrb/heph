@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from runtime._api_types import ToolCallDelta
+from ai.runtime._api_types import ToolCallDelta
 
 if TYPE_CHECKING:
     from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ai.runtime import ChatConfig, Conversation
 from chat.events import (
     AssistantDeltaEvent,
     GuardrailEvent,
@@ -32,7 +33,6 @@ from chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
 from product.context import heph_product_routing_context
-from runtime import ChatConfig, Conversation
 from safety import GUARDRAIL_STAGE_INPUT, block_guardrail
 from study import LearningTurnPlan, material_overview_plan
 
@@ -73,7 +73,7 @@ def test_intent_context_includes_heph_extension_contract_domain() -> None:
     assert routing_context in context
     assert "Heph Assistant Atlas" not in context
     assert "Core commands:" not in context
-    assert "heph_action performs exact product ops" in context
+    assert "heph_action performs exact app ops" in context
     assert "Current user request:\nHow does the harness store memory?" in context
 
 

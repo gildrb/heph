@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 from dataclasses import dataclass
 
-from providers.model_support import is_supported_model_for_provider
+from ai.providers.model_support import is_supported_model_for_provider
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import runtime.events as _events
+import ai.runtime.events as _events
 
 AssistantDeltaEvent = _events.AssistantDeltaEvent
 CompactRequestEvent = _events.CompactRequestEvent

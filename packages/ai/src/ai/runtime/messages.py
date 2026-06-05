@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from ai_types import is_string_mapping
-
-from runtime._api_types import ContentPart
+from ai.runtime._api_types import ContentPart
+from ai.types import is_string_mapping
 
 
 def message_content_text(content: object) -> str:

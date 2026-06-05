@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import NoReturn
 
 from _types import parse_json_object_fragment
-from providers.endpoints import is_keyless_endpoint
-from runtime.config import ChatConfig
-from runtime.conversation import Conversation
-from runtime.engine import has_configured_access, stream_completion
-from runtime.errors import EngineError, RetryConfig
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.runtime.config import ChatConfig
+from ai.runtime.conversation import Conversation
+from ai.runtime.engine import has_configured_access, stream_completion
+from ai.runtime.errors import EngineError, RetryConfig
 
 from study.priority_analysis import PriorityAnalysis
 from study.priority_progress import (

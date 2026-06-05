@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
+from ai.runtime import ChatConfig
 from chat.automation import iter_chat_events
 from chat.events import AssistantDeltaEvent
 from chat.session import create_session
 from rag import TurnEvidence
-from runtime import ChatConfig
 
 
 class RawReplayCase(TypedDict):

@@ -13,10 +13,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from commands import LogoutCommand, get_registry
-from providers import oauth as oauth_mod
-from providers.keyring_store import get_volatile, resolve_key, set_volatile
-from providers.oauth import (
+from ai.providers import oauth as oauth_mod
+from ai.providers.keyring_store import get_volatile, resolve_key, set_volatile
+from ai.providers.oauth import (
     OAuthCredentials,
     _CallbackHandler,
     _CallbackState,
@@ -28,6 +27,7 @@ from providers.oauth import (
     resolve_oauth_key,
     save_credentials,
 )
+from commands import LogoutCommand, get_registry
 
 # --- SSL context ------------------------------------------------------------
 
@@ -317,7 +317,7 @@ class TestCredentialPersistence:
 
         save_credentials(expired)
         with patch(
-            "providers.oauth.refresh_credentials",
+            "ai.providers.oauth.refresh_credentials",
             return_value=refreshed,
         ) as mock_refresh:
             loaded = load_credentials("openai-codex")
@@ -337,7 +337,7 @@ class TestCredentialPersistence:
         )
 
         save_credentials(expired)
-        with patch("providers.oauth.refresh_credentials") as mock_refresh:
+        with patch("ai.providers.oauth.refresh_credentials") as mock_refresh:
             loaded = load_credentials("openai-codex", refresh_expired=False)
 
         mock_refresh.assert_not_called()
@@ -393,7 +393,7 @@ def test_logout_command_registered() -> None:
 
 def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "providers.oauth.list_providers",
+        "ai.providers.oauth.list_providers",
         list,
     )
     monkeypatch.setattr(
@@ -417,7 +417,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "providers.oauth.list_providers",
+        "ai.providers.oauth.list_providers",
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
@@ -434,7 +434,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     cleared: list[str] = []
     monkeypatch.setattr(
-        "providers.oauth.clear_credentials",
+        "ai.providers.oauth.clear_credentials",
         cleared.append,
     )
     messages: list[tuple[str, str]] = []

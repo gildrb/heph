@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ai.runtime.conversation import Conversation
 from rag.context import TurnEvidence
-from runtime.conversation import Conversation
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from providers.config import ProviderConfig
-from providers.endpoints import is_keyless_endpoint
-from providers.model_choices import configured_model_choices
-from providers.registry import ModelInfo
-from providers.registry import get_registry as get_provider_registry
+from ai.providers.config import ProviderConfig
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.model_choices import configured_model_choices
+from ai.providers.registry import ModelInfo
+from ai.providers.registry import get_registry as get_provider_registry
 
 type ModelChoice = tuple[str, str, str, bool]
 

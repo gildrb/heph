@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from runtime import has_configured_access
+from ai.runtime import has_configured_access
 
 if TYPE_CHECKING:
     from chat.session import ChatSession
@@ -41,7 +41,7 @@ def config_error(session: ChatSession) -> str | None:
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not has_configured_access(session.config):
-        from runtime import missing_api_key_message
+        from ai.runtime import missing_api_key_message
 
         return missing_api_key_message(session.config)
     return None

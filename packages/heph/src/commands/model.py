@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ai.providers.config import ProviderConfig
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.model_choices import configured_model_choices, model_free_description
 from chat.model_selection import switch_model
 from diagnostics.events import capture as capture_analytics
-from providers.config import ProviderConfig
-from providers.endpoints import is_keyless_endpoint
-from providers.model_choices import configured_model_choices, model_free_description
 from terminal import (
     STYLE_DIM,
     MenuOption,

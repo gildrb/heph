@@ -4,6 +4,7 @@ import inspect
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
+from ai.providers.config import ProviderConfig
 from palette import TRANSPARENT
 from parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
@@ -26,7 +27,6 @@ from privacy.consent import (
     crash_reports_enabled,
     crash_reports_env_override,
 )
-from providers.config import ProviderConfig
 from terminal import current_palette, set_theme
 
 from tui.auth_flows import TuiAuthFlowMixin

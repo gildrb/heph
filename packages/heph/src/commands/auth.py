@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 
+from ai.providers import keyring_store, oauth
+from ai.providers.config import ProviderConfig
+from ai.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
 from chat.provider_selection import activate_provider_for_session
 from diagnostics.events import capture as capture_analytics
-from providers import keyring_store, oauth
-from providers.config import ProviderConfig
-from providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
 from terminal import (
     MenuOption,
     confirm,

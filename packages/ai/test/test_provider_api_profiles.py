@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from providers.api_profiles import (
+from ai.providers.api_profiles import (
     reasoning_payload_for_profile,
     request_profile_for_config,
 )
-from providers.config import default_config
-from providers.model_support import (
+from ai.providers.config import default_config
+from ai.providers.model_support import (
     filter_supported_models,
     is_supported_model_for_endpoint,
 )
-from providers.reasoning import reasoning_levels_for_model
-from runtime.config import ChatConfig
-from runtime.request_payload import request_kwargs
+from ai.providers.reasoning import reasoning_levels_for_model
+from ai.runtime.config import ChatConfig
+from ai.runtime.request_payload import request_kwargs
 
 
 def _provider_config(slug: str, base_url: str, model: str, reasoning_level: str) -> ChatConfig:

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 from parameters.settings import (
     VOCAB_STRICTNESS_LENIENT,
     load_app_settings,

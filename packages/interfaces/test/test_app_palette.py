@@ -16,7 +16,7 @@ _NAMED_COLOR_RE = re.compile(
     r"(?<![A-Za-z])(?:black|white|red|green|blue|yellow|cyan|magenta|transparent)(?![A-Za-z])",
     re.IGNORECASE,
 )
-_COLOR_TOKEN_SOURCE = Path("packages/ai/src/palette.py")
+_COLOR_TOKEN_SOURCE = Path("packages/interfaces/src/palette/__init__.py")
 
 
 def _linear_channel(value: int) -> float:

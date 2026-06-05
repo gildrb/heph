@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from runtime import ApiMessage
-from runtime.events import NoticeEvent
+from ai.runtime import ApiMessage
+from ai.runtime.events import NoticeEvent
 
 SLOW_TOOL_LATENCY_MS = 30_000.0
 LARGE_TOOL_RESULT_CHARS = 20_000

@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ai.runtime import has_configured_access
 from armory.search import load_known_armories
 from materials import material_display_name
-from runtime import has_configured_access
 from terminal import current_palette
 
 from tui.dependencies import TuiDependencyError, tui_dependency_message

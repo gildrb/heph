@@ -1,13 +1,14 @@
-# Heph Interfaces
+# Interfaces Architecture
 
-Interfaces owns CLI/TUI adapter behavior built on Textual and terminal
+Interfaces owns terminal and TUI adapter behavior built on Textual and terminal
 rendering primitives. It adapts user input and presentation into the harness;
-it does not own reusable product decisions.
+it does not own reusable harness or agent decisions.
 
 ## Ownership
 
 The package owns:
 
+- `palette`: theme and ANSI color tokens;
 - `terminal`: terminal styling, direct input/output, menu helpers, source
   opening, input history, and theme state;
 - `tui`: Textual app composition, widgets, inline flows, keymaps, transcript
@@ -18,10 +19,10 @@ The package owns:
 Allowed direction:
 
 ```text
-heph-interfaces -> heph-ai
-heph-interfaces -> hephaion
-heph-interfaces -> heph-extensions
-heph app -> heph-interfaces
+interfaces -> ai
+interfaces -> hephaion
+interfaces -> extensions
+heph -> interfaces
 ```
 
 Interface modules may compose broadly, but ownership still matters. Rendering,
@@ -32,6 +33,5 @@ beside the interface.
 ## Migration Pressure
 
 When TUI code accumulates reusable decisions, promote those decisions into
-`hephaion` or `heph-ai`. When command behavior is needed, inject the command
-registry from the app package rather than making the interface package the
-command owner.
+Hephaion, AI, or Heph. When command behavior is needed, inject the command
+registry from Heph rather than making Interfaces the command owner.

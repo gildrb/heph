@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from ai.providers.config import ProviderConfig
 from chat.session import save_session
-from providers.config import ProviderConfig
 from terminal import (
     confirm,
     print_error,

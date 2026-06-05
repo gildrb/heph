@@ -22,7 +22,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import cast
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 from rag import optional_backends
 from rag.hybrid import (

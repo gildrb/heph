@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 
+from ai.providers.config import ProviderConfig
+from ai.providers.model_choices import configured_model_choices
 from chat.model_selection import switch_model
 from diagnostics.events import capture as capture_analytics
-from providers.config import ProviderConfig
-from providers.model_choices import configured_model_choices
 
 from tui.flow_state import InlineFlow
 from tui.model_flow import (

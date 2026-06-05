@@ -93,8 +93,8 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
-"packages/ai/src/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
-"packages/ai/src/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"packages/ai/src/ai/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
+"packages/ai/src/ai/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
@@ -174,9 +174,7 @@ skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
 root_packages = [
-    "ai_diagnostics",
-    "ai_logging",
-    "ai_types",
+    "ai",
     "agent",
     "armory",
     "chat",
@@ -190,9 +188,7 @@ root_packages = [
     "palette",
     "privacy",
     "product",
-    "providers",
     "rag",
-    "runtime",
     "safety",
     "study",
     "terminal",
@@ -200,11 +196,12 @@ root_packages = [
     "vocab",
 ]
 exclude_type_checking_imports = true
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "AI concerns must stay below product workflows"
+name = "AI must stay below Heph, Hephaion, extensions, and interfaces"
 type = "forbidden"
-source_modules = ["ai_diagnostics", "ai_logging", "ai_types", "palette", "providers", "runtime"]
+source_modules = ["ai"]
 forbidden_modules = [
     "agent",
     "armory",
@@ -212,10 +209,12 @@ forbidden_modules = [
     "cli",
     "commands",
     "diagnostics",
+    "extension_contracts",
     "matching",
     "materials",
     "memory",
     "parameters",
+    "palette",
     "privacy",
     "product",
     "rag",
@@ -306,6 +305,12 @@ type = "forbidden"
 source_modules = ["terminal", "tui"]
 forbidden_modules = ["cli", "commands", "product"]
 
+[[tool.importlinter.contracts]]
+name = "Heph commands must not import TUI adapter internals"
+type = "forbidden"
+source_modules = ["commands"]
+forbidden_modules = ["tui"]
+
 [tool.deptry]
 extend_exclude = [
     "packages/ai/test",
@@ -317,7 +322,8 @@ extend_exclude = [
 ]
 # Docling and optional RAG deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
-# DEP003 on "hephaion" is a false positive — the project imports its own subpackages.
+# DEP003 on workspace packages is a false positive — each distribution imports its own
+# top-level source packages.
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
@@ -325,7 +331,7 @@ extend_exclude = [
 per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai_diagnostics --cov=ai_logging --cov=ai_types --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=extension_contracts --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=providers --cov=rag --cov=runtime --cov=safety --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=extension_contracts --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=rag --cov=safety --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",

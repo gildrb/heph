@@ -8,11 +8,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agent.citation import verify_response
-from ai_logging import Timer, get_logger
+from ai.logging import Timer, get_logger
+from ai.runtime.conversation import Message
 from diagnostics.crashes import get_meter, get_tracer
 from memory.workflow import schedule_memory_extraction
 from rag.context import TurnEvidence
-from runtime.conversation import Message
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction, LearningState
 

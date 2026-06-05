@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import Protocol, cast, runtime_checkable
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 _log = get_logger("rag.query_transform")
 

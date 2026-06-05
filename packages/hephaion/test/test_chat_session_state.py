@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from ai.runtime import ChatConfig
 from armory.storage import initialize
 from chat.session import (
     SessionError,
@@ -22,7 +23,6 @@ from chat.turn_contract import (
 )
 from rag import Chunk, EvidenceChunk, TurnEvidence
 from rag.health import ExtractionHealthIssue
-from runtime import ChatConfig
 from study import (
     LearningFeedbackType,
     LearningPhase,

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from providers.config import Provider, ProviderConfig
+from ai.providers.config import Provider, ProviderConfig
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 

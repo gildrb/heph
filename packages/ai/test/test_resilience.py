@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from runtime.resilience import (
+from ai.runtime.resilience import (
     CircuitBreaker,
     CircuitState,
     is_network_error,

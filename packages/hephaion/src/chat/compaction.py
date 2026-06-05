@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from runtime import Conversation, Message, stream_reply
+from ai.runtime import Conversation, Message, stream_reply
 
 from chat.session import ChatSession
 

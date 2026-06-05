@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from providers.catalog import hydrate_provider_models
-from providers.config import Provider, ProviderConfig
-from providers.endpoints import is_keyless_endpoint
-from providers.keyring_store import resolve_key
-from providers.oauth import resolve_oauth_key
+from ai.providers.catalog import hydrate_provider_models
+from ai.providers.config import Provider, ProviderConfig
+from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.keyring_store import resolve_key
+from ai.providers.oauth import resolve_oauth_key
 
 
 def provider_is_accessible(provider: Provider, *, refresh_oauth: bool = True) -> bool:

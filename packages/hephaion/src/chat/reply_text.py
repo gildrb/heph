@@ -7,7 +7,7 @@ import re
 
 import unicodeit
 from _types import is_string_mapping
-from runtime.engine import (
+from ai.runtime.engine import (
     ChatConfig,
     Conversation,
     EngineError,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from providers.registry import get_registry
+from ai.providers.registry import get_registry
 
 DEFAULT_REASONING_LEVEL = "low"
 REASONING_LEVELS = ("low", "medium", "high", "xhigh")

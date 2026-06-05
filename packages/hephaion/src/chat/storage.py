@@ -7,8 +7,8 @@ from typing import TypedDict
 from uuid import uuid4
 
 from _types import is_object_list, is_string_mapping
-from ai_logging import get_logger
-from runtime import Conversation
+from ai.logging import get_logger
+from ai.runtime import Conversation
 
 from chat.titles import sanitize_title_text
 

@@ -32,9 +32,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from providers.oauth import load_credentials
-from runtime import ChatConfig
-from runtime.engine import EngineError
+from ai.providers.oauth import load_credentials
+from ai.runtime import ChatConfig
+from ai.runtime.engine import EngineError
 
 from scripts import replay_answer_benchmark, run_replay_answer_eval
 

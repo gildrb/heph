@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from ai.runtime import Conversation
 from armory.storage import initialize
 from chat.storage import (
     ChatStorageError,
@@ -15,7 +16,6 @@ from chat.storage import (
     new_session_id,
     save,
 )
-from runtime import Conversation
 
 
 def _init_armory(tmp_path: Path) -> Path:

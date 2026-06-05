@@ -11,9 +11,10 @@ from pathlib import Path
 
 import commands
 import pytest
+from ai.providers.config import default_config
+from ai.runtime import ChatConfig, Conversation
 from chat.session import ChatSession, create_plain_session
 from commands import model as _commands_model
-from providers.config import default_config
 from rag import index as rag_index
 from rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
 from rag.context import EvidenceChunk, TurnEvidence
@@ -24,7 +25,6 @@ from rag.index import (
     load_or_build,
     scan_unindexable_files,
 )
-from runtime import ChatConfig, Conversation
 from terminal.history import InputHistory
 from terminal.input import handle_input
 

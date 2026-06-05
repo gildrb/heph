@@ -8,8 +8,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, TypedDict
 
 from _types import is_object_list, is_string_mapping
-from ai_logging import Timer, get_logger
-from runtime import (
+from ai.logging import Timer, get_logger
+from ai.runtime import (
     ChatConfig,
     Conversation,
     build_client,

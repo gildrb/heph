@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from ai_types import is_string_mapping
-
-from runtime._api_types import UsagePayload
+from ai.runtime._api_types import UsagePayload
+from ai.types import is_string_mapping
 
 
 def optional_int_value(value: object) -> int | None:

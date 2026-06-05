@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from providers.config import (
+from ai.providers.config import (
     ProviderConfig,
     default_config,
 )
-from providers.model_support import is_supported_model_for_endpoint
-from providers.registry import ModelInfo, ModelRegistry
-from runtime import ChatConfig
+from ai.providers.model_support import is_supported_model_for_endpoint
+from ai.providers.registry import ModelInfo, ModelRegistry
+from ai.runtime import ChatConfig
 
 
 def test_default_openrouter_models_match_supported_families() -> None:

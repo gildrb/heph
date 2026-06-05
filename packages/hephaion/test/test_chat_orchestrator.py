@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import chat.evidence as evidence_module
 import pytest
 from _types import is_string_mapping
+from ai.runtime import ChatConfig, CompletionDelta, Conversation, EngineError
 from chat.agent_request import _learning_agent_request
 from chat.events import (
     AssistantDeltaEvent,
@@ -90,7 +91,6 @@ from chat.turn_predicates import _stored_turn_evidence
 from chat.turn_query import _semantic_query_specificity
 from rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
 from rag.chunker import ChunkedDocument
-from runtime import ChatConfig, CompletionDelta, Conversation, EngineError
 from study import (
     LearningAction,
     LearningFeedbackType,

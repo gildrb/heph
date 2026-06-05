@@ -5,10 +5,10 @@ from __future__ import annotations
 import commands
 import commands.auth as _commands_auth
 import pytest
+from ai.providers.config import ProviderConfig
+from ai.providers.oauth import OAuthCredentials
+from ai.runtime import ChatConfig, Conversation
 from chat.session import ChatSession
-from providers.config import ProviderConfig
-from providers.oauth import OAuthCredentials
-from runtime import ChatConfig, Conversation
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,11 +40,11 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "providers.oauth.login_openai_codex",
+        "ai.providers.oauth.login_openai_codex",
         lambda: fake_creds,
     )
     monkeypatch.setattr(
-        "providers.keyring_store.set_volatile",
+        "ai.providers.keyring_store.set_volatile",
         lambda _slug, _key: None,
     )
 
@@ -199,7 +199,7 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "providers.oauth.login_openai_codex",
+        "ai.providers.oauth.login_openai_codex",
         lambda: (_ for _ in ()).throw(RuntimeError("OAuth failed")),
     )
 
@@ -257,7 +257,7 @@ def test_login_openai_codex_generic_failure_is_reported(monkeypatch: pytest.Monk
         lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
-        "providers.oauth.login_openai_codex",
+        "ai.providers.oauth.login_openai_codex",
         lambda: (_ for _ in ()).throw(ValueError("boom")),
     )
     monkeypatch.setattr(_commands_auth, "print_error", errors.append)
@@ -326,7 +326,7 @@ def test_login_api_key_falls_back_to_volatile_storage(monkeypatch: pytest.Monkey
 def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[str] = []
 
-    monkeypatch.setattr("providers.oauth.list_providers", list)
+    monkeypatch.setattr("ai.providers.oauth.list_providers", list)
     monkeypatch.setattr("commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "get_volatile", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)
@@ -340,7 +340,7 @@ def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyP
 def test_logout_single_provider_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[str] = []
 
-    monkeypatch.setattr("providers.oauth.list_providers", lambda: ["openai-codex"])
+    monkeypatch.setattr("ai.providers.oauth.list_providers", lambda: ["openai-codex"])
     monkeypatch.setattr("commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "confirm", lambda *_a, **_kw: False)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)

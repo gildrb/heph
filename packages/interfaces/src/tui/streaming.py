@@ -11,6 +11,12 @@ from dataclasses import dataclass, field
 from threading import Event
 from typing import TYPE_CHECKING
 
+from ai.runtime import (
+    EngineError,
+    StreamRecoveryError,
+    is_network_error,
+    offline_message,
+)
 from chat.automation import iter_chat_events
 from chat.events import (
     AssistantDeltaEvent,
@@ -26,12 +32,6 @@ from parameters.settings import (
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_TOOL_CALLS,
     load_app_settings,
-)
-from runtime import (
-    EngineError,
-    StreamRecoveryError,
-    is_network_error,
-    offline_message,
 )
 
 if TYPE_CHECKING:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from runtime.conversation import Conversation
+from ai.runtime.conversation import Conversation
 
 from chat.events import (
     TurnCompleteEvent,

@@ -7,10 +7,10 @@ _MAX_CONTEXT_CHARS = 4000
 _MAX_ROUTING_CONTEXT_CHARS = 360
 _ASSISTANT_CONTEXT_PATH = Path("docs/developers/heph-context.md")
 _ROUTING_CONTEXT_LINES = (
-    "Heph/Hephaion is the local document harness; Heph is its assistant.",
+    "Heph is the agent the user talks to; Hephaion is the validation harness behind it.",
     "heph_help explains how Heph works, setup, commands, and settings.",
-    "heph_action performs exact product ops: create/validate/import armories or materials.",
-    "User-source/corpus-content intent stays material-scoped. Product intents use no retrieval.",
+    "heph_action performs exact app ops: create/validate/import armories or materials.",
+    "User-source/corpus-content intent stays material-scoped. App-help intents use no retrieval.",
 )
 
 

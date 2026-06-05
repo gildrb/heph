@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib
 import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+from ai.providers.config import ProviderConfig, default_config
+from ai.runtime import ChatConfig, has_configured_access, is_keyless_endpoint
+from privacy import consent as privacy_consent
 
 from parameters import settings as settings_store
-
-if TYPE_CHECKING:
-    from runtime import ChatConfig
 
 
 def _load_user_overrides() -> dict[str, str]:
@@ -29,10 +28,8 @@ def _load_user_overrides() -> dict[str, str]:
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
     """Load ChatConfig from defaults + provider config + user overrides + env vars."""
-    runtime = importlib.import_module("runtime")
-
     _ = armory_path
-    config = runtime.ChatConfig()
+    config = ChatConfig()
     _apply_toml_defaults(config)
     _apply_provider_config(config)
     _apply_mapping_overrides(config, _load_user_overrides())
@@ -55,22 +52,20 @@ def _apply_toml_defaults(config: ChatConfig) -> None:
 
 
 def _apply_provider_config(config: ChatConfig) -> None:
-    providers_config = importlib.import_module("providers.config")
-    runtime = importlib.import_module("runtime")
     try:
-        pc = providers_config.ProviderConfig.load()
+        pc = ProviderConfig.load()
         pc.apply_to_config(config)
         if (
             config.base_url
-            and not runtime.is_keyless_endpoint(config.base_url)
-            and not runtime.has_configured_access(config)
+            and not is_keyless_endpoint(config.base_url)
+            and not has_configured_access(config)
         ):
             print(
                 f"warning: active provider '{config._provider_slug}' has no API key, "
                 "falling back to Pollinations AI (free)",
                 file=sys.stderr,
             )
-            providers_config.default_config().apply_to_config(config)
+            default_config().apply_to_config(config)
     except Exception as exc:
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
@@ -148,8 +143,6 @@ _SETTING_DESCRIPTIONS = {
 
 
 def _effective_setting_value(key: str) -> str:
-    privacy = importlib.import_module("privacy.consent")
-
     app_settings = settings_store.load_app_settings()
     app_value = {
         "theme": app_settings.theme,
@@ -160,15 +153,15 @@ def _effective_setting_value(key: str) -> str:
         return app_value
     if key == "analytics_enabled":
         return _privacy_setting_value(
-            enabled=privacy.analytics_enabled(),
-            env_override=privacy.analytics_env_override(),
-            backend_available=privacy.analytics_backend_available(),
+            enabled=privacy_consent.analytics_enabled(),
+            env_override=privacy_consent.analytics_env_override(),
+            backend_available=privacy_consent.analytics_backend_available(),
         )
     if key == "crash_reports_enabled":
         return _privacy_setting_value(
-            enabled=privacy.crash_reports_enabled(),
-            env_override=privacy.crash_reports_env_override(),
-            backend_available=privacy.crash_reports_backend_available(),
+            enabled=privacy_consent.crash_reports_enabled(),
+            env_override=privacy_consent.crash_reports_env_override(),
+            backend_available=privacy_consent.crash_reports_backend_available(),
         )
     return "(not set)"
 

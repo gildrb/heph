@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from _types import is_object_list, is_string_mapping
+from ai.runtime import Conversation
 from rag import TurnEvidence
-from runtime import Conversation
 from study import LearningState
 
 from chat.turn_contract import TurnContract

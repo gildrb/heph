@@ -14,7 +14,7 @@ from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PACKAGE_IMPORT_ROOTS: Final[dict[Path, str]] = {
-    REPO_ROOT / "packages" / "ai" / "src": "ai",
+    REPO_ROOT / "packages" / "ai" / "src" / "ai": "ai",
     REPO_ROOT / "packages" / "extensions" / "src": "extensions",
     REPO_ROOT / "packages" / "heph" / "src": "heph",
     REPO_ROOT / "packages" / "hephaion" / "src": "hephaion",
@@ -59,6 +59,7 @@ TY_IGNORE_POLICY_MESSAGE: Final[str] = (
 BENCHMARK_ONLY_TOP_LEVEL_MODULES: Final[frozenset[str]] = frozenset({"benchmarks", "scripts"})
 EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
     {
+        "ai",
         "agent",
         "armory",
         "chat",
@@ -69,11 +70,10 @@ EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
         "materials",
         "memory",
         "parameters",
+        "palette",
         "privacy",
         "product",
-        "providers",
         "rag",
-        "runtime",
         "safety",
         "study",
         "terminal",
@@ -114,9 +114,7 @@ FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
         {
             "_types",
             "agent",
-            "ai_diagnostics",
-            "ai_logging",
-            "ai_types",
+            "ai",
             "armory",
             "chat",
             "cli",
@@ -129,9 +127,7 @@ FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
             "parameters",
             "privacy",
             "product",
-            "providers",
             "rag",
-            "runtime",
             "safety",
             "study",
             "terminal",
@@ -170,11 +166,6 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
         {
             "importlib.util.module_from_spec",
             "importlib.util.spec_from_file_location",
-        }
-    ),
-    "hephaion/parameters/cli.py": frozenset(
-        {
-            "importlib.import_module",
         }
     ),
     "hephaion/armory/cli.py": frozenset(
@@ -225,7 +216,7 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     "interfaces/terminal/input.py": frozenset(
         {
             "chat.session",
-            "runtime",
+            "ai.runtime",
         }
     ),
     "interfaces/tui/__init__.py": frozenset(
@@ -248,13 +239,13 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "interfaces/tui/status.py": frozenset(
         {
-            "runtime",
+            "ai.runtime",
         }
     ),
     "interfaces/tui/streaming.py": frozenset(
         {
             "chat.automation",
-            "runtime",
+            "ai.runtime",
         }
     ),
 }

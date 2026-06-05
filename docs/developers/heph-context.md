@@ -10,7 +10,7 @@ Use model context like this:
   cite `[E#]`, and use `/evidence` to inspect snippets.
 - User asks about Heph: answer from this atlas, not armory material; give concrete
   commands, paths, settings, or workflows.
-- User asks Heph to do setup: use exact product actions to create named armories
+- User asks Heph to do setup: use exact app actions to create named armories
   and copy exact local files/folders into `materials/`. Never fuzzy-match armory
   names, guess paths, move originals, delete files, or overwrite different files.
 - Follow-ups about Heph should add operational detail, not repeat the tagline.

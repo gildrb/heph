@@ -5,22 +5,22 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import ai.providers.model_choices as _model_choices
 import commands
 import commands.display as _commands_display
 import commands.model as _commands_model
 import commands.study as _learning_commands
-import providers.model_choices as _model_choices
 import pytest
+from ai.providers import catalog
+from ai.providers.catalog import LiveProviderCatalog
+from ai.providers.config import Provider, default_config
+from ai.providers.registry import ModelInfo
+from ai.runtime import ChatConfig, Conversation
 from armory.storage import initialize
 from chat import model_selection as _model_selection
 from chat.session import ChatSession, create_plain_session
-from providers import catalog
-from providers.catalog import LiveProviderCatalog
-from providers.config import Provider, default_config
-from providers.registry import ModelInfo
 from rag.chunker import Chunk
 from rag.context import EvidenceChunk, TurnEvidence
-from runtime import ChatConfig, Conversation
 from study import LearningFeedbackType, LearningPhase, RecallRating
 from study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from study.schedule import load_recall_schedule

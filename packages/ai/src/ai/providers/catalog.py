@@ -19,13 +19,13 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import certifi
-from ai_logging import get_logger
-from ai_types import is_object_list, is_string_mapping
 
-from providers.config import ProviderConfig
-from providers.registry import ModelInfo, get_registry
+from ai.logging import get_logger
+from ai.providers.config import ProviderConfig
+from ai.providers.registry import ModelInfo, get_registry
+from ai.types import is_object_list, is_string_mapping
 
-_log = get_logger("providers.catalog")
+_log = get_logger("ai.providers.catalog")
 
 _CATALOG_TIMEOUT_SECONDS = 2.0
 _CATALOG_CACHE_SECONDS = 10 * 60

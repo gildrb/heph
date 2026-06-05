@@ -1,101 +1,90 @@
 # Architecture
 
-Hephaion follows strict import boundaries enforced by `import-linter`. Source
-packages live under `packages/` so stable product ownership is separated from
-extension surfaces. Only adapter packages may import broadly; lower tiers must
-stay copyable and must not depend on product workflows.
+Hephaistos uses five workspace packages with strict import boundaries. The split
+mirrors the shape we want users and coding agents to understand:
 
-## Package ownership
-
-The target package root mirrors the Pi-style split between the agent identity,
-the harness, and extensible surfaces:
-
-```
+```text
 packages/
-  heph/        App package: command entrypoint, identity, product composition
-  hephaion/    Correctness harness: turns, grounding, citations, memory/study
-  ai/          Providers, runtime, logging, palette, AI primitives
-  interfaces/  CLI/TUI/terminal adapters
-  extensions/  Extension contracts
+  heph/        The agent brain and user-facing command surface
+  hephaion/    Validation and correctness harness
+  ai/          Provider and model runtime
+  interfaces/  Terminal/TUI adapters and theme tokens
+  extensions/  Stable extension contracts
 ```
 
-Each package uses its own `src/` and `test/` tree where useful. Source folders
-are flat by concern: `packages/ai/src/runtime`, `packages/interfaces/src/tui`,
-`packages/heph/src/commands`, and `packages/hephaion/src/chat`, not duplicate
-package-name wrappers. Heph is the thing the user talks to and the canonical
-console command (`heph`), while `hephaion` remains a command alias. Hephaion is
-the harness that prepares context, runs loops, validates grounding, streams
-events, records state, and persists sessions.
+Only those five package directories need package-level READMEs. The package
+directory itself is not an architecture surface.
 
-The long-term goal is a closed kernel with an open extension plane. Heph and
-Hephaion should know their own contracts well enough that a user can ask Heph to
-add, remove, or adapt behavior through extension points. The user should not
-need every personal workflow built into the core. Extension code can add tools,
-prompts, workflows, or interface affordances, but it must compose stable
-contracts instead of bypassing grounding, citation verification, memory scope, or
-session persistence.
+## Package Ownership
 
-Heph-facing behavior should be open for extension through prompt/state files.
-It should not learn about TUI keybindings, terminal details, provider internals,
-or one-off phrase lists. Hephaion may enforce structure around Heph, but it
-should not hardcode semantic dispatch for every possible user phrase.
+- **Heph** is the agent brain and user-facing surface. It owns the `heph`
+  command, agent identity, research/talking orchestration, slash-command
+  coordination, and composition of the lower packages. Lower packages must not
+  import Heph.
+- **Hephaion** is the validation and correctness harness. It owns turns,
+  guardrails, grounding, citations, retrieval, armory state, memory, study
+  workflows, diagnostics, and session persistence. It must not import Heph or
+  interface adapters.
+- **AI** owns provider configuration, auth, model catalogs, runtime streaming,
+  retry, usage, prompt-cache request shaping, logging, diagnostics, and narrow
+  payload type helpers. It lives under the `ai.*` Python namespace.
+- **Interfaces** owns terminal/TUI presentation, input, source opening,
+  transcript rendering, key handling, and `palette` theme tokens.
+- **Extensions** owns small stable contracts for extension-oriented behavior.
+  Concrete behavior belongs in the package that owns the runtime decision.
 
-## Architecture tiers
+Heph and Hephaion are both protected, but in different ways: Heph is protected
+as the agent surface that lower packages cannot import; Hephaion is protected as
+the correctness harness that adapters and app code compose without owning.
 
-- **Heph app package**. This owns the console command target, product
-  composition, Heph identity, and self-knowledge surfaces.
-- **AI package**. This owns provider configuration/auth, model
-  catalogs, runtime streaming, retry, usage, logging, palette, prompt-cache
-  request shaping, and conversation/message primitives.
-- **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
-  `study` under `hephaion`. These model harness state and materials but must not
-  depend on app or adapter packages.
-- **Application services**: `chat` and focused workflow modules. These compose
-  AI/domain packages into session lifecycle, evidence, memory workflows, and
-  turn orchestration inside the `hephaion` harness.
-- **Interfaces**. This owns Textual TUI, CLI-facing terminal
-  behavior, keybindings, transcript/composer/status rendering, and adapter
-  diagnostics. It is not a reusable TUI framework. Interface packages may depend
-  broadly, but reusable decisions should be promoted into services or domain
-  packages instead of staying in adapter code.
-  Interface modes should expose the same harness as interactive TUI,
-  print/plain CLI, JSON streaming, and future RPC/process integration surfaces
-  without duplicating core routing, validation, or extension decisions.
-- **Extensions**. This package owns stable extension
-  contracts for user tools, prompt/workflow hooks, and examples. User-modifiable
-  behavior should depend on stable contracts, not modify Heph identity or
-  Hephaion harness internals directly.
+## Protected Core
 
-## Dependency flow
+The core should be hard to change accidentally and easy to extend deliberately.
+
+- **AI is API substrate.** Treat `ai.*` like Pi's model API package: provider
+  configuration, request/response normalization, streaming, retry, usage, and
+  provider-neutral diagnostics. It should almost never change for Heph-specific
+  behavior.
+- **Hephaion is the correctness harness.** It guarantees local-document
+  correctness through armory validation, retrieval, evidence selection,
+  citation verification, guardrails, memory persistence, and diagnostics. It
+  should expose stable harness services instead of accumulating agent persona or
+  interface behavior.
+- **Heph is the brain.** Conversational strategy, research orchestration, Heph
+  identity, and user-facing command composition belong here. The current
+  `hephaion/agent` and `hephaion/chat` modules are migration-era harness
+  surfaces; new agent-brain behavior should move toward Heph-facing modules and
+  call Hephaion for validation rather than weakening the harness boundary.
+- **Extensions stay outside the core.** Optional behavior should attach through
+  `extensions` contracts or adapter-level composition. Do not make extension
+  behavior depend on editing AI, Hephaion, or Heph internals.
+
+## Dependency Flow
 
 ```mermaid
 graph TD
-    Heph[heph app] --> Interfaces[interface adapters]
-    Heph --> Harness[hephaion harness]
-    Heph --> AI[AI runtime and providers]
-    Heph --> Extensions[extension contracts]
+    Heph["Heph agent"] --> Interfaces["Interfaces"]
+    Heph --> Harness["Hephaion harness"]
+    Heph --> AI["AI runtime"]
+    Heph --> Extensions["Extensions"]
     Interfaces --> Harness
     Interfaces --> AI
     Interfaces --> Extensions
     Harness --> AI
     Harness --> Extensions
-    Harness --> Materials[materials]
-    Harness --> RAG[rag]
-    Harness --> Study[study]
-    Harness --> Memory[memory]
-    Harness --> Agent[agent]
+    Harness --> Materials["materials"]
+    Harness --> RAG["rag"]
+    Harness --> Study["study"]
+    Harness --> Memory["memory"]
+    Harness --> AgentLoop["agent helpers"]
     RAG --> Materials
-    AI -->|API calls| LLM[OpenAI / Anthropic / etc.]
-    Harness -->|Armory and sessions| FileStore[Armory Files]
+    AI --> LLM["LLM providers"]
+    Harness --> FileStore["Armory files"]
 ```
 
-The top layer is the app surface: `heph` wires command entrypoints and composes
-the interface adapters, harness, AI runtime, and extension contracts.
-The `interfaces` package owns human and process adapters through flat source
-concerns such as `terminal` and `tui`. Reusable packages communicate through
-public APIs and must not import adapter packages. Shared LLM request primitives
-live in `runtime` so chat, agent, memory, and study workflows do not import each
-other just to share message types or streaming helpers.
+Reusable packages communicate through public APIs. Interface code may compose
+broadly because adapters must display many workflows, but reusable decisions
+should move down into Hephaion, AI, Extensions, or Heph.
 
 ## Core harness flow
 
@@ -130,35 +119,23 @@ graph LR
   verification, and structural reply checks before turn finalization records the
   result, usage, memory scheduling, and learning state changes.
 
-Interfaces follow the same split as the Codex Rust layout: core services stay
-reusable, while TUI/CLI/command surfaces compose them. TUI frame behavior such
-as resize handling and terminal protocol support lives in `tui.resize`;
-external slash-command and managed-resend execution lives in
-`tui.external_commands`; generic inline-menu rendering/filtering lives in
-`tui.inline_menu`; model picker label parsing lives in `tui.model_flow`.
-Study prompt construction and turn-plan contracts live in `study.prompt_plans`,
-while `study.controller` keeps learning routing and state transitions.
-Priority scan orchestration remains in `study.priority`; analysis, progress,
-web search, report, and rendering details live in focused priority modules.
-Plugin registry and dynamic armory tool loading lives in `agent.tool_registry`.
-
 ## Package layout
 
 ```
 packages/
   ai/
-    ai_diagnostics/ Metrics and tracing primitives
-    ai_logging/     Structured logging, redaction, trace writing
-    ai_types/       Narrow payload type helpers
-    palette/        Product color tokens
-    providers/      LLM provider registry, config, auth, model catalogs
-    runtime/        Chat config, messages, streaming, retry, usage
+    ai/
+      diagnostics/ Metrics and tracing primitives
+      logging/     Structured logging, redaction, and timers
+      providers/   LLM provider registry, config, auth, model catalogs
+      runtime/     Chat config, messages, streaming, retry, usage
+      types/       Narrow payload type helpers
   extensions/
-    extension_contracts.py  Stable user-extension/product-context contracts
+    extension_contracts.py  Stable extension contracts
   heph/
     cli/        Console entrypoint and top-level subcommands
     commands/   Slash-command registry and command coordinators
-    product/    Product context bridge
+    product/    Temporary self-knowledge bridge
     identity/   Stable self-description and conversational identity target
     prompts/    Prompt programs treated as code
     state/      Declarative JSON/Markdown state contract target
@@ -178,6 +155,7 @@ packages/
     version/     Package version helpers
     vocab/       Vocabulary drill, scheduler, state
   interfaces/
+    palette/     Theme and ANSI color tokens
     terminal/    Terminal I/O, styling, prompts, history, source opening
     tui/         Textual adapter: lifecycle, widgets, inline menus, rendering
 ```
@@ -201,18 +179,23 @@ The following packages cannot import anything from adapter packages:
 - `materials`
 - `runtime`
 - `vocab`
-- `ai_logging`
 - `palette`
 - `matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`ai_logging` and `diagnostics.crashes` must not import from
+`ai.logging` and `diagnostics.crashes` must not import from
 `cli`, `commands`, or `tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
 `chat.session` and `chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
+
+### Forbidden: Heph commands must not import TUI internals
+
+`commands` may produce terminal-friendly command results and coordinate lower
+packages, but it must not import `tui`. The TUI adapter may call the command
+registry; command logic must not know TUI widgets, flows, or keybindings.
 
 ### Independent: materials
 
@@ -223,21 +206,21 @@ is one-way.
 
 ### Low level: runtime
 
-`runtime` owns shared LLM primitives such as `ChatConfig`,
+`ai.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
 and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
 `materials`, `memory`, or `armory`. Providers may be used by runtime, but
-providers must not import product workflow packages.
+providers must not import Heph or harness workflow packages.
 
 ### Core: providers
 
-`providers` owns provider configuration, model catalogs, registry
+`ai.providers` owns provider configuration, model catalogs, registry
 metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 `rag`, `study`, or `materials`.
 
 ### Domain: memory and study
 
-`memory` may use `runtime` to extract concepts, but it must not
+`memory` may use `ai.runtime` to extract concepts, but it must not
 import adapters, `chat`, or `agent`. `study` stays a pure
 controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
 
@@ -283,7 +266,7 @@ graph TD
     CLI --> Traces[Armory trace files]
     CLI --> Profiles[CPU / memory profiles]
 
-    Engine[runtime.engine] --> Logs
+    Engine[ai.runtime.engine] --> Logs
     Orchestrator[chat.orchestrator] --> Traces
 
     Traces --> Armory[<armory>/.hephaion/traces/]

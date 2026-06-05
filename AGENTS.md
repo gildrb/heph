@@ -6,13 +6,20 @@ NEVER create regex label lists / phrase-catching architecture and ALWAYS solve t
 ## Product Promise
 
 Hephaion is a **local document harness for accurate, cited answers**. Heph is
-the agent that runs inside the harness.
+the agent brain that talks, researches, and uses the harness.
 Protect this shape in every change:
 
 - Armories stay portable normal directories.
 - Answers are grounded in user materials and citations remain verifiable.
 - Memory is scoped to the armory unless the user explicitly opts into a shared service.
 - Provider and model choices stay swappable; vendor-specific behavior remains optional.
+- `ai.*` stays provider/model API substrate and should almost never change for
+  Heph-specific behavior.
+- Hephaion owns correctness guardrails, validation, armory state, retrieval,
+  citation checks, memory, and diagnostics. It is not the agent brain.
+- Heph owns agent identity, conversational strategy, research orchestration, and
+  user-facing composition. Move new brain behavior toward Heph-facing modules,
+  while calling Hephaion for correctness.
 - Never hardcode user-private corpus details: university names, course titles, lecturer names,
   campus platforms, armory names, local paths, or one-off source-file vocabulary. Retrieval and
   overview fixes must use provider-swappable prompts, semantic evidence handling, and generic
@@ -91,12 +98,18 @@ uv run heph armory init PATH    # create a new armory
 
 ## Import Architecture
 
+- Protected core packages:
+  - `ai.*`: provider/model API substrate only.
+  - Hephaion modules: correctness harness, guardrails, armories, retrieval,
+    citations, memory, diagnostics, and session state.
+  - Heph modules: agent identity, brain/composition, CLI entrypoint, and
+    slash-command coordination.
 - Adapter surface: `cli`, `commands`, `tui`, and most `terminal` modules.
   Adapters may depend broadly, but reusable decisions should move into services or domains.
-- Core reusable packages: `runtime`, `providers`, `logging`, `matching`,
-  `terminal.palette`, `_types`.
-- Domain reusable packages: `materials`, `rag`, `memory`, `armory`, `vocab`, `study`.
-- Application services: `chat` and focused workflow modules.
+- AI reusable packages: `ai.runtime`, `ai.providers`, `ai.logging`,
+  `ai.diagnostics`, `ai.types`.
+- Harness reusable packages: `matching`, `_types`, `materials`, `rag`, `memory`,
+  `armory`, `vocab`, `study`, `chat`, and focused workflow modules.
 - Reusable packages, including `privacy` and `diagnostics`, must not import adapters
   (`cli`, `commands`, `tui`, `terminal.history`, `terminal.input`).
 - `logging` and `diagnostics` must not import adapters.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from ai.providers.config import default_config
 from commands.suggestions import CommandSuggestion
-from providers.config import default_config
 from tui.slash_completion import SlashCompletionEngine
 
 

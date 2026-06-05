@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-from ai_logging import get_logger
+from ai.logging import get_logger
 
 try:
     import pathspec as _pathspec

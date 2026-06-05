@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from providers.access import provider_is_accessible
-from providers.config import ProviderConfig
+from ai.providers.access import provider_is_accessible
+from ai.providers.config import ProviderConfig
 
 if TYPE_CHECKING:
     from chat.session import ChatSession

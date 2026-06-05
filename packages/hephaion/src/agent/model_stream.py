@@ -7,9 +7,8 @@ import time
 from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 
-from ai_logging import Timer
-from rag.context import TurnEvidence
-from runtime import (
+from ai.logging import Timer
+from ai.runtime import (
     ApiMessage,
     ChatConfig,
     CompletionDelta,
@@ -18,7 +17,8 @@ from runtime import (
     build_client,
     stream_completion,
 )
-from runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
+from ai.runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
+from rag.context import TurnEvidence
 
 from agent.runtime_notes import acceptance_criteria_notice
 from agent.tool_execution import ToolCall, merge_tool_call_deltas

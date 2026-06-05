@@ -27,6 +27,7 @@ from agent.tools import (
     run_write_file,
     safe_path,
 )
+from ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 from chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -35,7 +36,6 @@ from chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 
 from conftest import message_text
 
