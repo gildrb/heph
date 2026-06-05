@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from hephaion import commands
 from hephaion.chat.session import ChatSession, create_plain_session
 from hephaion.commands import model as _commands_model

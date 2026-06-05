@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from hephaion.rag.chunker import Chunk, ChunkedDocument
 from hephaion.rag.index import ArmoryIndex
 from hephaion.study.priority import (

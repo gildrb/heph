@@ -58,13 +58,13 @@ repos:
       - id: vulture
         name: vulture (dead-code)
         language: python
-        entry: uv run vulture hephaion tests vulture-whitelist.py
+        entry: uv run vulture packages/hephaion tests vulture-whitelist.py
         types: [python]
         pass_filenames: false
       - id: pylint-duplicate-code
         name: pylint (duplicate-code)
         language: python
-        entry: uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaion
+        entry: uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/hephaion
         types: [python]
         pass_filenames: false
       - id: lint-imports
@@ -82,13 +82,13 @@ repos:
       - id: deptry
         name: deptry (unused-deps)
         language: python
-        entry: uv run deptry hephaion
+        entry: uv run deptry packages/hephaion
         types: [python]
         pass_filenames: false
       - id: radon-complexity
         name: radon (complexity)
         language: python
-        entry: uv run radon cc hephaion -a -nc
+        entry: uv run radon cc packages/hephaion -a -nc
         types: [python]
         pass_filenames: false
       - id: check-tech-debt

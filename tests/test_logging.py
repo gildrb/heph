@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from hephaion.logging import (
     Timer,
     TraceWriter,

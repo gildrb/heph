@@ -10,39 +10,25 @@ from pathlib import Path
 from radon.complexity import cc_visit
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ROOT = ROOT / "hephaion"
+SOURCE_ROOT = ROOT / "packages" / "hephaion"
 
 MODULE_LINE_THRESHOLD = 1_200
 CLASS_LINE_THRESHOLD = 500
 FUNCTION_LINE_THRESHOLD = 80
 COMPLEXITY_THRESHOLD = 11
 
-MODULE_LINE_BASELINE = {
-    "hephaion/agent/tools.py": 1368,
-    "hephaion/chat/evidence.py": 1574,
-    "hephaion/chat/orchestrator.py": 5529,
-    "hephaion/runtime/engine.py": 1608,
-    "hephaion/study/priority.py": 2376,
-    "hephaion/tui/__init__.py": 1039,
-    "hephaion/tui/inline_flows.py": 1364,
-}
+MODULE_LINE_BASELINE: dict[str, int] = {}
 
 CLASS_LINE_BASELINE = {
-    "hephaion/chat/orchestrator.py:TurnOrchestrator": 912,
     "hephaion/rag/index.py:ArmoryIndex": 628,
-    "hephaion/tui/__init__.py:HephTui": 832,
-    "hephaion/tui/inline_flows.py:TuiInlineFlowMixin": 860,
 }
 
 FUNCTION_LINE_BASELINE = {
     "hephaion/agent/dispatch.py:_tool_turn_events": 96,
     "hephaion/agent/dispatch.py:iter_agent_events": 109,
-    "hephaion/chat/evidence.py:_direct_support_adjusted_assessment": 89,
-    "hephaion/chat/orchestrator.py:TurnOrchestrator._iter_armory_turn_events": 98,
-    "hephaion/chat/orchestrator.py:TurnOrchestrator.iter_events": 133,
-    "hephaion/chat/orchestrator.py:_apply_turn_contract_to_plan": 197,
-    "hephaion/chat/orchestrator.py:_stabilized_followup_intent_resolution": 119,
-    "hephaion/chat/orchestrator.py:_stabilized_followup_retrieval": 114,
+    "hephaion/chat/intent_resolution.py:_stabilized_followup_intent_resolution": 119,
+    "hephaion/chat/turn_planning.py:_apply_turn_contract_to_plan": 197,
+    "hephaion/chat/turn_planning.py:_stabilized_followup_retrieval": 114,
     "hephaion/cli/main.py:build_parser": 96,
     "hephaion/rag/retrieve.py:retrieve": 111,
     "hephaion/tui/armory_browser.py:_armory_browser_css": 116,
@@ -52,32 +38,30 @@ FUNCTION_LINE_BASELINE = {
 
 COMPLEXITY_BASELINE = {
     "hephaion/agent/dispatch.py:iter_agent_events": 11,
-    "hephaion/chat/evidence.py:_direct_support_adjusted_assessment": 30,
-    "hephaion/chat/evidence.py:_dominant_retrieval_support_score": 11,
     "hephaion/chat/evidence.py:_expanded_prior_query_evidence": 11,
-    "hephaion/chat/orchestrator.py:_apply_turn_contract_to_plan": 50,
-    "hephaion/chat/orchestrator.py:_contract_with_default_material_scope": 15,
-    "hephaion/chat/orchestrator.py:_deterministic_evidence_pointer_repair": 11,
-    "hephaion/chat/orchestrator.py:_deterministic_learning_reply": 13,
-    "hephaion/chat/orchestrator.py:_evidence_output_needs_model_repair": 11,
-    "hephaion/chat/orchestrator.py:_expanded_prior_followup_query": 11,
-    "hephaion/chat/orchestrator.py:_overview_answer_has_bad_shape": 26,
-    "hephaion/chat/orchestrator.py:_overview_cue_looks_like_byline": 12,
-    "hephaion/chat/orchestrator.py:_overview_fallback_cue_is_substantive": 11,
-    "hephaion/chat/orchestrator.py:_overview_heading_is_sparse_title_block": 13,
-    "hephaion/chat/orchestrator.py:_overview_lead_prefix_within_budget": 16,
-    "hephaion/chat/orchestrator.py:_overview_model_fallback_candidates": 12,
-    "hephaion/chat/orchestrator.py:_overview_pipe_table_line_rows": 11,
-    "hephaion/chat/orchestrator.py:_prior_answer_position_absence_reply": 15,
-    "hephaion/chat/orchestrator.py:_prior_answer_prompt_context": 12,
-    "hephaion/chat/orchestrator.py:_prior_answer_single_citation_reply": 13,
-    "hephaion/chat/orchestrator.py:_prior_answer_target_phrase_reply": 11,
-    "hephaion/chat/orchestrator.py:_repair_structurally_invalid_evidence_output": 13,
-    "hephaion/chat/orchestrator.py:_stabilized_current_topic_query": 13,
-    "hephaion/chat/orchestrator.py:_stabilized_followup_intent_resolution": 33,
-    "hephaion/chat/orchestrator.py:_stabilized_followup_retrieval": 62,
-    "hephaion/chat/orchestrator.py:_stabilized_intent_for_default_material_plan": 14,
-    "hephaion/chat/orchestrator.py:_transform_resolution_points_at_prior_answer": 11,
+    "hephaion/chat/intent_resolution.py:_stabilized_followup_intent_resolution": 33,
+    "hephaion/chat/intent_resolution.py:_stabilized_intent_for_default_material_plan": 14,
+    "hephaion/chat/intent_resolution.py:_transform_resolution_points_at_prior_answer": 11,
+    "hephaion/chat/learning_reply.py:_deterministic_learning_reply": 13,
+    "hephaion/chat/overview_reply.py:_overview_answer_has_bad_shape": 26,
+    "hephaion/chat/overview_reply.py:_overview_cue_looks_like_byline": 12,
+    "hephaion/chat/overview_reply.py:_overview_fallback_cue_is_substantive": 11,
+    "hephaion/chat/overview_reply.py:_overview_heading_is_sparse_title_block": 13,
+    "hephaion/chat/overview_reply.py:_overview_lead_prefix_within_budget": 16,
+    "hephaion/chat/overview_reply.py:_overview_model_fallback_candidates": 12,
+    "hephaion/chat/overview_reply.py:_overview_pipe_table_line_rows": 11,
+    "hephaion/chat/prior_answer.py:_prior_answer_position_absence_reply": 15,
+    "hephaion/chat/prior_answer.py:_prior_answer_prompt_context": 12,
+    "hephaion/chat/prior_answer.py:_prior_answer_single_citation_reply": 13,
+    "hephaion/chat/prior_answer.py:_prior_answer_target_phrase_reply": 11,
+    "hephaion/chat/reply_repair.py:_deterministic_evidence_pointer_repair": 11,
+    "hephaion/chat/reply_repair.py:_evidence_output_needs_model_repair": 11,
+    "hephaion/chat/reply_repair.py:_repair_structurally_invalid_evidence_output": 13,
+    "hephaion/chat/turn_planning.py:_apply_turn_contract_to_plan": 50,
+    "hephaion/chat/turn_planning.py:_contract_with_default_material_scope": 15,
+    "hephaion/chat/turn_planning.py:_expanded_prior_followup_query": 11,
+    "hephaion/chat/turn_planning.py:_stabilized_current_topic_query": 13,
+    "hephaion/chat/turn_planning.py:_stabilized_followup_retrieval": 62,
     "hephaion/providers/model_recommendations.py:_recommendation_reasons": 14,
     "hephaion/study/controller.py:_plan_recall_phase_intent": 14,
     "hephaion/study/controller.py:_plan_waiting_intent": 11,
@@ -95,7 +79,6 @@ FACADE_IMPORT_BASELINE = {
     "hephaion/armory/search.py": 1,
     "hephaion/chat/compaction.py": 1,
     "hephaion/chat/evidence.py": 3,
-    "hephaion/chat/orchestrator.py": 5,
     "hephaion/chat/session.py": 6,
     "hephaion/chat/storage.py": 1,
     "hephaion/chat/titles.py": 1,
@@ -120,9 +103,9 @@ FACADE_IMPORT_BASELINE = {
     "hephaion/rag/retrieve.py": 1,
     "hephaion/rag/semantic.py": 1,
     "hephaion/rag/sparse.py": 1,
-    "hephaion/study/priority.py": 2,
+    "hephaion/study/priority.py": 1,
     "hephaion/terminal/input.py": 1,
-    "hephaion/tui/__init__.py": 7,
+    "hephaion/tui/__init__.py": 4,
     "hephaion/tui/armory.py": 2,
     "hephaion/tui/armory_browser.py": 3,
     "hephaion/tui/display_text.py": 3,
@@ -161,6 +144,8 @@ def python_files() -> list[Path]:
 
 
 def rel_path(path: Path) -> str:
+    if path.is_relative_to(SOURCE_ROOT):
+        return f"hephaion/{path.relative_to(SOURCE_ROOT).as_posix()}"
     return path.relative_to(ROOT).as_posix()
 
 

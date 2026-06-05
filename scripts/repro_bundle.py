@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import shutil
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict, cast
@@ -203,9 +204,7 @@ def _bundle_input_errors(
 
 def _is_private_output_path(path: Path) -> bool:
     resolved = path.expanduser().resolve()
-    try:
-        resolved.relative_to(_REPO_ROOT)
-    except ValueError:
+    if not _is_relative_to(resolved, _REPO_ROOT.resolve()):
         return True
     return any(
         _is_relative_to(resolved, private_root.resolve()) for private_root in _PRIVATE_REPO_ROOTS
@@ -216,8 +215,41 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
     except ValueError:
-        return False
+        return _is_relative_to_case_insensitive_path(path, parent) and _is_case_insensitive_entry(
+            parent
+        )
     return True
+
+
+def _is_relative_to_case_insensitive_path(path: Path, parent: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    path_text = path.expanduser().resolve(strict=False).as_posix().casefold()
+    parent_text = parent.expanduser().resolve(strict=False).as_posix().rstrip("/").casefold()
+    return path_text == parent_text or path_text.startswith(f"{parent_text}/")
+
+
+def _is_case_insensitive_entry(path: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    resolved = path.expanduser().resolve(strict=False)
+    for entry in (resolved, *resolved.parents):
+        variant = _case_variant(entry.name)
+        if not variant:
+            continue
+        try:
+            return entry.with_name(variant).samefile(entry)
+        except OSError:
+            continue
+    return False
+
+
+def _case_variant(name: str) -> str:
+    for char in name:
+        if char.lower() != char.upper():
+            swapped = name.swapcase()
+            return swapped if swapped != name else ""
+    return ""
 
 
 def _artifact_entries(value: object, errors: list[str]) -> list[RawArtifactEntry]:

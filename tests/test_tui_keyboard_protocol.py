@@ -6,14 +6,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual import events
-from textual._xterm_parser import XTermParser
-
 from hephaion import tui
 from hephaion.chat.session import create_plain_session
 from hephaion.runtime import ChatConfig
 from hephaion.tui.keyboard_protocol import install_textual_modified_key_compat
 from hephaion.tui.widgets import csi_u_key_text
+from textual import events
+from textual._xterm_parser import XTermParser
 
 
 def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:

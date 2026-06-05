@@ -5,24 +5,28 @@
 *       @gildrb
 
 # Core CLI and shell
-/hephaion/app/       @gildrb
+/packages/hephaion/cli/       @gildrb
+/packages/hephaion/commands/  @gildrb
+/packages/hephaion/terminal/  @gildrb
 
 # LLM engine and chat
-/hephaion/chat/      @gildrb
-/hephaion/harness/   @gildrb
+/packages/hephaion/chat/      @gildrb
+/packages/hephaion/agent/     @gildrb
+/packages/hephaion/runtime/   @gildrb
 
 # Providers and authentication
-/hephaion/providers/ @gildrb
+/packages/hephaion/providers/ @gildrb
 
 # Armory and knowledge
-/hephaion/armory/       @gildrb
-/hephaion/study/        @gildrb
-/hephaion/memory/       @gildrb
-/hephaion/parameters/   @gildrb
-/hephaion/source/       @gildrb
+/packages/hephaion/armory/       @gildrb
+/packages/hephaion/materials/    @gildrb
+/packages/hephaion/rag/          @gildrb
+/packages/hephaion/study/        @gildrb
+/packages/hephaion/memory/       @gildrb
+/packages/hephaion/parameters/   @gildrb
 
 # Security-critical redaction code
-/hephaion/logging.py    @gildrb
+/packages/hephaion/logging.py    @gildrb
 
 # Infrastructure
 /tests/                   @gildrb

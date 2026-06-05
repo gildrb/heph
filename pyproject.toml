@@ -138,8 +138,8 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
-"hephaion/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
-"hephaion/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"packages/hephaion/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
+"packages/hephaion/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
@@ -152,13 +152,13 @@ raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeErro
 
 [tool.uv.build-backend]
 module-name = "hephaion"
-module-root = ""
+module-root = "packages"
 
 [tool.ty.environment]
 python-version = "3.13"
 
 [tool.ty.src]
-include = ["hephaion", "tests"]
+include = ["packages/hephaion", "tests"]
 exclude = ["vulture-whitelist.py", ".venv"]
 
 [tool.ty.rules]
@@ -182,7 +182,7 @@ score = false
 
 [tool.vulture]
 min_confidence = 80
-paths = ["hephaion", "tests", "vulture-whitelist.py"]
+paths = ["packages/hephaion", "tests", "vulture-whitelist.py"]
 
 [tool.bandit]
 severity = "low"
@@ -312,7 +312,6 @@ forbidden_modules = ["hephaion.chat"]
 name = "chat.session and chat.orchestrator are independent (no runtime imports)"
 type = "independence"
 modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
-ignore_imports = ["hephaion.chat.session -> hephaion.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
 name = "diagnostics must not import adapters"

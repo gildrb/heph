@@ -10,7 +10,8 @@ from hephaion.providers.model_support import (
     is_supported_model_for_endpoint,
 )
 from hephaion.providers.reasoning import reasoning_levels_for_model
-from hephaion.runtime.engine import ChatConfig, _request_kwargs
+from hephaion.runtime.config import ChatConfig
+from hephaion.runtime.request_payload import request_kwargs
 
 
 def _provider_config(slug: str, base_url: str, model: str, reasoning_level: str) -> ChatConfig:
@@ -56,7 +57,7 @@ def test_deepseek_request_payload_enables_thinking_and_omits_temperature() -> No
         "low",
     )
 
-    kwargs = _request_kwargs(config, [], tools=None, tool_choice=None)
+    kwargs = request_kwargs(config, [], tools=None, tool_choice=None)
 
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
     assert kwargs["reasoning_effort"] == "high"
@@ -71,7 +72,7 @@ def test_deepseek_xhigh_reasoning_maps_to_max_effort() -> None:
         "xhigh",
     )
 
-    kwargs = _request_kwargs(config, [], tools=None, tool_choice=None)
+    kwargs = request_kwargs(config, [], tools=None, tool_choice=None)
 
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
     assert kwargs["reasoning_effort"] == "max"
@@ -86,7 +87,7 @@ def test_openai_reasoning_payload_stays_openai_compatible() -> None:
         "high",
     )
 
-    kwargs = _request_kwargs(config, [], tools=None, tool_choice=None)
+    kwargs = request_kwargs(config, [], tools=None, tool_choice=None)
 
     assert kwargs["reasoning_effort"] == "high"
     assert kwargs["temperature"] == 0.7
@@ -101,7 +102,7 @@ def test_custom_provider_does_not_receive_vendor_reasoning_fields() -> None:
         "high",
     )
 
-    kwargs = _request_kwargs(config, [], tools=None, tool_choice=None)
+    kwargs = request_kwargs(config, [], tools=None, tool_choice=None)
 
     assert "reasoning_effort" not in kwargs
     assert "extra_body" not in kwargs

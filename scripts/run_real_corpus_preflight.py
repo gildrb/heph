@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import cast
 
 from hephaion.materials import MaterialRole, material_manifest
+
 from scripts import benchmark_document_understanding, validate_benchmark_manifest
 
 DEFAULT_MIN_DOCUMENTS = 40

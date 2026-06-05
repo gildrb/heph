@@ -45,6 +45,7 @@ from hephaion.rag.query_audit import (
 from hephaion.rag.query_audit import (
     retrieval_strategy_payload as audit_retrieval_strategy_payload,
 )
+
 from scripts import benchmark_rag, claim_report_envelope, run_benchmark_suite
 
 SCHEMA_VERSION = "external-runner-report-v1"

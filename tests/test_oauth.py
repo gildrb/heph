@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-
 from hephaion.commands import LogoutCommand, get_registry
 from hephaion.providers import oauth as oauth_mod
 from hephaion.providers.keyring_store import get_volatile, resolve_key, set_volatile

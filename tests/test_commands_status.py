@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from hephaion import commands
 from hephaion.armory.storage import initialize
 from hephaion.chat.session import ChatSession

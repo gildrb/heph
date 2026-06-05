@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from hephaion.armory import storage
+
 from scripts import validate_benchmark_manifest
 
 _PROVENANCE_METADATA_NAME = "public_corpus_provenance.json"

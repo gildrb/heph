@@ -13,7 +13,7 @@ import pytest
 # Avoid writing .pyc files during test runs
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-import hephaion.chat.orchestrator as _orch_mod
+import hephaion.chat.turn_finalization as _turn_finalization_mod
 import hephaion.diagnostics.crashes as _obs_mod
 import hephaion.logging as _log_mod
 import hephaion.parameters.settings as _settings_mod
@@ -55,10 +55,10 @@ def _reset_diagnostics_module_objects() -> None:
     _res_mod._meter = _noop_meter
     _res_mod._state_gauge = _NOOP_GAUGE
 
-    # orchestrator.py
-    _orch_mod._tracer = _noop_tracer
-    _orch_mod._meter = _noop_meter
-    _orch_mod._rag_duration_hist = _NOOP_HISTOGRAM
+    # turn_finalization.py
+    _turn_finalization_mod._tracer = _noop_tracer
+    _turn_finalization_mod._meter = _noop_meter
+    _turn_finalization_mod._rag_duration_hist = _NOOP_HISTOGRAM
 
 
 def _pin_optional_rag_backends_off() -> None:

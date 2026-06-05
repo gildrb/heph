@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from hephaion.diagnostics.crashes import (
     _REDACTED,
     _parse_sentry_dsn,

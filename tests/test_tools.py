@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from hephaion.agent.tools import (
     TOOL_SCHEMAS,
     BashResult,

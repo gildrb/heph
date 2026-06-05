@@ -68,13 +68,13 @@ jobs:
         run: uv run ty check
 
       - name: Bandit
-        run: uv run bandit -r hephaion -c pyproject.toml
+        run: uv run bandit -r packages/hephaion -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture hephaion tests vulture-whitelist.py
+        run: uv run vulture packages/hephaion tests vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code hephaion
+        run: uv run pylint --disable=all --enable=duplicate-code packages/hephaion
 
       - name: Pytest
         run: uv run pytest
@@ -96,7 +96,7 @@ jobs:
               stripped = value.strip()
               return json.dumps(stripped) if stripped else "None"
 
-          target = Path("hephaion/privacy/release.py")
+          target = Path("packages/hephaion/privacy/release.py")
           target.write_text(
               "\n".join(
                   [

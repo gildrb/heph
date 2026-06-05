@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from hephaion.rag.retrieval_types import EvidenceReference
+
 from scripts import benchmark_answers, replay_answer_benchmark
 
 _LEGACY_MATERIAL_TASK_KEY = "study_task"

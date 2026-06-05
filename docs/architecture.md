@@ -1,11 +1,49 @@
 # Architecture
 
-Hephaion follows strict import boundaries enforced by `import-linter`. Only
-adapter packages may import broadly; lower tiers must stay copyable and must
-not depend on product workflows.
+Hephaion follows strict import boundaries enforced by `import-linter`. Source
+packages live under `packages/` so stable product ownership is separated from
+extension surfaces. Only adapter packages may import broadly; lower tiers must
+stay copyable and must not depend on product workflows.
+
+## Package ownership
+
+The target package root mirrors the Pi-style split between the agent identity,
+the harness, and extensible surfaces:
+
+```
+packages/
+  heph/        Model-facing identity, self-knowledge, prompt contracts, state
+    identity/  Stable self-description and conversational identity
+    prompts/   Prompt programs treated as code
+    state/     Declarative JSON/Markdown state contracts
+  hephaion/    Correctness harness, retrieval, citations, runtime, persistence
+  interfaces/  User-facing shells and integrations such as TUI/CLI surfaces
+  extensions/  User-extensible workflows, tools, prompts, and integrations
+```
+
+`packages/hephaion` is the current importable `hephaion` package.
+`heph`, `interfaces`, and `extensions` are migration roots. Moving code into them
+must preserve the product promise: Heph is the thing the user talks to, while
+Hephaion is the harness that prepares context, runs loops, validates grounding,
+streams events, records state, and persists sessions.
+
+The long-term goal is a closed kernel with an open extension plane. Heph and
+Hephaion should know their own contracts well enough that a user can ask Heph to
+add, remove, or adapt behavior through extension points. The user should not
+need every personal workflow built into the core. Extension code can add tools,
+prompts, workflows, or interface affordances, but it must compose stable
+contracts instead of bypassing grounding, citation verification, memory scope, or
+session persistence.
+
+Heph-facing behavior should be open for extension through prompt/state files.
+It should not learn about TUI keybindings, terminal details, provider internals,
+or one-off phrase lists. Hephaion may enforce structure around Heph, but it
+should not hardcode semantic dispatch for every possible user phrase.
 
 ## Architecture tiers
 
+- **Heph target package**: `heph`. This owns the future model-facing identity,
+  self-knowledge, prompt programs, and declarative state contracts.
 - **Core reusable packages**: `runtime`, `providers`, `logging`, `matching`,
   `terminal.palette`, `_types`. These are the most copyable packages and must
   not import product workflow packages.
@@ -15,10 +53,18 @@ not depend on product workflows.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
-- **Adapters**: `tui`, `cli`, `commands`, and terminal compatibility
+- **Interfaces**: `tui`, `cli`, `commands`, and terminal compatibility
   modules. The TUI is the human interface; the CLI is the command and automation
-  skeleton. Adapters may depend broadly, but reusable decisions should be
+  skeleton. Interface packages may depend broadly, but reusable decisions should be
   promoted into services or domain packages instead of staying in adapter code.
+  Interface modes should expose the same harness as interactive TUI,
+  print/plain CLI, JSON streaming, and future RPC/process integration surfaces
+  without duplicating core routing, validation, or extension decisions.
+- **Extension targets**: `packages/extensions` and future interface packages.
+  User-modifiable behavior should depend on stable contracts, not modify Heph
+  identity or Hephaion harness internals directly. If a requested capability is
+  user-specific and not part of the correctness harness, prefer an extension seam
+  over another built-in branch.
 
 ## Dependency flow
 
@@ -79,7 +125,7 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **tui**, **cli**, **commands**,
+The top layer is the interface surface: **tui**, **cli**, **commands**,
 and **terminal**. `tui` is the primary interactive Textual interface; `cli` is
 the public command dispatcher for launching the TUI, automation, and one-shot
 commands. `commands` contains slash-command handlers, and `terminal` owns
@@ -102,16 +148,27 @@ graph LR
 ```
 
 - `chat.intent` owns the classifier schema, prompt contract, and payload parser.
-- `chat.orchestrator` keeps `TurnOrchestrator`, `iter_chat_events`, and
-  `send_user_message` as public composition surfaces; behavior-specific helpers
-  should move into focused chat modules instead of growing the orchestrator.
+  Intent handling must be structural and model-facing; it must not devolve into
+  phrase-table semantic dispatch such as treating every greeting or overview
+  wording as a separate code branch.
+- `chat.turn_orchestrator` composes lifecycle, armory-turn setup, execution, and
+  finalization mixins. `chat.orchestrator` keeps `TurnOrchestrator`,
+  `iter_chat_events`, and `send_user_message` as public composition surfaces.
+  Behavior-specific helpers should move into focused chat modules instead of
+  growing the orchestrator.
+- `chat.message_delivery` owns rendered one-shot sending, while
+  `chat.session_persistence` owns session save behavior. This keeps
+  `chat.session` and `chat.orchestrator` independent at runtime.
 - `chat.evidence` owns retrieval resolution and assessment. Planning may request
   current, prior, or overview evidence, but it should not perform adapter work.
+  Low-content filtering lives in `chat.evidence_text`; overview sampling lives
+  in `chat.evidence_overview` so query retrieval, overview sampling, and
+  assessment remain separate responsibilities.
 - Generation and repair must remain grounded in `TurnEvidence`, citation
   verification, and structural reply checks before turn finalization records the
   result, usage, memory scheduling, and learning state changes.
 
-Adapters follow the same split as the Codex Rust layout: core services stay
+Interfaces follow the same split as the Codex Rust layout: core services stay
 reusable, while TUI/CLI/command surfaces compose them. TUI frame behavior such
 as resize handling and terminal protocol support lives in `tui.resize`;
 external slash-command and managed-resend execution lives in
@@ -119,34 +176,41 @@ external slash-command and managed-resend execution lives in
 `tui.inline_menu`; model picker label parsing lives in `tui.model_flow`.
 Study prompt construction and turn-plan contracts live in `study.prompt_plans`,
 while `study.controller` keeps learning routing and state transitions.
-Priority report data contracts live in `study.priority_types`; priority
-analysis, ranking, model execution, and rendering remain in `study.priority`.
+Priority scan orchestration remains in `study.priority`; analysis, progress,
+web search, report, and rendering details live in focused priority modules.
 Plugin registry and dynamic armory tool loading lives in `agent.tool_registry`.
 
 ## Package layout
 
 ```
-hephaion/
-  cli/          Command and automation dispatcher; launches the TUI by default
-  commands/     Slash-command handlers for TUI and automation adapters
-  tui/          Textual adapter: lifecycle, widgets, inline menus, rendering
-  terminal/     Terminal I/O, styling, prompts, history, command dispatch
-  matching/     Fuzzy matching helpers for human-facing selectors
-  chat/         Session lifecycle, intent contracts, evidence, turn orchestration — no adapter imports
-  runtime/      Shared LLM config, messages, errors, deltas, client streaming, retry helpers
-  agent/        Prompt building, citation, tool registry/handlers — no adapter imports
-  providers/    LLM provider registry, config, auth — no adapter imports
-  rag/          RAG chunking, indexing, retrieval — no adapter imports
-  materials/    Study-file discovery, ignore rules, and material role classification
-  armory/       Armory data and commands — no adapter imports
-  study/        Prompt plans, learning controller, priority analysis — no adapter imports
-  memory/       Memory extraction and storage — no adapter imports
-  parameters/   Parameter management CLI — no adapter imports
-  privacy/      Consent, anonymous install ID, release-time diagnostics config
-  diagnostics/  Anonymous events, local diagnostics, redacted crash reports
-  vocab/        Vocabulary drill, scheduler, state — no adapter imports
-  logging.py    Shared logging — must NOT import adapters
-  terminal/palette.py  ANSI color primitives — must NOT import adapters
+packages/
+  heph/        Target model-facing package for Heph identity and prompt state
+    identity/  Stable self-description and conversational identity
+    prompts/   Prompt programs treated as code
+    state/     Declarative JSON/Markdown state contracts
+  interfaces/  Target package root for user-facing shells and integrations
+  extensions/  Target package root for user-extensible behavior
+  hephaion/
+    cli/          Command and automation dispatcher; launches the TUI by default
+    commands/     Slash-command handlers for TUI and automation interfaces
+    tui/          Textual adapter: lifecycle, widgets, inline menus, rendering
+    terminal/     Terminal I/O, styling, prompts, history, command dispatch
+    matching/     Fuzzy matching helpers for human-facing selectors
+    chat/         Session lifecycle, intent contracts, evidence, turn orchestration
+    runtime/      Shared LLM config, messages, errors, deltas, client streaming, retry helpers
+    agent/        Prompt building, citation, tool registry/handlers
+    providers/    LLM provider registry, config, auth
+    rag/          RAG chunking, indexing, retrieval
+    materials/    Study-file discovery, ignore rules, and material role classification
+    armory/       Armory data and commands
+    study/        Prompt plans, learning controller, priority analysis
+    memory/       Memory extraction and storage
+    parameters/   Parameter management CLI
+    privacy/      Consent, anonymous install ID, release-time diagnostics config
+    diagnostics/  Anonymous events, local diagnostics, redacted crash reports
+    vocab/        Vocabulary drill, scheduler, state
+    logging.py    Shared logging — must NOT import adapters
+    terminal/palette.py  ANSI color primitives — must NOT import adapters
 ```
 
 ## Import rules
@@ -288,7 +352,7 @@ Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
   configured and the user explicitly opts in.
 - `hephaion.diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `hephaion/privacy/release.py` is committed as a safe stub in the public
+- `packages/hephaion/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom

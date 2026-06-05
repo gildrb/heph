@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+HEPHAION_SOURCE_ROOT: Final[Path] = REPO_ROOT / "packages" / "hephaion"
 SCAN_ROOTS: Final[tuple[Path, ...]] = (
-    REPO_ROOT / "hephaion",
+    HEPHAION_SOURCE_ROOT,
     REPO_ROOT / "tests",
     REPO_ROOT / "scripts",
     REPO_ROOT / "vulture-whitelist.py",
@@ -113,12 +114,6 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "hephaion.agent.prompt",
             "hephaion.agent.tool_execution",
             "hephaion.agent.tools",
-        }
-    ),
-    "hephaion/chat/session.py": frozenset(
-        {
-            "hephaion.chat.events",
-            "hephaion.chat.orchestrator",
         }
     ),
     "hephaion/runtime/engine.py": frozenset(
@@ -805,6 +800,8 @@ def _check_duplicate_prompt_rules() -> list[Violation]:
 
 
 def _repo_relative_path(path: Path) -> str:
+    if path.is_relative_to(HEPHAION_SOURCE_ROOT):
+        return f"hephaion/{path.relative_to(HEPHAION_SOURCE_ROOT).as_posix()}"
     try:
         return path.relative_to(REPO_ROOT).as_posix()
     except ValueError:

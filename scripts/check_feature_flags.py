@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOURCE_DIR = REPO_ROOT / "hephaion"
+SOURCE_DIR = REPO_ROOT / "packages" / "hephaion"
 
 # Known feature flags and their descriptions.
 # Update this set when adding new flags.

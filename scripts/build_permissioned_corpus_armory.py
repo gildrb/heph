@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import cast
 
 from hephaion.armory import storage
+
 from scripts import create_benchmark_manifest
 
 _SUPPORTED_SUFFIXES = frozenset(

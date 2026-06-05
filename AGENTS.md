@@ -50,7 +50,7 @@ uv run heph armory init PATH    # create a new armory
 <!-- sync-docs:privacy-diagnostics-docs-contract:start -->
 - Privacy and diagnostics rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
   is redacted opt-in crash reporting only.
-- Preserve the public safe-stub split in `hephaion/privacy/release.py`.
+- Preserve the public safe-stub split in `packages/hephaion/privacy/release.py`.
   Official release builds inject privacy and diagnostics backend values in CI; source, editable, and
   Git installs must stay bare by default.
 - When CLI commands, privacy or diagnostics surfaces, or README-adjacent docs change, run
@@ -147,8 +147,8 @@ uv run ty check  # type-check the project
 
 ## Dead Code / Architecture / Quality Gates
 ```bash
-uv run vulture hephaion tests vulture-whitelist.py  # dead-code detection
-uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaion  # duplicate code
+uv run vulture packages/hephaion tests vulture-whitelist.py  # dead-code detection
+uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/hephaion  # duplicate code
 uv run lint-imports        # verify import boundaries
 uv run python scripts/check_architecture_guardrails.py  # guard architecture debt baselines
 uv run python scripts/check_tech_debt.py --strict  # TODO/FIXME issue links
@@ -157,7 +157,7 @@ uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command valida
 
 Additional configured gates:
 
-- Vulture scans `hephaion`, `tests`, and `vulture-whitelist.py` at 80% confidence.
+- Vulture scans `packages/hephaion`, `tests`, and `vulture-whitelist.py` at 80% confidence.
 - Pylint duplicate-code uses an 8-line similarity threshold and ignores comments,
   docstrings, and imports.
 - Architecture guardrails enforce no regression against current module size, function size,

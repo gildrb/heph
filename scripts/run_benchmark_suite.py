@@ -22,6 +22,7 @@ from hephaion.chat.intent import (
     LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT,
     normalized_learning_intent_from_payload,
 )
+
 from scripts import (
     benchmark_academic_items,
     benchmark_answers,
@@ -133,9 +134,9 @@ def _learning_state_dataset_path(suite_path: Path) -> Path:
 
 
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
-    "hephaion/chat/orchestrator.py",
-    "hephaion/study/prompt_plans.py",
-    "hephaion/tui/inline_flows.py",
+    "packages/hephaion/chat/intent.py",
+    "packages/hephaion/study/prompt_plans.py",
+    "packages/hephaion/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")
