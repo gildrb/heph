@@ -84,6 +84,66 @@ EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
 EXTENSION_CONTRACTS_POLICY_MESSAGE: Final[str] = (
     "extension contracts must not import concrete product, harness, AI, or interface modules"
 )
+FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
+    "ai": frozenset(
+        {
+            "_types",
+            "agent",
+            "armory",
+            "chat",
+            "cli",
+            "commands",
+            "diagnostics",
+            "extension_contracts",
+            "matching",
+            "materials",
+            "memory",
+            "parameters",
+            "privacy",
+            "product",
+            "rag",
+            "safety",
+            "study",
+            "terminal",
+            "tui",
+            "version",
+            "vocab",
+        }
+    ),
+    "extensions": frozenset(
+        {
+            "_types",
+            "agent",
+            "ai_diagnostics",
+            "ai_logging",
+            "ai_types",
+            "armory",
+            "chat",
+            "cli",
+            "commands",
+            "diagnostics",
+            "matching",
+            "materials",
+            "memory",
+            "palette",
+            "parameters",
+            "privacy",
+            "product",
+            "providers",
+            "rag",
+            "runtime",
+            "safety",
+            "study",
+            "terminal",
+            "tui",
+            "version",
+            "vocab",
+        }
+    ),
+}
+FOUNDATION_PACKAGE_POLICY_MESSAGE: Final[str] = (
+    "foundation packages must not import higher product, harness, AI, or interface modules"
+)
 RUNTIME_BENCHMARK_PATH_MARKERS: Final[tuple[str, ...]] = (
     ".artifacts",
     ".artifacts/",
@@ -527,6 +587,17 @@ class PolicyVisitor(ast.NodeVisitor):
         if top_level in EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS:
             self._add(node, EXTENSION_CONTRACTS_POLICY_MESSAGE)
 
+    def _check_foundation_package_import(self, node: ast.AST, module: str | None) -> None:
+        if module is None:
+            return
+        package = self.rel_path.split("/", maxsplit=1)[0]
+        forbidden = FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS.get(package)
+        if forbidden is None:
+            return
+        top_level = module.lstrip(".").split(".", maxsplit=1)[0]
+        if top_level in forbidden:
+            self._add(node, FOUNDATION_PACKAGE_POLICY_MESSAGE)
+
     def _check_runtime_benchmark_path(self, node: ast.AST, value: str) -> None:
         if not self._is_product_runtime_file():
             return
@@ -574,6 +645,7 @@ class PolicyVisitor(ast.NodeVisitor):
         for module in modules:
             self._check_runtime_benchmark_import(node, module)
             self._check_extension_contract_import(node, module)
+            self._check_foundation_package_import(node, module)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -593,6 +665,7 @@ class PolicyVisitor(ast.NodeVisitor):
         if node.level == 0 and node.module is not None:
             self._check_runtime_benchmark_import(node, node.module)
         self._check_extension_contract_import(node, node.module)
+        self._check_foundation_package_import(node, node.module)
         if node.module in {"typing", "typing_extensions"}:
             for alias in node.names:
                 if alias.name == "Any":
@@ -626,6 +699,7 @@ class PolicyVisitor(ast.NodeVisitor):
             module = _literal_dynamic_import_target(node, dotted)
             if module is not None:
                 self._check_runtime_benchmark_import(node, module)
+                self._check_foundation_package_import(node, module)
 
         if dotted in {"cast", "typing.cast"} and node.args:
             first_arg = node.args[0]

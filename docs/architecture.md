@@ -146,33 +146,40 @@ Plugin registry and dynamic armory tool loading lives in `agent.tool_registry`.
 
 ```
 packages/
-  heph/        Target model-facing package for Heph identity and prompt state
-    identity/  Stable self-description and conversational identity
-    prompts/   Prompt programs treated as code
-    state/     Declarative JSON/Markdown state contracts
-  interfaces/  Target package root for user-facing shells and integrations
-  extensions/  Target package root for user-extensible behavior
+  ai/
+    ai_diagnostics/ Metrics and tracing primitives
+    ai_logging/     Structured logging, redaction, trace writing
+    ai_types/       Narrow payload type helpers
+    palette/        Product color tokens
+    providers/      LLM provider registry, config, auth, model catalogs
+    runtime/        Chat config, messages, streaming, retry, usage
+  extensions/
+    extension_contracts.py  Stable user-extension/product-context contracts
+  heph/
+    cli/        Console entrypoint and top-level subcommands
+    commands/   Slash-command registry and command coordinators
+    product/    Product context bridge
+    identity/   Stable self-description and conversational identity target
+    prompts/    Prompt programs treated as code
+    state/      Declarative JSON/Markdown state contract target
   hephaion/
-    cli/          Command and automation dispatcher; launches the TUI by default
-    commands/     Slash-command handlers for TUI and automation interfaces
-    tui/          Textual adapter: lifecycle, widgets, inline menus, rendering
-    terminal/     Terminal I/O, styling, prompts, history, command dispatch
-    matching/     Fuzzy matching helpers for human-facing selectors
-    chat/         Session lifecycle, intent contracts, evidence, turn orchestration
-    runtime/      Shared LLM config, messages, errors, deltas, client streaming, retry helpers
-    agent/        Prompt building, citation, tool registry/handlers
-    providers/    LLM provider registry, config, auth
-    rag/          RAG chunking, indexing, retrieval
-    materials/    Study-file discovery, ignore rules, and material role classification
-    armory/       Armory data and commands
-    study/        Prompt plans, learning controller, priority analysis
-    memory/       Memory extraction and storage
-    parameters/   Parameter management CLI
-    privacy/      Consent, anonymous install ID, release-time diagnostics config
-    diagnostics/  Anonymous events, local diagnostics, redacted crash reports
-    vocab/        Vocabulary drill, scheduler, state
-    logging.py    Shared logging — must NOT import adapters
-    terminal/palette.py  ANSI color primitives — must NOT import adapters
+    agent/       Prompt building, citation, tool registry/handlers
+    armory/      Armory data, validation, and known-armory lookup
+    chat/        Session lifecycle, intent contracts, evidence, turn orchestration
+    diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+    matching/    Fuzzy matching helpers for human-facing selectors
+    materials/   Study-file discovery, ignore rules, and material role classification
+    memory/      Memory extraction and storage
+    parameters/  Parameter management and settings
+    privacy/     Consent, anonymous install ID, release-time diagnostics config
+    rag/         RAG chunking, indexing, retrieval, source mapping
+    safety/      Local safety contracts
+    study/       Prompt plans, learning controller, priority analysis
+    version/     Package version helpers
+    vocab/       Vocabulary drill, scheduler, state
+  interfaces/
+    terminal/    Terminal I/O, styling, prompts, history, source opening
+    tui/         Textual adapter: lifecycle, widgets, inline menus, rendering
 ```
 
 ## Import rules
