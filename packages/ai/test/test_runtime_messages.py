@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from heph_ai.runtime import ContentPart
-from heph_ai.runtime.messages import api_content_text, message_content_text
+from runtime import ContentPart
+from runtime.messages import api_content_text, message_content_text
 
 
 def test_api_content_text_preserves_agent_part_concatenation() -> None:

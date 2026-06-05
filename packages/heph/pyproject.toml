@@ -32,8 +32,8 @@ Repository = "https://github.com/gildrb/heph"
 Issues = "https://github.com/gildrb/heph/issues"
 
 [project.scripts]
-heph = "heph.cli.main:main"
-hephaion = "heph.cli.main:main"
+heph = "cli.main:main"
+hephaion = "cli.main:main"
 
 [tool.uv.sources]
 heph-ai = { workspace = true }
@@ -46,8 +46,12 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "heph"
+module-name = [
+    "cli",
+    "commands",
+    "product",
+]
 module-root = "src"
 
 [tool.deptry]
-per_rule_ignores = { DEP002 = ["hephaion"], DEP003 = ["agent", "armory", "chat", "diagnostics", "materials", "parameters", "privacy", "rag", "study", "vocab"] }
+package_module_name_map = { heph-ai = ["providers", "runtime"], heph-extensions = ["self_knowledge"], heph-interfaces = ["terminal", "tui"], hephaion = ["agent", "armory", "chat", "diagnostics", "materials", "memory", "parameters", "privacy", "rag", "study", "vocab"] }

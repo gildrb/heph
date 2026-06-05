@@ -32,9 +32,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from heph_ai.providers.oauth import load_credentials
-from heph_ai.runtime import ChatConfig
-from heph_ai.runtime.engine import EngineError
+from providers.oauth import load_credentials
+from runtime import ChatConfig
+from runtime.engine import EngineError
 
 from scripts import replay_answer_benchmark, run_replay_answer_eval
 

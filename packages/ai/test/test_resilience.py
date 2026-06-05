@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from heph_ai.runtime.resilience import (
+from runtime.resilience import (
     CircuitBreaker,
     CircuitState,
     is_network_error,

@@ -10,10 +10,10 @@ from agent.dispatch import AgentLoopState, _tool_turn_events, iter_agent_events
 from agent.model_stream import ModelStreamState, ModelTurnResult
 from agent.tool_execution import ToolCall
 from agent.tools import ToolRegistry
+from ai_logging import Timer
 from chat.events import GuardrailEvent, TurnCompleteEvent, TurnEvent
 from chat.usage import ContextBudget
-from heph_ai.logging import Timer
-from heph_ai.runtime import ChatConfig, Conversation
+from runtime import ChatConfig, Conversation
 
 
 def test_unknown_tool_call_is_blocked_before_execution(tmp_path: Path) -> None:

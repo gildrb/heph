@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from heph_ai.runtime import Conversation, Message, stream_reply
+from runtime import Conversation, Message, stream_reply
 
 from chat.session import ChatSession
 

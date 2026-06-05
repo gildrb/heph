@@ -12,5 +12,5 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "heph_extensions"
+module-name = "self_knowledge"
 module-root = "src"

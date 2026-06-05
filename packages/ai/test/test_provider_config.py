@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from heph_ai.providers.config import (
+from providers.config import (
     ProviderConfig,
     default_config,
 )
-from heph_ai.providers.model_support import is_supported_model_for_endpoint
-from heph_ai.providers.registry import ModelInfo, ModelRegistry
-from heph_ai.runtime import ChatConfig
+from providers.model_support import is_supported_model_for_endpoint
+from providers.registry import ModelInfo, ModelRegistry
+from runtime import ChatConfig
 
 
 def test_default_openrouter_models_match_supported_families() -> None:

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from armory.search import KnownArmory
 from armory.storage import MARKER_FILE, initialize
-from heph_interfaces.tui import armory_browser
+from tui import armory_browser
 
 # Skip the entire module if Textual is not installed.
 pytestmark = pytest.mark.skipif(

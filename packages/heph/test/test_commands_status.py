@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import commands
 import pytest
 from armory.storage import initialize
 from chat.session import ChatSession
-from heph import commands
-from heph_ai.runtime import ChatConfig, Conversation
 from materials.importing import import_material_files
+from runtime import ChatConfig, Conversation
 
 
 def test_registry_exposes_status_and_stats() -> None:

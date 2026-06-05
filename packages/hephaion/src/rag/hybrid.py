@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import cast
 
-from heph_ai.logging import get_logger
+from ai_logging import get_logger
 
 from rag import optional_backends
 from rag.index import ArmoryIndex

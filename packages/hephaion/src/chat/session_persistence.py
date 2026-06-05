@@ -6,8 +6,8 @@ import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ai_logging import get_logger
 from diagnostics.events import capture as capture_analytics
-from heph_ai.logging import get_logger
 
 import chat.storage as chat_storage
 from chat.titles import derive_title as _derive_title

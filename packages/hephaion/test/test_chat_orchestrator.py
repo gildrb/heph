@@ -88,9 +88,9 @@ from chat.turn_planning import (
 )
 from chat.turn_predicates import _stored_turn_evidence
 from chat.turn_query import _semantic_query_specificity
-from heph_ai.runtime import ChatConfig, CompletionDelta, Conversation, EngineError
 from rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
 from rag.chunker import ChunkedDocument
+from runtime import ChatConfig, CompletionDelta, Conversation, EngineError
 from study import (
     LearningAction,
     LearningFeedbackType,

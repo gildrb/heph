@@ -93,8 +93,8 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
-"packages/ai/src/heph_ai/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
-"packages/ai/src/heph_ai/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"packages/ai/src/providers/oauth.py" = ["N802"]  # HTTP handler method names are stdlib-defined
+"packages/ai/src/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
@@ -174,71 +174,84 @@ skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
 root_packages = [
+    "ai_diagnostics",
+    "ai_logging",
+    "ai_types",
     "agent",
     "armory",
     "chat",
+    "cli",
+    "commands",
     "diagnostics",
-    "heph",
-    "heph_ai",
-    "heph_extensions",
-    "heph_interfaces",
     "matching",
     "materials",
     "memory",
     "parameters",
+    "palette",
     "privacy",
+    "product",
+    "providers",
     "rag",
+    "runtime",
     "safety",
+    "self_knowledge",
     "study",
+    "terminal",
+    "tui",
     "vocab",
 ]
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
-name = "heph_ai must stay below product workflows"
+name = "AI concerns must stay below product workflows"
 type = "forbidden"
-source_modules = ["heph_ai"]
+source_modules = ["ai_diagnostics", "ai_logging", "ai_types", "palette", "providers", "runtime"]
 forbidden_modules = [
-    "heph",
-    "heph_interfaces",
     "agent",
     "armory",
     "chat",
+    "cli",
+    "commands",
     "diagnostics",
     "matching",
     "materials",
     "memory",
     "parameters",
     "privacy",
+    "product",
     "rag",
     "safety",
+    "terminal",
     "study",
+    "tui",
     "vocab",
 ]
 
 [[tool.importlinter.contracts]]
-name = "heph_extensions stays contract-first"
+name = "extension contracts stay contract-first"
 type = "forbidden"
-source_modules = ["heph_extensions"]
+source_modules = ["self_knowledge"]
 forbidden_modules = [
-    "heph",
-    "heph_interfaces",
-    "heph_interfaces.tui",
     "agent",
     "armory",
     "chat",
+    "cli",
+    "commands",
     "diagnostics",
     "matching",
     "materials",
     "memory",
     "parameters",
     "privacy",
+    "product",
     "rag",
     "safety",
     "study",
+    "terminal",
+    "tui",
     "vocab",
-    "heph_ai.runtime",
-    "heph_ai.providers",
+    "runtime",
+    "providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -260,8 +273,11 @@ source_modules = [
     "vocab",
 ]
 forbidden_modules = [
-    "heph",
-    "heph_interfaces",
+    "cli",
+    "commands",
+    "product",
+    "terminal",
+    "tui",
 ]
 
 [[tool.importlinter.contracts]]
@@ -313,10 +329,10 @@ type = "independence"
 modules = ["chat.session", "chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
-name = "heph_interfaces must not import heph app composition"
+name = "interfaces must not import Heph app composition"
 type = "forbidden"
-source_modules = ["heph_interfaces"]
-forbidden_modules = ["heph"]
+source_modules = ["terminal", "tui"]
+forbidden_modules = ["cli", "commands", "product"]
 
 [tool.deptry]
 extend_exclude = [
@@ -334,10 +350,10 @@ extend_exclude = [
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
 # DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion", "certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=armory --cov=chat --cov=diagnostics --cov=heph --cov=heph_ai --cov=heph_extensions --cov=heph_interfaces --cov=materials --cov=memory --cov=parameters --cov=privacy --cov=rag --cov=safety --cov=study --cov=vocab --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai_diagnostics --cov=ai_logging --cov=ai_types --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=providers --cov=rag --cov=runtime --cov=safety --cov=self_knowledge --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",

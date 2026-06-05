@@ -10,12 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
 
+from ai_logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
 from chat.session import ARMORY_PLUGINS_TRUST_ENV
-from heph.cli.main import build_parser
-from heph.commands import get_registry
-from heph_ai.logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
-from heph_ai.providers.config import default_config
-from heph_ai.providers.keyring_store import GLOBAL_API_KEY_ENV
+from cli.main import build_parser
+from commands import get_registry
 from memory.extract import EXTRACTION_MODEL_ENV
 from parameters import cli as parameters_cli
 from privacy.consent import (
@@ -25,6 +23,8 @@ from privacy.consent import (
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
+from providers.config import default_config
+from providers.keyring_store import GLOBAL_API_KEY_ENV
 from rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent

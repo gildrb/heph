@@ -15,7 +15,7 @@ identify the bottleneck.
 
 3. **Check logs** — each LLM request logs latency:
    ```
-   heph_ai.runtime.engine: stream_completion complete  model=gpt-5.4 latency_ms=1234
+   runtime.engine: stream_completion complete  model=gpt-5.4 latency_ms=1234
    ```
 
 ## Profiling

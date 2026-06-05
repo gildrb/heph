@@ -8,8 +8,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, TypedDict
 
 from _types import is_object_list, is_string_mapping
-from heph_ai.logging import Timer, get_logger
-from heph_ai.runtime import (
+from ai_logging import Timer, get_logger
+from runtime import (
     ChatConfig,
     Conversation,
     build_client,

@@ -6,15 +6,16 @@ import threading
 from collections.abc import Generator, Iterator, Sequence
 from pathlib import Path
 
-from heph_ai.logging import Timer, get_logger
-from heph_ai.runtime import (
+from ai_logging import Timer, get_logger
+from rag.context import TurnEvidence
+from runtime import (
     ApiMessage,
     ChatConfig,
     Conversation,
     RetryConfig,
     ToolCallDelta,
 )
-from heph_ai.runtime.events import (
+from runtime.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
     GuardrailEvent,
@@ -24,9 +25,8 @@ from heph_ai.runtime.events import (
     TurnCompleteEvent,
     TurnEvent,
 )
-from heph_ai.runtime.messages import api_content_text
-from heph_ai.runtime.usage import SessionUsage
-from rag.context import TurnEvidence
+from runtime.messages import api_content_text
+from runtime.usage import SessionUsage
 from safety import GuardrailDecision, GuardrailToolCall, check_tool_call_names
 
 from agent.compact import auto_compact, micro_compact

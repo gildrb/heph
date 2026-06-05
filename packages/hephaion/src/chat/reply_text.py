@@ -7,7 +7,7 @@ import re
 
 import unicodeit
 from _types import is_string_mapping
-from heph_ai.runtime.engine import (
+from runtime.engine import (
     ChatConfig,
     Conversation,
     EngineError,

@@ -5,8 +5,8 @@ import re
 from dataclasses import fields
 from pathlib import Path
 
-import heph_ai.palette as theme_tokens
-import heph_interfaces.terminal as palette
+import palette as theme_tokens
+import terminal as palette
 from parameters.settings import THEME_PRESETS
 
 _AA_NORMAL_TEXT_CONTRAST = 4.5
@@ -16,7 +16,7 @@ _NAMED_COLOR_RE = re.compile(
     r"(?<![A-Za-z])(?:black|white|red|green|blue|yellow|cyan|magenta|transparent)(?![A-Za-z])",
     re.IGNORECASE,
 )
-_COLOR_TOKEN_SOURCE = Path("packages/ai/src/heph_ai/palette.py")
+_COLOR_TOKEN_SOURCE = Path("packages/ai/src/palette.py")
 
 
 def _linear_channel(value: int) -> float:

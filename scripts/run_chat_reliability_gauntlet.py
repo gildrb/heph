@@ -32,7 +32,8 @@ from chat.turn_contract import (
     RETRIEVAL_STRATEGY_REUSE_PRIOR,
     TurnContract,
 )
-from heph_ai.runtime import (
+from rag import EvidenceChunk, TurnEvidence
+from runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -40,7 +41,6 @@ from heph_ai.runtime import (
     reset_provider_circuit_breaker,
     stream_reply,
 )
-from rag import EvidenceChunk, TurnEvidence
 from study import LearningState
 
 from scripts.create_chat_reliability_fixture import (

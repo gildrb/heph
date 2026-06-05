@@ -5,27 +5,27 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import heph.commands.display as _commands_display
-import heph.commands.model as _commands_model
-import heph.commands.study as _learning_commands
-import heph_ai.providers.model_choices as _model_choices
+import commands
+import commands.display as _commands_display
+import commands.model as _commands_model
+import commands.study as _learning_commands
+import providers.model_choices as _model_choices
 import pytest
 from armory.storage import initialize
 from chat import model_selection as _model_selection
 from chat.session import ChatSession, create_plain_session
-from heph import commands
-from heph_ai.providers import catalog
-from heph_ai.providers.catalog import LiveProviderCatalog
-from heph_ai.providers.config import Provider, default_config
-from heph_ai.providers.registry import ModelInfo
-from heph_ai.runtime import ChatConfig, Conversation
-from heph_interfaces.terminal import MenuOption
-from heph_interfaces.terminal.source_open import SourceOpenResult
+from providers import catalog
+from providers.catalog import LiveProviderCatalog
+from providers.config import Provider, default_config
+from providers.registry import ModelInfo
 from rag.chunker import Chunk
 from rag.context import EvidenceChunk, TurnEvidence
+from runtime import ChatConfig, Conversation
 from study import LearningFeedbackType, LearningPhase, RecallRating
 from study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from study.schedule import load_recall_schedule
+from terminal import MenuOption
+from terminal.source_open import SourceOpenResult
 
 
 class _FakePriorityPdfCompiler:

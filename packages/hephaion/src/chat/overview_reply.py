@@ -8,10 +8,10 @@ import unicodedata
 from collections.abc import Callable, Sequence
 
 from agent.citation import verify_citations
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.conversation import Conversation
 from rag.context import EvidenceChunk, TurnEvidence
 from rag.scoring import tokenize
+from runtime.config import ChatConfig
+from runtime.conversation import Conversation
 from study.prompt_plans import LearningTurnPlan
 
 import chat.model_text as _model_text

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from heph_ai.logging import get_logger
+from ai_logging import get_logger
 from materials import MaterialRole, infer_material_role
 
 from agent.tools import (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from heph_ai.providers.model_support import (
+from providers.model_support import (
     filter_supported_models,
     is_supported_model_for_endpoint,
     is_supported_model_for_provider,

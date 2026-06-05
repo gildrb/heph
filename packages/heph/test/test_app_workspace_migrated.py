@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import commands
 import pytest
 from armory.search import (
     add_known_armory,
@@ -21,17 +22,16 @@ from chat.session import (
     create_plain_session,
     create_session,
 )
-from heph import commands
-from heph.commands import CommandResult
-from heph_ai.runtime import ChatConfig
-from heph_interfaces.terminal.history import InputHistory
-from heph_interfaces.terminal.input import handle_input
-from heph_interfaces.tui.session_actions import (
+from commands import CommandResult
+from runtime import ChatConfig
+from terminal.history import InputHistory
+from terminal.input import handle_input
+from tui.session_actions import (
     create_startup_session,
     get_history_path,
     save_on_exit,
 )
-from heph_interfaces.tui.startup_discovery import discover_startup_armory
+from tui.startup_discovery import discover_startup_armory
 
 
 @pytest.fixture

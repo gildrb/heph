@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from heph.cli.main import build_parser, run_argv
+from cli.main import build_parser, run_argv
 
 
 def test_init_armory_returns_success_message(

@@ -136,7 +136,7 @@ def _learning_state_dataset_path(suite_path: Path) -> Path:
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
     "packages/hephaion/src/chat/intent.py",
     "packages/hephaion/src/study/prompt_plans.py",
-    "packages/interfaces/src/heph_interfaces/tui/inline_flows.py",
+    "packages/interfaces/src/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")

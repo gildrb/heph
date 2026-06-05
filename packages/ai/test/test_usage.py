@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import chat.usage as usage_module
-import heph_ai.runtime.usage as runtime_usage_module
 import pytest
+import runtime.usage as runtime_usage_module
 from chat.usage import (
     ContextBudget,
     SessionUsage,
@@ -17,7 +17,7 @@ from chat.usage import (
     get_context_window,
     save_usage,
 )
-from heph_ai.runtime import ApiMessage, UsagePayload
+from runtime import ApiMessage, UsagePayload
 
 # ---------------------------------------------------------------------------
 # TokenUsage

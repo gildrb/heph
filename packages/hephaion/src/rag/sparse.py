@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from _types import is_string_mapping
-from heph_ai.logging import get_logger
+from ai_logging import get_logger
 
 from rag import optional_backends
 from rag.chunker import Chunk

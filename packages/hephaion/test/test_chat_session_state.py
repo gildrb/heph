@@ -20,9 +20,9 @@ from chat.turn_contract import (
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
-from heph_ai.runtime import ChatConfig
 from rag import Chunk, EvidenceChunk, TurnEvidence
 from rag.health import ExtractionHealthIssue
+from runtime import ChatConfig
 from study import (
     LearningFeedbackType,
     LearningPhase,

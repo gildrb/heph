@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from heph_ai.logging import get_logger
+from ai_logging import get_logger
 from rag.context import TurnEvidence
 
 _log = get_logger("agent.citation")

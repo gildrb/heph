@@ -8,11 +8,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agent.citation import verify_response
+from ai_logging import Timer, get_logger
 from diagnostics.crashes import get_meter, get_tracer
-from heph_ai.logging import Timer, get_logger
-from heph_ai.runtime.conversation import Message
 from memory.workflow import schedule_memory_extraction
 from rag.context import TurnEvidence
+from runtime.conversation import Message
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction, LearningState
 

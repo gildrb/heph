@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from heph_ai.providers.api_profiles import (
+from providers.api_profiles import (
     reasoning_payload_for_profile,
     request_profile_for_config,
 )
-from heph_ai.providers.config import default_config
-from heph_ai.providers.model_support import (
+from providers.config import default_config
+from providers.model_support import (
     filter_supported_models,
     is_supported_model_for_endpoint,
 )
-from heph_ai.providers.reasoning import reasoning_levels_for_model
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.request_payload import request_kwargs
+from providers.reasoning import reasoning_levels_for_model
+from runtime.config import ChatConfig
+from runtime.request_payload import request_kwargs
 
 
 def _provider_config(slug: str, base_url: str, model: str, reasoning_level: str) -> ChatConfig:

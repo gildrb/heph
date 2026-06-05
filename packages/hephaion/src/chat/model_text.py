@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from _types import parse_json_object_fragment
-from heph_ai.logging import get_logger
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.conversation import Conversation
-from heph_ai.runtime.engine import build_client, stream_completion
-from heph_ai.runtime.errors import EngineError, RetryConfig
+from ai_logging import get_logger
+from runtime.config import ChatConfig
+from runtime.conversation import Conversation
+from runtime.engine import build_client, stream_completion
+from runtime.errors import EngineError, RetryConfig
 
 _log = get_logger("chat.model_text")
 

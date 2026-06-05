@@ -22,8 +22,11 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "heph_interfaces"
+module-name = [
+    "terminal",
+    "tui",
+]
 module-root = "src"
 
 [tool.deptry]
-per_rule_ignores = { DEP002 = ["hephaion"], DEP003 = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }
+package_module_name_map = { heph-ai = ["palette", "providers", "runtime"], hephaion = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }

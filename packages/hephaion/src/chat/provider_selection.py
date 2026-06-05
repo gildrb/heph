@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from heph_ai.providers.access import activate_provider_config
-from heph_ai.providers.config import Provider, ProviderConfig
+from providers.access import activate_provider_config
+from providers.config import Provider, ProviderConfig
 
 if TYPE_CHECKING:
     from chat.session import ChatSession

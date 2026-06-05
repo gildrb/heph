@@ -14,18 +14,18 @@ from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PACKAGE_IMPORT_ROOTS: Final[dict[Path, str]] = {
-    REPO_ROOT / "packages" / "ai" / "src" / "heph_ai": "heph_ai",
-    REPO_ROOT / "packages" / "extensions" / "src" / "heph_extensions": "heph_extensions",
-    REPO_ROOT / "packages" / "heph" / "src" / "heph": "heph",
-    REPO_ROOT / "packages" / "hephaion" / "src" / "hephaion": "hephaion",
-    REPO_ROOT / "packages" / "interfaces" / "src" / "heph_interfaces": "heph_interfaces",
+    REPO_ROOT / "packages" / "ai" / "src": "ai",
+    REPO_ROOT / "packages" / "extensions" / "src": "extensions",
+    REPO_ROOT / "packages" / "heph" / "src": "heph",
+    REPO_ROOT / "packages" / "hephaion" / "src": "hephaion",
+    REPO_ROOT / "packages" / "interfaces" / "src": "interfaces",
 }
 PACKAGE_TEST_ROOTS: Final[dict[Path, str]] = {
-    REPO_ROOT / "packages" / "ai" / "test": "heph_ai/test",
-    REPO_ROOT / "packages" / "extensions" / "test": "heph_extensions/test",
+    REPO_ROOT / "packages" / "ai" / "test": "ai/test",
+    REPO_ROOT / "packages" / "extensions" / "test": "extensions/test",
     REPO_ROOT / "packages" / "heph" / "test": "heph/test",
     REPO_ROOT / "packages" / "hephaion" / "test": "hephaion/test",
-    REPO_ROOT / "packages" / "interfaces" / "test": "heph_interfaces/test",
+    REPO_ROOT / "packages" / "interfaces" / "test": "interfaces/test",
 }
 SCAN_ROOTS: Final[tuple[Path, ...]] = (
     *PACKAGE_IMPORT_ROOTS.keys(),
@@ -130,44 +130,44 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "agent.tools",
         }
     ),
-    "heph_ai/runtime/engine.py": frozenset(
+    "ai/runtime/engine.py": frozenset(
         {
             "openai",
         }
     ),
-    "heph_interfaces/terminal/input.py": frozenset(
+    "interfaces/terminal/input.py": frozenset(
         {
             "chat.session",
-            "heph_ai.runtime",
+            "runtime",
         }
     ),
-    "heph_interfaces/tui/__init__.py": frozenset(
+    "interfaces/tui/__init__.py": frozenset(
         {
             "chat.cli",
-            "heph.commands",
-            "heph_interfaces.terminal.input",
+            "commands",
+            "terminal.input",
         }
     ),
-    "heph_interfaces/tui/external_commands.py": frozenset(
+    "interfaces/tui/external_commands.py": frozenset(
         {
-            "heph_interfaces.tui.command_access",
-            "heph_interfaces.terminal.input",
+            "tui.command_access",
+            "terminal.input",
         }
     ),
-    "heph_interfaces/tui/slash_command.py": frozenset(
+    "interfaces/tui/slash_command.py": frozenset(
         {
-            "heph.commands",
+            "commands",
         }
     ),
-    "heph_interfaces/tui/status.py": frozenset(
+    "interfaces/tui/status.py": frozenset(
         {
-            "heph_ai.runtime",
+            "runtime",
         }
     ),
-    "heph_interfaces/tui/streaming.py": frozenset(
+    "interfaces/tui/streaming.py": frozenset(
         {
             "chat.automation",
-            "heph_ai.runtime",
+            "runtime",
         }
     ),
 }
@@ -182,7 +182,7 @@ PROMPT_RULE_DUPLICATE_MESSAGE: Final[str] = (
 HARDCODED_ANSWER_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "hephaion/chat/",
     "hephaion/study/",
-    "hephaion/tui/",
+    "interfaces/tui/",
 )
 HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
     {
@@ -447,7 +447,9 @@ class PolicyVisitor(ast.NodeVisitor):
         )
 
     def _is_product_runtime_file(self) -> bool:
-        return self.rel_path.startswith(("heph/", "heph_ai/", "heph_interfaces/", "hephaion/"))
+        return self.rel_path.startswith(
+            ("ai/", "extensions/", "heph/", "hephaion/", "interfaces/")
+        )
 
     def _is_product_script_file(self) -> bool:
         return self.rel_path.startswith("scripts/")

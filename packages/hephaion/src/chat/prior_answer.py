@@ -6,8 +6,8 @@ import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from heph_ai.runtime.conversation import Conversation, Message
 from rag.context import EvidenceChunk, TurnEvidence
+from runtime.conversation import Conversation, Message
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction, LearningPhase, LearningState
 

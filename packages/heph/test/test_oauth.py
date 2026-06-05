@@ -13,10 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from heph.commands import LogoutCommand, get_registry
-from heph_ai.providers import oauth as oauth_mod
-from heph_ai.providers.keyring_store import get_volatile, resolve_key, set_volatile
-from heph_ai.providers.oauth import (
+from commands import LogoutCommand, get_registry
+from providers import oauth as oauth_mod
+from providers.keyring_store import get_volatile, resolve_key, set_volatile
+from providers.oauth import (
     OAuthCredentials,
     _CallbackHandler,
     _CallbackState,
@@ -317,7 +317,7 @@ class TestCredentialPersistence:
 
         save_credentials(expired)
         with patch(
-            "heph_ai.providers.oauth.refresh_credentials",
+            "providers.oauth.refresh_credentials",
             return_value=refreshed,
         ) as mock_refresh:
             loaded = load_credentials("openai-codex")
@@ -337,7 +337,7 @@ class TestCredentialPersistence:
         )
 
         save_credentials(expired)
-        with patch("heph_ai.providers.oauth.refresh_credentials") as mock_refresh:
+        with patch("providers.oauth.refresh_credentials") as mock_refresh:
             loaded = load_credentials("openai-codex", refresh_expired=False)
 
         mock_refresh.assert_not_called()
@@ -393,11 +393,11 @@ def test_logout_command_registered() -> None:
 
 def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "heph_ai.providers.oauth.list_providers",
+        "providers.oauth.list_providers",
         list,
     )
     monkeypatch.setattr(
-        "heph.commands.auth.keyring_store.retrieve_key",
+        "commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
     messages: list[tuple[str, str]] = []
@@ -406,7 +406,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("info", msg))
 
     monkeypatch.setattr(
-        "heph.commands.auth.print_info",
+        "commands.auth.print_info",
         _capture_info,
     )
     cmd = LogoutCommand()
@@ -417,11 +417,11 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "heph_ai.providers.oauth.list_providers",
+        "providers.oauth.list_providers",
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
-        "heph.commands.auth.keyring_store.retrieve_key",
+        "commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
 
@@ -429,12 +429,12 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "heph.commands.auth.confirm",
+        "commands.auth.confirm",
         _confirm,
     )
     cleared: list[str] = []
     monkeypatch.setattr(
-        "heph_ai.providers.oauth.clear_credentials",
+        "providers.oauth.clear_credentials",
         cleared.append,
     )
     messages: list[tuple[str, str]] = []
@@ -443,7 +443,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("success", msg))
 
     monkeypatch.setattr(
-        "heph.commands.auth.print_success",
+        "commands.auth.print_success",
         _capture_success,
     )
     cmd = LogoutCommand()

@@ -7,15 +7,15 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from heph_ai.logging import Timer, get_logger
-from heph_ai.runtime._api_types import ApiMessage, UsagePayload
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.conversation import Conversation
-from heph_ai.runtime.events import NoticeEvent, TurnCompleteEvent, TurnEvent
-from heph_ai.runtime.messages import api_content_text
-from heph_ai.runtime.prompt_cache import StablePrefixBuilder
-from heph_ai.runtime.usage import ContextBudget, SessionUsage, TokenUsage
+from ai_logging import Timer, get_logger
 from rag.context import TurnEvidence
+from runtime._api_types import ApiMessage, UsagePayload
+from runtime.config import ChatConfig
+from runtime.conversation import Conversation
+from runtime.events import NoticeEvent, TurnCompleteEvent, TurnEvent
+from runtime.messages import api_content_text
+from runtime.prompt_cache import StablePrefixBuilder
+from runtime.usage import ContextBudget, SessionUsage, TokenUsage
 
 from agent.compact import auto_compact, estimate_messages_tokens
 from agent.model_stream import ModelStreamState

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from heph_ai.logging import get_logger
-from heph_ai.runtime import ChatConfig
+from ai_logging import get_logger
+from runtime import ChatConfig
 
 from memory import MemoryStore
 from memory.extract import extract_and_store

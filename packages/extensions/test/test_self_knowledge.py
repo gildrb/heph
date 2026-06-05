@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from heph_extensions.self_knowledge import heph_product_routing_context
+from self_knowledge import heph_product_routing_context
 
 
 def test_self_knowledge_routing_context_is_available() -> None:

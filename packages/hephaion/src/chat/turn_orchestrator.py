@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from heph_ai.runtime.errors import RetryConfig
+from runtime.errors import RetryConfig
 
 from chat.armory_turn import ArmoryTurnMixin
 from chat.turn_execution import TurnExecutionMixin

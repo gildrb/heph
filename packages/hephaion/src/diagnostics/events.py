@@ -9,7 +9,7 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Final, TypeGuard
 
-from heph_ai.logging import get_logger, redact_text
+from ai_logging import get_logger, redact_text
 from privacy.consent import (
     analytics_backend_available,
     analytics_enabled,

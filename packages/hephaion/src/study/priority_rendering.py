@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from _types import is_string_mapping
-from heph_ai.palette import LIGHT_THEME
+from palette import LIGHT_THEME
 
 from study.priority_analysis import PriorityAnalysis, priority_tier
 from study.priority_types import (

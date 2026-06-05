@@ -35,7 +35,7 @@ from chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from heph_ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
+from runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 
 from conftest import message_text
 

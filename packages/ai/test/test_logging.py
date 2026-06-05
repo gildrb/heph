@@ -9,9 +9,9 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-import heph_ai.logging as logging_module
+import ai_logging as logging_module
 import pytest
-from heph_ai.logging import (
+from ai_logging import (
     Timer,
     TraceWriter,
     _JsonFormatter,

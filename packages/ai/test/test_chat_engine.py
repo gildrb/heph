@@ -9,8 +9,8 @@ from email.message import Message as HttpHeaders
 from typing import Never, Self
 
 import pytest
-from heph_ai.providers.registry import ModelInfo, get_registry
-from heph_ai.runtime import (
+from providers.registry import ModelInfo, get_registry
+from runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -19,8 +19,8 @@ from heph_ai.runtime import (
     codex_backend,
     missing_api_key_message,
 )
-from heph_ai.runtime import engine as runtime_engine
-from heph_ai.runtime.request_payload import request_kwargs
+from runtime import engine as runtime_engine
+from runtime.request_payload import request_kwargs
 
 
 class _Span:
@@ -85,7 +85,7 @@ def test_keyless_provider_does_not_resolve_key(monkeypatch: pytest.MonkeyPatch) 
         raise AssertionError("resolved key")
 
     monkeypatch.setattr(
-        "heph_ai.runtime.engine.resolve_key",
+        "runtime.engine.resolve_key",
         fail_resolve,
     )
 

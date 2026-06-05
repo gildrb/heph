@@ -26,8 +26,8 @@ from typing import NotRequired, TypedDict, cast
 from chat.automation import iter_chat_events
 from chat.events import AssistantDeltaEvent
 from chat.session import create_session
-from heph_ai.runtime import ChatConfig
 from rag import TurnEvidence
+from runtime import ChatConfig
 
 
 class RawReplayCase(TypedDict):

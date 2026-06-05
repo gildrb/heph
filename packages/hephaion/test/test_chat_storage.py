@@ -15,7 +15,7 @@ from chat.storage import (
     new_session_id,
     save,
 )
-from heph_ai.runtime import Conversation
+from runtime import Conversation
 
 
 def _init_armory(tmp_path: Path) -> Path:

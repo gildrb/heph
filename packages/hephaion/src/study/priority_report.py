@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import NoReturn
 
 from _types import parse_json_object_fragment
-from heph_ai.providers.endpoints import is_keyless_endpoint
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.conversation import Conversation
-from heph_ai.runtime.engine import has_configured_access, stream_completion
-from heph_ai.runtime.errors import EngineError, RetryConfig
+from providers.endpoints import is_keyless_endpoint
+from runtime.config import ChatConfig
+from runtime.conversation import Conversation
+from runtime.engine import has_configured_access, stream_completion
+from runtime.errors import EngineError, RetryConfig
 
 from study.priority_analysis import PriorityAnalysis
 from study.priority_progress import (

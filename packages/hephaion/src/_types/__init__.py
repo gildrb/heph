@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from heph_ai._types import (
+from ai_types import (
     JSONObject,
     JSONPrimitive,
     JSONValue,

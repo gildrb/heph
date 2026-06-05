@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from heph_ai.runtime.config import ChatConfig
-from heph_ai.runtime.conversation import Conversation
-from heph_ai.runtime.errors import EngineError
-from heph_extensions.self_knowledge import heph_product_routing_context
 from rag.scoring import tokenize
+from runtime.config import ChatConfig
+from runtime.conversation import Conversation
+from runtime.errors import EngineError
+from self_knowledge import heph_product_routing_context
 from study.prompt_plans import LearningTurnPlan
 
 import chat.intent as _chat_intent

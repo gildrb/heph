@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from heph_extensions.self_knowledge import heph_product_context
+from self_knowledge import heph_product_context
 
 from study.assessment import CONFIDENCE_RE
 from study.policy import LearningMove, normalize_confidence_value

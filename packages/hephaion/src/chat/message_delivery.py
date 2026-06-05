@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Protocol
 
-from heph_ai.runtime.errors import RetryConfig
+from runtime.errors import RetryConfig
 
 from chat.events import TurnEvent, render_turn_event
 from chat.session_persistence import save_dirty_session_if_needed

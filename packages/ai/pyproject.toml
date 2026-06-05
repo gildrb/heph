@@ -16,7 +16,14 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "heph_ai"
+module-name = [
+    "ai_diagnostics",
+    "ai_logging",
+    "ai_types",
+    "palette",
+    "providers",
+    "runtime",
+]
 module-root = "src"
 
 [tool.deptry]

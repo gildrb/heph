@@ -4,12 +4,12 @@ import json
 from typing import Self
 
 import pytest
-from heph_ai.providers import catalog
-from heph_ai.providers.catalog import LiveProviderCatalog
-from heph_ai.providers.config import default_config
-from heph_ai.providers.model_choices import configured_model_choices, model_picker_columns
-from heph_ai.providers.reasoning import reasoning_levels_for_model
-from heph_ai.providers.registry import ModelInfo, get_registry
+from providers import catalog
+from providers.catalog import LiveProviderCatalog
+from providers.config import default_config
+from providers.model_choices import configured_model_choices, model_picker_columns
+from providers.reasoning import reasoning_levels_for_model
+from providers.registry import ModelInfo, get_registry
 
 
 def _openrouter_live_catalog() -> LiveProviderCatalog:

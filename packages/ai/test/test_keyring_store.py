@@ -6,7 +6,8 @@ import contextlib
 
 import keyring
 import pytest
-from heph_ai.providers.keyring_store import (
+from keyring.errors import KeyringError
+from providers.keyring_store import (
     _SERVICE_PREFIX,
     _USERNAME,
     _keychain_cache,
@@ -18,7 +19,6 @@ from heph_ai.providers.keyring_store import (
     set_volatile,
     store_key,
 )
-from keyring.errors import KeyringError
 
 # Use a unique test prefix to avoid colliding with real keys
 _TEST_SLUG = "__test_hephaion_unit__"

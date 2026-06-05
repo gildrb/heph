@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from armory.storage import initialize
-from heph.cli.main import build_parser, run_argv
+from cli.main import build_parser, run_argv
 
 
 def _make_armory(tmp_path: Path) -> Path:

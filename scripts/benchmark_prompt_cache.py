@@ -9,8 +9,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import cast
 
-from heph_ai.runtime._api_types import ApiMessage
-from heph_ai.runtime.prompt_cache import PromptCacheRequest, StablePrefixBuilder
+from runtime._api_types import ApiMessage
+from runtime.prompt_cache import PromptCacheRequest, StablePrefixBuilder
 
 
 @dataclass(frozen=True, slots=True)

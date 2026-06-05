@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from heph_ai.logging import get_logger
+from ai_logging import get_logger
 
 from study.state import LearningFeedbackType, RecallRating
 

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from _types import is_object_list, is_string_mapping
-from heph_ai.logging import Timer, get_logger
+from ai_logging import Timer, get_logger
 from materials import MATERIALS_DIR, iter_material_files
 from parameters.settings import user_config_dir
 

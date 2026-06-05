@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from parameters import settings as settings_store
 
 if TYPE_CHECKING:
-    from heph_ai.runtime import ChatConfig
+    from runtime import ChatConfig
 
 
 def _load_user_overrides() -> dict[str, str]:
@@ -29,7 +29,7 @@ def _load_user_overrides() -> dict[str, str]:
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
     """Load ChatConfig from defaults + provider config + user overrides + env vars."""
-    runtime = importlib.import_module("heph_ai.runtime")
+    runtime = importlib.import_module("runtime")
 
     _ = armory_path
     config = runtime.ChatConfig()
@@ -55,8 +55,8 @@ def _apply_toml_defaults(config: ChatConfig) -> None:
 
 
 def _apply_provider_config(config: ChatConfig) -> None:
-    providers_config = importlib.import_module("heph_ai.providers.config")
-    runtime = importlib.import_module("heph_ai.runtime")
+    providers_config = importlib.import_module("providers.config")
+    runtime = importlib.import_module("runtime")
     try:
         pc = providers_config.ProviderConfig.load()
         pc.apply_to_config(config)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from heph_ai.runtime.config import ChatConfig
 from rag.context import TurnEvidence
+from runtime.config import ChatConfig
 from study.prompt_plans import LearningTurnPlan
 from study.state import LearningAction
 

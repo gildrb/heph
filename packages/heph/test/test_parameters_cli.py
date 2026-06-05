@@ -4,10 +4,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from heph.cli.main import build_parser, run_argv
-from heph_ai.runtime import ChatConfig
+from cli.main import build_parser, run_argv
 from parameters import cli as params_cli
 from parameters import settings as settings_store
+from runtime import ChatConfig
 
 
 def test_config_show_uses_registered_handler(
@@ -96,7 +96,7 @@ def test_load_config_precedence(
             config.max_tokens = 1500
 
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
     monkeypatch.setenv("HEPHAION_BASE_URL", "https://env.example/v1")
@@ -123,7 +123,7 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
@@ -199,7 +199,7 @@ def test_load_config_warns_when_provider_config_load_fails(
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(_raise),
     )
 
@@ -222,7 +222,7 @@ def test_invalid_integer_overrides_are_ignored(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
@@ -394,7 +394,7 @@ def test_load_config_feature_flags_env_overrides_user(
         json.dumps({"feature_flags": "user_flag"}), encoding="utf-8"
     )
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(
             lambda _cls: SimpleNamespace(
                 apply_to_config=lambda _config: None,
@@ -436,12 +436,12 @@ def test_load_config_falls_back_when_active_provider_has_no_key(
             config.apply_provider_reference("openrouter", "OPENROUTER_API_KEY")
 
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
     # Ensure no key is resolved for openrouter.
     monkeypatch.setattr(
-        "heph_ai.runtime.engine.resolve_key",
+        "runtime.engine.resolve_key",
         lambda _slug, _env="": "",
     )
 
@@ -469,7 +469,7 @@ def test_load_config_no_fallback_when_keyless(
             config.apply_provider_reference("pollinations", "")
 
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
 
@@ -496,11 +496,11 @@ def test_load_config_no_fallback_when_key_present(
             config.apply_provider_reference("openai", "OPENAI_API_KEY")
 
     monkeypatch.setattr(
-        "heph_ai.providers.config.ProviderConfig.load",
+        "providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
     monkeypatch.setattr(
-        "heph_ai.runtime.engine.resolve_key",
+        "runtime.engine.resolve_key",
         lambda _slug, _env="": "sk-test-key",
     )
 

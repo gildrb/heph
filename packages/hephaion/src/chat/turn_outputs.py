@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from heph_ai.runtime.conversation import Conversation
+from runtime.conversation import Conversation
 
 from chat.events import (
     TurnCompleteEvent,

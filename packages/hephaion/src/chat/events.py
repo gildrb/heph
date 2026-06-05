@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import heph_ai.runtime.events as _events
+import runtime.events as _events
 
 AssistantDeltaEvent = _events.AssistantDeltaEvent
 CompactRequestEvent = _events.CompactRequestEvent

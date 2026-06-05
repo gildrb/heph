@@ -7,8 +7,9 @@ import time
 from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 
-from heph_ai.logging import Timer
-from heph_ai.runtime import (
+from ai_logging import Timer
+from rag.context import TurnEvidence
+from runtime import (
     ApiMessage,
     ChatConfig,
     CompletionDelta,
@@ -17,8 +18,7 @@ from heph_ai.runtime import (
     build_client,
     stream_completion,
 )
-from heph_ai.runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
-from rag.context import TurnEvidence
+from runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 
 from agent.runtime_notes import acceptance_criteria_notice
 from agent.tool_execution import ToolCall, merge_tool_call_deltas

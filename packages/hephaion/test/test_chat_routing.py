@@ -31,8 +31,8 @@ from chat.turn_contract import (
 from chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
-from heph.product.context import heph_product_routing_context
-from heph_ai.runtime import ChatConfig, Conversation
+from product.context import heph_product_routing_context
+from runtime import ChatConfig, Conversation
 from safety import GUARDRAIL_STAGE_INPUT, block_guardrail
 from study import LearningTurnPlan, material_overview_plan
 
