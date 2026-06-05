@@ -10,6 +10,8 @@ from hephaion.armory.search import (
     SearchResult,
     _chunk_text,
     add_known_armory,
+    discover_armory_home_entries,
+    load_available_armories,
     load_known_armories,
     load_known_armory_entries,
     remove_known_armory,
@@ -154,3 +156,27 @@ def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.Monk
     add_known_armory(armory)
     paths = add_known_armory(armory)
     assert len(paths) == 1
+
+
+def test_available_armories_include_copied_armory_home_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    copied = armory_home / "copied-course"
+    initialize(copied)
+    not_armory = armory_home / "plain-folder"
+    not_armory.mkdir()
+    raw_settings: dict[str, object] = {}
+
+    def fake_load() -> dict[str, object]:
+        return dict(raw_settings)
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
+
+    discovered = discover_armory_home_entries()
+
+    assert [entry.path for entry in discovered] == [copied.resolve()]
+    assert load_available_armories() == [copied.resolve()]

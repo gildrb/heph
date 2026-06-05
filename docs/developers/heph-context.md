@@ -17,7 +17,7 @@ Use model context like this:
 
 Core commands:
 
-- Start/open: `heph`, `heph PATH`, `heph armory init PATH`, `/armory`.
+- Start/open: `heph`, `heph NAME`, `heph PATH`, `heph armory init NAME`, `/armory`.
 - Materials: put files in `materials/`; use `/import`, `/index`, `heph index PATH`,
   `heph materials list PATH`, `heph materials count PATH`.
 - Check state: `/status`, `heph health PATH`, `/evidence`, `/tokens`, `/cost`.

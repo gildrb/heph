@@ -64,7 +64,7 @@ def _is_explicit_armory_path(raw_path: str, candidate: Path) -> bool:
 
 def _known_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
     search_index = importlib.import_module("hephaion.armory.search")
-    entries = search_index.load_known_armory_entries()
+    entries = search_index.load_available_armory_entries()
     shortcut_lower = shortcut.lower()
     valid_paths = [entry.path for entry in entries if entry.valid]
     matches = [path for path in valid_paths if path.name.lower() == shortcut_lower]

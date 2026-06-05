@@ -58,7 +58,11 @@ heph armory init exams
 heph exams
 ```
 
-You can also run:
+Heph stores named armories under `~/.armories`. To move to another PC, install
+Heph there, copy or sync the `.armories` folder, set up provider credentials,
+and run `heph`.
+
+You can also run Heph from an explicit armory path when needed:
 
 ```bash
 heph .
@@ -80,8 +84,8 @@ environment variables such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_K
 ## Commands
 
 ```text
-heph [path]             Open Heph.
-heph armory init PATH   Create an armory.
+heph [name-or-path]     Open Heph.
+heph armory init NAME   Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph update             Show the update command.

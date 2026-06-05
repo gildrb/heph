@@ -382,8 +382,11 @@ def test_bare_armory_name_dispatches_known_armory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    armory_path = tmp_path / "gdp"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    armory_path = armory_home / "gdp"
     initialize(armory_path)
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
     add_known_armory(armory_path)
     captured_path: Path | None = None
 
@@ -392,6 +395,29 @@ def test_bare_armory_name_dispatches_known_armory(
         captured_path = path
 
     monkeypatch.setattr(cli_sys, "argv", ["heph", "gdp"])
+
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
+        cli_main()
+
+    assert captured_path == armory_path.resolve()
+
+
+def test_bare_armory_name_dispatches_copied_armory_home_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    armory_path = armory_home / "copied"
+    initialize(armory_path)
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "copied"])
 
     with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()

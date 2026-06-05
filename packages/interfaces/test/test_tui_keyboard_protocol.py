@@ -40,7 +40,7 @@ def test_armory_home_notice_does_not_use_rich_path_highlight_colors(
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
     known = [tmp_path / ".armories" / "sample-1778273613"]
-    monkeypatch.setattr("interfaces.tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("interfaces.tui.display_text.load_available_armories", lambda: known)
 
     app = tui.HephTui(
         create_plain_session(ChatConfig()),

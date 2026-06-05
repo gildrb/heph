@@ -3334,7 +3334,7 @@ def test_armory_home_text_includes_recent_armories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
-    monkeypatch.setattr("interfaces.tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("interfaces.tui.display_text.load_available_armories", lambda: known)
     monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui_display_text.armory_home_text()

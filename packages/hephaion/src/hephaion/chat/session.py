@@ -315,7 +315,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     if armory_path is None:
-        raise SessionError("An armory is required. Create one with: heph armory init <path>")
+        raise SessionError("An armory is required. Create one with: heph armory init <name>")
 
     context = _armory_context(armory_path)
     if context.source_file_count == 0:

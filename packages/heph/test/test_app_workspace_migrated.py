@@ -79,7 +79,7 @@ class TestDiscoverStartupArmory:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        armory = tmp_path / "my-armory"
+        armory = clean_armory_env / "my-armory"
         initialize(armory)
 
         add_known_armory(armory)
@@ -91,8 +91,8 @@ class TestDiscoverStartupArmory:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        armory_a = tmp_path / "armory-a"
-        armory_b = tmp_path / "armory-b"
+        armory_a = clean_armory_env / "armory-a"
+        armory_b = clean_armory_env / "armory-b"
         initialize(armory_a)
         initialize(armory_b)
 
@@ -106,10 +106,10 @@ class TestDiscoverStartupArmory:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        armory = tmp_path / "valid-armory"
+        armory = clean_armory_env / "valid-armory"
         initialize(armory)
         # Create a path that exists but isn't a valid armory
-        not_armory = tmp_path / "not-armory"
+        not_armory = clean_armory_env / "not-armory"
         not_armory.mkdir()
 
         save_known_armories([armory, not_armory])
@@ -178,6 +178,19 @@ class TestDiscoverStartupArmory:
 
         result = discover_startup_armory()
         assert result is None
+
+    def test_last_armory_outside_armory_home_is_not_auto_opened(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        outside_armory = tmp_path / "outside"
+        initialize(outside_armory)
+        copied_armory = clean_armory_env / "copied"
+        initialize(copied_armory)
+        set_last_armory(outside_armory)
+
+        result = discover_startup_armory()
+        assert result == copied_armory
 
 
 class TestLastArmoryHelpers:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hephaion.armory.storage import MARKER_FILE
+from hephaion.armory.storage import MARKER_FILE, default_armory_home
 from hephaion.materials import MATERIALS_DIR, iter_material_files
 from hephaion.parameters.settings import load_raw_settings, save_setting
 
@@ -72,6 +72,64 @@ def load_recent_armory_entries() -> list[KnownArmory]:
 
 def load_known_armories() -> list[Path]:
     return [entry.path for entry in load_known_armory_entries() if entry.exists]
+
+
+def load_available_armory_entries() -> list[KnownArmory]:
+    armory_home = _resolved_armory_home()
+    entries = [
+        entry
+        for entry in load_known_armory_entries()
+        if entry.valid and _path_is_in_armory_home(entry.path, armory_home)
+    ]
+    seen = {entry.path for entry in entries}
+    for entry in _discover_armory_home_entries(armory_home):
+        if entry.path in seen:
+            continue
+        seen.add(entry.path)
+        entries.append(entry)
+    return entries
+
+
+def load_available_armories() -> list[Path]:
+    return [entry.path for entry in load_available_armory_entries()]
+
+
+def discover_armory_home_entries() -> list[KnownArmory]:
+    return _discover_armory_home_entries(_resolved_armory_home())
+
+
+def _discover_armory_home_entries(armory_home: Path) -> list[KnownArmory]:
+    if not armory_home.is_dir():
+        return []
+    entries: list[KnownArmory] = []
+    try:
+        children = sorted(armory_home.iterdir(), key=lambda path: path.name.lower())
+    except OSError:
+        return []
+    for child in children:
+        if child.name.startswith("."):
+            continue
+        try:
+            resolved = child.resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not _path_is_in_armory_home(resolved, armory_home):
+            continue
+        if resolved.is_dir() and (resolved / MARKER_FILE).is_file():
+            entries.append(KnownArmory(path=resolved, exists=True, valid=True))
+    return entries
+
+
+def _resolved_armory_home() -> Path:
+    return default_armory_home().expanduser().resolve()
+
+
+def _path_is_in_armory_home(path: Path, armory_home: Path) -> bool:
+    try:
+        path.expanduser().resolve(strict=False).relative_to(armory_home)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 def save_known_armories(paths: list[Path]) -> None:

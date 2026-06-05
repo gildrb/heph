@@ -24,11 +24,14 @@ An armory is the core organizational unit in Hephaion. It's a normal directory t
 
 ### Portability
 
-Armories are just directories. You can:
-- Copy them between machines
-- Share them via git (excluding `.hephaion/` via .gitignore)
-- Back them up with any file backup tool
-- Move them anywhere on your filesystem
+Armories are just directories under `~/.armories`. To move Heph to another PC,
+install Heph, copy or sync the `.armories` folder, set up provider credentials,
+and run `heph`.
+
+You can:
+- Copy the whole `.armories` folder between machines
+- Back it up with any file backup tool
+- Put source documents in normal `materials/` folders you can open with other apps
 
 ### Isolation
 
@@ -45,30 +48,20 @@ This separation prevents cross-contamination between different projects or domai
 Your documents are stored as regular files in `materials/`. You can:
 - Access them directly with any PDF viewer, text editor, etc.
 - Use them with other tools
-- Export them without any proprietary format
+- Copy them without any proprietary export format
 
 ## Creating Armories
 
-### Default Location
+Named armories live in `~/.armories`:
 
 ```bash
 heph armory init my-project
 # Creates: ~/.armories/my-project/
 ```
 
-### Custom Location
-
-```bash
-heph armory init ./docs/hephaion
-# Creates: ./docs/hephaion/
-```
-
-### Anywhere
-
-```bash
-heph armory init ~/Documents/study/math
-# Creates: ~/Documents/study/math/
-```
+Heph discovers valid armory folders in `.armories` when it starts. Copied or
+synced armories are available as long as their `.hephaion/armory.toml` marker and
+`materials/` folder travel with them.
 
 ## Managing Documents
 
@@ -144,28 +137,22 @@ Memory is stored in `.hephaion/memory/` and is completely local.
 Harness attempt logs and policy artifacts are stored in `.hephaion/learning/`
 and are also local to the armory.
 
-## Sharing Armories
+## Moving Armories
 
-### Via Git
+The normal portability path is the folder itself:
 
 ```bash
-cd ~/.armories/my-armory
-git init
-git add materials/ .hephaion/ignore
-git commit -m "Initial armory"
-# Push to your preferred git host
+cp -r ~/.armories ~/backup/armories
 ```
 
-Note: `.hephaion/index/`, `.hephaion/memory/`, `.hephaion/chats/`, and
-`.hephaion/learning/` are gitignored by default.
+On the other machine, place the folder at `~/.armories`, set up `/login` or your
+provider environment variables, and run `heph`. Indexes are rebuildable, so a
+copied armory can still work when generated index files are missing or stale.
 
-### Manual Copy
+If you intentionally share only source files, copy just one armory's
+`materials/` folder:
 
 ```bash
-# Copy entire armory
-cp -r ~/.armories/my-armory ~/backup/armories/
-
-# Copy just materials
 cp -r ~/.armories/my-armory/materials ~/backup/documents/
 ```
 
@@ -192,9 +179,10 @@ Use clear, descriptive names:
 
 ### Backup Strategy
 
-- Back up `materials/` regularly (these are your source documents)
-- Optional: Back up `.hephaion/memory/` (learning memory)
-- Index and chats can be regenerated if needed
+- Back up or sync `~/.armories` when you want every armory to travel
+- Back up `materials/` when you only need the source documents
+- Indexes can be regenerated if needed
+- Provider credentials stay machine-local and are not stored in `.armories`
 
 ## Advanced Usage
 

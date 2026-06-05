@@ -45,12 +45,9 @@ cd ~/.armories/exams
 # Add your documents to the materials/ directory
 ```
 
-You can initialize an armory anywhere:
-
-```bash
-heph armory init ./my-docs
-heph armory init ~/documents/study
-```
+Named armories are stored in `~/.armories`. To move Heph to another PC, install
+Heph, copy or sync the `.armories` folder, set up provider credentials, and run
+`heph`.
 
 ## Add Documents
 
@@ -62,9 +59,12 @@ Place your documents in the `materials/` directory of your armory:
 │   ├── lecture-notes.pdf
 │   ├── textbook-chapter1.pdf
 │   └── reference-doc.md
-├── chats/
-├── index/
-└── memory/
+└── .hephaion/
+    ├── armory.toml
+    ├── chats/
+    ├── learning/
+    ├── traces/
+    └── usage/
 ```
 
 Supported formats:
@@ -133,8 +133,8 @@ Inside Heph:
 - `/exit` - Quit Heph
 
 CLI commands:
-- `heph [path]` - Open Heph for an armory
-- `heph armory init PATH` - Create a new armory
+- `heph [name-or-path]` - Open Heph for an armory
+- `heph armory init NAME` - Create a new armory in `~/.armories`
 - `heph index [path]` - Refresh the materials index
 - `heph health [path]` - Check indexed materials
 - `heph update` - Show the update command

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-from hephaion.armory.search import load_known_armories
+from hephaion.armory.search import load_available_armories
 from hephaion.materials import material_display_name
 
 from interfaces.terminal import current_palette
@@ -360,7 +360,7 @@ def _recent_armory_line(path: Path) -> str:
 
 
 def armory_home_text() -> str:
-    recent = load_known_armories()[:5]
+    recent = load_available_armories()[:5]
     if recent:
         lines = [
             "No armory attached.",

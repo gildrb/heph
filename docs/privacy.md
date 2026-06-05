@@ -53,8 +53,9 @@ components, and policy artifacts. They are not sent through analytics or crash
 reporting.
 
 Treat `.hephaion/learning/` as private armory data. Any future export flow must
-be explicit; metadata-only export should be the default, and private-content
-export should require separate confirmation.
+be explicit and separate from the normal `.armories` copy/sync workflow;
+metadata-only export should be the default, and private-content export should
+require separate confirmation.
 
 ## What Goes to Model Providers
 
