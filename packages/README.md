@@ -1,0 +1,75 @@
+# Package Map
+
+This is the ownership map for the five workspace packages. It is meant to be a
+quick compass for humans and coding agents before changing package boundaries.
+
+```text
+packages/
+  ai/
+    ai/
+      diagnostics/ Metrics and tracing primitives
+      logging/     Structured logging, redaction, and timers
+      providers/   LLM provider registry, config, auth, model catalogs
+      runtime/     Chat config, messages, streaming, retry, usage
+      types/       Narrow payload type helpers
+  extensions/
+    extension_contracts.py  Stable extension contracts
+  heph/
+    cli/        Console entrypoint and top-level subcommands
+    commands/   Slash-command registry and command coordinators
+    product/    Temporary self-knowledge bridge
+    identity/   Stable self-description and conversational identity target
+    prompts/    Prompt programs treated as code
+    state/      Declarative JSON/Markdown state contract target
+  hephaion/
+    agent/       Prompt building, citation, tool registry/handlers
+    armory/      Armory data, validation, and known-armory lookup
+    chat/        Session lifecycle, intent contracts, evidence, turn orchestration
+    diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+    matching/    Fuzzy matching helpers for human-facing selectors
+    materials/   Study-file discovery, ignore rules, and material role classification
+    memory/      Memory extraction and storage
+    parameters/  Parameter management and settings
+    privacy/     Consent, anonymous install ID, release-time diagnostics config
+    rag/         RAG chunking, indexing, retrieval, source mapping
+    safety/      Local safety contracts
+    study/       Prompt plans, learning controller, priority analysis
+    version/     Package version helpers
+    vocab/       Vocabulary drill, scheduler, state
+  interfaces/
+    palette/     Theme and ANSI color tokens
+    terminal/    Terminal I/O, styling, prompts, history, source opening
+    tui/         Textual adapter: lifecycle, widgets, inline menus, rendering
+```
+
+```mermaid
+graph TD
+    Heph["Heph agent"] --> Interfaces["Interfaces"]
+    Heph --> Harness["Hephaion harness"]
+    Heph --> AI["AI runtime"]
+    Heph --> Extensions["Extensions"]
+    Interfaces --> Harness
+    Interfaces --> AI
+    Interfaces --> Extensions
+    Harness --> AI
+    Harness --> Extensions
+    Harness --> Materials["materials"]
+    Harness --> RAG["rag"]
+    Harness --> Study["study"]
+    Harness --> Memory["memory"]
+    Harness --> AgentLoop["agent helpers"]
+    RAG --> Materials
+    AI --> LLM["LLM providers"]
+    Harness --> FileStore["Armory files"]
+```
+
+Core invariants:
+
+- `ai.*` is provider and model API substrate. It should almost never change for
+  Heph-specific behavior.
+- Hephaion is the correctness harness: guardrails, armories, retrieval,
+  citations, memory, diagnostics, and session state.
+- Heph is the agent and composition surface: identity, conversational strategy,
+  research orchestration, and user-facing commands.
+- Interfaces and Extensions compose the core through public contracts instead
+  of owning harness or agent behavior.

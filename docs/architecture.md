@@ -12,8 +12,9 @@ packages/
   extensions/  Stable extension contracts
 ```
 
-Only those five package directories need package-level READMEs. The package
-directory itself is not an architecture surface.
+Each package has its own README for package-specific details. The root
+`packages/README.md` stays intentionally short: it is a map of ownership and
+dependency flow, not another architecture narrative.
 
 ## Package Ownership
 
