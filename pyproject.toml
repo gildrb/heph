@@ -156,7 +156,6 @@ paths = [
     "packages/hephaion/test",
     "packages/interfaces/src",
     "packages/interfaces/test",
-    "tests",
     "vulture-whitelist.py",
 ]
 

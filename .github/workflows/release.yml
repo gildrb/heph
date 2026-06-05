@@ -83,7 +83,7 @@ jobs:
         run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
+        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py
 
       - name: Pylint duplicate-code
         run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src

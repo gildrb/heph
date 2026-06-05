@@ -228,7 +228,7 @@ jobs:
       - name: Vulture
         run: |
           start=$(date +%s%N)
-          uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
+          uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| dead-code vulture | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"

@@ -58,7 +58,7 @@ repos:
       - id: vulture
         name: vulture (dead-code)
         language: python
-        entry: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py
+        entry: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py
         types: [python]
         pass_filenames: false
       - id: pylint-duplicate-code

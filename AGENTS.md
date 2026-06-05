@@ -147,7 +147,7 @@ uv run ty check  # type-check the project
 
 ## Dead Code / Architecture / Quality Gates
 ```bash
-uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test tests vulture-whitelist.py  # dead-code detection
+uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py  # dead-code detection
 uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src  # duplicate code
 uv run lint-imports        # verify import boundaries
 uv run python scripts/check_architecture_guardrails.py  # guard architecture debt baselines
@@ -157,8 +157,8 @@ uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command valida
 
 Additional configured gates:
 
-- Vulture scans all workspace package source/test trees, root integration tests, and
-  `vulture-whitelist.py` at 80% confidence.
+- Vulture scans all workspace package source/test trees and `vulture-whitelist.py` at 80%
+  confidence.
 - Pylint duplicate-code uses an 8-line similarity threshold and ignores comments,
   docstrings, and imports.
 - Architecture guardrails enforce no regression against current module size, function size,
