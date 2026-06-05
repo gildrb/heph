@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ai.runtime import ChatConfig, Conversation
+from hephaion.chat.evidence import ResolvedTurnPlan
+from hephaion.chat.session import ChatSession
+from hephaion.chat.turn_contract import TurnContract
+from hephaion.chat.turn_finalization import TurnFinalizationMixin
 from hephaion.learning.actions import AttemptAction
 from hephaion.learning.environment import ReplayHephEnv
 from hephaion.learning.observation import AttemptObservation
@@ -11,6 +16,15 @@ from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.learning.reward import RewardComponent, score_attempt_reward
 from hephaion.learning.storage import AttemptRecord, LearningStore, new_attempt_record
 from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
+from hephaion.study.policy import EvidenceAssessment
+
+
+class _FinalizationProbe(TurnFinalizationMixin):
+    def __init__(self, session: ChatSession) -> None:
+        self.session = session
+        self.last_reply = "The note says this [E2]."
+        self.last_internal_passes = 0
+        self._last_reply_citation_required = True
 
 
 def _chunk(source: str = "notes.md", index: int = 0) -> Chunk:
@@ -141,6 +155,48 @@ def test_replay_environment_is_deterministic_from_saved_records() -> None:
     mismatch = first.step(AttemptAction.ACCEPT)
     assert mismatch.reward.total == -0.05
     assert mismatch.terminated
+
+
+def test_finalized_turn_records_accepted_action_when_policy_would_retry(tmp_path: Path) -> None:
+    session = ChatSession(
+        config=ChatConfig(),
+        conversation=Conversation(),
+        session_id="session",
+        armory_path=tmp_path,
+    )
+    probe = _FinalizationProbe(session)
+    resolved = ResolvedTurnPlan(
+        turn_evidence=_evidence(),
+        evidence_assessment=EvidenceAssessment(
+            sufficient=True,
+            confidence=0.8,
+            supporting_refs=("E1",),
+            missing_information=(),
+            conflicts=(),
+            source_diversity_score=1.0,
+            recommended_action="answer",
+        ),
+        turn_contract=TurnContract(
+            original_user_input="What does the note say?",
+            resolved_intent="answer note",
+            citation_required=True,
+        ),
+    )
+
+    probe._record_learning_attempt(
+        resolved,
+        _evidence(),
+        user_input="What does the note say?",
+        latency_ms=10.0,
+    )
+
+    record = next(LearningStore(tmp_path).iter_attempts())
+
+    assert StaticAttemptPolicy().choose(record.observation) is (
+        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
+    )
+    assert record.action is AttemptAction.ACCEPT
+    assert record.reward.total < 0
 
 
 def test_static_policy_chooses_retry_action_for_failed_citation_validation() -> None:

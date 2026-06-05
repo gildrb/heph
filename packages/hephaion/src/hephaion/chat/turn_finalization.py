@@ -57,6 +57,7 @@ from hephaion.chat.turn_predicates import (
 )
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
+from hephaion.learning.actions import AttemptAction
 from hephaion.learning.environment import LiveHephEnv
 from hephaion.learning.observation import build_attempt_observation
 from hephaion.learning.policy import StaticAttemptPolicy
@@ -256,11 +257,12 @@ class TurnFinalizationMixin:
             latency_ms=latency_ms,
             internal_passes=self.last_internal_passes,
         )
-        action = StaticAttemptPolicy().choose(observation)
+        action = AttemptAction.ACCEPT
+        recommended_action = StaticAttemptPolicy().choose(observation)
         reward = score_attempt_reward(
             observation,
-            accepted=action.value == "accept",
-            abstained=action.value == "abstain",
+            accepted=True,
+            abstained=False,
         )
         record = new_attempt_record(
             session_id=session.session_id,
@@ -280,6 +282,7 @@ class TurnFinalizationMixin:
         session.trace.record_session_event(
             "learning_attempt",
             action=action.value,
+            recommended_action=recommended_action.value,
             reward=reward.total,
             reward_components={
                 component.name: round(component.value, 4) for component in reward.components
