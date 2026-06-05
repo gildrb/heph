@@ -280,7 +280,7 @@ def _evidence_output_needs_model_repair(
     *,
     contract: TurnContract | None = None,
 ) -> bool:
-    if plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
+    if not _action_supports_evidence_output_repair(plan):
         return False
     if evidence is None or not evidence.items:
         return False
@@ -296,6 +296,12 @@ def _evidence_output_needs_model_repair(
     return bool(_OVERVIEW_CITATION_ID_RE.search(reply)) and (
         _thin_evidence_pointer(reply) or _reply_has_unbalanced_inline_markup(reply)
     )
+
+
+def _action_supports_evidence_output_repair(plan: LearningTurnPlan) -> bool:
+    if plan.action in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
+        return True
+    return plan.action is LearningAction.CHAT and _plan_requires_citations(plan)
 
 
 def _thin_evidence_pointer(reply: str) -> bool:
