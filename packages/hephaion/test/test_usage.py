@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import ai.runtime.usage as runtime_usage_module
-import chat.usage as usage_module
+import hephaion.chat.usage as usage_module
 import pytest
 from ai.runtime import ApiMessage, UsagePayload
-from chat.usage import (
+from hephaion.chat.usage import (
     ContextBudget,
     SessionUsage,
     TokenUsage,

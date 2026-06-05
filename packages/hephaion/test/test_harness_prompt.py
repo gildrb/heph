@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.prompt import build_system_prompt, build_system_prompt_sections
-from rag.context import estimate_tokens
-from rag.health import ExtractionHealthIssue
-from study import LearningPhase, LearningState, plan_turn
+from hephaion.agent.prompt import build_system_prompt, build_system_prompt_sections
+from hephaion.rag.context import estimate_tokens
+from hephaion.rag.health import ExtractionHealthIssue
+from hephaion.study import LearningPhase, LearningState, plan_turn
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:

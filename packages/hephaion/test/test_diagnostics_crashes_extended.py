@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagnostics.crashes import (
+from hephaion.diagnostics.crashes import (
     _NoopCounter,
     _NoopGauge,
     _NoopHistogram,

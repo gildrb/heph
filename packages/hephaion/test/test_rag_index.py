@@ -9,24 +9,24 @@ import stat
 import time
 from pathlib import Path
 
-import commands
 import pytest
 from ai.providers.config import default_config
 from ai.runtime import ChatConfig, Conversation
-from chat.session import ChatSession, create_plain_session
-from commands import model as _commands_model
-from rag import index as rag_index
-from rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
-from rag.context import EvidenceChunk, TurnEvidence
-from rag.index import (
+from heph import commands
+from heph.commands import model as _commands_model
+from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.rag import index as rag_index
+from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.rag.index import (
     ArmoryIndex,
     _documents_digest,
     build_index,
     load_or_build,
     scan_unindexable_files,
 )
-from terminal.history import InputHistory
-from terminal.input import handle_input
+from interfaces.terminal.history import InputHistory
+from interfaces.terminal.input import handle_input
 
 
 @pytest.fixture
@@ -146,8 +146,8 @@ class TestArmoryIndexBuild:
             return None
 
         monkeypatch.setenv("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", "1")
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.index.chunk_file", slow_chunk_file)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", slow_chunk_file)
         index = ArmoryIndex(arm)
 
         index.build()
@@ -199,7 +199,7 @@ class TestArmoryIndexPersist:
         def fail_chunk_file(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("load must not rebuild chunks")
 
-        monkeypatch.setattr("rag.index.chunk_file", fail_chunk_file)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", fail_chunk_file)
 
         loaded = ArmoryIndex(armory)
         assert loaded.load()
@@ -312,7 +312,7 @@ class TestArmoryIndexStaleness:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
 
         index = ArmoryIndex(armory)
@@ -332,13 +332,13 @@ class TestArmoryIndexStaleness:
     ) -> None:
         pdf = armory / "materials" / "scan.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
 
         index = ArmoryIndex(armory)
         index.build()
         assert not index.is_stale()
 
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: True)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: True)
 
         assert index.is_stale()
 
@@ -800,8 +800,8 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
-        monkeypatch.setattr("rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -833,8 +833,8 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
-        monkeypatch.setattr("rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -864,8 +864,8 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -895,7 +895,7 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -943,8 +943,8 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: False)
-        monkeypatch.setattr("rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -974,8 +974,8 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -1005,7 +1005,7 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -1035,7 +1035,7 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -1081,7 +1081,7 @@ class TestLoadOrBuild:
                 ],
             )
 
-        monkeypatch.setattr("rag.index.chunk_file", fake_chunk_file)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", fake_chunk_file)
 
         index = load_or_build(arm)
 
@@ -1305,7 +1305,7 @@ class TestArmoryIndexUnindexable:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -1322,7 +1322,7 @@ class TestArmoryIndexUnindexable:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -1341,8 +1341,8 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: False)
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -1358,8 +1358,8 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: True)
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: True)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)
@@ -1394,7 +1394,7 @@ class TestScanUnindexableFiles:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("hephaion.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials" / "private").mkdir(parents=True)
         (arm / ".hephaion").mkdir(parents=True)

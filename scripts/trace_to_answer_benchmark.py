@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from rag.retrieval_types import EvidenceReference
+from hephaion.rag.retrieval_types import EvidenceReference
 
 from scripts import benchmark_answers, replay_answer_benchmark
 

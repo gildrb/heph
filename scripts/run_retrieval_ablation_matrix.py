@@ -22,8 +22,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
-from armory import storage
-from rag import (
+from hephaion.armory import storage
+from hephaion.rag import (
     ArmoryIndex,
     EvidenceReference,
     RetrievalMode,
@@ -33,7 +33,7 @@ from rag import (
     optional_backends,
     retrieve,
 )
-from rag.hybrid import (
+from hephaion.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,

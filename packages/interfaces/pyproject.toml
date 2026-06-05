@@ -22,12 +22,8 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = [
-    "palette",
-    "terminal",
-    "tui",
-]
+module-name = ["interfaces"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], hephaion = ["armory", "chat", "diagnostics", "matching", "materials", "parameters", "privacy", "rag"] }
+package_module_name_map = { heph-ai = ["ai"], hephaion = ["hephaion"] }

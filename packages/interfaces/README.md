@@ -14,9 +14,10 @@ tokens.
 
 ```text
 src/
-  palette/   Theme and ANSI color tokens for terminal/TUI rendering
-  terminal/  Terminal styling, I/O, history, source opening, theme state
-  tui/       Textual app, widgets, flows, keymaps, rendering, streaming adapter
+  interfaces/
+    palette/   Theme and ANSI color tokens for terminal/TUI rendering
+    terminal/  Terminal styling, I/O, history, source opening, theme state
+    tui/       Textual app, widgets, flows, keymaps, rendering, streaming adapter
 ```
 
 ## Boundaries
@@ -39,5 +40,4 @@ uv run lint-imports
 
 ## Related Docs
 
-- [Architecture](docs/architecture.md)
 - [Root architecture guide](../../docs/architecture.md)

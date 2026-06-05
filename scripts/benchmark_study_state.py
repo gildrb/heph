@@ -31,15 +31,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from _types import is_string_mapping
-from study import (
+from hephaion._types import is_string_mapping
+from hephaion.study import (
     LearningAction,
     LearningPhase,
     LearningState,
     apply_turn_result,
     plan_turn,
 )
-from study.schedule import RecallScheduleStore
+from hephaion.study.schedule import RecallScheduleStore
 
 _READY_TURN_RE = re.compile(r"^\s*(?:ready|start|go)\s*[.!?]?\s*$", re.IGNORECASE)
 _PRESENTATION_REQUEST_RE = re.compile(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from extension_contracts import heph_product_routing_context
+from extensions.contracts import heph_product_routing_context
 
 
 def test_extension_contracts_routing_context_is_available() -> None:

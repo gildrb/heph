@@ -6,13 +6,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-import tui
 from ai.runtime import ChatConfig
-from chat.session import create_plain_session
+from hephaion.chat.session import create_plain_session
+from interfaces import tui
+from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
+from interfaces.tui.widgets import csi_u_key_text
 from textual import events
 from textual._xterm_parser import XTermParser
-from tui.keyboard_protocol import install_textual_modified_key_compat
-from tui.widgets import csi_u_key_text
 
 
 def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
@@ -40,7 +40,7 @@ def test_armory_home_notice_does_not_use_rich_path_highlight_colors(
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
     known = [tmp_path / ".armories" / "sample-1778273613"]
-    monkeypatch.setattr("tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("interfaces.tui.display_text.load_known_armories", lambda: known)
 
     app = tui.HephTui(
         create_plain_session(ChatConfig()),

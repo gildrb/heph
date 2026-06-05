@@ -57,7 +57,7 @@ uv run heph armory init PATH    # create a new armory
 <!-- sync-docs:privacy-diagnostics-docs-contract:start -->
 - Privacy and diagnostics rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
   is redacted opt-in crash reporting only.
-- Preserve the public safe-stub split in `packages/hephaion/src/privacy/release.py`.
+- Preserve the public safe-stub split in `packages/hephaion/src/hephaion/privacy/release.py`.
   Official release builds inject privacy and diagnostics backend values in CI; source, editable, and
   Git installs must stay bare by default.
 - When CLI commands, privacy or diagnostics surfaces, or README-adjacent docs change, run
@@ -100,30 +100,39 @@ uv run heph armory init PATH    # create a new armory
 
 - Protected core packages:
   - `ai.*`: provider/model API substrate only.
-  - Hephaion modules: correctness harness, guardrails, armories, retrieval,
+  - `hephaion.*`: correctness harness, guardrails, armories, retrieval,
     citations, memory, diagnostics, and session state.
-  - Heph modules: agent identity, brain/composition, CLI entrypoint, and
+  - `heph.*`: agent identity, brain/composition, CLI entrypoint, and
     slash-command coordination.
-- Adapter surface: `cli`, `commands`, `tui`, and most `terminal` modules.
+- Adapter surface: `heph.cli`, `heph.commands`, `interfaces.tui`, and most
+  `interfaces.terminal` modules.
   Adapters may depend broadly, but reusable decisions should move into services or domains.
 - AI reusable packages: `ai.runtime`, `ai.providers`, `ai.logging`,
   `ai.diagnostics`, `ai.types`.
-- Harness reusable packages: `matching`, `_types`, `materials`, `rag`, `memory`,
-  `armory`, `vocab`, `study`, `chat`, and focused workflow modules.
-- Reusable packages, including `privacy` and `diagnostics`, must not import adapters
-  (`cli`, `commands`, `tui`, `terminal.history`, `terminal.input`).
-- `logging` and `diagnostics` must not import adapters.
-- `materials` owns discovery/ignore policy and must not import `chat`, `agent`, `rag`, or `study`.
-- `rag` may import `materials`; it must not import `agent`, `chat`, `tui`, or `study`.
-- `runtime` stays below product workflows and must not import adapters, `chat`, `agent`,
-  `rag`, `study`, `materials`, `memory`, or `armory`.
+- Harness reusable packages: `hephaion.matching`, `hephaion._types`,
+  `hephaion.materials`, `hephaion.rag`, `hephaion.memory`, `hephaion.armory`,
+  `hephaion.vocab`, `hephaion.study`, `hephaion.chat`, and focused workflow modules.
+- Reusable packages, including `hephaion.privacy` and `hephaion.diagnostics`, must not
+  import adapters (`heph.cli`, `heph.commands`, `interfaces.tui`,
+  `interfaces.terminal.history`, `interfaces.terminal.input`).
+- `ai.logging` and `hephaion.diagnostics` must not import adapters.
+- `hephaion.materials` owns discovery/ignore policy and must not import
+  `hephaion.chat`, `hephaion.agent`, `hephaion.rag`, or `hephaion.study`.
+- `hephaion.rag` may import `hephaion.materials`; it must not import
+  `hephaion.agent`, `hephaion.chat`, `interfaces.tui`, or `hephaion.study`.
+- `ai.runtime` stays below product workflows and must not import adapters,
+  `hephaion.chat`, `hephaion.agent`, `hephaion.rag`, `hephaion.study`,
+  `hephaion.materials`, `hephaion.memory`, or `hephaion.armory`.
 - `providers` owns model/provider config and auth; it must not import adapters,
-  `runtime`, `chat`, `agent`, `rag`, `study`, or `materials`.
-- `memory` may use `runtime`, but must not import adapters, `chat`, or `agent`.
-- `study` remains a controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
-- `agent` must not import `chat`.
-- Keep `chat.session` and `chat.orchestrator` independent at runtime.
-- `commands` must not import `tui`.
+  `ai.runtime`, `hephaion.chat`, `hephaion.agent`, `hephaion.rag`,
+  `hephaion.study`, or `hephaion.materials`.
+- `hephaion.memory` may use `ai.runtime`, but must not import adapters,
+  `hephaion.chat`, or `hephaion.agent`.
+- `hephaion.study` remains a controller/state layer and must not import adapters,
+  `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
+- `hephaion.agent` must not import `hephaion.chat`.
+- Keep `hephaion.chat.session` and `hephaion.chat.orchestrator` independent at runtime.
+- `heph.commands` must not import `interfaces.tui`.
 - Standard top-level imports are the default.
 - Deferred imports are allowed only for optional extras, plugin loading, or measured
   startup-critical paths allowlisted in `scripts/check_repo_policies.py`.

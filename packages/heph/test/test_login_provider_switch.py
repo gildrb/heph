@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import commands
-import commands.auth as _commands_auth
+import heph.commands.auth as _commands_auth
 import pytest
 from ai.providers.config import ProviderConfig
 from ai.providers.oauth import OAuthCredentials
 from ai.runtime import ChatConfig, Conversation
-from chat.session import ChatSession
+from heph import commands
+from hephaion.chat.session import ChatSession
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -327,7 +327,7 @@ def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyP
     messages: list[str] = []
 
     monkeypatch.setattr("ai.providers.oauth.list_providers", list)
-    monkeypatch.setattr("commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("heph.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "get_volatile", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -341,7 +341,7 @@ def test_logout_single_provider_cancelled(monkeypatch: pytest.MonkeyPatch) -> No
     messages: list[str] = []
 
     monkeypatch.setattr("ai.providers.oauth.list_providers", lambda: ["openai-codex"])
-    monkeypatch.setattr("commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("heph.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
     monkeypatch.setattr(_commands_auth, "confirm", lambda *_a, **_kw: False)
     monkeypatch.setattr(_commands_auth, "print_info", messages.append)
 

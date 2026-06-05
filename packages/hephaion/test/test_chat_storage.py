@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 from ai.runtime import Conversation
-from armory.storage import initialize
-from chat.storage import (
+from hephaion.armory.storage import initialize
+from hephaion.chat.storage import (
     ChatStorageError,
     list_sessions,
     load,

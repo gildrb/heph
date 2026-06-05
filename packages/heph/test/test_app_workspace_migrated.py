@@ -6,10 +6,11 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import commands
 import pytest
 from ai.runtime import ChatConfig
-from armory.search import (
+from heph import commands
+from heph.commands import CommandResult
+from hephaion.armory.search import (
     add_known_armory,
     get_last_armory,
     load_known_armories,
@@ -17,21 +18,20 @@ from armory.search import (
     save_known_armories,
     set_last_armory,
 )
-from armory.storage import initialize
-from chat.session import (
+from hephaion.armory.storage import initialize
+from hephaion.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
 )
-from commands import CommandResult
-from terminal.history import InputHistory
-from terminal.input import handle_input
-from tui.session_actions import (
+from interfaces.terminal.history import InputHistory
+from interfaces.terminal.input import handle_input
+from interfaces.tui.session_actions import (
     create_startup_session,
     get_history_path,
     save_on_exit,
 )
-from tui.startup_discovery import discover_startup_armory
+from interfaces.tui.startup_discovery import discover_startup_armory
 
 
 @pytest.fixture

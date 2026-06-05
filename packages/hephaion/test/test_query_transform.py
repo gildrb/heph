@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from rag.chunker import Chunk, ChunkedDocument
-from rag.index import ArmoryIndex
-from rag.query_transform import (
+from hephaion.rag.chunker import Chunk, ChunkedDocument
+from hephaion.rag.index import ArmoryIndex
+from hephaion.rag.query_transform import (
     _SYNONYM_MAP,
     CompositeTransformer,
     HyDETransformer,
@@ -20,7 +20,7 @@ from rag.query_transform import (
     create_transformer,
     transform_query,
 )
-from rag.retrieve import (
+from hephaion.rag.retrieve import (
     CrossEncoderReranker,
     EmbeddingRetriever,
     HybridRetriever,
@@ -491,7 +491,7 @@ class TestHybridRetrieverWithTransformation:
         mock_transformer.transform.return_value = ["python programming"]
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
@@ -517,7 +517,7 @@ class TestHybridRetrieverWithTransformation:
         ]
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
@@ -551,11 +551,11 @@ class TestHybridRetrieverWithTransformation:
 
         with (
             patch(
-                "rag.retrieve._is_sentence_transformers_available",
+                "hephaion.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "rag.retrieve.EmbeddingRetriever",
+                "hephaion.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -578,7 +578,7 @@ class TestHybridRetrieverWithTransformation:
         ]
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
@@ -605,7 +605,7 @@ class TestHybridRetrieverWithTransformation:
         ]
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(
@@ -642,7 +642,7 @@ class TestHybridRetrieverWithTransformation:
         hyde = HyDETransformer(prompt_fn=mock_fn)
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=hyde)
@@ -663,7 +663,7 @@ class TestHybridRetrieverWithTransformation:
         expander = QueryExpander(use_wordnet=False)
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=expander)
@@ -682,7 +682,7 @@ class TestHybridRetrieverWithTransformation:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             # No query_transformer argument — backward compatible
@@ -705,7 +705,7 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("python", index)
@@ -719,7 +719,7 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(
@@ -735,7 +735,7 @@ class TestRetrieveWithTransformation:
         chunks = [
             _make_chunk(
                 "RAG combines retrieval and generation for better LLM outputs.",
-                "rag.md",
+                "hephaion.rag.md",
                 0,
             ),
             _make_chunk("The weather is sunny today.", "weather.md", 0),
@@ -750,7 +750,7 @@ class TestRetrieveWithTransformation:
         )
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(
@@ -778,7 +778,7 @@ class TestRetrieveWithTransformation:
         )
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(
@@ -795,7 +795,7 @@ class TestRetrieveWithTransformation:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "rag.retrieve._is_sentence_transformers_available",
+            "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve(

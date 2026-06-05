@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from agent.dispatch import iter_agent_events
 from ai.runtime import (
     ChatConfig,
     Conversation,
@@ -18,9 +17,10 @@ from ai.runtime import (
     stream_reply,
 )
 from ai.runtime.engine import _wait_backoff, get_reply, is_retryable_error
-from chat.events import AssistantDeltaEvent, render_turn_event
-from chat.orchestrator import TurnOrchestrator
-from chat.session import ChatSession, send_user_message
+from hephaion.agent.dispatch import iter_agent_events
+from hephaion.chat.events import AssistantDeltaEvent, render_turn_event
+from hephaion.chat.orchestrator import TurnOrchestrator
+from hephaion.chat.session import ChatSession, send_user_message
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 # ---------------------------------------------------------------------------
@@ -475,11 +475,11 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                "hephaion.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
                 return_value=MagicMock(),
             ),
             patch(
-                "chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "hephaion.chat.orchestrator.TurnOrchestrator._iter_learning_events",
                 side_effect=EngineError("boom"),
             ),
             pytest.raises(EngineError),
@@ -505,11 +505,11 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                "hephaion.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
                 return_value=MagicMock(),
             ),
             patch(
-                "chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "hephaion.chat.orchestrator.TurnOrchestrator._iter_learning_events",
                 side_effect=StreamRecoveryError("Partial reply"),
             ),
             pytest.raises(StreamRecoveryError) as exc_info,
@@ -547,7 +547,7 @@ class TestConversationConsistency:
             yield AssistantDeltaEvent("Hello!")
 
         with patch(
-            "chat.orchestrator.TurnOrchestrator.iter_events",
+            "hephaion.chat.orchestrator.TurnOrchestrator.iter_events",
             fake_iter_events,
         ):
             result = send_user_message(session, "Hi")
@@ -583,7 +583,7 @@ class TestConversationConsistency:
             yield AssistantDeltaEvent("Hello!")
 
         with patch(
-            "chat.orchestrator.TurnOrchestrator.iter_events",
+            "hephaion.chat.orchestrator.TurnOrchestrator.iter_events",
             fake_iter_events,
         ):
             result = send_user_message(session, "Hi", reply_prefix="Assistant: ")
@@ -608,7 +608,7 @@ class TestAgentLoopRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("agent.model_stream.build_client", return_value=mock_client):
+        with patch("hephaion.agent.model_stream.build_client", return_value=mock_client):
             events = list(
                 iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry)
             )
@@ -625,7 +625,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("agent.model_stream.build_client", return_value=mock_client),
+            patch("hephaion.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))
@@ -639,7 +639,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
         with (
-            patch("agent.model_stream.build_client", return_value=mock_client),
+            patch("hephaion.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))

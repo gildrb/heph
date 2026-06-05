@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 
-import agent as agent_pkg
-from agent import (
+import hephaion.agent as agent_pkg
+from hephaion.agent import (
     citation,
     compact,
     dispatch,

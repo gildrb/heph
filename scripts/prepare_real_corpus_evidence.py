@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from materials import MaterialRole
+from hephaion.materials import MaterialRole
 
 from scripts import create_benchmark_manifest, run_real_corpus_preflight
 

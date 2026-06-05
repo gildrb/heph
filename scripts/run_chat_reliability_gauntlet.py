@@ -20,8 +20,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from _types import is_string_mapping, parse_json_object_fragment
-from agent.citation import verify_citations, verify_response
 from ai.runtime import (
     ChatConfig,
     Conversation,
@@ -30,18 +28,20 @@ from ai.runtime import (
     reset_provider_circuit_breaker,
     stream_reply,
 )
-from chat.automation import iter_chat_events
-from chat.compaction import compact_session
-from chat.events import AssistantDeltaEvent, TurnCompleteEvent
-from chat.evidence import build_turn_evidence_from_refs
-from chat.session import ChatSession, create_session, resume_session, save_session
-from chat.turn_contract import (
+from hephaion._types import is_string_mapping, parse_json_object_fragment
+from hephaion.agent.citation import verify_citations, verify_response
+from hephaion.chat.automation import iter_chat_events
+from hephaion.chat.compaction import compact_session
+from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent
+from hephaion.chat.evidence import build_turn_evidence_from_refs
+from hephaion.chat.session import ChatSession, create_session, resume_session, save_session
+from hephaion.chat.turn_contract import (
     RETRIEVAL_STRATEGY_NONE,
     RETRIEVAL_STRATEGY_REUSE_PRIOR,
     TurnContract,
 )
-from rag import EvidenceChunk, TurnEvidence
-from study import LearningState
+from hephaion.rag import EvidenceChunk, TurnEvidence
+from hephaion.study import LearningState
 
 from scripts.create_chat_reliability_fixture import (
     DEFAULT_SEED_PREFIX,

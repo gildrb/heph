@@ -7,19 +7,19 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
-from vocab import drill
-from vocab.parser import (
+from hephaion.parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
+from hephaion.vocab import drill
+from hephaion.vocab.parser import (
     VocabCard,
     parse_vocab_file,
     scan_armory,
 )
-from vocab.scheduler import (
+from hephaion.vocab.scheduler import (
     Rating,
     schedule_card,
     select_due_cards,
 )
-from vocab.state import (
+from hephaion.vocab.state import (
     VocabCardState,
     VocabScheduleStore,
     load_schedule,

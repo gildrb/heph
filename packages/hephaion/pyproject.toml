@@ -21,27 +21,11 @@ requires = ["uv_build==0.11.11"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = [
-    "_types",
-    "agent",
-    "armory",
-    "chat",
-    "diagnostics",
-    "matching",
-    "materials",
-    "memory",
-    "parameters",
-    "privacy",
-    "rag",
-    "safety",
-    "study",
-    "version",
-    "vocab",
-]
+module-name = ["hephaion"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extension_contracts"] }
+package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extensions"] }
 # These imports are optional enhancement paths with in-code fallbacks or
 # dynamic availability checks.
 per_rule_ignores = { DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"], DEP002 = ["docling"] }

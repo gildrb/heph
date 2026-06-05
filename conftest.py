@@ -20,19 +20,19 @@ import ai.providers.keyring_store as _ks
 import ai.providers.oauth as _oauth_mod
 import ai.runtime.engine as _engine_mod
 import ai.runtime.resilience as _res_mod
-import chat.turn_finalization as _turn_finalization_mod
-import commands as _commands_mod
-import diagnostics.crashes as _obs_mod
-import parameters.settings as _settings_mod
-import privacy.consent as _privacy_mod
-import rag.chunker as _rag_chunker_mod
-import rag.optional_backends as _rag_optional_mod
-import tui.command_access as _tui_command_access
-from agent.tools import ToolHandlerResult, ToolSpec
+import heph.commands as _commands_mod
+import hephaion.chat.turn_finalization as _turn_finalization_mod
+import hephaion.diagnostics.crashes as _obs_mod
+import hephaion.parameters.settings as _settings_mod
+import hephaion.privacy.consent as _privacy_mod
+import hephaion.rag.chunker as _rag_chunker_mod
+import hephaion.rag.optional_backends as _rag_optional_mod
+import interfaces.tui.command_access as _tui_command_access
 from ai.runtime import ApiMessage, ChatConfig
-from armory.storage import initialize
-from chat.session import create_session
-from terminal import set_theme
+from hephaion.agent.tools import ToolHandlerResult, ToolSpec
+from hephaion.armory.storage import initialize
+from hephaion.chat.session import create_session
+from interfaces.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
 _NOOP_TRACER = _obs_mod._NoopTracer()
@@ -132,9 +132,9 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simp
     config_dir = tmp_path / "hephaion_config"
     config_file = config_dir / "config.json"
     defaults_file = tmp_path / "default.toml"
-    monkeypatch.setattr("parameters.settings._USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr("parameters.settings._USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr("parameters.settings._DEFAULTS_FILE", defaults_file)
+    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr("hephaion.parameters.settings._DEFAULTS_FILE", defaults_file)
     return SimpleNamespace(
         config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
     )

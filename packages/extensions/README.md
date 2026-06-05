@@ -21,7 +21,8 @@ handlers, terminal rendering, or TUI widgets here.
 
 ```text
 src/
-  extension_contracts.py
+  extensions/
+    contracts.py
 ```
 
 Keep this package small. It should define the shape of extension points, not
@@ -41,6 +42,4 @@ uv run python -m scripts.check_repo_policies
 
 ## Related Docs
 
-- [Architecture](docs/architecture.md)
-- [Contracts](docs/contracts.md)
 - [Root architecture guide](../../docs/architecture.md)

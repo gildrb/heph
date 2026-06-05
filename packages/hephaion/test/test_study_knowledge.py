@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from study.knowledge import (
+from hephaion.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
     GroundedQuestion,

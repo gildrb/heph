@@ -27,7 +27,7 @@ from ai.providers.oauth import (
     resolve_oauth_key,
     save_credentials,
 )
-from commands import LogoutCommand, get_registry
+from heph.commands import LogoutCommand, get_registry
 
 # --- SSL context ------------------------------------------------------------
 
@@ -397,7 +397,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         list,
     )
     monkeypatch.setattr(
-        "commands.auth.keyring_store.retrieve_key",
+        "heph.commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
     messages: list[tuple[str, str]] = []
@@ -406,7 +406,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("info", msg))
 
     monkeypatch.setattr(
-        "commands.auth.print_info",
+        "heph.commands.auth.print_info",
         _capture_info,
     )
     cmd = LogoutCommand()
@@ -421,7 +421,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
-        "commands.auth.keyring_store.retrieve_key",
+        "heph.commands.auth.keyring_store.retrieve_key",
         lambda _slug: None,
     )
 
@@ -429,7 +429,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "commands.auth.confirm",
+        "heph.commands.auth.confirm",
         _confirm,
     )
     cleared: list[str] = []
@@ -443,7 +443,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("success", msg))
 
     monkeypatch.setattr(
-        "commands.auth.print_success",
+        "heph.commands.auth.print_success",
         _capture_success,
     )
     cmd = LogoutCommand()

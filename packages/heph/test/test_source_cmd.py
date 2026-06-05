@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from armory.storage import initialize
-from cli.main import build_parser, run_argv
+from heph.cli.main import build_parser, run_argv
+from hephaion.armory.storage import initialize
 
 
 def _make_armory(tmp_path: Path) -> Path:

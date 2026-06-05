@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import interfaces.terminal as menu
 import pytest
-import terminal as menu
-from terminal import MenuOption
+from interfaces.terminal import MenuOption
 
 
 def test_select_option_uses_prompt_fallback(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "2")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "2")
 
     selected = menu.select_option(
         "Armory",
@@ -25,7 +25,7 @@ def test_select_option_uses_prompt_fallback(
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "q")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "q")
 
     selected = menu.select_option(
         "Armory",
@@ -53,21 +53,21 @@ def test_select_option_empty_list() -> None:
 
 
 def test_confirm_yes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "1")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "1")
 
     result = menu.confirm("Proceed?")
     assert result is True
 
 
 def test_confirm_no(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "2")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "2")
 
     result = menu.confirm("Proceed?")
     assert result is False
 
 
 def test_confirm_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "q")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "q")
 
     result = menu.confirm("Proceed?")
     assert result is False
@@ -99,7 +99,7 @@ def test_menu_option_dataclass() -> None:
 
 
 def test_select_option_slash_exit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "/exit")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "/exit")
 
     selected = menu.select_option(
         "Armory",
@@ -109,7 +109,7 @@ def test_select_option_slash_exit_cancels(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_select_option_slash_quit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "/quit")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "/quit")
 
     selected = menu.select_option(
         "Armory",
@@ -119,7 +119,7 @@ def test_select_option_slash_quit_cancels(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_select_option_slash_q_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "/q")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "/q")
 
     selected = menu.select_option(
         "Armory",
@@ -130,7 +130,7 @@ def test_select_option_slash_q_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_select_option_exit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bare 'exit' still works (pre-existing behavior)."""
-    monkeypatch.setattr("terminal.direct_input", lambda _prompt="": "exit")
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "exit")
 
     selected = menu.select_option(
         "Armory",
@@ -143,7 +143,7 @@ def test_select_option_keyboard_interrupt_returns_none(monkeypatch: pytest.Monke
     def _raise(_: str = "") -> str:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("terminal.direct_input", _raise)
+    monkeypatch.setattr("interfaces.terminal.direct_input", _raise)
 
     selected = menu.select_option(
         "Armory",
@@ -156,7 +156,7 @@ def test_select_option_eof_returns_none(monkeypatch: pytest.MonkeyPatch) -> None
     def _raise(_: str = "") -> str:
         raise EOFError
 
-    monkeypatch.setattr("terminal.direct_input", _raise)
+    monkeypatch.setattr("interfaces.terminal.direct_input", _raise)
 
     selected = menu.select_option(
         "Armory",

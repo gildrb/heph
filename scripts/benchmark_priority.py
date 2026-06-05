@@ -22,8 +22,8 @@ from itertools import pairwise
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from rag import load_or_build
-from study.priority import analyze_priority, priority_tier
+from hephaion.rag import load_or_build
+from hephaion.study.priority import analyze_priority, priority_tier
 
 _DEFAULT_LIMIT = 8
 

@@ -13,19 +13,19 @@ from typing import Final, cast
 from ai.logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
 from ai.providers.config import default_config
 from ai.providers.keyring_store import GLOBAL_API_KEY_ENV
-from chat.session import ARMORY_PLUGINS_TRUST_ENV
-from cli.main import build_parser
-from commands import get_registry
-from memory.extract import EXTRACTION_MODEL_ENV
-from parameters import cli as parameters_cli
-from privacy.consent import (
+from heph.cli.main import build_parser
+from heph.commands import get_registry
+from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
+from hephaion.memory.extract import EXTRACTION_MODEL_ENV
+from hephaion.parameters import cli as parameters_cli
+from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
     POSTHOG_HOST_ENV,
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
-from rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"

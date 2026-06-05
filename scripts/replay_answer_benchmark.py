@@ -24,10 +24,10 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from ai.runtime import ChatConfig
-from chat.automation import iter_chat_events
-from chat.events import AssistantDeltaEvent
-from chat.session import create_session
-from rag import TurnEvidence
+from hephaion.chat.automation import iter_chat_events
+from hephaion.chat.events import AssistantDeltaEvent
+from hephaion.chat.session import create_session
+from hephaion.rag import TurnEvidence
 
 
 class RawReplayCase(TypedDict):

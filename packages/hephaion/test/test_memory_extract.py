@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from ai.runtime import ChatConfig
-from memory import MemoryStore
-from memory.extract import extract_and_store, extract_from_exchange
+from hephaion.memory import MemoryStore
+from hephaion.memory.extract import extract_and_store, extract_from_exchange
 
 
 def _make_config() -> ChatConfig:
@@ -48,7 +48,7 @@ class TestExtractFromExchange:
         ]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -65,7 +65,7 @@ class TestExtractFromExchange:
         ]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -88,7 +88,7 @@ class TestExtractFromExchange:
         fenced = f"```json\n{json.dumps(entries)}\n```"
         mock_response = _mock_llm_response(fenced)
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -108,7 +108,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("[]")
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -125,7 +125,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("not valid json {{{")
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -138,7 +138,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response('{"topic": "not a list"}')
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -156,7 +156,7 @@ class TestExtractFromExchange:
         ]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -171,7 +171,7 @@ class TestExtractFromExchange:
         entries = ["not a dict", 42, {"topic": "ok", "content": "fine"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -185,7 +185,7 @@ class TestExtractFromExchange:
         entries = [{"topic": "x" * 200, "content": "y" * 1000, "source": "test"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -198,7 +198,7 @@ class TestExtractFromExchange:
     def test_llm_exception_returns_empty(self) -> None:
         config = _make_config()
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.side_effect = Exception("API error")
             mock_build.return_value = mock_client
@@ -211,7 +211,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response(None)
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -224,7 +224,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("[]")
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -243,7 +243,7 @@ class TestExtractFromExchange:
         monkeypatch.setenv("HEPHAION_EXTRACTION_MODEL", "cheap-extractor")
         mock_response = _mock_llm_response("[]")
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -262,9 +262,9 @@ class TestExtractFromExchange:
         config.apply_provider_reference("openai-codex", "")
 
         with (
-            patch("memory.extract.build_client") as mock_build,
+            patch("hephaion.memory.extract.build_client") as mock_build,
             patch(
-                "memory.extract.stream_reply",
+                "hephaion.memory.extract.stream_reply",
                 return_value=iter(
                     [
                         (
@@ -300,7 +300,7 @@ class TestExtractAndStore:
         entries = [{"topic": "HTTP", "content": "HyperText Transfer Protocol", "source": "web"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -325,12 +325,12 @@ class TestExtractAndStore:
         memory = MemoryStore(tmp_path)
         mock_response = _mock_llm_response("[]")
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
 
-            with patch("memory.extract.save_memory") as mock_save:
+            with patch("hephaion.memory.extract.save_memory") as mock_save:
                 added = extract_and_store(config, memory, "q", "a" * 200)
 
         assert added == 0
@@ -342,12 +342,12 @@ class TestExtractAndStore:
         entries = [{"topic": "TLS", "content": "Transport Layer Security", "source": "crypto"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("memory.extract.build_client") as mock_build:
+        with patch("hephaion.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
 
-            with patch("memory.extract.save_memory") as mock_save:
+            with patch("hephaion.memory.extract.save_memory") as mock_save:
                 added = extract_and_store(config, memory, "q", "a" * 200)
 
         assert added == 1

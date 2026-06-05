@@ -7,26 +7,26 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+import hephaion.rag.health as rag_health
 import pytest
-import rag.health as rag_health
-from agent.dispatch import iter_agent_events
 from ai.runtime import ChatConfig
-from armory.search import add_known_armory
-from armory.storage import initialize
-from chat import cli as chat_cli
-from chat.events import (
+from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
+from heph.cli.main import main as cli_main
+from heph.cli.main import sys as cli_sys
+from hephaion.agent.dispatch import iter_agent_events
+from hephaion.armory.search import add_known_armory
+from hephaion.armory.storage import initialize
+from hephaion.chat import cli as chat_cli
+from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
     TurnCompleteEvent,
 )
-from chat.session import create_session
-from cli.main import _inject_default_subcommand, build_parser, run_argv
-from cli.main import main as cli_main
-from cli.main import sys as cli_sys
-from rag.health import ExtractionHealthIssue, ExtractionHealthReport
-from rag.index import load_or_build
-from tui import TuiDependencyError
+from hephaion.chat.session import create_session
+from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
+from hephaion.rag.index import load_or_build
+from interfaces.tui import TuiDependencyError
 
 cli_main_module = sys.modules[cli_main.__module__]
 
@@ -67,6 +67,14 @@ def test_update_command_is_not_treated_as_armory(
     out = capsys.readouterr().out
     assert "Heph update" in out
     assert "uv tool upgrade heph" in out
+
+
+def test_project_root_resolves_workspace_checkout() -> None:
+    root = cli_main_module._project_root()
+
+    assert cli_main_module._is_source_checkout(root)
+    assert (root / "packages" / "heph" / "src" / "heph").is_dir()
+    assert (root / "packages" / "hephaion" / "src" / "hephaion").is_dir()
 
 
 def test_source_runtime_reexecs_repo_venv(
@@ -280,7 +288,7 @@ def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli_sys, "stdin", _FakeTTY(True))
     monkeypatch.setattr(cli_sys, "stdout", _FakeTTY(True))
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert called
@@ -298,7 +306,7 @@ def test_main_without_args_uses_tui_on_non_tty(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(cli_sys, "stdin", _FakeTTY(False))
     monkeypatch.setattr(cli_sys, "stdout", _FakeTTY(False))
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert called
@@ -313,7 +321,7 @@ def test_tui_command_launches_tui_without_path() -> None:
         called = True
         assert path is None
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["tui"])
 
     assert called
@@ -335,7 +343,7 @@ def test_tui_command_with_path_launches_tui_with_path(
         nonlocal captured_path
         captured_path = path
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["tui", str(armory_path)])
 
     assert captured_path == armory_path
@@ -350,7 +358,7 @@ def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(cli_sys, "argv", ["heph", str(tmp_path)])
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert captured_path == tmp_path
@@ -364,7 +372,7 @@ def test_tui_command_dispatches_with_path() -> None:
         nonlocal captured_path
         captured_path = path
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["tui", "notes"])
 
     assert captured_path == Path("notes")
@@ -385,7 +393,7 @@ def test_bare_armory_name_dispatches_known_armory(
 
     monkeypatch.setattr(cli_sys, "argv", ["heph", "gdp"])
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert captured_path == armory_path.resolve()
@@ -400,7 +408,7 @@ def test_tui_flag_alias_dispatches_tui(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cli_sys, "argv", ["heph", "--tui"])
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert captured_path is None
@@ -431,7 +439,7 @@ def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> Non
             args.jsonl,
         )
 
-    monkeypatch.setattr("chat.cli._cmd_chat_ask", fake_ask)
+    monkeypatch.setattr("hephaion.chat.cli._cmd_chat_ask", fake_ask)
 
     run_argv(parser, ["chat", "ask", "--jsonl", "notes", "what", "is", "rag?"])
 
@@ -545,7 +553,7 @@ def test_tui_command_reports_missing_dependency(
         raise TuiDependencyError("missing textual")
 
     with (
-        patch("tui.run_tui_for_path", fake_tui),
+        patch("interfaces.tui.run_tui_for_path", fake_tui),
         pytest.raises(SystemExit) as exc_info,
     ):
         run_argv(parser, ["tui"])
@@ -604,13 +612,13 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
 
 
 def test_inject_default_subcommand_empty_args() -> None:
-    """No args at all → inject 'tui'."""
+    """No args at all → inject 'interfaces.tui'."""
     result = _inject_default_subcommand([], {"armory", "tui", "materials"})
     assert result == ["tui"]
 
 
 def test_inject_default_subcommand_bare_path() -> None:
-    """A bare path that isn't a known command → inject 'tui' before it."""
+    """A bare path that isn't a known command → inject 'interfaces.tui' before it."""
     result = _inject_default_subcommand(
         ["/tmp/my-armory"],
         {"armory", "tui", "materials"},
@@ -619,7 +627,7 @@ def test_inject_default_subcommand_bare_path() -> None:
 
 
 def test_inject_default_subcommand_flags_before_path() -> None:
-    """Flags before the path are skipped, 'tui' injected before the path."""
+    """Flags before the path are skipped, 'interfaces.tui' injected before the path."""
     result = _inject_default_subcommand(
         ["--profile", "/tmp/armory"],
         {"armory", "tui", "materials"},
@@ -646,7 +654,7 @@ def test_inject_default_subcommand_flags_only() -> None:
 
 
 def test_inject_default_subcommand_relative_path() -> None:
-    """Relative paths that aren't known commands get 'tui' injected."""
+    """Relative paths that aren't known commands get 'interfaces.tui' injected."""
     result = _inject_default_subcommand(
         ["./my-armory"],
         {"armory", "tui", "materials"},
@@ -673,7 +681,7 @@ def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.Mon
 
     monkeypatch.setitem(cli_main.__globals__, "_report_profile", _noop_report)
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert captured_path == tmp_path
@@ -689,7 +697,7 @@ def test_bare_path_with_nonexistent_path(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(cli_sys, "argv", ["heph", "/nonexistent/path"])
 
-    with patch("tui.run_tui_for_path", fake_tui):
+    with patch("interfaces.tui.run_tui_for_path", fake_tui):
         cli_main()
 
     assert captured_path == Path("/nonexistent/path")

@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
-from chat.intent import (
+from hephaion.chat.intent import (
     LEARNING_INTENT_NORMALIZATION_SCHEMA,
     LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT,
     normalized_learning_intent_from_payload,
@@ -134,9 +134,9 @@ def _learning_state_dataset_path(suite_path: Path) -> Path:
 
 
 DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
-    "packages/hephaion/src/chat/intent.py",
-    "packages/hephaion/src/study/prompt_plans.py",
-    "packages/interfaces/src/tui/inline_flows.py",
+    "packages/hephaion/src/hephaion/chat/intent.py",
+    "packages/hephaion/src/hephaion/study/prompt_plans.py",
+    "packages/interfaces/src/interfaces/tui/inline_flows.py",
 )
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")

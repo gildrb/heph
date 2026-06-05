@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from product.context import heph_product_context
+from heph.product.context import heph_product_context
 
 
 def test_heph_product_context_includes_operational_docs() -> None:

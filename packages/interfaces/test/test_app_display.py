@@ -4,7 +4,7 @@ import io
 import sys
 
 import pytest
-from terminal import _real_stdout, direct_input, direct_print
+from interfaces.terminal import _real_stdout, direct_input, direct_print
 
 
 class _ProxyStdout:

@@ -6,40 +6,49 @@ quick compass for humans and coding agents before changing package boundaries.
 ```text
 packages/
   ai/
-    ai/
-      diagnostics/ Metrics and tracing primitives
-      logging/     Structured logging, redaction, and timers
-      providers/   LLM provider registry, config, auth, model catalogs
-      runtime/     Chat config, messages, streaming, retry, usage
-      types/       Narrow payload type helpers
+    src/ai/
+      diagnostics/  Metrics and tracing primitives
+      logging/      Structured logging, redaction, and timers
+      providers/    LLM provider registry, config, auth, model catalogs
+      runtime/      Chat config, messages, streaming, retry, usage
+      types/        Narrow payload type helpers
+    test/
   extensions/
-    extension_contracts.py  Stable extension contracts
+    src/extensions/
+      contracts.py  Stable extension contracts
+    test/
   heph/
-    cli/        Console entrypoint and top-level subcommands
-    commands/   Slash-command registry and command coordinators
-    product/    Temporary self-knowledge bridge
-    identity/   Stable self-description and conversational identity target
-    prompts/    Prompt programs treated as code
-    state/      Declarative JSON/Markdown state contract target
+    src/heph/
+      cli/        Console entrypoint and top-level subcommands
+      commands/   Slash-command registry and command coordinators
+      product/    Temporary self-knowledge bridge
+      identity/   Stable self-description and conversational identity target
+      prompts/    Prompt programs treated as code
+      state/      Declarative JSON/Markdown state contract target
+    test/
   hephaion/
-    agent/       Prompt building, citation, tool registry/handlers
-    armory/      Armory data, validation, and known-armory lookup
-    chat/        Session lifecycle, intent contracts, evidence, turn orchestration
-    diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-    matching/    Fuzzy matching helpers for human-facing selectors
-    materials/   Study-file discovery, ignore rules, and material role classification
-    memory/      Memory extraction and storage
-    parameters/  Parameter management and settings
-    privacy/     Consent, anonymous install ID, release-time diagnostics config
-    rag/         RAG chunking, indexing, retrieval, source mapping
-    safety/      Local safety contracts
-    study/       Prompt plans, learning controller, priority analysis
-    version/     Package version helpers
-    vocab/       Vocabulary drill, scheduler, state
+    src/hephaion/
+      agent/       Prompt building, citation, tool registry/handlers
+      armory/      Armory data, validation, and known-armory lookup
+      chat/        Session lifecycle, intent contracts, evidence, turn orchestration
+      diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+      matching/    Fuzzy matching helpers for human-facing selectors
+      materials/   Study-file discovery, ignore rules, and material role classification
+      memory/      Memory extraction and storage
+      parameters/  Parameter management and settings
+      privacy/     Consent, anonymous install ID, release-time diagnostics config
+      rag/         RAG chunking, indexing, retrieval, source mapping
+      safety/      Local safety contracts
+      study/       Prompt plans, learning controller, priority analysis
+      version/     Package version helpers
+      vocab/       Vocabulary drill, scheduler, state
+    test/
   interfaces/
-    palette/     Theme and ANSI color tokens
-    terminal/    Terminal I/O, styling, prompts, history, source opening
-    tui/         Textual adapter: lifecycle, widgets, inline menus, rendering
+    src/interfaces/
+      palette/   Theme and ANSI color tokens
+      terminal/  Terminal I/O, styling, prompts, history, source opening
+      tui/       Textual adapter: lifecycle, widgets, inline menus, rendering
+    test/
 ```
 
 ```mermaid

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from study.exam_bank import (
+from hephaion.study.exam_bank import (
     exam_bank_build_prompt,
     exam_bank_path,
     load_exam_bank,
@@ -12,7 +12,7 @@ from study.exam_bank import (
 
 
 def test_exam_bank_runtime_has_no_regex_label_lists() -> None:
-    source = Path("packages/hephaion/src/study/exam_bank.py").read_text(encoding="utf-8")
+    source = Path("packages/hephaion/src/hephaion/study/exam_bank.py").read_text(encoding="utf-8")
 
     assert "re.compile" not in source
     assert "_RESULT_LABELS" not in source

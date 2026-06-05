@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 from ai.runtime import ChatConfig
-from cli.main import build_parser, run_argv
-from parameters import cli as params_cli
-from parameters import settings as settings_store
+from heph.cli.main import build_parser, run_argv
+from hephaion.parameters import cli as params_cli
+from hephaion.parameters import settings as settings_store
 
 
 def test_config_show_uses_registered_handler(

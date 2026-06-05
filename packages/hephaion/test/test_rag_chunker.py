@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rag import chunker as rag_chunker
-from rag.chunker import (
+from hephaion.rag import chunker as rag_chunker
+from hephaion.rag.chunker import (
     _DOCLING_EXTENSIONS,
     ChunkStrategy,
     _convert_pdf_to_text,
@@ -311,7 +311,7 @@ class TestDoclingIntegration:
         assert ".odt" in _DOCLING_EXTENSIONS
 
     def test_is_docling_available_without_package(self) -> None:
-        with patch("rag.chunker._DocumentConverter", None):
+        with patch("hephaion.rag.chunker._DocumentConverter", None):
             assert not _is_docling_available()
 
     def test_convert_to_markdown_success(self, tmp_path: Path) -> None:
@@ -326,7 +326,7 @@ class TestDoclingIntegration:
         mock_converter.convert.return_value = mock_result
 
         with patch(
-            "rag.chunker._get_docling_converter",
+            "hephaion.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -349,7 +349,7 @@ class TestDoclingIntegration:
         mock_converter.convert.return_value = mock_result
 
         with patch(
-            "rag.chunker._get_docling_converter",
+            "hephaion.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -385,7 +385,7 @@ class TestDoclingIntegration:
         mock_converter.convert.side_effect = RuntimeError("conversion failed")
 
         with patch(
-            "rag.chunker._get_docling_converter",
+            "hephaion.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -404,9 +404,9 @@ class TestDoclingIntegration:
         completed.returncode = 0
         completed.stdout = "Plain extracted text."
         completed.stderr = ""
-        monkeypatch.setattr("rag.chunker.shutil.which", lambda _name: "pdftotext")
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "pdftotext")
         run = MagicMock(return_value=completed)
-        monkeypatch.setattr("rag.chunker.subprocess.run", run)
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", run)
 
         text = _convert_pdf_to_text(pdf)
 
@@ -441,8 +441,8 @@ class TestDoclingIntegration:
             completed.stdout = "OCR extracted theorem text."
             return completed
 
-        monkeypatch.setattr("rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
-        monkeypatch.setattr("rag.chunker.subprocess.run", fake_run)
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         text = _convert_pdf_with_ocr(pdf)
 
@@ -479,9 +479,9 @@ class TestDoclingIntegration:
                 return completed
             raise AssertionError("oversized OCR render should not invoke tesseract")
 
-        monkeypatch.setattr("rag.chunker._PDF_OCR_MAX_RENDERED_BYTES", 2)
-        monkeypatch.setattr("rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
-        monkeypatch.setattr("rag.chunker.subprocess.run", fake_run)
+        monkeypatch.setattr("hephaion.rag.chunker._PDF_OCR_MAX_RENDERED_BYTES", 2)
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         assert _convert_pdf_with_ocr(pdf) is None
         assert len(commands) == 1
@@ -506,9 +506,9 @@ class TestDoclingIntegration:
                 return completed
             raise AssertionError("expired OCR budget should not invoke tesseract")
 
-        monkeypatch.setattr("rag.chunker._PDF_OCR_TOTAL_TIMEOUT_SECONDS", 0)
-        monkeypatch.setattr("rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
-        monkeypatch.setattr("rag.chunker.subprocess.run", fake_run)
+        monkeypatch.setattr("hephaion.rag.chunker._PDF_OCR_TOTAL_TIMEOUT_SECONDS", 0)
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         assert _convert_pdf_with_ocr(pdf) is None
         assert len(commands) == 1
@@ -523,10 +523,10 @@ class TestDoclingIntegration:
         pdf = armory / "lecture.pdf"
         pdf.write_bytes(b"%PDF\x00content")
 
-        monkeypatch.setattr("rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.chunker._convert_to_markdown", lambda _path: None)
+        monkeypatch.setattr("hephaion.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.chunker._convert_to_markdown", lambda _path: None)
         monkeypatch.setattr(
-            "rag.chunker._convert_pdf_to_text",
+            "hephaion.rag.chunker._convert_pdf_to_text",
             lambda _path: "# Lecture\n\nPlain extracted fallback text.",
         )
 
@@ -547,11 +547,11 @@ class TestDoclingIntegration:
         pdf.write_bytes(b"%PDF\x00content")
         docling = MagicMock(return_value="# Lecture\n\nSlow docling text.")
 
-        monkeypatch.setattr("rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr("rag.chunker._convert_to_markdown", docling)
-        monkeypatch.setattr("rag.chunker._convert_pdf_with_ocr", lambda _path: None)
+        monkeypatch.setattr("hephaion.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.chunker._convert_to_markdown", docling)
+        monkeypatch.setattr("hephaion.rag.chunker._convert_pdf_with_ocr", lambda _path: None)
         monkeypatch.setattr(
-            "rag.chunker._convert_pdf_to_text",
+            "hephaion.rag.chunker._convert_pdf_to_text",
             lambda _path: "# Lecture\n\nFast pdftotext text.",
         )
 
@@ -579,12 +579,12 @@ class TestDoclingIntegration:
         mock_converter.convert.side_effect = _convert
         warnings: list[tuple[str, object]] = []
         monkeypatch.setattr(
-            "rag.chunker._log.warning",
+            "hephaion.rag.chunker._log.warning",
             lambda message, **kwargs: warnings.append((message, kwargs)),
         )
 
         with patch(
-            "rag.chunker._get_docling_converter",
+            "hephaion.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -612,19 +612,19 @@ class TestDoclingIntegration:
 
         with (
             patch(
-                "rag.chunker._is_docling_available",
+                "hephaion.rag.chunker._is_docling_available",
                 return_value=True,
             ),
             patch(
-                "rag.chunker._convert_pdf_to_text",
+                "hephaion.rag.chunker._convert_pdf_to_text",
                 return_value=None,
             ),
             patch(
-                "rag.chunker._convert_pdf_with_ocr",
+                "hephaion.rag.chunker._convert_pdf_with_ocr",
                 return_value=None,
             ),
             patch(
-                "rag.chunker._get_docling_converter",
+                "hephaion.rag.chunker._get_docling_converter",
                 return_value=mock_converter,
             ),
         ):
@@ -645,12 +645,12 @@ class TestDoclingIntegration:
 
         with (
             patch(
-                "rag.chunker._is_docling_available",
+                "hephaion.rag.chunker._is_docling_available",
                 return_value=False,
             ),
-            patch("rag.chunker._is_pdftotext_available", return_value=False),
+            patch("hephaion.rag.chunker._is_pdftotext_available", return_value=False),
             patch(
-                "rag.chunker._is_pdf_ocr_available",
+                "hephaion.rag.chunker._is_pdf_ocr_available",
                 return_value=False,
             ),
         ):
@@ -671,19 +671,19 @@ class TestDoclingIntegration:
 
         with (
             patch(
-                "rag.chunker._is_docling_available",
+                "hephaion.rag.chunker._is_docling_available",
                 return_value=True,
             ),
             patch(
-                "rag.chunker._convert_pdf_to_text",
+                "hephaion.rag.chunker._convert_pdf_to_text",
                 return_value=None,
             ),
             patch(
-                "rag.chunker._convert_pdf_with_ocr",
+                "hephaion.rag.chunker._convert_pdf_with_ocr",
                 return_value=None,
             ),
             patch(
-                "rag.chunker._get_docling_converter",
+                "hephaion.rag.chunker._get_docling_converter",
                 return_value=mock_converter,
             ),
         ):

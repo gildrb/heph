@@ -21,28 +21,28 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import cast
 
-from armory import storage
-from rag import EvidenceReference, RetrievalMode, TransformStrategy
-from rag.hybrid import (
+from hephaion.armory import storage
+from hephaion.rag import EvidenceReference, RetrievalMode, TransformStrategy
+from hephaion.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 )
-from rag.query_audit import (
+from hephaion.rag.query_audit import (
     QUERY_AUDIT_SCHEMA_VERSION,
     QUERY_EXCERPT_LIMIT,
     RetrievalAuditConfig,
 )
-from rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_class as audit_query_class,
 )
-from rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_classification_payload as audit_query_classification_payload,
 )
-from rag.query_audit import (
+from hephaion.rag.query_audit import (
     query_excerpt as audit_query_excerpt,
 )
-from rag.query_audit import (
+from hephaion.rag.query_audit import (
     retrieval_strategy_payload as audit_retrieval_strategy_payload,
 )
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from chat.intent import MODEL_NORMALIZED_INTENTS
-from study import (
+from hephaion.chat.intent import MODEL_NORMALIZED_INTENTS
+from hephaion.study import (
     LearningAction,
     LearningFeedbackType,
     LearningMove,

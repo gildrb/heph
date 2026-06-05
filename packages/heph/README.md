@@ -16,12 +16,13 @@ Heph is not the validation harness. That is Hephaion.
 
 ```text
 src/
-  cli/       Console entrypoint and top-level command routing
-  commands/  Slash-command registry and command coordinators
-  product/   Temporary bridge for Heph self-knowledge context
-  identity/  Stable agent identity target
-  prompts/   Prompt-program target for Heph-facing behavior
-  state/     Declarative state contract target
+  heph/
+    cli/       Console entrypoint and top-level command routing
+    commands/  Slash-command registry and command coordinators
+    product/   Temporary bridge for Heph self-knowledge context
+    identity/  Stable agent identity target
+    prompts/   Prompt-program target for Heph-facing behavior
+    state/     Declarative state contract target
 ```
 
 The `product/` bridge exists for current self-knowledge routing. It should stay
@@ -54,5 +55,4 @@ uv run lint-imports
 
 ## Related Docs
 
-- [Architecture](docs/architecture.md)
 - [Root architecture guide](../../docs/architecture.md)

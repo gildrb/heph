@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from diagnostics.traces import TraceWriter
+from hephaion.diagnostics.traces import TraceWriter
 
 
 @pytest.fixture

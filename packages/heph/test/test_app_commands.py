@@ -6,26 +6,26 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import ai.providers.model_choices as _model_choices
-import commands
-import commands.display as _commands_display
-import commands.model as _commands_model
-import commands.study as _learning_commands
+import heph.commands.display as _commands_display
+import heph.commands.model as _commands_model
+import heph.commands.study as _learning_commands
 import pytest
 from ai.providers import catalog
 from ai.providers.catalog import LiveProviderCatalog
 from ai.providers.config import Provider, default_config
 from ai.providers.registry import ModelInfo
 from ai.runtime import ChatConfig, Conversation
-from armory.storage import initialize
-from chat import model_selection as _model_selection
-from chat.session import ChatSession, create_plain_session
-from rag.chunker import Chunk
-from rag.context import EvidenceChunk, TurnEvidence
-from study import LearningFeedbackType, LearningPhase, RecallRating
-from study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
-from study.schedule import load_recall_schedule
-from terminal import MenuOption
-from terminal.source_open import SourceOpenResult
+from heph import commands
+from hephaion.armory.storage import initialize
+from hephaion.chat import model_selection as _model_selection
+from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
+from hephaion.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
+from hephaion.study.schedule import load_recall_schedule
+from interfaces.terminal import MenuOption
+from interfaces.terminal.source_open import SourceOpenResult
 
 
 class _FakePriorityPdfCompiler:
@@ -268,7 +268,10 @@ def test_exam_command_refuses_empty_structured_bank(
     initialize(armory)
     bank_dir = armory / ".hephaion"
     bank_dir.mkdir(exist_ok=True)
-    (bank_dir / "exam_bank.json").write_text('{"version": 1, "items": []}\n', encoding="utf-8")
+    (bank_dir / "exam_bank.json").write_text(
+        '{"version": 1, "items": []}\n',
+        encoding="utf-8",
+    )
     session = ChatSession(
         config=ChatConfig(api_key="test-key"),
         conversation=Conversation(),

@@ -12,41 +12,41 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
-import commands as heph_commands
+import heph.commands as heph_commands
+import interfaces.tui.display_text as tui_display_text
 import pytest
-import tui
-import tui.display_text as tui_display_text
 from ai.providers.config import ProviderConfig, default_config
 from ai.providers.registry import ModelInfo, get_registry
 from ai.runtime import ChatConfig, Conversation
-from armory.search import KnownArmory, add_known_armory
-from armory.storage import initialize
-from chat import storage as chat_storage
-from chat.session import ChatSession, record_turn_snapshot
-from palette import DARK_THEME, LIGHT_THEME
-from parameters import settings as settings_store
-from rich.segment import Segment
-from rich.text import Text
-from terminal import current_theme_name, set_theme
-from textual import events
-from textual._xterm_parser import XTermParser
-from textual.strip import Strip
-from tui import armory as tui_armory
-from tui import keymap
-from tui import transcript as tui_transcript
-from tui.armory_browser import armory_detail, build_entries, default_armory_home
-from tui.inline_menu import (
+from hephaion.armory.search import KnownArmory, add_known_armory
+from hephaion.armory.storage import initialize
+from hephaion.chat import storage as chat_storage
+from hephaion.chat.session import ChatSession, record_turn_snapshot
+from hephaion.parameters import settings as settings_store
+from interfaces import tui
+from interfaces.palette import DARK_THEME, LIGHT_THEME
+from interfaces.terminal import current_theme_name, set_theme
+from interfaces.tui import armory as tui_armory
+from interfaces.tui import keymap
+from interfaces.tui import transcript as tui_transcript
+from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
+from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
 )
-from tui.keyboard_protocol import install_textual_modified_key_compat
-from tui.model_flow import (
+from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
+from interfaces.tui.model_flow import (
     _duplicate_model_names,
     _model_choice_from_label,
     _model_choice_label,
 )
-from tui.transparent import Region as _Region
-from tui.transparent import style_without_black_background
+from interfaces.tui.transparent import Region as _Region
+from interfaces.tui.transparent import style_without_black_background
+from rich.segment import Segment
+from rich.text import Text
+from textual import events
+from textual._xterm_parser import XTermParser
+from textual.strip import Strip
 
 tui.set_command_registry_fn(heph_commands.get_registry)
 
@@ -241,7 +241,7 @@ def test_shift_tab_opens_reasoning_level_control(monkeypatch: pytest.MonkeyPatch
         pytest.skip("Textual is not installed")
 
     monkeypatch.setattr(
-        "tui.composer_controls.prefetch_provider_model_catalogs",
+        "interfaces.tui.composer_controls.prefetch_provider_model_catalogs",
         lambda _config, **_kwargs: None,
     )
     session = _plain_session()
@@ -283,7 +283,7 @@ def test_shift_tab_replaces_reasoning_notice(monkeypatch: pytest.MonkeyPatch) ->
         pytest.skip("Textual is not installed")
 
     monkeypatch.setattr(
-        "tui.composer_controls.prefetch_provider_model_catalogs",
+        "interfaces.tui.composer_controls.prefetch_provider_model_catalogs",
         lambda _config, **_kwargs: None,
     )
     session = _plain_session()
@@ -350,7 +350,7 @@ def test_resize_redraw_state_tracks_follow_up_frame_after_resize_spam() -> None:
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
@@ -425,7 +425,7 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
 def test_footer_command_shortcuts_share_neutral_shortcut_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
@@ -451,7 +451,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 def test_status_sidebar_and_footer_chrome_labels_share_one_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
@@ -478,7 +478,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 def test_secondary_chrome_details_share_darker_tint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.armory_path = Path.home() / ".armories" / "sample-course"
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
@@ -2780,7 +2780,7 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
     initialize(existing)
     missing = armory_home / "missing"
     monkeypatch.setattr(
-        "tui.armory_browser.load_known_armory_entries",
+        "interfaces.tui.armory_browser.load_known_armory_entries",
         lambda: [
             KnownArmory(existing, exists=True, valid=True),
             KnownArmory(missing, exists=False, valid=False),
@@ -3060,7 +3060,7 @@ def test_models_inline_menu_aligns_descriptions(
         return choices
 
     monkeypatch.setattr(
-        "tui.model_flows.configured_model_choices",
+        "interfaces.tui.model_flows.configured_model_choices",
         fake_model_choices,
     )
     app = tui.HephTui(
@@ -3187,7 +3187,7 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
     monkeypatch.setattr(
-        "tui.auth_flows.list_providers",
+        "interfaces.tui.auth_flows.list_providers",
         lambda: ["openai-codex"],
     )
 
@@ -3197,8 +3197,8 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
     def fake_get_volatile(slug: str) -> str | None:
         return "sk-session" if slug == "zai" else None
 
-    monkeypatch.setattr("tui.auth_flows.retrieve_key", fake_retrieve_key)
-    monkeypatch.setattr("tui.auth_flows.get_volatile", fake_get_volatile)
+    monkeypatch.setattr("interfaces.tui.auth_flows.retrieve_key", fake_retrieve_key)
+    monkeypatch.setattr("interfaces.tui.auth_flows.get_volatile", fake_get_volatile)
 
     app = tui.HephTui(
         _plain_session(),
@@ -3254,9 +3254,9 @@ def test_logout_inline_names_environment_credentials_when_none_clearable(
     _clear_credential_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
-    monkeypatch.setattr("tui.auth_flows.list_providers", list)
-    monkeypatch.setattr("tui.auth_flows.retrieve_key", lambda _slug: None)
-    monkeypatch.setattr("tui.auth_flows.get_volatile", lambda _slug: None)
+    monkeypatch.setattr("interfaces.tui.auth_flows.list_providers", list)
+    monkeypatch.setattr("interfaces.tui.auth_flows.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("interfaces.tui.auth_flows.get_volatile", lambda _slug: None)
 
     app = tui.HephTui(
         _plain_session(),
@@ -3290,21 +3290,21 @@ def test_logout_inline_clears_selected_credential_kind_for_duplicate_slug(
     _clear_credential_env(monkeypatch)
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
     monkeypatch.setattr(
-        "tui.auth_flows.list_providers",
+        "interfaces.tui.auth_flows.list_providers",
         lambda: ["openai-codex"],
     )
     monkeypatch.setattr(
-        "tui.auth_flows.retrieve_key",
+        "interfaces.tui.auth_flows.retrieve_key",
         lambda slug: "sk-keychain" if slug == "openai-codex" else None,
     )
-    monkeypatch.setattr("tui.auth_flows.get_volatile", lambda _slug: None)
+    monkeypatch.setattr("interfaces.tui.auth_flows.get_volatile", lambda _slug: None)
     cleared_oauth: list[str] = []
     cleared_keys: list[str] = []
     monkeypatch.setattr(
-        "tui.auth_flows.clear_credentials",
+        "interfaces.tui.auth_flows.clear_credentials",
         cleared_oauth.append,
     )
-    monkeypatch.setattr("tui.auth_flows.clear_key", cleared_keys.append)
+    monkeypatch.setattr("interfaces.tui.auth_flows.clear_key", cleared_keys.append)
 
     app = tui.HephTui(
         _plain_session(),
@@ -3334,8 +3334,8 @@ def test_armory_home_text_includes_recent_armories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
-    monkeypatch.setattr("tui.display_text.load_known_armories", lambda: known)
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui_display_text.armory_home_text()
 
@@ -3367,7 +3367,7 @@ def test_startup_copy_stays_readable_in_narrow_panes() -> None:
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setattr("tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     app = tui.HephTui(
         _plain_session(),
@@ -6366,7 +6366,7 @@ def test_external_command_collects_plain_output_for_compact_append(
         return session, True
 
     monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
-    monkeypatch.setattr("terminal.input.handle_input", fake_handle_input)
+    monkeypatch.setattr("interfaces.terminal.input.handle_input", fake_handle_input)
 
     app._run_external_command("/priority")
 
@@ -6427,7 +6427,7 @@ def test_external_command_indents_streamed_activity_lines(
         return session, True
 
     monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
-    monkeypatch.setattr("terminal.input.handle_input", fake_handle_input)
+    monkeypatch.setattr("interfaces.terminal.input.handle_input", fake_handle_input)
 
     app._run_external_command("/priority")
 

@@ -6,7 +6,7 @@ Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
   configured and the user explicitly opts in.
 - `diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `packages/hephaion/src/privacy/release.py` is committed as a safe stub in the public
+- `packages/hephaion/src/hephaion/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom

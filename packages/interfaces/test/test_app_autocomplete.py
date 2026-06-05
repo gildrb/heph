@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from ai.providers.config import default_config
-from commands.suggestions import CommandSuggestion
-from tui.slash_completion import SlashCompletionEngine
+from heph.commands.suggestions import CommandSuggestion
+from interfaces.tui.slash_completion import SlashCompletionEngine
 
 
 def test_command_suggestion_stress() -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from armory.storage import (
+from hephaion.armory.storage import (
     ARMORY_DIRS,
     MARKER_FILE,
     ArmoryValidationError,

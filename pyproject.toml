@@ -173,28 +173,7 @@ exclude_dirs = [
 skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
-root_packages = [
-    "ai",
-    "agent",
-    "armory",
-    "chat",
-    "cli",
-    "commands",
-    "diagnostics",
-    "matching",
-    "materials",
-    "memory",
-    "parameters",
-    "palette",
-    "privacy",
-    "product",
-    "rag",
-    "safety",
-    "study",
-    "terminal",
-    "tui",
-    "vocab",
-]
+root_packages = ["ai", "extensions", "heph", "hephaion", "interfaces"]
 exclude_type_checking_imports = true
 include_external_packages = true
 
@@ -203,113 +182,94 @@ name = "AI must stay below Heph, Hephaion, extensions, and interfaces"
 type = "forbidden"
 source_modules = ["ai"]
 forbidden_modules = [
-    "agent",
-    "armory",
-    "chat",
-    "cli",
-    "commands",
-    "diagnostics",
-    "extension_contracts",
-    "matching",
-    "materials",
-    "memory",
-    "parameters",
-    "palette",
-    "privacy",
-    "product",
-    "rag",
-    "safety",
-    "terminal",
-    "study",
-    "tui",
-    "vocab",
+    "extensions",
+    "heph",
+    "hephaion",
+    "interfaces",
 ]
 
 [[tool.importlinter.contracts]]
 name = "hephaion harness concerns must not import app or interfaces"
 type = "forbidden"
 source_modules = [
-    "agent",
-    "armory",
-    "chat",
-    "diagnostics",
-    "matching",
-    "materials",
-    "memory",
-    "parameters",
-    "privacy",
-    "rag",
-    "safety",
-    "study",
-    "vocab",
+    "hephaion.agent",
+    "hephaion.armory",
+    "hephaion.chat",
+    "hephaion.diagnostics",
+    "hephaion.matching",
+    "hephaion.materials",
+    "hephaion.memory",
+    "hephaion.parameters",
+    "hephaion.privacy",
+    "hephaion.rag",
+    "hephaion.safety",
+    "hephaion.study",
+    "hephaion.vocab",
 ]
 forbidden_modules = [
-    "cli",
-    "commands",
-    "product",
-    "terminal",
-    "tui",
+    "heph",
+    "interfaces",
 ]
 
 [[tool.importlinter.contracts]]
 name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
-source_modules = ["materials"]
+source_modules = ["hephaion.materials"]
 forbidden_modules = [
-    "chat",
-    "agent",
-    "rag",
-    "study",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
+    "hephaion.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "rag must not import agent, chat, or adapters"
 type = "forbidden"
-source_modules = ["rag"]
+source_modules = ["hephaion.rag"]
 forbidden_modules = [
-    "agent",
-    "chat",
-    "study",
+    "hephaion.agent",
+    "hephaion.chat",
+    "hephaion.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
-source_modules = ["memory"]
-forbidden_modules = ["chat", "agent"]
+source_modules = ["hephaion.memory"]
+forbidden_modules = ["hephaion.chat", "hephaion.agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
-source_modules = ["study"]
+source_modules = ["hephaion.study"]
 forbidden_modules = [
-    "chat",
-    "agent",
-    "rag",
+    "hephaion.chat",
+    "hephaion.agent",
+    "hephaion.rag",
 ]
 
 [[tool.importlinter.contracts]]
 name = "agent must not import chat"
 type = "forbidden"
-source_modules = ["agent"]
-forbidden_modules = ["chat"]
+source_modules = ["hephaion.agent"]
+forbidden_modules = ["hephaion.chat"]
 
 [[tool.importlinter.contracts]]
-name = "chat.session and chat.orchestrator are independent (no runtime imports)"
+name = "hephaion.chat.session and chat.orchestrator are independent (no runtime imports)"
 type = "independence"
-modules = ["chat.session", "chat.orchestrator"]
+modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
 name = "interfaces must not import Heph app composition"
 type = "forbidden"
-source_modules = ["terminal", "tui"]
-forbidden_modules = ["cli", "commands", "product"]
+source_modules = ["interfaces.terminal", "interfaces.tui"]
+forbidden_modules = ["heph.cli", "heph.commands", "heph.product"]
 
 [[tool.importlinter.contracts]]
 name = "Heph commands must not import TUI adapter internals"
 type = "forbidden"
-source_modules = ["commands"]
-forbidden_modules = ["tui"]
+source_modules = ["heph.commands"]
+forbidden_modules = ["interfaces.tui"]
 
 [tool.deptry]
 extend_exclude = [
@@ -331,7 +291,7 @@ extend_exclude = [
 per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=agent --cov=ai --cov=armory --cov=chat --cov=cli --cov=commands --cov=diagnostics --cov=extension_contracts --cov=materials --cov=memory --cov=palette --cov=parameters --cov=privacy --cov=product --cov=rag --cov=safety --cov=study --cov=terminal --cov=tui --cov=vocab --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=ai --cov=extensions --cov=heph --cov=hephaion --cov=interfaces --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",

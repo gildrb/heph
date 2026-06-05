@@ -125,40 +125,49 @@ graph LR
 ```
 packages/
   ai/
-    ai/
-      diagnostics/ Metrics and tracing primitives
-      logging/     Structured logging, redaction, and timers
-      providers/   LLM provider registry, config, auth, model catalogs
-      runtime/     Chat config, messages, streaming, retry, usage
-      types/       Narrow payload type helpers
+    src/ai/
+      diagnostics/  Metrics and tracing primitives
+      logging/      Structured logging, redaction, and timers
+      providers/    LLM provider registry, config, auth, model catalogs
+      runtime/      Chat config, messages, streaming, retry, usage
+      types/        Narrow payload type helpers
+    test/
   extensions/
-    extension_contracts.py  Stable extension contracts
+    src/extensions/
+      contracts.py  Stable extension contracts
+    test/
   heph/
-    cli/        Console entrypoint and top-level subcommands
-    commands/   Slash-command registry and command coordinators
-    product/    Temporary self-knowledge bridge
-    identity/   Stable self-description and conversational identity target
-    prompts/    Prompt programs treated as code
-    state/      Declarative JSON/Markdown state contract target
+    src/heph/
+      cli/        Console entrypoint and top-level subcommands
+      commands/   Slash-command registry and command coordinators
+      product/    Temporary self-knowledge bridge
+      identity/   Stable self-description and conversational identity target
+      prompts/    Prompt programs treated as code
+      state/      Declarative JSON/Markdown state contract target
+    test/
   hephaion/
-    agent/       Prompt building, citation, tool registry/handlers
-    armory/      Armory data, validation, and known-armory lookup
-    chat/        Session lifecycle, intent contracts, evidence, turn orchestration
-    diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-    matching/    Fuzzy matching helpers for human-facing selectors
-    materials/   Study-file discovery, ignore rules, and material role classification
-    memory/      Memory extraction and storage
-    parameters/  Parameter management and settings
-    privacy/     Consent, anonymous install ID, release-time diagnostics config
-    rag/         RAG chunking, indexing, retrieval, source mapping
-    safety/      Local safety contracts
-    study/       Prompt plans, learning controller, priority analysis
-    version/     Package version helpers
-    vocab/       Vocabulary drill, scheduler, state
+    src/hephaion/
+      agent/       Prompt building, citation, tool registry/handlers
+      armory/      Armory data, validation, and known-armory lookup
+      chat/        Session lifecycle, intent contracts, evidence, turn orchestration
+      diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+      matching/    Fuzzy matching helpers for human-facing selectors
+      materials/   Study-file discovery, ignore rules, and material role classification
+      memory/      Memory extraction and storage
+      parameters/  Parameter management and settings
+      privacy/     Consent, anonymous install ID, release-time diagnostics config
+      rag/         RAG chunking, indexing, retrieval, source mapping
+      safety/      Local safety contracts
+      study/       Prompt plans, learning controller, priority analysis
+      version/     Package version helpers
+      vocab/       Vocabulary drill, scheduler, state
+    test/
   interfaces/
-    palette/     Theme and ANSI color tokens
-    terminal/    Terminal I/O, styling, prompts, history, source opening
-    tui/         Textual adapter: lifecycle, widgets, inline menus, rendering
+    src/interfaces/
+      palette/   Theme and ANSI color tokens
+      terminal/  Terminal I/O, styling, prompts, history, source opening
+      tui/       Textual adapter: lifecycle, widgets, inline menus, rendering
+    test/
 ```
 
 ## Import rules
@@ -166,52 +175,53 @@ packages/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`cli`, `commands`, `tui`,
-`terminal.history` or `terminal.input`.
+`heph.cli`, `heph.commands`, `interfaces.tui`,
+`interfaces.terminal.history` or `interfaces.terminal.input`.
 
-- `chat`
-- `agent`
-- `providers`
-- `rag`
-- `armory`
-- `study`
-- `memory`
-- `parameters`
-- `materials`
-- `runtime`
-- `vocab`
-- `palette`
-- `matching`
+- `hephaion.chat`
+- `hephaion.agent`
+- `ai.providers`
+- `hephaion.rag`
+- `hephaion.armory`
+- `hephaion.study`
+- `hephaion.memory`
+- `hephaion.parameters`
+- `hephaion.materials`
+- `ai.runtime`
+- `hephaion.vocab`
+- `interfaces.palette`
+- `hephaion.matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`ai.logging` and `diagnostics.crashes` must not import from
-`cli`, `commands`, or `tui`.
+`ai.logging` and `hephaion.diagnostics.crashes` must not import from
+`heph.cli`, `heph.commands`, or `interfaces.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
-`chat.session` and `chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
+`hephaion.chat.session` and `hephaion.chat.orchestrator` must be independent at
+runtime (no direct runtime imports between them).
 
 ### Forbidden: Heph commands must not import TUI internals
 
-`commands` may produce terminal-friendly command results and coordinate lower
-packages, but it must not import `tui`. The TUI adapter may call the command
-registry; command logic must not know TUI widgets, flows, or keybindings.
+`heph.commands` may produce terminal-friendly command results and coordinate
+lower packages, but it must not import `interfaces.tui`. The TUI adapter may
+call the command registry; command logic must not know TUI widgets, flows, or
+keybindings.
 
 ### Independent: materials
 
-`materials` owns material discovery and ignore-policy parsing.
-It must not import `chat`, `agent`, or `rag`.
-`rag` may import `materials`, but that dependency
-is one-way.
+`hephaion.materials` owns material discovery and ignore-policy parsing.
+It must not import `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
+`hephaion.rag` may import `hephaion.materials`, but that dependency is one-way.
 
 ### Low level: runtime
 
 `ai.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
 and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
-`materials`, `memory`, or `armory`. Providers may be used by runtime, but
-providers must not import Heph or harness workflow packages.
+`materials`, `memory`, or `armory` harness modules. Providers may be used by
+runtime, but providers must not import Heph or harness workflow packages.
 
 ### Core: providers
 
@@ -221,9 +231,10 @@ metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 
 ### Domain: memory and study
 
-`memory` may use `ai.runtime` to extract concepts, but it must not
-import adapters, `chat`, or `agent`. `study` stays a pure
-controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
+`hephaion.memory` may use `ai.runtime` to extract concepts, but it must not
+import adapters, `hephaion.chat`, or `hephaion.agent`. `hephaion.study` stays a
+pure controller/state layer and must not import adapters, `hephaion.chat`,
+`hephaion.agent`, or `hephaion.rag`.
 
 ## Armory layout
 
@@ -305,7 +316,7 @@ Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
   configured and the user explicitly opts in.
 - `diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `packages/hephaion/src/privacy/release.py` is committed as a safe stub in the public
+- `packages/hephaion/src/hephaion/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom

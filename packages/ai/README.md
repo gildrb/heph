@@ -53,5 +53,4 @@ uv run lint-imports
 
 ## Related Docs
 
-- [Architecture](docs/architecture.md)
 - [Root architecture guide](../../docs/architecture.md)

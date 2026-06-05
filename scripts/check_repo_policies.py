@@ -15,10 +15,10 @@ from typing import Final
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PACKAGE_IMPORT_ROOTS: Final[dict[Path, str]] = {
     REPO_ROOT / "packages" / "ai" / "src" / "ai": "ai",
-    REPO_ROOT / "packages" / "extensions" / "src": "extensions",
-    REPO_ROOT / "packages" / "heph" / "src": "heph",
-    REPO_ROOT / "packages" / "hephaion" / "src": "hephaion",
-    REPO_ROOT / "packages" / "interfaces" / "src": "interfaces",
+    REPO_ROOT / "packages" / "extensions" / "src" / "extensions": "extensions",
+    REPO_ROOT / "packages" / "heph" / "src" / "heph": "heph",
+    REPO_ROOT / "packages" / "hephaion" / "src" / "hephaion": "hephaion",
+    REPO_ROOT / "packages" / "interfaces" / "src" / "interfaces": "interfaces",
 }
 PACKAGE_TEST_ROOTS: Final[dict[Path, str]] = {
     REPO_ROOT / "packages" / "ai" / "test": "ai/test",
@@ -60,25 +60,9 @@ BENCHMARK_ONLY_TOP_LEVEL_MODULES: Final[frozenset[str]] = frozenset({"benchmarks
 EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
     {
         "ai",
-        "agent",
-        "armory",
-        "chat",
-        "cli",
-        "commands",
-        "diagnostics",
-        "matching",
-        "materials",
-        "memory",
-        "parameters",
-        "palette",
-        "privacy",
-        "product",
-        "rag",
-        "safety",
-        "study",
-        "terminal",
-        "tui",
-        "vocab",
+        "heph",
+        "hephaion",
+        "interfaces",
     }
 )
 EXTENSION_CONTRACTS_POLICY_MESSAGE: Final[str] = (
@@ -87,53 +71,18 @@ EXTENSION_CONTRACTS_POLICY_MESSAGE: Final[str] = (
 FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
     "ai": frozenset(
         {
-            "_types",
-            "agent",
-            "armory",
-            "chat",
-            "cli",
-            "commands",
-            "diagnostics",
-            "extension_contracts",
-            "matching",
-            "materials",
-            "memory",
-            "parameters",
-            "privacy",
-            "product",
-            "rag",
-            "safety",
-            "study",
-            "terminal",
-            "tui",
-            "version",
-            "vocab",
+            "extensions",
+            "heph",
+            "hephaion",
+            "interfaces",
         }
     ),
     "extensions": frozenset(
         {
-            "_types",
-            "agent",
             "ai",
-            "armory",
-            "chat",
-            "cli",
-            "commands",
-            "diagnostics",
-            "matching",
-            "materials",
-            "memory",
-            "palette",
-            "parameters",
-            "privacy",
-            "product",
-            "rag",
-            "safety",
-            "study",
-            "terminal",
-            "tui",
-            "version",
-            "vocab",
+            "heph",
+            "hephaion",
+            "interfaces",
         }
     ),
 }
@@ -202,10 +151,10 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
 ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     "hephaion/agent/__init__.py": frozenset(
         {
-            "agent.dispatch",
-            "agent.prompt",
-            "agent.tool_execution",
-            "agent.tools",
+            "hephaion.agent.dispatch",
+            "hephaion.agent.prompt",
+            "hephaion.agent.tool_execution",
+            "hephaion.agent.tools",
         }
     ),
     "ai/runtime/engine.py": frozenset(
@@ -215,26 +164,26 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "interfaces/terminal/input.py": frozenset(
         {
-            "chat.session",
+            "hephaion.chat.session",
             "ai.runtime",
         }
     ),
     "interfaces/tui/__init__.py": frozenset(
         {
-            "chat.cli",
-            "commands",
-            "terminal.input",
+            "hephaion.chat.cli",
+            "heph.commands",
+            "interfaces.terminal.input",
         }
     ),
     "interfaces/tui/external_commands.py": frozenset(
         {
-            "tui.command_access",
-            "terminal.input",
+            "interfaces.tui.command_access",
+            "interfaces.terminal.input",
         }
     ),
     "interfaces/tui/slash_command.py": frozenset(
         {
-            "commands",
+            "heph.commands",
         }
     ),
     "interfaces/tui/status.py": frozenset(
@@ -244,7 +193,7 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "interfaces/tui/streaming.py": frozenset(
         {
-            "chat.automation",
+            "hephaion.chat.automation",
             "ai.runtime",
         }
     ),
@@ -436,7 +385,7 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 
 
 def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
-    if alias.name == "chat.orchestrator" and alias.asname is not None:
+    if alias.name == "hephaion.chat.orchestrator" and alias.asname is not None:
         return alias.asname, alias.name
     if alias.name == "importlib":
         return alias.asname or "importlib", "importlib"
@@ -533,7 +482,7 @@ class PolicyVisitor(ast.NodeVisitor):
         return self.rel_path.startswith("scripts/")
 
     def _check_private_orchestrator_import(self, node: ast.AST, module: str | None) -> None:
-        if not self._is_product_script_file() or module != "chat.orchestrator":
+        if not self._is_product_script_file() or module != "hephaion.chat.orchestrator":
             return
         if not isinstance(node, ast.ImportFrom):
             return
@@ -553,7 +502,7 @@ class PolicyVisitor(ast.NodeVisitor):
         resolved = self._resolve_import_alias(dotted)
         if resolved is None:
             return
-        if resolved.startswith("chat.orchestrator._"):
+        if resolved.startswith("hephaion.chat.orchestrator._"):
             self._add(
                 node,
                 (
@@ -572,7 +521,7 @@ class PolicyVisitor(ast.NodeVisitor):
             )
 
     def _check_extension_contract_import(self, node: ast.AST, module: str | None) -> None:
-        if self.rel_path != "extensions/extension_contracts.py" or module is None:
+        if self.rel_path != "extensions/contracts.py" or module is None:
             return
         top_level = module.lstrip(".").split(".", maxsplit=1)[0]
         if top_level in EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS:
@@ -647,8 +596,8 @@ class PolicyVisitor(ast.NodeVisitor):
                 if binding is not None:
                     local_name, canonical_name = binding
                     self._import_aliases[local_name] = canonical_name
-                if node.module == "chat" and alias.name == "orchestrator":
-                    self._import_aliases[alias.asname or alias.name] = "chat.orchestrator"
+                if node.module == "hephaion.chat" and alias.name == "orchestrator":
+                    self._import_aliases[alias.asname or alias.name] = "hephaion.chat.orchestrator"
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
             [module]
         ):

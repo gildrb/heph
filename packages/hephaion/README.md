@@ -16,20 +16,21 @@ Hephaion is not the agent brain or persona. The agent is Heph.
 
 ```text
 src/
-  agent/       Tool execution, prompt assembly, citations, agent loop helpers
-  armory/      Portable workspace validation and known-armory lookup
-  chat/        Session state, turn orchestration, evidence, events, storage
-  diagnostics/ Redacted crash, anonymous event, and armory trace surfaces
-  matching/    Human-facing fuzzy matching helpers
-  materials/   Material discovery, ignore rules, import helpers
-  memory/      Armory-scoped learning memory extraction and persistence
-  parameters/  Settings storage and parameter helpers
-  privacy/     Consent and release-time diagnostics config
-  rag/         Chunking, indexing, retrieval, source mapping
-  safety/      Local safety contracts
-  study/       Learning controller, schedules, priority workflows
-  version/     Package version helpers
-  vocab/       Vocabulary parsing, scheduling, drills
+  hephaion/
+    agent/       Tool execution, prompt assembly, citations, agent loop helpers
+    armory/      Portable workspace validation and known-armory lookup
+    chat/        Session state, turn orchestration, evidence, events, storage
+    diagnostics/ Redacted crash, anonymous event, and armory trace surfaces
+    matching/    Human-facing fuzzy matching helpers
+    materials/   Material discovery, ignore rules, import helpers
+    memory/      Armory-scoped learning memory extraction and persistence
+    parameters/  Settings storage and parameter helpers
+    privacy/     Consent and release-time diagnostics config
+    rag/         Chunking, indexing, retrieval, source mapping
+    safety/      Local safety contracts
+    study/       Learning controller, schedules, priority workflows
+    version/     Package version helpers
+    vocab/       Vocabulary parsing, scheduling, drills
 ```
 
 ## Boundaries
@@ -63,5 +64,4 @@ uv run lint-imports
 
 ## Related Docs
 
-- [Architecture](docs/architecture.md)
 - [Root architecture guide](../../docs/architecture.md)
