@@ -7,7 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaion.armory.search import add_known_armory, set_last_armory
+from hephaion.armory.search import remember_armory, set_last_armory
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.cli import resolve_armory_session as chat_resolve_armory_session
 from hephaion.chat.session import (
@@ -54,7 +54,7 @@ def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatS
     if armory_path is None:
         capture_analytics("armory_detached", {"model": new_session.config.model})
     else:
-        add_known_armory(armory_path)
+        remember_armory(armory_path)
         set_last_armory(armory_path)
         capture_analytics(
             "armory_attached",

@@ -48,11 +48,7 @@ from ai.runtime.errors import (
 from ai.runtime.prompt_cache import (
     MetricsLogger as PromptCacheMetricsLogger,
 )
-from ai.runtime.prompt_cache import (
-    PromptCacheRequest,
-    StablePrefixBuilder,
-    annotate_anthropic_cache_breakpoints,
-)
+from ai.runtime.prompt_cache import PromptCacheRequest, StablePrefixBuilder
 from ai.runtime.request_payload import request_kwargs as build_request_kwargs
 from ai.runtime.resilience import CircuitBreaker
 from ai.runtime.tool_deltas import normalize_tool_calls
@@ -875,7 +871,6 @@ def _stream_completion_request(
         messages.to_api_messages() if isinstance(messages, Conversation) else messages
     )
     prompt_request = _prompt_cache_builder.build_request(raw_api_messages)
-    prompt_request = annotate_anthropic_cache_breakpoints(prompt_request, config.model)
     _prompt_cache_metrics.record_request(prompt_request, model=config.model)
     return _StreamCompletionRequest(
         api_messages=prompt_request.messages,

@@ -18,7 +18,7 @@ Hephaion is not the agent brain or persona. The agent is Heph.
 src/
   hephaion/
     agent/       Tool execution, prompt assembly, citations, agent loop helpers
-    armory/      Portable workspace validation and known-armory lookup
+    armory/      Portable armory validation, discovery, and local state helpers
     chat/        Session state, turn orchestration, evidence, events, storage
     diagnostics/ Redacted crash, anonymous event, and armory trace surfaces
     matching/    Human-facing fuzzy matching helpers

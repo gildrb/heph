@@ -21,9 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def armory_shortcut_path(name: str, parent: str | None = None) -> Path:
-    if parent:
-        return Path(parent).expanduser() / ".armories" / name
+def armory_shortcut_path(name: str) -> Path:
     return default_armory_home() / name
 
 
@@ -90,7 +88,7 @@ def register(
         description=(
             "Create armories named after modules. "
             "Armories can only be created in the armories directory (~/.armories). "
-            "Shortcut: `heph armory course-notes` creates ~/.armories/course-notes."
+            "Use `heph armory init course-notes` to create ~/.armories/course-notes."
         ),
     )
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)

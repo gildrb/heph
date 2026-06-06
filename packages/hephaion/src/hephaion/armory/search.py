@@ -9,13 +9,13 @@ from hephaion.armory.storage import MARKER_FILE, default_armory_home
 from hephaion.materials import MATERIALS_DIR, iter_material_files
 from hephaion.parameters.settings import load_raw_settings, save_setting
 
-_SETTINGS_KEY = "known_armories"
+_REMEMBERED_SETTINGS_KEY = "known_armories"
 _RECENT_SETTINGS_KEY = "recent_armories"
 MAX_RECENT_ARMORIES = 3
 
 
 @dataclass(frozen=True, slots=True)
-class KnownArmory:
+class ArmoryEntry:
     path: Path
     exists: bool
     valid: bool
@@ -44,12 +44,12 @@ class SearchResult:
         return self.armory_path.name
 
 
-def _load_armory_entries(key: str) -> list[KnownArmory]:
+def _load_armory_entries(key: str) -> list[ArmoryEntry]:
     raw = load_raw_settings()
     entries = raw.get(key)
     if not isinstance(entries, list):
         return []
-    armories: list[KnownArmory] = []
+    armories: list[ArmoryEntry] = []
     seen: set[Path] = set()
     for entry in entries:
         path = Path(str(entry)).expanduser().resolve()
@@ -58,27 +58,27 @@ def _load_armory_entries(key: str) -> list[KnownArmory]:
         seen.add(path)
         exists = path.is_dir()
         valid = exists and (path / MARKER_FILE).is_file()
-        armories.append(KnownArmory(path=path, exists=exists, valid=valid))
+        armories.append(ArmoryEntry(path=path, exists=exists, valid=valid))
     return armories
 
 
-def load_known_armory_entries() -> list[KnownArmory]:
-    return _load_armory_entries(_SETTINGS_KEY)
+def load_remembered_armory_entries() -> list[ArmoryEntry]:
+    return _load_armory_entries(_REMEMBERED_SETTINGS_KEY)
 
 
-def load_recent_armory_entries() -> list[KnownArmory]:
+def load_recent_armory_entries() -> list[ArmoryEntry]:
     return _load_armory_entries(_RECENT_SETTINGS_KEY)
 
 
-def load_known_armories() -> list[Path]:
-    return [entry.path for entry in load_known_armory_entries() if entry.exists]
+def load_remembered_armories() -> list[Path]:
+    return [entry.path for entry in load_remembered_armory_entries() if entry.exists]
 
 
-def load_available_armory_entries() -> list[KnownArmory]:
+def load_available_armory_entries() -> list[ArmoryEntry]:
     armory_home = _resolved_armory_home()
     entries = [
         entry
-        for entry in load_known_armory_entries()
+        for entry in load_remembered_armory_entries()
         if entry.valid and _path_is_in_armory_home(entry.path, armory_home)
     ]
     seen = {entry.path for entry in entries}
@@ -94,14 +94,14 @@ def load_available_armories() -> list[Path]:
     return [entry.path for entry in load_available_armory_entries()]
 
 
-def discover_armory_home_entries() -> list[KnownArmory]:
+def discover_armory_home_entries() -> list[ArmoryEntry]:
     return _discover_armory_home_entries(_resolved_armory_home())
 
 
-def _discover_armory_home_entries(armory_home: Path) -> list[KnownArmory]:
+def _discover_armory_home_entries(armory_home: Path) -> list[ArmoryEntry]:
     if not armory_home.is_dir():
         return []
-    entries: list[KnownArmory] = []
+    entries: list[ArmoryEntry] = []
     try:
         children = sorted(armory_home.iterdir(), key=lambda path: path.name.lower())
     except OSError:
@@ -116,7 +116,7 @@ def _discover_armory_home_entries(armory_home: Path) -> list[KnownArmory]:
         if not _path_is_in_armory_home(resolved, armory_home):
             continue
         if resolved.is_dir() and (resolved / MARKER_FILE).is_file():
-            entries.append(KnownArmory(path=resolved, exists=True, valid=True))
+            entries.append(ArmoryEntry(path=resolved, exists=True, valid=True))
     return entries
 
 
@@ -132,24 +132,24 @@ def _path_is_in_armory_home(path: Path, armory_home: Path) -> bool:
     return True
 
 
-def save_known_armories(paths: list[Path]) -> None:
-    save_setting(_SETTINGS_KEY, [str(p) for p in paths])
+def save_remembered_armories(paths: list[Path]) -> None:
+    save_setting(_REMEMBERED_SETTINGS_KEY, [str(p) for p in paths])
 
 
-def add_known_armory(path: Path) -> list[Path]:
+def remember_armory(path: Path) -> list[Path]:
     path = path.expanduser().resolve()
-    paths = [entry.path for entry in load_known_armory_entries()]
+    paths = [entry.path for entry in load_remembered_armory_entries()]
     if path not in paths:
         paths.insert(0, path)
-        save_known_armories(paths)
+        save_remembered_armories(paths)
     return paths
 
 
-def remove_known_armory(path: Path) -> list[Path]:
+def forget_armory(path: Path) -> list[Path]:
     path = path.expanduser().resolve()
-    paths = [entry.path for entry in load_known_armory_entries()]
+    paths = [entry.path for entry in load_remembered_armory_entries()]
     paths = [p for p in paths if p != path]
-    save_known_armories(paths)
+    save_remembered_armories(paths)
     return paths
 
 

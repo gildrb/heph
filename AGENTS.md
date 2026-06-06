@@ -38,7 +38,7 @@ uv sync --frozen --group rag        # install optional RAG backends
 ```bash
 uv run heph                # launch the TUI
 uv run heph PATH           # launch Heph for an armory
-uv run heph armory init PATH    # create a new armory
+uv run heph armory init NAME    # create a new armory in ~/.armories
 ```
 
 ## Development Workflow
@@ -192,8 +192,8 @@ Additional configured gates:
 ```bash
 uv run pytest                              # run all tests
 uv run pytest --cov --cov-fail-under=46    # run with current coverage baseline
-uv run pytest tests/test_chat_engine.py    # single file
-uv run pytest tests/test_app_tui.py -x      # stop on first failure
+uv run pytest packages/ai/test/test_chat_engine.py    # single file
+uv run pytest packages/interfaces/test/test_app_tui.py -x      # stop on first failure
 uv run pytest -k "test_stream_recovery"    # by keyword
 uv run pytest -m flaky                     # flaky-marked tests only
 ```

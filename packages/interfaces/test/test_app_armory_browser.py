@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from hephaion.armory.search import KnownArmory
+from hephaion.armory.search import ArmoryEntry
 from hephaion.armory.storage import MARKER_FILE, initialize
 from interfaces.tui import armory_browser
 
@@ -147,10 +147,10 @@ def test_build_entries_filters_outside_recent_armories(
 
     monkeypatch.setattr(
         armory_browser,
-        "load_known_armory_entries",
+        "load_remembered_armory_entries",
         lambda: [
-            KnownArmory(outside, exists=True, valid=True),
-            KnownArmory(inside, exists=True, valid=True),
+            ArmoryEntry(outside, exists=True, valid=True),
+            ArmoryEntry(inside, exists=True, valid=True),
         ],
     )
 

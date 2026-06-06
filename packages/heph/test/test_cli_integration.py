@@ -14,7 +14,7 @@ from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
 from heph.cli.main import main as cli_main
 from heph.cli.main import sys as cli_sys
 from hephaion.agent.dispatch import iter_agent_events
-from hephaion.armory.search import add_known_armory
+from hephaion.armory.search import remember_armory
 from hephaion.armory.storage import initialize
 from hephaion.chat import cli as chat_cli
 from hephaion.chat.events import (
@@ -378,7 +378,7 @@ def test_tui_command_dispatches_with_path() -> None:
     assert captured_path == Path("notes")
 
 
-def test_bare_armory_name_dispatches_known_armory(
+def test_bare_armory_name_dispatches_remembered_armory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -387,7 +387,7 @@ def test_bare_armory_name_dispatches_known_armory(
     armory_path = armory_home / "gdp"
     initialize(armory_path)
     monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
-    add_known_armory(armory_path)
+    remember_armory(armory_path)
     captured_path: Path | None = None
 
     def fake_tui(path: Path | None) -> None:

@@ -9,7 +9,6 @@ from ai.runtime.prompt_cache import (
     MetricsLogger,
     PromptCacheRequest,
     StablePrefixBuilder,
-    annotate_anthropic_cache_breakpoints,
 )
 from hephaion.agent.dispatch import _inject_turn_context
 from hephaion.rag.chunker import Chunk
@@ -131,64 +130,6 @@ def test_inject_turn_context_places_evidence_in_stable_prefix_zone() -> None:
     ]
     assert str(injected[2]["content"]).startswith("Retrieved evidence for this question:")
     assert request.stable_prefix.message_count == 3
-
-
-def test_anthropic_cache_breakpoint_marks_last_stable_string_part() -> None:
-    request = _request(
-        [
-            {"role": "system", "content": "Stable persona."},
-            {"role": "system", "content": "Stable citation rules."},
-            {"role": "user", "content": "Question."},
-        ]
-    )
-
-    annotated = annotate_anthropic_cache_breakpoints(request, "anthropic/claude-3-5-sonnet")
-
-    last_content = annotated.stable_prefix.messages[-1]["content"]
-    assert isinstance(last_content, list)
-    assert last_content == [
-        {
-            "type": "text",
-            "text": "Stable citation rules.",
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
-    assert annotated.dynamic_tail.messages == request.dynamic_tail.messages
-    assert request.stable_prefix.messages[-1]["content"] == "Stable citation rules."
-
-
-def test_anthropic_cache_breakpoint_marks_last_existing_content_part() -> None:
-    messages: list[ApiMessage] = [
-        {
-            "role": "system",
-            "content": [
-                {"type": "text", "text": "Stable persona."},
-                {"type": "text", "text": "Stable citation rules."},
-            ],
-        },
-        {"role": "user", "content": "Question."},
-    ]
-    request = _request(messages)
-
-    annotated = annotate_anthropic_cache_breakpoints(request, "claude-3-haiku")
-
-    content = annotated.stable_prefix.messages[-1]["content"]
-    assert isinstance(content, list)
-    assert content[-1]["cache_control"] == {"type": "ephemeral"}
-    assert "cache_control" not in messages[0]["content"][1]
-
-
-def test_anthropic_cache_breakpoint_skips_non_anthropic_models() -> None:
-    request = _request(
-        [
-            {"role": "system", "content": "Stable persona."},
-            {"role": "user", "content": "Question."},
-        ]
-    )
-
-    annotated = annotate_anthropic_cache_breakpoints(request, "openai/gpt-4o")
-
-    assert annotated is request
 
 
 def test_metrics_logger_records_cache_structure_without_prompt_text(

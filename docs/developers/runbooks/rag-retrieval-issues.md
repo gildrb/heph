@@ -53,8 +53,8 @@ When RAG search returns poor or missing results, follow this runbook.
 # From the armory directory
 uv run heph index .
 
-# Or from any directory
-uv run heph index /path/to/armory
+# Or with an explicit armory path
+uv run heph index ~/.armories/my-armory
 ```
 
 This rebuilds the RAG index from all files in `materials/`.

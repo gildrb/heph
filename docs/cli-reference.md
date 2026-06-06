@@ -9,7 +9,6 @@
 | `heph` | Open your current armory or plain chat. |
 | `heph <name-or-path>` | Open an armory by name from `~/.armories`, e.g. `heph gdp`, or by explicit path. |
 | `hephaion [path]` | Equivalent long Hephaion harness entrypoint for `heph`. |
-| `heph armory <name>` | Create a named armory in `~/.armories`. |
 | `heph armory init <name>` | Create a new named armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
 | `heph materials list <path>` | List material files. |

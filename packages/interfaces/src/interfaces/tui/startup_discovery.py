@@ -4,10 +4,10 @@ from pathlib import Path
 
 from hephaion.armory.cli import default_armory_home
 from hephaion.armory.search import (
-    add_known_armory,
     discover_armory_home_entries,
     get_last_armory,
     load_available_armory_entries,
+    remember_armory,
 )
 from hephaion.armory.storage import ArmoryError
 from hephaion.chat.session import validate_armory_path
@@ -32,7 +32,7 @@ def discover_available_armories() -> list[Path]:
     if armory_home.is_dir():
         for entry in discover_armory_home_entries():
             _append_unique(armories, seen, entry.path)
-            add_known_armory(entry.path)
+            remember_armory(entry.path)
     return armories
 
 

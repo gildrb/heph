@@ -610,14 +610,14 @@ def test_models_command_shows_live_openrouter_models(
     def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
         return LiveProviderCatalog(
             models=[
-                "anthropic/claude-sonnet-latest",
+                "google/gemini-3-flash-preview",
                 "poolside/laguna-m.1:free",
             ],
             metadata=[
                 ModelInfo(
-                    "anthropic/claude-sonnet-latest",
+                    "google/gemini-3-flash-preview",
                     "openrouter",
-                    "Anthropic Claude Sonnet Latest",
+                    "Google Gemini 3 Flash Preview",
                     1_000_000,
                     128_000,
                     0.003,
@@ -659,7 +659,7 @@ def test_models_command_shows_live_openrouter_models(
     labels = [option.label for option in visible_options]
     assert labels[:2] == [
         "poolside/laguna-m.1:free",
-        "anthropic/claude-sonnet-latest",
+        "google/gemini-3-flash-preview",
     ]
     assert visible_options[0].description == "via OpenRouter  free, API key required"
 

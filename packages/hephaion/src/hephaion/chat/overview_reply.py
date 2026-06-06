@@ -597,7 +597,6 @@ def _overview_fallback_citation_items(
     cue_for_item = _overview_table_cue_for_item if table_cues else _overview_fallback_cue_for_item
     candidates = _overview_fallback_candidate_items(
         evidence,
-        limit=limit,
         excluded_evidence_ids=excluded_evidence_ids or frozenset(),
     )
     selected = _select_overview_fallback_citation_items(
@@ -657,7 +656,6 @@ def _spread_overview_candidate_items(
 def _overview_fallback_candidate_items(
     evidence: TurnEvidence,
     *,
-    limit: int,
     excluded_evidence_ids: frozenset[str],
 ) -> tuple[EvidenceChunk, ...]:
     return tuple(

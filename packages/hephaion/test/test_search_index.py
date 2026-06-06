@@ -1,4 +1,4 @@
-"""Tests for cross-armory search indexing."""
+"""Tests for armory discovery and search indexing."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from hephaion.armory.search import (
     CrossArmoryIndex,
     SearchResult,
     _chunk_text,
-    add_known_armory,
     discover_armory_home_entries,
+    forget_armory,
     load_available_armories,
-    load_known_armories,
-    load_known_armory_entries,
-    remove_known_armory,
+    load_remembered_armories,
+    load_remembered_armory_entries,
+    remember_armory,
 )
 from hephaion.armory.storage import initialize
 
@@ -88,7 +88,7 @@ def test_cross_armory_index_search_no_results(tmp_path: Path) -> None:
     assert results == []
 
 
-def test_known_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remembered_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     armory = tmp_path / "my-armory"
     armory.mkdir()
 
@@ -103,18 +103,18 @@ def test_known_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
     monkeypatch.setattr("hephaion.armory.search.save_setting", fake_save)
 
-    paths = add_known_armory(armory)
+    paths = remember_armory(armory)
     assert len(paths) == 1
     assert paths[0] == armory
 
-    loaded = load_known_armories()
+    loaded = load_remembered_armories()
     assert len(loaded) == 1
 
-    paths = remove_known_armory(armory)
+    paths = forget_armory(armory)
     assert len(paths) == 0
 
 
-def test_known_armory_entries_include_missing_paths(
+def test_remembered_armory_entries_include_missing_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -128,17 +128,17 @@ def test_known_armory_entries_include_missing_paths(
 
     monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
 
-    entries = load_known_armory_entries()
+    entries = load_remembered_armory_entries()
 
     assert entries[0].path == existing
     assert entries[0].exists is True
     assert entries[0].valid is True
     assert entries[1].path == missing
     assert entries[1].missing is True
-    assert load_known_armories() == [existing]
+    assert load_remembered_armories() == [existing]
 
 
-def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remember_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     armory = tmp_path / "my-armory"
     armory.mkdir()
 
@@ -153,8 +153,8 @@ def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr("hephaion.armory.search.load_raw_settings", fake_load)
     monkeypatch.setattr("hephaion.armory.search.save_setting", fake_save)
 
-    add_known_armory(armory)
-    paths = add_known_armory(armory)
+    remember_armory(armory)
+    paths = remember_armory(armory)
     assert len(paths) == 1
 
 

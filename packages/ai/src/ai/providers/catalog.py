@@ -22,6 +22,7 @@ import certifi
 
 from ai.logging import get_logger
 from ai.providers.config import ProviderConfig
+from ai.providers.model_support import is_supported_model_for_provider
 from ai.providers.registry import ModelInfo, get_registry
 from ai.types import is_object_list, is_string_mapping
 
@@ -208,7 +209,8 @@ def _hydrate_models_dev_metadata(*, allow_network: bool) -> None:
 
     registry = get_registry()
     for info in _models_dev_model_infos(payload):
-        registry.register(info)
+        if is_supported_model_for_provider(info.name, info.provider):
+            registry.register(info)
     _models_dev_fetched_at = time.time()
 
 
@@ -237,6 +239,7 @@ def _models_dev_model_infos(payload: dict[str, object]) -> list[ModelInfo]:
         info
         for provider_slug in ("openai", "openai-codex", "deepseek", "openrouter")
         for info in _models_dev_provider_infos(payload, provider_slug)
+        if is_supported_model_for_provider(info.name, info.provider)
     ]
 
 
@@ -385,6 +388,8 @@ def _fetch_openrouter_catalog(endpoint: str) -> LiveProviderCatalog:
     for raw_model in raw_models:
         info = _openrouter_model_info(raw_model)
         if info is None:
+            continue
+        if not is_supported_model_for_provider(info.name, info.provider):
             continue
         models.append(info.name)
         metadata.append(info)

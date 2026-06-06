@@ -144,7 +144,7 @@ class _TranscriptHost(Protocol):
 
     def _update_info_panel(self) -> None: ...
 
-    def _update_focused_info_panel(self, panel: Static) -> bool: ...
+    def _update_focused_info_panel(self) -> bool: ...
 
     def _update_armory_preview(self) -> None: ...
 
@@ -725,7 +725,7 @@ class TuiTranscriptMixin:
     def _update_info_panel(self: _TranscriptHost) -> None:
         """Refresh the info panel to reflect current state."""
         try:
-            panel = self.query_one("#info-panel", Static)
+            self.query_one("#info-panel", Static)
         except NoMatches:
             return
         if self._armory_inline_active:
@@ -734,7 +734,7 @@ class TuiTranscriptMixin:
         if self._materials_inline_active:
             self._update_materials_sidebar()
             return
-        if self._update_focused_info_panel(panel):
+        if self._update_focused_info_panel():
             return
         tui_module = sys.modules["interfaces.tui"]
         self._update_static_region(
@@ -749,7 +749,7 @@ class TuiTranscriptMixin:
             ),
         )
 
-    def _update_focused_info_panel(self: _TranscriptHost, panel: Static) -> bool:
+    def _update_focused_info_panel(self: _TranscriptHost) -> bool:
         if self._focused_msg_index is None:
             return False
         entries = _focusable_transcript_entries(self.state.transcript)

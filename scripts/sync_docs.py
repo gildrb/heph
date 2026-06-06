@@ -139,7 +139,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Open an armory by name from `~/.armories`, e.g. `heph gdp`, or by explicit path."
     ),
     "hephaion [path]": "Equivalent long Hephaion harness entrypoint for `heph`.",
-    "heph armory <name>": "Create a named armory in `~/.armories`.",
+    "heph armory init <name>": "Create a named armory in `~/.armories`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
     "heph chat ask --jsonl <path> [prompt]": (
@@ -260,10 +260,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             f"{long_command} [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{long_command} [path]"],
         ),
-        CommandLine(
-            f"{short_command} armory <name>",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} armory <name>"],
-        ),
         CommandLine(f"{short_command} armory init <name>", armory_help["init"]),
         CommandLine(f"{short_command} armory open <path>", armory_help["open"]),
         CommandLine(f"{short_command} materials list <path>", materials_help["list"]),
@@ -299,7 +295,6 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
     selected = (
         short_command,
         f"{short_command} <name-or-path>",
-        f"{short_command} armory <name>",
         f"{short_command} armory init <name>",
         f"{short_command} armory open <path>",
         f"{short_command} materials list <path>",

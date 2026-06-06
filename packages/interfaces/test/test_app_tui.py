@@ -18,7 +18,7 @@ import pytest
 from ai.providers.config import ProviderConfig, default_config
 from ai.providers.registry import ModelInfo, get_registry
 from ai.runtime import ChatConfig, Conversation
-from hephaion.armory.search import KnownArmory, add_known_armory
+from hephaion.armory.search import ArmoryEntry, remember_armory
 from hephaion.armory.storage import initialize
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.session import ChatSession, record_turn_snapshot
@@ -2780,10 +2780,10 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
     initialize(existing)
     missing = armory_home / "missing"
     monkeypatch.setattr(
-        "interfaces.tui.armory_browser.load_known_armory_entries",
+        "interfaces.tui.armory_browser.load_remembered_armory_entries",
         lambda: [
-            KnownArmory(existing, exists=True, valid=True),
-            KnownArmory(missing, exists=False, valid=False),
+            ArmoryEntry(existing, exists=True, valid=True),
+            ArmoryEntry(missing, exists=False, valid=False),
         ],
     )
 
@@ -3397,7 +3397,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     armory = armory_home / "known"
     initialize(armory)
     monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
-    add_known_armory(armory)
+    remember_armory(armory)
 
     app = tui.HephTui(
         _plain_session(),

@@ -101,14 +101,14 @@ curl https://api.openai.com/v1/models \
 2. Re-index the armory: `heph index`
 3. Check file formats are supported
 4. Use `/evidence` to see what was retrieved
-5. Try increasing `top_k` in settings
+5. Run `heph health` to check extraction and indexing health
 
 ```bash
 # Check index health
 heph health ~/.armories/my-armory
 
 # Rebuild index from scratch
-rm ~/.armories/my-armory/.hephaion/index/*
+rm ~/.armories/my-armory/.hephaion/rag_index.json
 heph index ~/.armories/my-armory
 ```
 
@@ -139,30 +139,29 @@ heph index ~/.armories/my-armory
 
 **Solutions**:
 1. Check your internet connection
-2. Try a faster model (GPT-3.5 instead of GPT-4)
-3. Reduce `top_k` in retrieval settings
-4. Use a model with larger context window
-5. Check provider status for outages
+2. Try a faster model or provider
+3. Use a model with larger context window
+4. Check provider status for outages
 
 ### High Memory Usage
 
 **Problem**: Heph using too much RAM
 
 **Solutions**:
-1. Reduce `top_k` to retrieve fewer chunks
-2. Use a smaller model
-3. Clear old chat history
-4. Close other armories if you have multiple open
+1. Use a smaller model
+2. Clear old chat history
+3. Close other armories if you have multiple open
+4. Restart Heph after large indexing or extraction runs
 
 ### Slow Indexing
 
 **Problem**: `heph index` takes a long time
 
 **Solutions**:
-1. Use `--quick` flag for faster indexing
-2. Exclude large files with `.hephaion/ignore`
-3. Index in batches by organizing materials into subdirectories
-4. Check disk I/O performance
+1. Exclude large files with `.hephaion/ignore`
+2. Index in batches by organizing materials into subdirectories
+3. Check disk I/O performance
+4. Run `heph health ~/.armories/my-armory` to identify extraction problems
 
 ## Chat and Memory Issues
 
@@ -171,10 +170,9 @@ heph index ~/.armories/my-armory
 **Problem**: Heph doesn't remember previous conversations
 
 **Solutions**:
-1. Check memory is enabled in `/settings`
+1. Verify you're opening the expected armory
 2. Verify `.hephaion/memory/` directory exists
 3. Ask a few questions to build up memory
-4. Check memory retention settings
 
 ### Chat History Lost
 
@@ -273,7 +271,7 @@ heph index ~/.armories/my-armory
 export HTTP_PROXY="http://proxy.example.com:8080"
 export HTTPS_PROXY="http://proxy.example.com:8080"
 
-# Or configure in ~/.hephaion/config.json
+# Heph uses standard proxy environment variables.
 ```
 
 ### SSL Certificate Errors

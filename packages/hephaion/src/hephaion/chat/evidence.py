@@ -291,7 +291,6 @@ def _enabled_scored_chunks(
 
 
 def _prepare_query_scored_chunks(
-    query: str,
     index: ArmoryIndex,
     scored: list[ScoredChunk],
     disabled_sources: set[str],
@@ -346,7 +345,6 @@ def _retrieve_query_scored_chunks(
         prompt_fn=prompt_fn,
     )
     scored = _prepare_query_scored_chunks(
-        query,
         index,
         scored,
         session.disabled_source_files,

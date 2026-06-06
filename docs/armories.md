@@ -11,7 +11,7 @@ An armory is the core organizational unit in Hephaion. It's a normal directory t
 │   ├── notes.md
 │   └── chapter1.txt
 ├── .hephaion/          # Hephaion configuration and state
-│   ├── config.json     # Armory-specific settings
+│   ├── armory.toml     # Armory marker and metadata
 │   ├── index/          # Retrieval index
 │   ├── memory/         # Learning memory
 │   ├── chats/          # Chat history
@@ -38,7 +38,7 @@ You can:
 Each armory is completely isolated:
 - **Memory**: Learning memory is scoped to the armory
 - **Index**: Retrieval index is armory-specific
-- **Settings**: Model preferences and retrieval settings per armory
+- **Learning**: Harness attempt logs and policy artifacts stay in the armory
 - **Chats**: Chat history stays with the armory
 
 This separation prevents cross-contamination between different projects or domains.
@@ -186,33 +186,14 @@ Use clear, descriptive names:
 
 ## Advanced Usage
 
-### Multiple Indexes
+### Rebuilding Indexes
 
-You can maintain multiple indexes for different purposes:
+Index files are rebuildable. If an armory was copied from another machine or the
+index looks stale, refresh it with the normal indexing path:
 
 ```bash
-# Full index
 heph index ~/.armories/my-armory
-
-# Quick index (faster, less thorough)
-heph index ~/.armories/my-armory --quick
 ```
-
-### Custom Chunking
-
-Configure chunking in `.hephaion/config.json`:
-
-```json
-{
-  "retrieval": {
-    "chunk_size": 1000,
-    "chunk_overlap": 200
-  }
-}
-```
-
-Larger chunks = more context per retrieval
-Smaller chunks = more precise retrieval
 
 ### Plugin System
 
@@ -240,13 +221,13 @@ heph health ~/.armories/my-armory
 
 ### Poor Retrieval Quality
 
-1. Increase `top_k` in settings
-2. Adjust chunk size in config
-3. Check document quality (OCR errors, formatting issues)
+1. Check document quality (OCR errors, formatting issues)
+2. Run `heph health ~/.armories/my-armory`
+3. Refresh the index with `heph index ~/.armories/my-armory`
 4. Use `/evidence` to see what's being retrieved
 
 ### Memory Not Working
 
-1. Check memory is enabled in settings
+1. Verify you're opening the expected armory
 2. Verify `.hephaion/memory/` directory exists
 3. Try asking a few questions to build up memory

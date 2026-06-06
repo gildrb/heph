@@ -1,6 +1,9 @@
 # Configuration
 
-Hephaion can be configured through environment variables, TUI settings, and armory-specific configuration.
+Hephaion can be configured through provider credentials, environment variables,
+the `/settings` TUI, and `heph config`. Armories keep their own materials,
+memory, chats, traces, indexes, and learning data, but model/provider preferences
+are machine-local user settings unless overridden by environment variables.
 
 ## Environment Variables
 
@@ -16,6 +19,18 @@ Hephaion can be configured through environment variables, TUI settings, and armo
 | `HEPHAION_BASE_URL` | Custom base URL for OpenAI-compatible endpoints |
 | `HEPHAION_MODEL` | Default model name |
 
+### Runtime and Retrieval
+
+| Variable | Purpose |
+|----------|---------|
+| `HEPHAION_MAX_TOKENS` | Max output tokens per response |
+| `HEPHAION_TEMPERATURE` | Model sampling temperature |
+| `HEPHAION_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
+| `HEPHAION_FEATURE_FLAGS` | Comma-separated feature flags |
+| `HEPHAION_EMBED_MODEL` | Embedding model override |
+| `HEPHAION_RERANK_MODEL` | Reranker model override |
+| `HEPHAION_EXTRACTION_MODEL` | Background memory extraction model override |
+
 ### Privacy and Diagnostics
 
 | Variable | Purpose |
@@ -23,49 +38,37 @@ Hephaion can be configured through environment variables, TUI settings, and armo
 | `HEPHAION_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `HEPHAION_LOG_FILE` | Path to log file |
 | `HEPHAION_LOG_FORMAT` | Log format (`text` or `json`) |
+| `HEPHAION_ANALYTICS_ENABLED` | Override saved analytics opt-in (`true`/`false`) |
+| `HEPHAION_CRASH_REPORTS_ENABLED` | Override saved crash-report opt-in (`true`/`false`) |
 
 ## TUI Settings
 
 Access settings via the `/settings` command in Heph:
 
-### Privacy
+- **Privacy and diagnostics**: anonymous analytics and redacted crash reports,
+  both opt-in
+- **Appearance**: saved TUI theme preference
+- **Activity trace**: local session trace visibility
+- **Vocabulary practice**: learning/practice preferences
+- **Login / Logout**: provider authentication flow
 
-- **Analytics**: Anonymous usage analytics (opt-in)
-- **Crash Reporting**: Anonymous crash reports (opt-in)
-- **Telemetry**: Performance and usage metrics (opt-in)
+Source and Git installs do not enable hosted diagnostics by default.
 
-Note: Source and Git installs do not enable hosted diagnostics by default.
+## User Configuration
 
-### Model Settings
+Use `/models` or provider login for normal model selection. Advanced users can
+persist machine-local overrides with `heph config`:
 
-- **Default Model**: Choose your preferred model
-- **Temperature**: Control response randomness (0.0-1.0)
-- **Max Tokens**: Limit response length
-
-### Retrieval Settings
-
-- **Chunk Size**: Document chunking size for retrieval
-- **Chunk Overlap**: Overlap between chunks
-- **Top K**: Number of chunks to retrieve
-
-## Armory Configuration
-
-Each armory can have specific configuration in `.hephaion/config.json`:
-
-```json
-{
-  "model": "gpt-4",
-  "temperature": 0.7,
-  "retrieval": {
-    "chunk_size": 1000,
-    "chunk_overlap": 200,
-    "top_k": 5
-  },
-  "memory": {
-    "enabled": true
-  }
-}
+```bash
+heph config show
+heph config set model <model-id>
+heph config set temperature 0.2
+heph config set rag_context_budget 6000
 ```
+
+These preferences are stored in the user config directory, not inside
+`.armories`. Provider credentials stay in the OS keyring, environment variables,
+or session memory fallback; they are never written into armory folders.
 
 ## Model Providers
 
@@ -121,19 +124,12 @@ draft-*
 old/
 ```
 
-## Memory Configuration
+## Armory State
 
-Memory is scoped per-armory and can be configured:
-
-```json
-{
-  "memory": {
-    "enabled": true,
-    "retention_days": 30,
-    "max_entries": 1000
-  }
-}
-```
+Each armory stores local state under `.hephaion/`, including retrieval indexes,
+memory, chats, traces, and learning attempt logs. Index files are rebuildable
+machine-local state; source materials plus armory metadata are enough for Heph to
+open a copied or synced armory and rebuild what it needs.
 
 ## Advanced Configuration
 

@@ -1,6 +1,7 @@
 # Models
 
-Hephaion works with multiple model providers, giving you flexibility in cost, performance, and features.
+Hephaion works with multiple model providers, giving you flexibility in cost,
+performance, privacy, and availability without binding an armory to one vendor.
 
 ## Supported Providers
 
@@ -15,21 +16,21 @@ Hephaion works with multiple model providers, giving you flexibility in cost, pe
 
 - **Cost**: Pay-per-use
 - **Account**: API key required
-- **Models**: GPT-4, Claude, Gemini, and many others
+- **Models**: Many hosted models from different labs
 - **Best for**: Access to multiple models through one API
 
 ### OpenAI
 
 - **Cost**: Pay-per-use or subscription
 - **Account**: API key or Codex subscription
-- **Models**: GPT-4, GPT-4 Turbo, GPT-3.5
+- **Models**: OpenAI API models available to your account
 - **Best for**: Production use, reliable performance
 
 ### DeepSeek
 
 - **Cost**: Pay-per-use
 - **Account**: API key required
-- **Models**: DeepSeek V4, DeepSeek Chat, DeepSeek Reasoner
+- **Models**: DeepSeek chat and reasoning models available to your account
 - **Best for**: Reasoning models through DeepSeek's official API semantics
 
 ### Z.AI
@@ -48,20 +49,18 @@ Hephaion works with multiple model providers, giving you flexibility in cost, pe
 
 ## Choosing a Model
 
-### For Best Accuracy
+Use `/models` to inspect models Heph can actually reach from your configured
+providers. Use `/recommend` for current model picks from the local provider
+catalog instead of relying on hardcoded docs.
 
-- **GPT-4** or **Claude Opus**: Highest quality, slower, more expensive
-- Best for complex reasoning, academic work, important documents
+General tradeoffs:
 
-### For Balanced Performance
-
-- **GPT-4 Turbo** or **Claude Sonnet**: Good quality, faster, moderate cost
-- Best for day-to-day use, most document analysis tasks
-
-### For Speed and Cost
-
-- **GPT-3.5** or smaller open models: Fast, inexpensive, lower quality
-- Best for quick questions, large document sets, testing
+- Higher-quality reasoning models are better for sensitive document answers,
+  synthesis, and citation-heavy work.
+- Faster or cheaper models are useful for exploration, setup checks, and
+  low-risk questions.
+- Local or self-hosted OpenAI-compatible models can use the same armory harness
+  when they are strong enough for your task.
 
 ## Model Configuration
 
@@ -70,7 +69,7 @@ Hephaion works with multiple model providers, giving you flexibility in cost, pe
 Via environment variable:
 
 ```bash
-export HEPHAION_MODEL="gpt-4-turbo"
+export HEPHAION_MODEL="provider-model-name"
 ```
 
 Or via `/settings` in the TUI.
@@ -96,24 +95,20 @@ reasoning level into each API's native controls:
 - **Custom endpoints** receive only provider-neutral fields unless they match a
   known official API profile.
 
-Native Anthropic and Google Gemini APIs require their own runtime transports, so
-they are not exposed as direct providers until those adapters exist.
+Native Gemini APIs require their own runtime transports, so they are not exposed
+as direct providers until those adapters exist.
 
 ### Context Window
 
-Different models have different context windows (maximum input size):
-
-- GPT-4 Turbo: 128k tokens
-- GPT-4: 8k-32k tokens (depending on variant)
-- Claude Opus: 200k tokens
-- GPT-3.5: 16k tokens
-
-Larger context windows can handle more documents at once but may be slower.
+Different models have different context windows, output limits, reasoning
+controls, and pricing. Heph uses retrieval so the full armory does not need to
+fit into one prompt, but larger context windows can still help when an answer
+needs more evidence at once.
 
 ### Cost Optimization
 
 1. **Use retrieval**: Heph retrieves only relevant chunks, reducing token usage
-2. **Choose appropriate model**: Don't use GPT-4 for simple queries
+2. **Choose appropriate model**: use faster or cheaper models for simple queries
 3. **Limit response length**: Set max tokens in settings
 4. **Cache results**: Memory feature avoids re-processing
 
@@ -128,7 +123,7 @@ Larger context windows can handle more documents at once but may be slower.
 
 Different providers have different rate limits:
 
-- **OpenAI**: Varies by tier (3-5000 RPM)
+- **OpenAI**: Varies by account, model, and tier
 - **DeepSeek**: Depends on account tier and model
 - **OpenRouter**: Depends on underlying model
 - **Pollinations**: Generally lenient
@@ -150,23 +145,20 @@ If a model isn't showing up in `/models`:
 ### Slow Responses
 
 1. Check your internet connection
-2. Try a different model (some are faster than others)
-3. Reduce `top_k` in retrieval settings
-4. Consider using a model with larger context window
+2. Try a different model or provider
+3. Consider using a model with larger context window
 
 ### Poor Quality Answers
 
-1. Increase `top_k` to retrieve more context
-2. Switch to a higher-quality model
-3. Check that your documents are properly indexed (`heph health`)
+1. Switch to a higher-quality model
+2. Check that your documents are properly indexed (`heph health`)
+3. Refresh the index with `heph index`
 4. Use `/evidence` to see what context was retrieved
 
 ## Future Models
 
-Hephaion is designed to be model-agnostic. As new models are released:
-
-1. Add them to provider registries
-2. Update model configuration
-3. No changes to your armories or documents needed
+Hephaion is designed to be model-agnostic. As new models are released, provider
+catalogs and configuration can change without changing your armories or
+documents.
 
 The architecture separates retrieval, citation checking, and model inference, so improvements in one area don't require changes in others.

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from ai.logging import get_logger
-from ai.runtime._api_types import ApiMessage, ContentPart
+from ai.runtime._api_types import ApiMessage
 
 _log = get_logger("ai.runtime.prompt_cache")
 
@@ -61,34 +61,6 @@ class StablePrefixBuilder:
             [_copy_message(message) for message in messages[stable.message_count :]],
         )
         return PromptCacheRequest(stable_prefix=stable, dynamic_tail=dynamic)
-
-
-def annotate_anthropic_cache_breakpoints(
-    request: PromptCacheRequest,
-    model: str,
-) -> PromptCacheRequest:
-    slug = model.lower()
-    if ("claude" not in slug and "anthropic" not in slug) or not request.stable_prefix.messages:
-        return request
-    messages = [_copy_message(message) for message in request.stable_prefix.messages]
-    cached_message = messages[-1]
-    content = cached_message.get("content")
-    parts: list[ContentPart]
-    if isinstance(content, str):
-        parts = [{"type": "text", "text": content}]
-    elif isinstance(content, list):
-        parts = [cast("ContentPart", dict(part)) for part in content]
-    else:
-        parts = [{"type": "text", "text": ""}]
-    if not parts:
-        parts.append({"type": "text", "text": ""})
-    parts[-1]["cache_control"] = {"type": "ephemeral"}
-    cached_message["content"] = parts
-    messages[-1] = cached_message
-    return PromptCacheRequest(
-        stable_prefix=_segment("stable_prefix", messages),
-        dynamic_tail=request.dynamic_tail,
-    )
 
 
 class MetricsLogger:

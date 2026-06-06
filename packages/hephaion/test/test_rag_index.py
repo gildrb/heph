@@ -14,6 +14,7 @@ from ai.providers.config import default_config
 from ai.runtime import ChatConfig, Conversation
 from heph import commands
 from heph.commands import model as _commands_model
+from hephaion.armory.storage import initialize
 from hephaion.chat.session import ChatSession, create_plain_session
 from hephaion.rag import index as rag_index
 from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
@@ -33,8 +34,7 @@ from interfaces.terminal.input import handle_input
 def armory(tmp_path: Path) -> Path:
     """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
-    (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaion").mkdir(parents=True)
+    initialize(arm)
 
     (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"
@@ -435,19 +435,19 @@ class TestIndexCommand:
         assert "No armory attached" in out
         assert "Use /armory" in out
 
-    def test_list_reports_cross_armory_locations(
+    def test_list_reports_available_armories(
         self,
         armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         session = create_plain_session(ChatConfig(api_key="test-key"))
+        monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory.parent))
 
-        commands.IndexCommand().handle(session, f"add {armory}")
-        capsys.readouterr()
         commands.IndexCommand().handle(session, "list")
 
         out = capsys.readouterr().out
-        assert "Cross-armory search locations:" in out
+        assert f"Armories in {armory.parent}" in out
         assert str(armory) in out
 
 

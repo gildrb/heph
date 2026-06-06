@@ -5,31 +5,34 @@
 *       @gildrb
 
 # Core CLI and shell
-/packages/hephaion/cli/       @gildrb
-/packages/hephaion/commands/  @gildrb
-/packages/hephaion/terminal/  @gildrb
+/packages/heph/src/heph/cli/                  @gildrb
+/packages/heph/src/heph/commands/             @gildrb
+/packages/interfaces/src/interfaces/terminal/ @gildrb
+/packages/interfaces/src/interfaces/tui/      @gildrb
 
 # LLM engine and chat
-/packages/hephaion/src/chat/      @gildrb
-/packages/hephaion/src/agent/     @gildrb
-/packages/hephaion/runtime/   @gildrb
+/packages/hephaion/src/hephaion/chat/  @gildrb
+/packages/hephaion/src/hephaion/agent/ @gildrb
+/packages/ai/src/ai/runtime/          @gildrb
 
 # Providers and authentication
-/packages/hephaion/providers/ @gildrb
+/packages/ai/src/ai/providers/ @gildrb
 
 # Armory and knowledge
-/packages/hephaion/src/armory/       @gildrb
-/packages/hephaion/src/materials/    @gildrb
-/packages/hephaion/src/rag/          @gildrb
-/packages/hephaion/src/study/        @gildrb
-/packages/hephaion/src/memory/       @gildrb
-/packages/hephaion/src/parameters/   @gildrb
+/packages/hephaion/src/hephaion/armory/     @gildrb
+/packages/hephaion/src/hephaion/materials/  @gildrb
+/packages/hephaion/src/hephaion/rag/        @gildrb
+/packages/hephaion/src/hephaion/study/      @gildrb
+/packages/hephaion/src/hephaion/memory/     @gildrb
+/packages/hephaion/src/hephaion/parameters/ @gildrb
 
 # Security-critical redaction code
-/packages/hephaion/logging.py    @gildrb
+/packages/ai/src/ai/logging/                  @gildrb
+/packages/hephaion/src/hephaion/privacy/      @gildrb
+/packages/hephaion/src/hephaion/diagnostics/  @gildrb
 
 # Infrastructure
-/tests/                   @gildrb
+/packages/*/test/         @gildrb
 /docs/                    @gildrb
 /scripts/                 @gildrb
 

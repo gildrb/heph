@@ -74,7 +74,6 @@ class ArmoryTurnMixin:
         due_reviews, memory_state = _learning_practice_context(self.session)
         prior_contract = _prior_contract_for_followup_seed(self.session)
         default_plan = _default_turn_plan(
-            self.session,
             original_learning_state,
             user_input,
             due_reviews=due_reviews,
@@ -114,7 +113,6 @@ class ArmoryTurnMixin:
 
 
 def _default_turn_plan(
-    session: ChatSession,
     original_learning_state: LearningState,
     user_input: str,
     *,

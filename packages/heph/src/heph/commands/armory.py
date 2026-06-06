@@ -5,11 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from hephaion.armory.search import (
-    add_known_armory,
-    load_known_armories,
-    remove_known_armory,
-)
+from hephaion.armory.search import load_available_armories
+from hephaion.armory.storage import default_armory_home
 from hephaion.chat.session import ChatSession, refresh_armory_sources
 from hephaion.materials import MATERIALS_DIR, material_display_name
 from hephaion.materials.importing import import_material_files, resolve_import_source
@@ -17,8 +14,6 @@ from hephaion.rag.index import ArmoryIndex, build_index
 from interfaces.terminal import print_error, print_info, print_success
 
 from heph.commands._base import Command, CommandResult, ensure_session
-
-_INDEX_REMOVE_COMMANDS = frozenset(("remove", "rm", "delete"))
 
 
 @dataclass(slots=True)
@@ -116,17 +111,12 @@ class IndexCommand(Command):
         s = ensure_session(session)
         parts = args.strip().split(maxsplit=1)
         subcmd = parts[0].lower() if parts else ""
-        value = parts[1].strip() if len(parts) > 1 else ""
 
         if not subcmd:
             return _handle_material_index_refresh(s)
         if subcmd == "list":
             return _handle_index_list()
-        if subcmd == "add":
-            return _handle_index_add(value)
-        if subcmd in _INDEX_REMOVE_COMMANDS:
-            return _handle_index_remove(value)
-        print_error("Usage: /index [list | add <path> | remove <path>]")
+        print_error("Usage: /index [list]")
         print_info("Run bare /index to refresh the current armory materials index.")
         return CommandResult()
 
@@ -166,34 +156,11 @@ def _count_label(count: int, noun: str) -> str:
 
 
 def _handle_index_list() -> CommandResult:
-    armories = load_known_armories()
+    armories = load_available_armories()
     if not armories:
-        print_info("No cross-armory search locations saved. Use /index add <path> to add one.")
+        print_info(f"No armories found in {default_armory_home()}. Use /armory to create one.")
         return CommandResult()
-    lines = ["Cross-armory search locations:"]
+    lines = [f"Armories in {default_armory_home()}:"]
     lines.extend(f"  {p}" for p in armories)
     print("\n".join(lines))
-    return CommandResult()
-
-
-def _handle_index_add(value: str) -> CommandResult:
-    if not value:
-        print_error("Usage: /index add <path>")
-        return CommandResult()
-    path = Path(value).expanduser().resolve()
-    if not path.is_dir():
-        print_error(f"Not a directory: {path}")
-        return CommandResult()
-    paths = add_known_armory(path)
-    print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
-    return CommandResult()
-
-
-def _handle_index_remove(value: str) -> CommandResult:
-    if not value:
-        print_error("Usage: /index remove <path>")
-        return CommandResult()
-    path = Path(value).expanduser().resolve()
-    paths = remove_known_armory(path)
-    print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
     return CommandResult()

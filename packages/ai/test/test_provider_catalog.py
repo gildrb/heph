@@ -15,14 +15,14 @@ from ai.providers.registry import ModelInfo, get_registry
 def _openrouter_live_catalog() -> LiveProviderCatalog:
     return LiveProviderCatalog(
         models=[
-            "anthropic/claude-sonnet-latest",
+            "google/gemini-3-flash-preview",
             "poolside/laguna-m.1:free",
         ],
         metadata=[
             ModelInfo(
-                "anthropic/claude-sonnet-latest",
+                "google/gemini-3-flash-preview",
                 "openrouter",
-                "Anthropic Claude Sonnet Latest",
+                "Google Gemini 3 Flash Preview",
                 1_000_000,
                 128_000,
                 0.003,
@@ -94,12 +94,12 @@ def test_configured_choices_uses_cached_openrouter_live_catalog(
     choices = configured_model_choices(config)
 
     assert config.providers["openrouter"].models == [
-        "anthropic/claude-sonnet-latest",
+        "google/gemini-3-flash-preview",
         "poolside/laguna-m.1:free",
     ]
     assert choices[0][0] == "openrouter"
     assert choices[0][1] == "poolside/laguna-m.1:free"
-    assert get_registry().get("anthropic/claude-sonnet-latest") is not None
+    assert get_registry().get("google/gemini-3-flash-preview") is not None
 
 
 def test_configured_choices_schedules_refresh_without_waiting(
@@ -148,10 +148,10 @@ def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
     )
 
     assert config.providers["openrouter"].models == [
-        "anthropic/claude-sonnet-latest",
+        "google/gemini-3-flash-preview",
         "poolside/laguna-m.1:free",
     ]
-    assert get_registry().get("anthropic/claude-sonnet-latest") is not None
+    assert get_registry().get("google/gemini-3-flash-preview") is not None
 
 
 def test_live_catalog_failure_keeps_static_models(
@@ -313,9 +313,9 @@ def test_models_dev_metadata_registers_openai_xhigh_and_non_openai_standard_reas
         },
         "openrouter": {
             "models": {
-                "anthropic/claude-opus-4-1": {
-                    "id": "anthropic/claude-opus-4-1",
-                    "name": "Claude Opus",
+                "test-lab/reasoning-model": {
+                    "id": "test-lab/reasoning-model",
+                    "name": "Reasoning Model",
                     "reasoning": True,
                     "tool_call": True,
                     "modalities": {"input": ["text"]},
@@ -331,7 +331,7 @@ def test_models_dev_metadata_registers_openai_xhigh_and_non_openai_standard_reas
     catalog.hydrate_provider_models(config, allow_network=True)
 
     openai_info = get_registry().get("gpt-test-5.5", provider="openai")
-    openrouter_info = get_registry().get("anthropic/claude-opus-4-1", provider="openrouter")
+    openrouter_info = get_registry().get("test-lab/reasoning-model", provider="openrouter")
     assert openai_info is not None
     assert openai_info.reasoning_efforts == ("low", "medium", "high", "xhigh")
     assert openai_info.input_modalities == ("text", "image")

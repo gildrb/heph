@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import os
-import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -48,7 +47,7 @@ def _resolve_armory_argument(path: str | None) -> Path | None:
     if _is_explicit_armory_path(path, candidate):
         return candidate
 
-    matches, prefix_matches = _known_armory_shortcut_matches(path)
+    matches, prefix_matches = _available_armory_shortcut_matches(path)
     if match := _single_shortcut_match(matches):
         return match
     if match := _single_shortcut_match(prefix_matches):
@@ -62,7 +61,7 @@ def _is_explicit_armory_path(raw_path: str, candidate: Path) -> bool:
     return candidate.exists() or any(separator in raw_path for separator in ("/", "\\"))
 
 
-def _known_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
+def _available_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
     search_index = importlib.import_module("hephaion.armory.search")
     entries = search_index.load_available_armory_entries()
     shortcut_lower = shortcut.lower()
@@ -273,8 +272,8 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         "Open Heph, the agent inside the Hephaion harness.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
-        f"  {parser.prog} gdp                     Open the known armory named gdp",
-        f"  {parser.prog} course-notes            Open the known armory named course-notes",
+        f"  {parser.prog} gdp                     Open ~/.armories/gdp",
+        f"  {parser.prog} course-notes            Open ~/.armories/course-notes",
         f"  {parser.prog} ./course-notes          Open an armory by path",
         f"  {parser.prog} armory course-notes    Create ~/.armories/course-notes",
         "  cp notes.pdf ~/.armories/course-notes/materials/",
@@ -304,52 +303,6 @@ def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> lis
     return argv
 
 
-def _confirm_move_armory_home(current_home: Path, target_home: Path) -> bool:
-    print("Your armories are currently stored here:")
-    print(f"  {current_home}")
-    print("You asked to use this location instead:")
-    print(f"  {target_home}")
-    try:
-        answer = input("Move the entire .armories folder there? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return False
-    return answer in ("y", "yes")
-
-
-def _move_armory_home(current_home: Path, target_home: Path) -> None:
-    if target_home.exists():
-        print(f"error: target .armories folder already exists: {target_home}", file=sys.stderr)
-        raise SystemExit(2)
-    target_home.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(current_home), str(target_home))
-    search_index = importlib.import_module("hephaion.armory.search")
-    moved_paths = [
-        target_home / path.relative_to(current_home) for path in search_index.load_known_armories()
-    ]
-    search_index.save_known_armories(moved_paths)
-    print(f"Moved .armories folder to {target_home}")
-
-
-def _validate_armory_home(target_home: Path) -> Path:
-    search_index = importlib.import_module("hephaion.armory.search")
-    known_homes: list[Path] = []
-    for entry in search_index.load_known_armory_entries():
-        if not entry.valid or entry.path.parent.name != ".armories":
-            continue
-        home = entry.path.parent
-        if home not in known_homes:
-            known_homes.append(home)
-    if not known_homes or target_home in known_homes:
-        return target_home
-    current_home = known_homes[0]
-    if _confirm_move_armory_home(current_home, target_home):
-        _move_armory_home(current_home, target_home)
-        return target_home
-    print("Cancelled. To keep using your existing .armories folder, rerun without the path.")
-    raise SystemExit(2)
-
-
 def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
     if (
         len(argv) < 2
@@ -368,8 +321,7 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
         raise SystemExit(2)
     armory_cli = importlib.import_module("hephaion.armory.cli")
     target = armory_cli.armory_shortcut_path(argv[1])
-    target_home = _validate_armory_home(target.parent)
-    return ["armory", "init", str(target_home / target.name)]
+    return ["armory", "init", str(target)]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -403,7 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
         "tui",
         help=argparse.SUPPRESS,
     )
-    tui.add_argument("path", nargs="?", help="Armory path or known armory name to open")
+    tui.add_argument("path", nargs="?", help="Armory name or explicit path to open")
     tui.set_defaults(handler=_cmd_tui)
 
     armory_cli = importlib.import_module("hephaion.armory.cli")
@@ -470,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _remember_initialized_armory(path: Path) -> None:
     search_index = importlib.import_module("hephaion.armory.search")
-    search_index.add_known_armory(path)
+    search_index.remember_armory(path)
 
 
 def _normalise_argv(argv: list[str]) -> list[str]:

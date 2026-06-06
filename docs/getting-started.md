@@ -80,7 +80,7 @@ Supported formats:
 heph exams
 ```
 
-Or from any directory:
+Or with an explicit armory path:
 
 ```bash
 heph ~/.armories/exams

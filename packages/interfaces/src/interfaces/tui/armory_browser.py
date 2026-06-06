@@ -22,9 +22,9 @@ from typing import ClassVar
 
 from hephaion.armory.search import (
     MAX_RECENT_ARMORIES,
-    KnownArmory,
-    load_known_armory_entries,
+    ArmoryEntry,
     load_recent_armory_entries,
+    load_remembered_armory_entries,
 )
 from hephaion.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaion.matching import ranked_matches
@@ -238,18 +238,18 @@ def _recent_entries() -> list[_DirEntry]:
     entries: list[_DirEntry] = []
     recent = load_recent_armory_entries()
     if not recent:
-        recent = load_known_armory_entries()
-    for known in recent:
+        recent = load_remembered_armory_entries()
+    for remembered in recent:
         if len(entries) >= MAX_RECENT_ARMORIES:
             break
-        if entry := _recent_entry(known):
+        if entry := _recent_entry(remembered):
             entries.append(entry)
     return entries
 
 
-def _recent_entry(known: KnownArmory) -> _DirEntry | None:
-    path = _resolved_armory_home_child(known.path)
-    if not known.valid or path is None:
+def _recent_entry(remembered: ArmoryEntry) -> _DirEntry | None:
+    path = _resolved_armory_home_child(remembered.path)
+    if not remembered.valid or path is None:
         return None
     return _DirEntry(
         f"{_RECENT_PREFIX}{path.name}{_ARMORY_BADGE}",

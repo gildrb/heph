@@ -11,11 +11,11 @@ from ai.runtime import ChatConfig
 from heph import commands
 from heph.commands import CommandResult
 from hephaion.armory.search import (
-    add_known_armory,
     get_last_armory,
-    load_known_armories,
     load_recent_armory_entries,
-    save_known_armories,
+    load_remembered_armories,
+    remember_armory,
+    save_remembered_armories,
     set_last_armory,
 )
 from hephaion.armory.storage import initialize
@@ -49,7 +49,7 @@ def clean_armory_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
-    save_known_armories([])
+    save_remembered_armories([])
     return armory_home
 
 
@@ -75,19 +75,19 @@ class TestDiscoverStartupArmory:
         result = discover_startup_armory()
         assert result == initialized_armory
 
-    def test_falls_back_to_single_known_armory(
+    def test_falls_back_to_single_remembered_armory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
         armory = clean_armory_env / "my-armory"
         initialize(armory)
 
-        add_known_armory(armory)
+        remember_armory(armory)
 
         result = discover_startup_armory()
         assert result == armory
 
-    def test_returns_none_when_multiple_known_armories(
+    def test_returns_none_when_multiple_remembered_armories(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
@@ -96,13 +96,13 @@ class TestDiscoverStartupArmory:
         initialize(armory_a)
         initialize(armory_b)
 
-        add_known_armory(armory_a)
-        add_known_armory(armory_b)
+        remember_armory(armory_a)
+        remember_armory(armory_b)
 
         result = discover_startup_armory()
         assert result is None
 
-    def test_ignores_invalid_known_armories(
+    def test_ignores_invalid_remembered_armories(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
@@ -112,7 +112,7 @@ class TestDiscoverStartupArmory:
         not_armory = clean_armory_env / "not-armory"
         not_armory.mkdir()
 
-        save_known_armories([armory, not_armory])
+        save_remembered_armories([armory, not_armory])
 
         result = discover_startup_armory()
         assert result == armory
@@ -137,7 +137,7 @@ class TestDiscoverStartupArmory:
         result = discover_startup_armory()
         assert result == armory
 
-        known = load_known_armories()
+        known = load_remembered_armories()
         assert armory in known
 
     def test_returns_none_when_multiple_armories_in_armories_home(
@@ -160,8 +160,8 @@ class TestDiscoverStartupArmory:
         armory_b = clean_armory_env / "armory-b"
         initialize(armory_a)
         initialize(armory_b)
-        add_known_armory(armory_a)
-        add_known_armory(armory_b)
+        remember_armory(armory_a)
+        remember_armory(armory_b)
         set_last_armory(armory_b)
 
         result = discover_startup_armory()
@@ -274,7 +274,7 @@ class TestCreateStartupSession:
         assert isinstance(session, ChatSession)
         assert session.armory_path is None
 
-    def test_multiple_known_armories_do_not_prompt_before_tui(
+    def test_multiple_remembered_armories_do_not_prompt_before_tui(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -286,8 +286,8 @@ class TestCreateStartupSession:
         armory_b = clean_armory_env / "armory-b"
         initialize(armory_a)
         initialize(armory_b)
-        add_known_armory(armory_a)
-        add_known_armory(armory_b)
+        remember_armory(armory_a)
+        remember_armory(armory_b)
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
 
         monkeypatch.setattr(
@@ -321,7 +321,7 @@ class TestCreateStartupSession:
 
         session = create_startup_session(config)
 
-        known = load_known_armories()
+        known = load_remembered_armories()
         assert session.armory_path is None
         assert armory_a.resolve() in known
         assert armory_b.resolve() in known

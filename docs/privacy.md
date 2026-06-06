@@ -71,8 +71,8 @@ This is necessary for the model to process your request. Choose providers you tr
 
 Different providers have different data policies:
 
-- **OpenAI**: May use data for improvement unless you opt out
-- **Anthropic**: Generally does not use data for training
+- **OpenAI API and business products**: OpenAI says API Platform data is not used
+  to train models by default unless the account explicitly opts in
 - **Pollinations AI**: Check their specific policy
 - **Custom endpoints**: Depends on your endpoint
 
@@ -140,7 +140,7 @@ is cleared by `/logout` or process exit.
 ### Never in Config Files
 
 Hephaion never writes API keys to:
-- `.hephaion/config.json`
+- armory `.hephaion/` state
 - Any other configuration files
 - Git history
 
@@ -189,7 +189,7 @@ export HTTPS_PROXY="http://proxy.example.com:8080"
 
 ### For Model Providers
 
-1. **Choose reputable providers**: OpenAI, Anthropic, etc.
+1. **Choose reputable providers**: review each provider before sending private material.
 2. **Review privacy policies**: Understand how your data is handled
 3. **Use API keys responsibly**: Don't share keys, rotate them periodically
 4. **Consider local models**: Use local LLMs for maximum privacy (future feature)
@@ -293,9 +293,10 @@ To revoke Hephaion's access to your accounts:
 
 Planned enhancements:
 
-- **Local model support**: Use models running entirely on your machine
+- **Dedicated local model UX**: Make fully local models easier to configure
 - **E2E encryption**: Encrypt data before sending to providers
-- **Federated learning**: Improve models without sending raw data
+- **Optional learning export**: Share metadata-only learning summaries by default,
+  with separate confirmation before any private content leaves an armory
 - **Audit logs**: Detailed logs of all data access
 
 Have a privacy concern or suggestion? Please open an issue or email hi@gildrb.com

@@ -148,7 +148,7 @@ packages/
   hephaion/
     src/hephaion/
       agent/       Prompt building, citation, tool registry/handlers
-      armory/      Armory data, validation, and known-armory lookup
+      armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
       matching/    Fuzzy matching helpers for human-facing selectors

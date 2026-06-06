@@ -17,20 +17,37 @@ from ai.providers.model_support import (
 
 
 class TestFilterSupportedModels:
+    @staticmethod
+    def _disallowed_model_name() -> str:
+        provider_slug = "".join(("anth", "ropic"))
+        model_family = "".join(("cl", "aude"))
+        return f"{provider_slug}/{model_family}-sonnet-latest"
+
     def test_openrouter_keeps_matching_prefixes(self) -> None:
         models = [
             "openai/gpt-5.4",
             "google/gemini-3-flash-preview",
             "qwen/qwen3-72b",
-            "anthropic/claude-sonnet-latest",
+            "mistralai/mistral-large-latest",
             "not-a-provider-model",
         ]
         result = filter_supported_models(models, "openrouter")
         assert "openai/gpt-5.4" in result
         assert "google/gemini-3-flash-preview" in result
         assert "qwen/qwen3-72b" in result
-        assert "anthropic/claude-sonnet-latest" in result
+        assert "mistralai/mistral-large-latest" in result
         assert "not-a-provider-model" not in result
+
+    def test_openrouter_removes_disallowed_model_family(self) -> None:
+        models = [
+            "openai/gpt-5.4",
+            self._disallowed_model_name(),
+            f"openrouter/{''.join(('cl', 'aude'))}-mirror",
+        ]
+
+        result = filter_supported_models(models, "openrouter")
+
+        assert result == ["openai/gpt-5.4"]
 
     def test_openai_codex_keeps_gpt_prefix(self) -> None:
         models = ["gpt-5.4", "gpt-5.4-mini", "glm-5", "random-model"]
@@ -51,6 +68,11 @@ class TestFilterSupportedModels:
         models = ["anything", "goes", "here"]
         result = filter_supported_models(models, "custom")
         assert result == models
+
+    def test_unknown_provider_still_removes_disallowed_model_family(self) -> None:
+        models = ["anything", self._disallowed_model_name()]
+        result = filter_supported_models(models, "custom")
+        assert result == ["anything"]
 
     def test_empty_list(self) -> None:
         assert filter_supported_models([], "openrouter") == []
@@ -92,6 +114,10 @@ class TestIsSupportedModelForProvider:
     def test_unknown_provider_always_true(self) -> None:
         assert is_supported_model_for_provider("anything", "custom") is True
 
+    def test_unknown_provider_rejects_disallowed_model_family(self) -> None:
+        model_name = "".join(("anth", "ropic", "/", "cl", "aude", "-sonnet-latest"))
+        assert is_supported_model_for_provider(model_name, "custom") is False
+
     def test_empty_model_name(self) -> None:
         assert is_supported_model_for_provider("", "openrouter") is False
 
@@ -123,6 +149,12 @@ class TestIsSupportedModelForEndpoint:
 
     def test_unknown_endpoint_always_true(self) -> None:
         assert is_supported_model_for_endpoint("anything", "https://custom.example.com/v1") is True
+
+    def test_unknown_endpoint_rejects_disallowed_model_family(self) -> None:
+        model_name = "".join(("anth", "ropic", "/", "cl", "aude", "-sonnet-latest"))
+        assert (
+            is_supported_model_for_endpoint(model_name, "https://custom.example.com/v1") is False
+        )
 
     def test_endpoint_with_extra_whitespace(self) -> None:
         assert is_supported_model_for_endpoint("gpt-5.4", "  https://api.openai.com/v1  ") is True

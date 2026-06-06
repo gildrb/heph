@@ -27,7 +27,7 @@ labels: bug, triage
 - Hephaion version: <!-- run `heph --version` or `uv run heph --version` -->
 - Python version:
 - OS:
-- Provider: <!-- OpenAI / Anthropic / other -->
+- Provider: <!-- provider name, if relevant -->
 
 ## Logs or screenshots
 

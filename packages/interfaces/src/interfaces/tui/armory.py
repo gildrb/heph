@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, overload
 
-from hephaion.armory.search import add_known_armory, set_last_armory
+from hephaion.armory.search import remember_armory, set_last_armory
 from hephaion.armory.storage import ArmoryError, initialize
 from hephaion.armory.storage import validate as _validate_armory
 from hephaion.materials import count_material_files
@@ -636,7 +636,7 @@ class TuiArmoryMixin:
                 f"Could not create armory: {exc}"
             )
             return
-        add_known_armory(armory_path)
+        remember_armory(armory_path)
         self._close_armory_inline()
         self._append_notice(f"Created armory '{armory_path.name}' at {armory_path}")
         display_root = _display_path(armory_path.parent)
