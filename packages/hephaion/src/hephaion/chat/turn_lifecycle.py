@@ -44,6 +44,8 @@ class _TurnLifecycleHost(Protocol):
 
     def _prepare_turn(self, user_input: str) -> _PreparedTurn: ...
 
+    def _reset_learning_attempt_overrides(self) -> None: ...
+
     def _record_user_turn(self, user_input: str) -> None: ...
 
     def _iter_prepared_turn(
@@ -145,6 +147,7 @@ class TurnLifecycleMixin:
         self.last_reply = ""
         self.last_internal_passes = 1
         self._last_reply_citation_required = None
+        self._reset_learning_attempt_overrides()
         decision = check_user_input(
             user_input,
             conversation=tuple(

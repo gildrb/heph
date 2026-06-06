@@ -70,12 +70,27 @@ class ExportedAttemptPolicy(AttemptPolicyProtocol):
         self.fallback = StaticAttemptPolicy()
 
     def choose(self, observation: AttemptObservation) -> AttemptAction:
-        return self.artifact.table.get(observation_bucket(observation)) or self.fallback.choose(
-            observation
+        return (
+            self.artifact.table.get(observation_bucket(observation))
+            or self.artifact.table.get(_legacy_observation_bucket(observation))
+            or self.fallback.choose(observation)
         )
 
 
 def observation_bucket(observation: AttemptObservation) -> str:
+    return "|".join(
+        (
+            _citation_bucket(observation),
+            _evidence_bucket(observation),
+            _relevance_bucket(observation),
+            _source_bucket(observation),
+            _length_bucket(observation),
+            _overview_bucket(observation),
+        )
+    )
+
+
+def _legacy_observation_bucket(observation: AttemptObservation) -> str:
     return "|".join(
         (
             _citation_bucket(observation),
@@ -105,6 +120,14 @@ def _evidence_bucket(observation: AttemptObservation) -> str:
     elif not observation.evidence_sufficient:
         evidence_state = "thin_evidence"
     return evidence_state
+
+
+def _relevance_bucket(observation: AttemptObservation) -> str:
+    if observation.off_topic_answer:
+        return "off_topic"
+    if observation.answer_relevance_required and observation.answer_relevance_score < 0.35:
+        return "weak_relevance"
+    return "relevant"
 
 
 def _source_bucket(observation: AttemptObservation) -> str:

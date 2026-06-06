@@ -26,6 +26,7 @@ from hephaion.chat.turn_contract import (
 from hephaion.chat.turn_predicates import (
     _overview_turn,
 )
+from hephaion.learning.observation import AttemptObservation
 from hephaion.rag.context import TurnEvidence
 from hephaion.study.prompt_plans import LearningTurnPlan
 from hephaion.study.state import LearningAction
@@ -208,8 +209,12 @@ def _deterministic_learning_reply(
 def _source_qa_abstain_reply(
     plan: LearningTurnPlan,
     resolved: ResolvedTurnPlan,
+    *,
+    force: bool = False,
 ) -> str:
     assessment = resolved.evidence_assessment
+    if force:
+        return "The current evidence does not contain a direct source answer for this request."
     if (
         plan.action is not LearningAction.SOURCE_QA
         or (resolved.turn_evidence is None and bool(plan.retrieval_query))
@@ -219,6 +224,28 @@ def _source_qa_abstain_reply(
     ):
         return ""
     return "The current evidence does not contain a direct source answer for this request."
+
+
+def _validation_guard_abstain_reply(
+    resolved: ResolvedTurnPlan,
+    observation: AttemptObservation,
+) -> str:
+    if observation.citation_required and observation.evidence_count > 0:
+        contract = resolved.turn_contract
+        if contract is not None and contract.resolved_intent == "material_overview":
+            return (
+                "I found relevant material evidence, but could not produce a grounded overview "
+                "with verifiable citations for this turn."
+            )
+        return (
+            "I found relevant evidence, but could not produce a grounded answer with "
+            "verifiable citations for this turn."
+        )
+    if resolved.learning_plan is not None:
+        runtime_reply = _source_qa_abstain_reply(resolved.learning_plan, resolved)
+        if runtime_reply:
+            return runtime_reply
+    return "I could not produce a grounded answer from the current model output."
 
 
 def _plain_empty_reply(user_input: str, config: ChatConfig) -> str:

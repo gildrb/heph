@@ -31,6 +31,13 @@ class _EvidenceAssessmentStats:
 
 
 @dataclass(frozen=True, slots=True)
+class _AnswerRelevanceStats:
+    score: float = 1.0
+    required: bool = False
+    off_topic: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AttemptObservation:
     attempt_index: int = 1
     intent: str = ""
@@ -50,6 +57,9 @@ class AttemptObservation:
     all_citations_verified: bool = True
     unverified_citation_count: int = 0
     unsupported_claim_count: int = 0
+    answer_relevance_score: float = 1.0
+    answer_relevance_required: bool = False
+    off_topic_answer: bool = False
     missing_required_citation_count: int = 0
     confident_thin_evidence: bool = False
     reply_chars: int = 0
@@ -77,6 +87,9 @@ class AttemptObservation:
             "all_citations_verified": self.all_citations_verified,
             "unverified_citation_count": self.unverified_citation_count,
             "unsupported_claim_count": self.unsupported_claim_count,
+            "answer_relevance_score": self.answer_relevance_score,
+            "answer_relevance_required": self.answer_relevance_required,
+            "off_topic_answer": self.off_topic_answer,
             "missing_required_citation_count": self.missing_required_citation_count,
             "confident_thin_evidence": self.confident_thin_evidence,
             "reply_chars": self.reply_chars,
@@ -108,6 +121,13 @@ class AttemptObservation:
             all_citations_verified=_payload_bool(payload, "all_citations_verified", default=True),
             unverified_citation_count=_payload_int(payload, "unverified_citation_count"),
             unsupported_claim_count=_payload_int(payload, "unsupported_claim_count"),
+            answer_relevance_score=_payload_float(
+                payload,
+                "answer_relevance_score",
+                default=1.0,
+            ),
+            answer_relevance_required=_payload_bool(payload, "answer_relevance_required"),
+            off_topic_answer=_payload_bool(payload, "off_topic_answer"),
             missing_required_citation_count=_payload_int(
                 payload,
                 "missing_required_citation_count",
@@ -134,9 +154,19 @@ def build_attempt_observation(
     latency_ms: float,
     internal_passes: int,
     cost_usd: float = 0.0,
+    request_text: str = "",
+    answer_relevance_required: bool = False,
 ) -> AttemptObservation:
     evidence_stats = _evidence_stats(evidence)
     assessment_stats = _assessment_stats(evidence_assessment)
+    relevance_stats = _answer_relevance_stats(
+        request_text=request_text,
+        reply=reply,
+        evidence=evidence,
+        evidence_assessment=evidence_assessment,
+        citation_result=citation_result,
+        required=answer_relevance_required,
+    )
     return AttemptObservation(
         attempt_index=max(1, attempt_index),
         intent=intent,
@@ -155,7 +185,10 @@ def build_attempt_observation(
         citation_count=citation_result.citation_count,
         all_citations_verified=citation_result.all_verified,
         unverified_citation_count=len(citation_result.unverified),
-        unsupported_claim_count=0,
+        unsupported_claim_count=1 if relevance_stats.off_topic else 0,
+        answer_relevance_score=relevance_stats.score,
+        answer_relevance_required=relevance_stats.required,
+        off_topic_answer=relevance_stats.off_topic,
         missing_required_citation_count=(
             1 if citation_required and reply and not citation_result.has_citations else 0
         ),
@@ -165,6 +198,92 @@ def build_attempt_observation(
         cost_usd=max(0.0, cost_usd),
         internal_passes=max(1, internal_passes),
     )
+
+
+def _answer_relevance_stats(
+    *,
+    request_text: str,
+    reply: str,
+    evidence: TurnEvidence | None,
+    evidence_assessment: EvidenceAssessment | None,
+    citation_result: VerificationResult,
+    required: bool,
+) -> _AnswerRelevanceStats:
+    if not required:
+        return _AnswerRelevanceStats(required=False)
+    request_terms = _content_terms(request_text)
+    if len(request_terms) < 2 or not reply.strip():
+        return _AnswerRelevanceStats(required=True)
+    reply_terms = _content_terms(reply)
+    cited_evidence_terms = _cited_evidence_terms(
+        evidence,
+        evidence_assessment=evidence_assessment,
+        citation_result=citation_result,
+    )
+    reply_score = _coverage(request_terms, reply_terms)
+    evidence_score = _coverage(request_terms, cited_evidence_terms)
+    cited_support_score = _coverage(reply_terms, cited_evidence_terms)
+    source_backed_score = min(evidence_score, cited_support_score)
+    score = max(reply_score, source_backed_score)
+    return _AnswerRelevanceStats(
+        score=score,
+        required=True,
+        off_topic=reply_score < 0.12 and source_backed_score < 0.12,
+    )
+
+
+def _content_terms(text: str) -> frozenset[str]:
+    return frozenset(
+        token
+        for token in _iter_normalized_tokens(text)
+        if len(token) >= 4 and not token.isdecimal()
+    )
+
+
+def _cited_evidence_terms(
+    evidence: TurnEvidence | None,
+    *,
+    evidence_assessment: EvidenceAssessment | None,
+    citation_result: VerificationResult,
+) -> frozenset[str]:
+    if evidence is None:
+        return frozenset()
+    cited_refs = tuple(citation_result.verified)
+    if not cited_refs and evidence_assessment is not None:
+        cited_refs = tuple(evidence_assessment.supporting_refs)
+    chunks = tuple(
+        chunk
+        for evidence_id in cited_refs
+        if (chunk := evidence.get(evidence_id)) is not None
+    )
+    if not chunks:
+        return frozenset()
+    return frozenset(
+        term
+        for chunk in chunks
+        for term in _content_terms(f"{chunk.source}\n{chunk.content}")
+    )
+
+
+def _iter_normalized_tokens(text: str) -> tuple[str, ...]:
+    tokens: list[str] = []
+    current: list[str] = []
+    for character in text.casefold():
+        if character.isalnum():
+            current.append(character)
+            continue
+        if current:
+            tokens.append("".join(current))
+            current.clear()
+    if current:
+        tokens.append("".join(current))
+    return tuple(tokens)
+
+
+def _coverage(required_terms: frozenset[str], candidate_terms: frozenset[str]) -> float:
+    if not required_terms:
+        return 1.0
+    return round(len(required_terms & candidate_terms) / len(required_terms), 4)
 
 
 def _confident_thin_evidence(assessment_stats: _EvidenceAssessmentStats) -> bool:
@@ -229,10 +348,15 @@ def _payload_int(
     return default
 
 
-def _payload_float(payload: Mapping[str, object], key: str) -> float:
+def _payload_float(
+    payload: Mapping[str, object],
+    key: str,
+    *,
+    default: float = 0.0,
+) -> float:
     value = payload.get(key)
     if isinstance(value, bool):
-        return 0.0
+        return default
     if isinstance(value, int | float):
         return float(value)
-    return 0.0
+    return default

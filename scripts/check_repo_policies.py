@@ -162,6 +162,19 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "openai",
         }
     ),
+    "hephaion/learning/training.py": frozenset(
+        {
+            "hephaion.learning.puffer_backend",
+        }
+    ),
+    "hephaion/learning/puffer_backend.py": frozenset(
+        {
+            "gymnasium",
+            "numpy",
+            "pufferlib",
+            "torch",
+        }
+    ),
     "interfaces/terminal/input.py": frozenset(
         {
             "hephaion.chat.session",
@@ -258,6 +271,7 @@ HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
         "empty_armory_guidance",
         "tui_dependency_message",
         "_unindexable_material_reply",
+        "_validation_guard_abstain_reply",
     }
 )
 HARDCODED_ANSWER_MESSAGE: Final[str] = (

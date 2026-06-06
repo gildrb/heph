@@ -141,6 +141,16 @@ def _apply_turn_contract_to_plan(
         retrieval_strategy=retrieval_strategy,
         retrieval_query=retrieval_query,
     )
+    if _prior_followup_should_transform_prior_answer(contract, prior_contract=prior_contract):
+        contract = replace(
+            contract,
+            answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+            prior_answer_reference=True,
+            prior_answer_positions=(),
+            prior_answer_position_basis="",
+        )
+        retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
+        retrieval_query = None
     if (
         prior_contract is not None
         and prior_contract.evidence_refs
@@ -337,6 +347,22 @@ def _prior_followup_should_reason_from_prior(
         and not contract.direct_evidence_required
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
         and retrieval_strategy in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
+    )
+
+
+def _prior_followup_should_transform_prior_answer(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+) -> bool:
+    return (
+        prior_contract is not None
+        and bool(prior_contract.evidence_refs)
+        and contract.is_followup
+        and contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR
+        and contract.answer_format == ANSWER_FORMAT_PLAIN
+        and not contract.direct_evidence_required
+        and not _content_terms(contract.original_user_input)
     )
 
 
@@ -944,6 +970,7 @@ def _turn_contract_with_prior_replay_state(
         prior_turn_resolved_intent=prior_contract.resolved_intent,
         prior_turn_canonical_request=prior_contract.canonical_request,
         prior_turn_evidence_refs=prior_contract.evidence_refs,
+        prior_turn_validation_result=prior_contract.validation_result,
         prior_answer_excerpt=(
             _trace_excerpt(prior_answer.content, limit=_PRIOR_ANSWER_CONTEXT_LIMIT)
             if prior_answer is not None
@@ -980,6 +1007,7 @@ def _reset_unreplayable_followup_state(
         prior_turn_resolved_intent="",
         prior_turn_canonical_request="",
         prior_turn_evidence_refs=(),
+        prior_turn_validation_result="",
         prior_answer_excerpt="",
     )
     requires_direct_evidence = _contract_requires_direct_source_support(

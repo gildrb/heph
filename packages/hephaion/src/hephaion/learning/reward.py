@@ -76,6 +76,10 @@ def score_attempt_reward(
     _add_citation_components(components, observation)
     _add_evidence_components(components, observation)
     _add_cost_components(components, observation)
+    if accepted:
+        _add_accept_decision_components(components, observation)
+    elif abstained:
+        _add_abstain_decision_components(components, observation)
     _add_terminal_components(
         components,
         observation,
@@ -141,6 +145,8 @@ def _add_evidence_components(
         _add(components, "thin_evidence", -0.20)
     if observation.confident_thin_evidence:
         _add(components, "confident_thin_evidence", -0.65)
+    if observation.answer_relevance_required and not observation.off_topic_answer:
+        _add(components, "answer_relevance", 0.10 * observation.answer_relevance_score)
     if observation.distinct_source_count >= 2:
         _add(components, "source_diversity", 0.15)
 
@@ -175,6 +181,8 @@ def _add_accept_decision_components(
     components: list[RewardComponent],
     observation: AttemptObservation,
 ) -> None:
+    if observation.off_topic_answer:
+        _add(components, "accepted_off_topic_answer", -1.00)
     if observation.unsupported_claim_count:
         _add(components, "accepted_unsupported_claims", -0.90)
     if observation.missing_required_citation_count:
@@ -310,15 +318,15 @@ def _grounded_accept(observation: AttemptObservation) -> bool:
 
 def _should_abstain(observation: AttemptObservation) -> bool:
     return bool(
-        observation.evidence_recommended_action == "abstain"
+        observation.off_topic_answer
+        or observation.evidence_recommended_action == "abstain"
         or (observation.evidence_count == 0 and observation.citation_required)
     )
 
 
 def _needs_grounded_retry(observation: AttemptObservation) -> bool:
     return bool(
-        observation.citation_required
-        and observation.evidence_count > 0
+        observation.evidence_count > 0
         and (
             not observation.has_citations
             or not observation.all_citations_verified

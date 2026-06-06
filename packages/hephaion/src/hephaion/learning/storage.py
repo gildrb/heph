@@ -18,6 +18,8 @@ LEARNING_DIR = ".hephaion/learning"
 POLICIES_DIR = "policies"
 REPLAY_DIR = "replay"
 ATTEMPTS_FILE = "attempts.jsonl"
+AUTOMATION_EVENTS_FILE = "automation-events.jsonl"
+AUTOMATION_STATE_FILE = "automation-state.json"
 ATTEMPT_SCHEMA_VERSION = 1
 EPISODE_SCHEMA_VERSION = 2
 
@@ -258,6 +260,14 @@ class LearningStore:
     @property
     def replay_dir(self) -> Path:
         return self.root / REPLAY_DIR
+
+    @property
+    def automation_state_path(self) -> Path:
+        return self.root / AUTOMATION_STATE_FILE
+
+    @property
+    def automation_events_path(self) -> Path:
+        return self.root / AUTOMATION_EVENTS_FILE
 
     def ensure_layout(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)

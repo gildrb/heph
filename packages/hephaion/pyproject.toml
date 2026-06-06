@@ -7,8 +7,12 @@ license = "GPL-3.0-only"
 requires-python = ">=3.13"
 dependencies = [
     "docling==2.94.0",
+    "gymnasium==0.29.1",
     "heph-ai==0.1.0",
     "heph-extensions==0.1.0",
+    "numpy==1.26.4",
+    "pufferlib==3.0.0",
+    "torch==2.11.0",
     "unicodeit==0.7.5",
 ]
 

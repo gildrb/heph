@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Generator, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from ai.runtime.engine import build_client, stream_completion
 from ai.runtime.errors import RetryConfig
@@ -56,6 +56,102 @@ from hephaion.study.state import LearningAction, LearningState
 
 if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
+
+
+class _LearningReplyEmissionHost(Protocol):
+    session: ChatSession
+    last_reply: str
+    last_internal_passes: int
+    _last_reply_citation_required: bool | None
+
+    def _apply_learning_reply(
+        self,
+        original_learning_state: LearningState,
+        plan: LearningTurnPlan,
+        reply: str,
+        *,
+        source_refs: list[str],
+    ) -> str: ...
+
+    def _apply_deterministic_reply(
+        self,
+        original_learning_state: LearningState,
+        plan: LearningTurnPlan,
+        reply: str,
+        *,
+        user_input: str,
+        source_refs: list[str] | None = None,
+        updates_learning_state: bool,
+    ) -> str: ...
+
+    def _prepare_learning_reply_for_emit(
+        self,
+        resolved: ResolvedTurnPlan,
+        final_reply: str,
+        *,
+        user_input: str,
+        latency_ms: float,
+    ) -> tuple[ResolvedTurnPlan, str]: ...
+
+    def _record_learning_review_if_needed(
+        self,
+        original_learning_state: LearningState,
+        plan: LearningTurnPlan,
+        source_refs: list[str],
+    ) -> None: ...
+
+    def _restore_learning_state_for_rewritten_reply(
+        self,
+        original_learning_state: LearningState,
+        applied_reply: str,
+        final_reply: str,
+    ) -> bool: ...
+
+    def _iter_final_learning_reply_events(
+        self,
+        plan: LearningTurnPlan,
+        completion_event: TurnCompleteEvent | None,
+        *,
+        raw_reply: str,
+        streamed_reply: str,
+        final_reply: str,
+    ) -> Iterator[TurnEvent]: ...
+
+    def _iter_empty_learning_reply_events(
+        self,
+        resolved: ResolvedTurnPlan,
+        original_learning_state: LearningState,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]: ...
+
+    def _iter_deterministic_learning_reply_events(
+        self,
+        deterministic_reply: _DeterministicLearningReply,
+        resolved: ResolvedTurnPlan,
+        original_learning_state: LearningState,
+        plan: LearningTurnPlan,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]: ...
+
+    def _iter_learning_agent_events(
+        self,
+        resolved: ResolvedTurnPlan,
+        original_learning_state: LearningState,
+        *,
+        user_input: str,
+        abort: threading.Event | None,
+    ) -> Generator[TurnEvent, None, _LearningAgentOutput]: ...
+
+    def _iter_agent_learning_reply_events(
+        self,
+        agent_output: _LearningAgentOutput,
+        resolved: ResolvedTurnPlan,
+        original_learning_state: LearningState,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]: ...
 
 
 class TurnExecutionMixin:
@@ -164,7 +260,7 @@ class TurnExecutionMixin:
         yield event
 
     def _iter_empty_learning_reply_events(
-        self,
+        self: _LearningReplyEmissionHost,
         resolved: ResolvedTurnPlan,
         original_learning_state: LearningState,
         *,
@@ -184,6 +280,18 @@ class TurnExecutionMixin:
             plan,
             fallback_reply,
             source_refs=_evidence_refs(resolved.turn_evidence),
+        )
+        applied_reply = final_reply
+        _, final_reply = self._prepare_learning_reply_for_emit(
+            resolved,
+            final_reply,
+            user_input=user_input,
+            latency_ms=0.0,
+        )
+        self._restore_learning_state_for_rewritten_reply(
+            original_learning_state,
+            applied_reply,
+            final_reply,
         )
         yield from _final_reply_events(final_reply)
 
@@ -238,7 +346,7 @@ class TurnExecutionMixin:
             yield AssistantDeltaEvent(suffix)
 
     def _iter_learning_events(
-        self,
+        self: _LearningReplyEmissionHost,
         resolved: ResolvedTurnPlan,
         original_learning_state: LearningState,
         *,
@@ -253,6 +361,7 @@ class TurnExecutionMixin:
         if deterministic_reply := _deterministic_learning_reply(session, plan, resolved):
             yield from self._iter_deterministic_learning_reply_events(
                 deterministic_reply,
+                resolved,
                 original_learning_state,
                 plan,
                 user_input=user_input,
@@ -276,8 +385,9 @@ class TurnExecutionMixin:
         )
 
     def _iter_deterministic_learning_reply_events(
-        self,
+        self: _LearningReplyEmissionHost,
         deterministic_reply: _DeterministicLearningReply,
+        resolved: ResolvedTurnPlan,
         original_learning_state: LearningState,
         plan: LearningTurnPlan,
         *,
@@ -294,10 +404,22 @@ class TurnExecutionMixin:
             source_refs=deterministic_reply.source_refs,
             updates_learning_state=deterministic_reply.updates_learning_state,
         )
+        applied_reply = final_reply
+        _, final_reply = self._prepare_learning_reply_for_emit(
+            resolved,
+            final_reply,
+            user_input=user_input,
+            latency_ms=0.0,
+        )
+        self._restore_learning_state_for_rewritten_reply(
+            original_learning_state,
+            applied_reply,
+            final_reply,
+        )
         yield from _final_reply_events(final_reply)
 
     def _iter_agent_learning_reply_events(
-        self,
+        self: _LearningReplyEmissionHost,
         agent_output: _LearningAgentOutput,
         resolved: ResolvedTurnPlan,
         original_learning_state: LearningState,
@@ -340,15 +462,31 @@ class TurnExecutionMixin:
                 visible_reply,
                 source_refs=source_refs,
             )
+        else:
+            source_refs = []
+            session.learning_state = original_learning_state
+            final_reply = raw_reply
+
+        applied_reply = final_reply
+        resolved, final_reply = self._prepare_learning_reply_for_emit(
+            resolved,
+            final_reply,
+            user_input=user_input,
+            latency_ms=(
+                completion_event.latency_ms if completion_event is not None else 0.0
+            ),
+        )
+        reply_rewritten = self._restore_learning_state_for_rewritten_reply(
+            original_learning_state,
+            applied_reply,
+            final_reply,
+        )
+        if raw_reply and not reply_rewritten:
             self._record_learning_review_if_needed(
                 original_learning_state,
                 plan,
                 source_refs,
             )
-        else:
-            session.learning_state = original_learning_state
-            final_reply = raw_reply
-
         yield from self._iter_final_learning_reply_events(
             plan,
             completion_event,
@@ -400,6 +538,17 @@ class TurnExecutionMixin:
         self.last_reply = final_reply
         self._append_assistant_message(final_reply)
         return final_reply
+
+    def _restore_learning_state_for_rewritten_reply(
+        self,
+        original_learning_state: LearningState,
+        applied_reply: str,
+        final_reply: str,
+    ) -> bool:
+        if final_reply == applied_reply:
+            return False
+        self.session.learning_state = original_learning_state.clone()
+        return True
 
     def _append_assistant_message(self, reply: str) -> None:
         if reply and (

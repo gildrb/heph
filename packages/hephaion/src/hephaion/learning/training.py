@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,6 +25,7 @@ from hephaion.learning.storage import AttemptRecord, LearningStore
 
 PUBLIC_SYNTHETIC_REPLAY = Path(__file__).parent / "fixtures" / "public_synthetic_replay.jsonl"
 TRAINING_REPORT_SCHEMA_VERSION = 1
+PUFFERLIB_BACKEND_NAME = "pufferlib"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,12 +185,13 @@ class TrainedTablePolicy:
 def train_attempt_policy(
     *,
     armory_path: Path,
-    dataset_paths: Sequence[Path] = (),
+    dataset_paths: Sequence[Path] | None = None,
     include_local: bool = True,
-    backend: str = "table",
+    backend: str = PUFFERLIB_BACKEND_NAME,
     promote: bool = False,
+    clear_failed_promotion: bool = True,
 ) -> TrainingReport:
-    if backend != "table":
+    if backend != PUFFERLIB_BACKEND_NAME:
         raise ValueError(f"unknown learning backend: {backend}")
     store = LearningStore(armory_path)
     records = load_training_records(
@@ -197,7 +201,7 @@ def train_attempt_policy(
     )
     split = split_records(records)
     policy_id = _policy_id(records)
-    table = _train_table(split.train)
+    table, backend_metadata = _train_policy_table(split.train, backend)
     trained_policy = TrainedTablePolicy(table)
     fallback = StaticAttemptPolicy()
     baseline_metrics = evaluate_policy(split.heldout, fallback)
@@ -224,6 +228,7 @@ def train_attempt_policy(
         "baseline_metrics": baseline_metrics.to_dict(),
         "trained_policy_metrics": trained_metrics.to_dict(),
         "backend": backend,
+        "backend_metadata": backend_metadata,
     }
     artifact = ExportedPolicyArtifact(
         policy_id=policy_id,
@@ -236,7 +241,7 @@ def train_attempt_policy(
     if decision == "promote":
         write_exported_policy(store.policies_dir / PROMOTED_POLICY_FILE, artifact)
         _write_json(store.policies_dir / PROMOTION_MANIFEST_FILE, manifest)
-    elif promote:
+    elif promote and clear_failed_promotion:
         _clear_promoted_policy(store.policies_dir)
     return TrainingReport(
         policy_id=policy_id,
@@ -257,11 +262,11 @@ def train_attempt_policy(
 def load_training_records(
     *,
     armory_path: Path,
-    dataset_paths: Sequence[Path],
+    dataset_paths: Sequence[Path] | None,
     include_local: bool,
 ) -> tuple[AttemptRecord, ...]:
     records: list[AttemptRecord] = []
-    paths = tuple(dataset_paths) or (PUBLIC_SYNTHETIC_REPLAY,)
+    paths = (PUBLIC_SYNTHETIC_REPLAY,) if dataset_paths is None else tuple(dataset_paths)
     for path in paths:
         records.extend(load_records_from_jsonl(path))
     if include_local:
@@ -279,6 +284,24 @@ def load_records_from_jsonl(path: Path) -> tuple[AttemptRecord, ...]:
             if record is not None:
                 records.append(record)
     return tuple(records)
+
+
+def _train_policy_table(
+    records: Sequence[AttemptRecord],
+    backend: str,
+) -> tuple[dict[str, AttemptAction], Mapping[str, object]]:
+    if backend == PUFFERLIB_BACKEND_NAME:
+        with tempfile.TemporaryDirectory(prefix="heph-pufferlib-import-") as import_dir:
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(import_dir)
+                from hephaion.learning.puffer_backend import train_pufferlib_policy_table
+            finally:
+                os.chdir(original_cwd)
+
+        result = train_pufferlib_policy_table(records, bucket=observation_bucket)
+        return dict(result.table), result.metadata
+    raise ValueError(f"unknown learning backend: {backend}")
 
 
 def _clear_promoted_policy(policies_dir: Path) -> None:
@@ -323,28 +346,6 @@ def evaluate_record_policy(
         else:
             actions.append(policy.choose(record.observation))
     return _evaluate_actions(records, tuple(actions))
-
-
-def _train_table(records: Sequence[AttemptRecord]) -> dict[str, AttemptAction]:
-    totals: dict[str, dict[AttemptAction, float]] = {}
-    counts: dict[str, dict[AttemptAction, int]] = {}
-    for record in records:
-        bucket = observation_bucket(record.observation)
-        bucket_totals = totals.setdefault(bucket, {})
-        bucket_counts = counts.setdefault(bucket, {})
-        for action in AttemptAction:
-            outcome = record.outcome_for(action)
-            bucket_totals[action] = bucket_totals.get(action, 0.0) + outcome.reward.total
-            bucket_counts[action] = bucket_counts.get(action, 0) + 1
-    table: dict[str, AttemptAction] = {}
-    for bucket, bucket_totals in totals.items():
-        table[bucket] = max(
-            AttemptAction,
-            key=lambda action: (
-                bucket_totals.get(action, -1.0) / max(1, counts[bucket].get(action, 0))
-            ),
-        )
-    return table
 
 
 def _evaluate_actions(

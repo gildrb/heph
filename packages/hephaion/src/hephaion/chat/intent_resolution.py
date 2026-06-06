@@ -476,5 +476,6 @@ def _prior_turn_contract_intent_context(
     return (
         f"intent={contract.resolved_intent or prior_intent or 'unknown'}; "
         f"mode={contract.answer_mode}; retrieval={contract.retrieval_strategy}; "
-        f"refs={_intent_contract_refs_text(contract.evidence_refs)}."
+        f"refs={_intent_contract_refs_text(contract.evidence_refs)}; "
+        f"validation={contract.validation_result or 'unknown'}."
     )

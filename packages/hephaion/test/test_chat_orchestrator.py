@@ -1211,6 +1211,7 @@ def test_resolved_user_intent_includes_prior_turn_contract_state() -> None:
     assert "intent=material_overview" in user_prompt
     assert "retrieval=overview" in user_prompt
     assert "source-a.md#chunk=0" in user_prompt
+    assert "validation=ok" in user_prompt
     assert "+1 more" in user_prompt
     assert "Current user request:\nwhy is that important?" in user_prompt
 
@@ -1621,8 +1622,16 @@ def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> N
             "hephaion.chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
-                    AssistantDeltaEvent("Follow-up answer [E1]"),
-                    TurnCompleteEvent("Follow-up answer [E1]", 0, 1.0, "stop", 100),
+                    AssistantDeltaEvent(
+                        "The previous cited answer implies another compactness point [E1]."
+                    ),
+                    TurnCompleteEvent(
+                        "The previous cited answer implies another compactness point [E1].",
+                        0,
+                        1.0,
+                        "stop",
+                        100,
+                    ),
                 ]
             ),
         ),
@@ -1784,6 +1793,7 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
 
+    focused_reply = "The study-methods evidence about feedback supports a focused answer [E1]."
     with (
         patch(
             "hephaion.chat.intent_resolution._resolved_user_intent",
@@ -1804,8 +1814,8 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
             "hephaion.chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
-                    AssistantDeltaEvent("Focused answer [E1]"),
-                    TurnCompleteEvent("Focused answer [E1]", 0, 1.0, "stop", 100),
+                    AssistantDeltaEvent(focused_reply),
+                    TurnCompleteEvent(focused_reply, 0, 1.0, "stop", 100),
                 ]
             ),
         ),
@@ -1955,6 +1965,9 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
 
+    relevance_reply = (
+        "The prior material overview matters because those topics are foundations [E1]."
+    )
     with (
         patch(
             "hephaion.chat.intent_resolution._resolved_user_intent",
@@ -1979,14 +1992,8 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
             "hephaion.chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
-                    AssistantDeltaEvent("Those topics matter as foundations [E1]."),
-                    TurnCompleteEvent(
-                        "Those topics matter as foundations [E1].",
-                        0,
-                        1.0,
-                        "stop",
-                        100,
-                    ),
+                    AssistantDeltaEvent(relevance_reply),
+                    TurnCompleteEvent(relevance_reply, 0, 1.0, "stop", 100),
                 ]
             ),
         ),
@@ -2026,6 +2033,10 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
 
+    comparison_reply = (
+        "The last two points compare the smallest supporting phrase with forming a grounded "
+        "answer [E1]."
+    )
     with (
         patch(
             "hephaion.chat.intent_resolution._resolved_user_intent",
@@ -2049,8 +2060,8 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
             "hephaion.chat.turn_execution.iter_agent_events",
             return_value=iter(
                 [
-                    AssistantDeltaEvent("Focused answer [E1]"),
-                    TurnCompleteEvent("Focused answer [E1]", 0, 1.0, "stop", 100),
+                    AssistantDeltaEvent(comparison_reply),
+                    TurnCompleteEvent(comparison_reply, 0, 1.0, "stop", 100),
                 ]
             ),
         ),
@@ -4827,6 +4838,44 @@ def test_substantive_prior_transform_becomes_reasoning_followup() -> None:
     assert "practical real-world use" in (updated_plan.retrieval_query or "")
 
 
+def test_vague_prior_clarification_transforms_prior_answer_without_retrieval() -> None:
+    prior = TurnContract(
+        original_user_input="What is the material about?",
+        resolved_intent="material_overview",
+        canonical_request="Summarize the material.",
+        retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
+        retrieval_query="material overview",
+        evidence_refs=("materials/topic.md#chunk=0",),
+    )
+    plan = _plan(
+        action=LearningAction.PRESENT,
+        retrieval_query="material overview",
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    )
+    contract = TurnContract(
+        original_user_input="what does that mean",
+        resolved_intent="material_overview",
+        canonical_request="Explain the prior answer in simpler terms.",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
+        retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        retrieval_query="material overview",
+        evidence_refs=prior.evidence_refs,
+        prior_answer_reference=True,
+    )
+
+    updated_plan, updated_contract = _apply_turn_contract_to_plan(
+        plan,
+        contract,
+        prior_contract=prior,
+    )
+
+    assert updated_contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
+    assert updated_contract.prior_answer_reference is True
+    assert updated_plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+    assert updated_plan.retrieval_query is None
+
+
 def test_reasoned_relevance_mode_keeps_recent_history_and_contract_guidance() -> None:
     session = _session()
     session.conversation.add("user", "What is the material about?")
@@ -4858,6 +4907,28 @@ def test_reasoned_relevance_mode_keeps_recent_history_and_contract_guidance() ->
     assert request.conversation.messages[-1].content == "why is that important?"
     assert "reason_from_prior_evidence" in context
     assert "Referenced-answer reasoning" in context
+
+
+def test_prior_verified_outcome_context_blocks_false_ungrounded_premise() -> None:
+    contract = TurnContract(
+        original_user_input="why can't you produce a grounded material overview?",
+        resolved_intent="material_overview",
+        canonical_request="Explain the prior overview grounding status.",
+        is_followup=True,
+        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
+        prior_answer_reference=True,
+        prior_turn_original_user_input="what is the material about?",
+        prior_turn_resolved_intent="material_overview",
+        prior_turn_canonical_request="Summarize the material.",
+        prior_turn_evidence_refs=("materials/overview.md#chunk=0",),
+        prior_turn_validation_result="ok",
+    )
+
+    context = _turn_contract_prompt_context(contract)
+
+    assert "validation=ok" in context
+    assert "was verified with cited evidence" in context
+    assert "Do not describe it as ungrounded" in context
 
 
 def test_material_followup_keeps_recent_context_even_without_followup_contract() -> None:
@@ -5092,6 +5163,7 @@ def test_turn_contract_with_prior_replay_state_captures_prior_answer_and_refs() 
     assert enriched.prior_turn_resolved_intent == "material_overview"
     assert enriched.prior_turn_canonical_request == "Summarize the material."
     assert enriched.prior_turn_evidence_refs == ("materials/overview.md#chunk=0",)
+    assert enriched.prior_turn_validation_result == "ok"
     assert enriched.prior_answer_excerpt == "It covers sequences and series [E1]."
 
 
@@ -5107,6 +5179,7 @@ def test_turn_contract_serializes_prior_replay_state() -> None:
         prior_turn_resolved_intent="material_overview",
         prior_turn_canonical_request="Summarize the material.",
         prior_turn_evidence_refs=("materials/overview.md#chunk=0",),
+        prior_turn_validation_result="ok",
         prior_answer_excerpt="It covers sequences and series [E1].",
         validation_result="ok",
     )

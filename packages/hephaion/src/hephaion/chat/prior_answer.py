@@ -121,8 +121,18 @@ def _turn_contract_prompt_context(contract: TurnContract | None) -> str:
         lines.append(
             "Prior: "
             f"intent={contract.prior_turn_resolved_intent or 'unknown'}; "
-            f"refs={_intent_contract_refs_text(contract.prior_turn_evidence_refs)}."
+            f"refs={_intent_contract_refs_text(contract.prior_turn_evidence_refs)}; "
+            f"validation={contract.prior_turn_validation_result or 'unknown'}."
         )
+        if (
+            contract.prior_turn_validation_result == "ok"
+            and contract.prior_turn_evidence_refs
+        ):
+            lines.append(
+                "Prior outcome: the referenced prior answer was verified with cited evidence. "
+                "Do not describe it as ungrounded; if the current request assumes failure, "
+                "correct that premise and explain any remaining limits from evidence."
+            )
     lines.append(
         "Use current evidence for facts. Conversation text resolves references or requested shape "
         "only. Cite source claims; keep inference brief and clearly separated; keep compact; "

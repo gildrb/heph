@@ -33,7 +33,7 @@ from hephaion.chat.evidence import (
 from hephaion.chat.evidence import (
     resolve_turn_evidence as _resolve_turn_evidence,
 )
-from hephaion.chat.learning_reply import _source_qa_abstain_reply
+from hephaion.chat.learning_reply import _source_qa_abstain_reply, _validation_guard_abstain_reply
 from hephaion.chat.learning_signals import (
     _learner_assessment_trace,
     _pedagogy_validation_trace,
@@ -43,6 +43,12 @@ from hephaion.chat.learning_signals import (
 from hephaion.chat.material_state import _material_operation_events
 from hephaion.chat.reply_repair import _MAX_INTERNAL_PASSES
 from hephaion.chat.titles import derive_title
+from hephaion.chat.turn_contract import (
+    ANSWER_MODE_REASON_FROM_PRIOR,
+    ANSWER_MODE_TRANSFORM_PRIOR,
+    RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    TurnContract,
+)
 from hephaion.chat.turn_history import build_turn_snapshot
 from hephaion.chat.turn_planning import (
     _resolved_turn_intent,
@@ -59,6 +65,7 @@ from hephaion.chat.turn_predicates import (
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.learning.actions import AttemptAction
+from hephaion.learning.automation import maybe_auto_train_attempt_policy
 from hephaion.learning.environment import LiveHephEnv
 from hephaion.learning.observation import AttemptObservation, build_attempt_observation
 from hephaion.learning.policy_artifact import ExportedAttemptPolicy, load_runtime_policy
@@ -102,6 +109,12 @@ class TurnFinalizationMixin:
     _last_reply_citation_required: bool | None
     _learning_action_override: AttemptAction | None
     _learning_recommended_action_override: AttemptAction | None
+    _learning_followup_seed_blocked: bool
+
+    def _reset_learning_attempt_overrides(self) -> None:
+        self._learning_action_override = None
+        self._learning_recommended_action_override = None
+        self._learning_followup_seed_blocked = False
 
     def _resolve_timed_turn_plan(self, plan: LearningTurnPlan) -> ResolvedTurnPlan:
         session = self.session
@@ -163,8 +176,6 @@ class TurnFinalizationMixin:
         *,
         latency_ms: float,
     ) -> str:
-        self._learning_action_override = None
-        self._learning_recommended_action_override = None
         resolved = _resolved_with_citation_requirement(
             resolved,
             citation_required=self._last_reply_citation_required,
@@ -181,6 +192,21 @@ class TurnFinalizationMixin:
             user_input=user_input,
             latency_ms=latency_ms,
         )
+        resolved = self._apply_structural_validation_guard(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+        )
+        resolved = self._apply_structural_relevance_guard(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+        )
+        visible_evidence = _visible_turn_evidence(resolved)
+        followup_evidence = None if self._learning_followup_seed_blocked else visible_evidence
+        followup_contract = (
+            None if self._learning_followup_seed_blocked else resolved.turn_contract
+        )
         notice = self._verification_notice(resolved, visible_evidence)
         resolved = _resolved_with_validation_result(resolved, notice)
         self._mark_session_dirty()
@@ -192,26 +218,61 @@ class TurnFinalizationMixin:
             notice=notice,
         )
         if _turn_contract_can_seed_followup(
-            resolved.turn_contract,
-            visible_evidence=visible_evidence,
+            followup_contract,
+            visible_evidence=followup_evidence,
         ):
             self.session.last_plan_intent = _resolved_turn_intent(resolved)
-            self.session.last_turn_contract = resolved.turn_contract
+            self.session.last_turn_contract = followup_contract
+        elif self._learning_followup_seed_blocked:
+            self.session.last_turn_contract = None
         snapshot = build_turn_snapshot(
             self.session.conversation,
             self.session.turn_history,
             learning_state=self.session.learning_state,
             user_input=user_input,
             assistant_reply=self.last_reply,
-            evidence=visible_evidence,
+            evidence=followup_evidence,
             plan_intent=_resolved_turn_intent(resolved),
-            contract=resolved.turn_contract,
+            contract=followup_contract,
         )
         if snapshot is not None:
             self.session.turn_history.append(snapshot)
-        self._schedule_memory_extraction(user_input, visible_evidence)
+        self._schedule_memory_extraction(user_input, followup_evidence)
         self._save_usage_if_armory_session()
         return notice
+
+    def _prepare_learning_reply_for_emit(
+        self,
+        resolved: ResolvedTurnPlan,
+        final_reply: str,
+        *,
+        user_input: str,
+        latency_ms: float,
+    ) -> tuple[ResolvedTurnPlan, str]:
+        self.last_reply = final_reply
+        visible_evidence = _visible_turn_evidence(resolved)
+        resolved = _resolved_with_visible_evidence_refs(
+            resolved,
+            self.last_reply,
+            visible_evidence,
+        )
+        resolved = self._apply_promoted_runtime_action(
+            resolved,
+            visible_evidence,
+            user_input=user_input,
+            latency_ms=latency_ms,
+        )
+        resolved = self._apply_structural_validation_guard(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+        )
+        resolved = self._apply_structural_relevance_guard(
+            resolved,
+            visible_evidence,
+            latency_ms=latency_ms,
+        )
+        return resolved, self.last_reply
 
     def _verification_notice(
         self,
@@ -300,6 +361,26 @@ class TurnFinalizationMixin:
                 for component in attempt.record.reward.components
             },
         )
+        self._maybe_auto_train_learning_policy()
+
+    def _maybe_auto_train_learning_policy(self) -> None:
+        session = self.session
+        if session.armory_path is None:
+            return
+        try:
+            decision = maybe_auto_train_attempt_policy(session.armory_path)
+        except (OSError, RuntimeError, ValueError):
+            _log.warning("automated learning-policy training failed", exc_info=True)
+            return
+        session.trace.record_session_event(
+            "learning_auto_train",
+            status=decision.status,
+            reason=decision.reason,
+            attempt_count=decision.attempt_count,
+            new_attempt_count=decision.new_attempt_count,
+            policy_id=decision.report.policy_id if decision.report is not None else "",
+            training_decision=(decision.report.decision if decision.report is not None else ""),
+        )
 
     def _apply_promoted_runtime_action(
         self,
@@ -336,6 +417,86 @@ class TurnFinalizationMixin:
         self.last_reply = runtime_reply
         self._replace_last_assistant_message(self.last_reply)
         self._last_reply_citation_required = False
+        self.session.last_turn_evidence = None
+        self.session.last_turn_contract = None
+        self._learning_followup_seed_blocked = True
+        resolved = _resolved_with_citation_requirement(resolved, citation_required=False)
+        return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
+
+    def _apply_structural_validation_guard(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+        *,
+        latency_ms: float,
+    ) -> ResolvedTurnPlan:
+        if self._learning_action_override is not None:
+            return resolved
+        observation = _policy_observation(
+            resolved,
+            visible_evidence,
+            reply=self.last_reply,
+            latency_ms=latency_ms,
+            internal_passes=self.last_internal_passes,
+        )
+        if not _unsafe_validation_failure(observation):
+            return resolved
+        runtime_policy = load_runtime_policy(self.session.armory_path)
+        recommended_action = runtime_policy.choose(observation)
+        if recommended_action is AttemptAction.ACCEPT:
+            recommended_action = _validation_failure_action(observation)
+        guard_reply = _validation_guard_abstain_reply(resolved, observation)
+        self._learning_action_override = AttemptAction.ABSTAIN
+        self._learning_recommended_action_override = recommended_action
+        self.last_reply = guard_reply
+        self._replace_last_assistant_message(self.last_reply)
+        self.session.trace.record_session_event(
+            "learning_validation_guard",
+            recommended_action=recommended_action.value,
+            missing_required_citations=observation.missing_required_citation_count,
+            unverified_citations=observation.unverified_citation_count,
+            citation_required=observation.citation_required,
+        )
+        self.session.last_turn_evidence = None
+        self.session.last_turn_contract = None
+        self._learning_followup_seed_blocked = True
+        return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
+
+    def _apply_structural_relevance_guard(
+        self,
+        resolved: ResolvedTurnPlan,
+        visible_evidence: TurnEvidence | None,
+        *,
+        latency_ms: float,
+    ) -> ResolvedTurnPlan:
+        if self._learning_action_override is not None:
+            return resolved
+        observation = _policy_observation(
+            resolved,
+            visible_evidence,
+            reply=self.last_reply,
+            latency_ms=latency_ms,
+            internal_passes=self.last_internal_passes,
+        )
+        if not observation.off_topic_answer:
+            return resolved
+        abstain_reply = _structural_abstain_reply(resolved)
+        if not abstain_reply:
+            return resolved
+        self._learning_action_override = AttemptAction.ABSTAIN
+        self._learning_recommended_action_override = AttemptAction.ABSTAIN
+        self.last_reply = abstain_reply
+        self._replace_last_assistant_message(self.last_reply)
+        self._last_reply_citation_required = False
+        self.session.trace.record_session_event(
+            "learning_relevance_guard",
+            answer_relevance_score=observation.answer_relevance_score,
+            retrieval_strategy=observation.retrieval_strategy,
+            answer_mode=observation.answer_mode,
+        )
+        self.session.last_turn_evidence = None
+        self.session.last_turn_contract = None
+        self._learning_followup_seed_blocked = True
         resolved = _resolved_with_citation_requirement(resolved, citation_required=False)
         return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
 
@@ -527,7 +688,7 @@ def _attempt_record(
         citation_result,
         required=observation.citation_required,
     )
-    evidence_validation = _evidence_validation_states(resolved)
+    evidence_validation = _evidence_validation_states(resolved, observation)
     validation_states = (*citation_validation, *evidence_validation)
     turn_id = _learning_turn_id(session)
     return new_attempt_record(
@@ -576,7 +737,10 @@ def _learning_turn_id(session: ChatSession) -> str:
     return f"{session.session_id}:{len(session.turn_history) + 1}"
 
 
-def _evidence_validation_states(resolved: ResolvedTurnPlan) -> tuple[ValidationState, ...]:
+def _evidence_validation_states(
+    resolved: ResolvedTurnPlan,
+    observation: AttemptObservation,
+) -> tuple[ValidationState, ...]:
     assessment = resolved.evidence_assessment
     if assessment is None:
         return (ValidationState(name="evidence_assessed", passed=False, detail="missing"),)
@@ -590,6 +754,11 @@ def _evidence_validation_states(resolved: ResolvedTurnPlan) -> tuple[ValidationS
             name="evidence_source_diversity",
             passed=assessment.source_diversity_score > 0,
             detail=f"{assessment.source_diversity_score:.3f}",
+        ),
+        ValidationState(
+            name="answer_relevance",
+            passed=not observation.off_topic_answer,
+            detail=f"{observation.answer_relevance_score:.3f}",
         ),
     )
 
@@ -633,6 +802,8 @@ def _policy_observation(
         latency_ms=latency_ms,
         internal_passes=internal_passes,
         cost_usd=cost_usd,
+        request_text=_answer_relevance_target(contract),
+        answer_relevance_required=_answer_relevance_required(contract),
     )
 
 
@@ -641,6 +812,81 @@ def _runtime_abstain_reply(resolved: ResolvedTurnPlan) -> str:
     if plan is None:
         return ""
     return _source_qa_abstain_reply(plan, resolved)
+
+
+def _unsafe_validation_failure(observation: AttemptObservation) -> bool:
+    if observation.off_topic_answer:
+        return False
+    if observation.reply_chars <= 0:
+        return True
+    if observation.citation_required and (
+        not observation.has_citations
+        or not observation.all_citations_verified
+        or observation.unverified_citation_count > 0
+        or observation.missing_required_citation_count > 0
+    ):
+        return True
+    return bool(observation.unsupported_claim_count)
+
+
+def _validation_failure_action(observation: AttemptObservation) -> AttemptAction:
+    if observation.evidence_count <= 0:
+        return AttemptAction.RETRY_EXPAND_EVIDENCE
+    if observation.citation_required or observation.unsupported_claim_count:
+        return AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
+    return AttemptAction.ABSTAIN
+
+
+def _answer_relevance_required(contract: TurnContract | None) -> bool:
+    if contract is None:
+        return False
+    return bool(
+        contract.prior_answer_reference
+        or contract.answer_mode
+        in {
+            ANSWER_MODE_REASON_FROM_PRIOR,
+            ANSWER_MODE_TRANSFORM_PRIOR,
+        }
+        or contract.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        or contract.direct_evidence_required
+    )
+
+
+def _answer_relevance_target(contract: TurnContract | None) -> str:
+    if contract is None:
+        return ""
+    return "\n".join(
+        value
+        for value in (
+            getattr(contract, "canonical_request", ""),
+            getattr(contract, "retrieval_query", ""),
+            getattr(contract, "original_user_input", ""),
+            _prior_answer_relevance_target(contract),
+        )
+        if isinstance(value, str) and value.strip()
+    )
+
+
+def _prior_answer_relevance_target(contract: TurnContract) -> str:
+    if contract.retrieval_query.strip():
+        return ""
+    if not (
+        contract.prior_answer_reference
+        or contract.answer_mode
+        in {
+            ANSWER_MODE_REASON_FROM_PRIOR,
+            ANSWER_MODE_TRANSFORM_PRIOR,
+        }
+    ):
+        return ""
+    return contract.prior_answer_excerpt
+
+
+def _structural_abstain_reply(resolved: ResolvedTurnPlan) -> str:
+    plan = resolved.learning_plan
+    if plan is None:
+        return ""
+    return _source_qa_abstain_reply(plan, resolved, force=True)
 
 
 def _final_action_for_observation(observation: AttemptObservation) -> AttemptAction:
