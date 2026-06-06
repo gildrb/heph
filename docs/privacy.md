@@ -52,6 +52,12 @@ include raw questions, retrieved excerpts, replies, structural reward
 components, and policy artifacts. They are not sent through analytics or crash
 reporting.
 
+Training uses labeled public/synthetic replay fixtures and, when you choose to
+include it, armory-local replay. Promotion requires a local manifest with
+dataset counts, train/held-out split counts, baseline metrics, trained-policy
+metrics, and the decision. If the trained policy does not beat the unchanged
+static fallback on held-out data, Heph keeps the fallback as the runtime default.
+
 Treat `.hephaion/learning/` as private armory data. Any future export flow must
 be explicit and separate from the normal `.armories` copy/sync workflow;
 metadata-only export should be the default, and private-content export should

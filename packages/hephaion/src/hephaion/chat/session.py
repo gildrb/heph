@@ -83,6 +83,7 @@ class ChatSession:
     trace: TraceWriter = field(init=False, repr=False)
     steering: Steering = field(default_factory=Steering, init=False, repr=False)
     learning_state: LearningState = field(default_factory=LearningState)
+    _last_learning_cost_usd: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))

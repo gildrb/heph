@@ -49,8 +49,12 @@ class AttemptObservation:
     citation_count: int = 0
     all_citations_verified: bool = True
     unverified_citation_count: int = 0
+    unsupported_claim_count: int = 0
+    missing_required_citation_count: int = 0
+    confident_thin_evidence: bool = False
     reply_chars: int = 0
     latency_ms: float = 0.0
+    cost_usd: float = 0.0
     internal_passes: int = 1
 
     def to_dict(self) -> dict[str, object]:
@@ -72,8 +76,12 @@ class AttemptObservation:
             "citation_count": self.citation_count,
             "all_citations_verified": self.all_citations_verified,
             "unverified_citation_count": self.unverified_citation_count,
+            "unsupported_claim_count": self.unsupported_claim_count,
+            "missing_required_citation_count": self.missing_required_citation_count,
+            "confident_thin_evidence": self.confident_thin_evidence,
             "reply_chars": self.reply_chars,
             "latency_ms": self.latency_ms,
+            "cost_usd": self.cost_usd,
             "internal_passes": self.internal_passes,
         }
 
@@ -99,8 +107,15 @@ class AttemptObservation:
             citation_count=_payload_int(payload, "citation_count"),
             all_citations_verified=_payload_bool(payload, "all_citations_verified", default=True),
             unverified_citation_count=_payload_int(payload, "unverified_citation_count"),
+            unsupported_claim_count=_payload_int(payload, "unsupported_claim_count"),
+            missing_required_citation_count=_payload_int(
+                payload,
+                "missing_required_citation_count",
+            ),
+            confident_thin_evidence=_payload_bool(payload, "confident_thin_evidence"),
             reply_chars=_payload_int(payload, "reply_chars"),
             latency_ms=_payload_float(payload, "latency_ms"),
+            cost_usd=_payload_float(payload, "cost_usd"),
             internal_passes=_payload_int(payload, "internal_passes", default=1),
         )
 
@@ -118,6 +133,7 @@ def build_attempt_observation(
     reply: str,
     latency_ms: float,
     internal_passes: int,
+    cost_usd: float = 0.0,
 ) -> AttemptObservation:
     evidence_stats = _evidence_stats(evidence)
     assessment_stats = _assessment_stats(evidence_assessment)
@@ -139,9 +155,23 @@ def build_attempt_observation(
         citation_count=citation_result.citation_count,
         all_citations_verified=citation_result.all_verified,
         unverified_citation_count=len(citation_result.unverified),
+        unsupported_claim_count=0,
+        missing_required_citation_count=(
+            1 if citation_required and reply and not citation_result.has_citations else 0
+        ),
+        confident_thin_evidence=_confident_thin_evidence(assessment_stats),
         reply_chars=len(reply),
         latency_ms=max(0.0, latency_ms),
+        cost_usd=max(0.0, cost_usd),
         internal_passes=max(1, internal_passes),
+    )
+
+
+def _confident_thin_evidence(assessment_stats: _EvidenceAssessmentStats) -> bool:
+    return bool(
+        not assessment_stats.sufficient
+        and assessment_stats.confidence >= 0.65
+        and assessment_stats.recommended_action != "abstain"
     )
 
 

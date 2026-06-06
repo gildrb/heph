@@ -149,6 +149,10 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Check indexed materials for generic extraction problems; defaults to the current armory."
     ),
     "heph index [path]": "Build or refresh the materials index; defaults to the current armory.",
+    "heph learning train [path]": (
+        "Train a local harness action policy from replay data; writes reports and artifacts under "
+        "the armory's `.hephaion/learning/policies/` tree."
+    ),
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -271,6 +275,10 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} health [path]",
             CLI_COMMAND_DESCRIPTIONS["heph health [path]"],
+        ),
+        CommandLine(
+            f"{short_command} learning train [path]",
+            CLI_COMMAND_DESCRIPTIONS["heph learning train [path]"],
         ),
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} config show", config_help["show"]),

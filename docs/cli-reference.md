@@ -16,6 +16,7 @@
 | `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph index [path]` | Build or refresh the materials index; defaults to the current armory. |
 | `heph health [path]` | Check indexed materials for generic extraction problems; defaults to the current armory. |
+| `heph learning train [path]` | Train a local harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
 | `heph update` | Show how to update the active Heph install. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
