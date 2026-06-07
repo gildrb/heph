@@ -151,25 +151,12 @@ def _apply_turn_contract_to_plan(
         )
         retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
         retrieval_query = None
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
-    ):
-        retrieval_query = _fresh_current_request_query(contract)
-        if _current_request_introduces_fresh_content(contract, prior_contract):
-            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        else:
-            retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
-            retrieval_query = None
-    if _reuse_prior_needs_current_retrieval(
+    retrieval_strategy, retrieval_query = _prior_followup_retrieval_strategy(
         contract,
         prior_contract=prior_contract,
         retrieval_strategy=retrieval_strategy,
-    ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        retrieval_query = _fresh_current_request_query(contract)
+        retrieval_query=retrieval_query,
+    )
     if _source_request_needs_current_retrieval(
         contract,
         prior_contract=prior_contract,
@@ -178,19 +165,12 @@ def _apply_turn_contract_to_plan(
     ):
         retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
         retrieval_query = _fresh_current_request_query(contract)
-    if _transform_followup_introduces_substantive_request(
+    contract, retrieval_strategy, retrieval_query = _apply_reasoning_followup_contract(
         contract,
         prior_contract=prior_contract,
-    ):
-        contract = replace(
-            contract,
-            answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
-            prior_answer_reference=True,
-            prior_answer_positions=(),
-            prior_answer_position_basis="",
-        )
-        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        retrieval_query = _current_request_query(contract)
+        retrieval_strategy=retrieval_strategy,
+        retrieval_query=retrieval_query,
+    )
     if (
         _expanded_prior_should_use_current_request(
             contract,
@@ -314,6 +294,60 @@ def _apply_turn_contract_to_plan(
         direct_evidence_required=updated_plan.requires_direct_evidence,
     )
     return updated_plan, updated_contract
+
+
+def _prior_followup_retrieval_strategy(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    retrieval_query: str | None,
+) -> tuple[str, str | None]:
+    if (
+        prior_contract is not None
+        and prior_contract.evidence_refs
+        and contract.is_followup
+        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
+    ):
+        retrieval_query = _fresh_current_request_query(contract)
+        if _current_request_introduces_fresh_content(contract, prior_contract):
+            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        else:
+            retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
+            retrieval_query = None
+    if _reuse_prior_needs_current_retrieval(
+        contract,
+        prior_contract=prior_contract,
+        retrieval_strategy=retrieval_strategy,
+    ):
+        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        retrieval_query = _fresh_current_request_query(contract)
+    return retrieval_strategy, retrieval_query
+
+
+def _apply_reasoning_followup_contract(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    retrieval_query: str | None,
+) -> tuple[TurnContract, str, str | None]:
+    if not _transform_followup_introduces_substantive_request(
+        contract,
+        prior_contract=prior_contract,
+    ):
+        return contract, retrieval_strategy, retrieval_query
+    return (
+        replace(
+            contract,
+            answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
+            prior_answer_reference=True,
+            prior_answer_positions=(),
+            prior_answer_position_basis="",
+        ),
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        _current_request_query(contract),
+    )
 
 
 def _reuse_prior_needs_current_retrieval(

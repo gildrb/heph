@@ -35,6 +35,12 @@ from hephaion.rag.chunker import (
     _normalize_extracted_text,
     chunk_file,
 )
+from hephaion.rag.index_state import (
+    read_index_json_mapping as _read_json_mapping,
+)
+from hephaion.rag.index_state import (
+    write_armory_index_json as _write_armory_index_json,
+)
 from hephaion.rag.retrieval_types import RetrieverCacheKey
 
 _log = get_logger("hephaion.rag.index")
@@ -87,14 +93,6 @@ def _file_hash(path: Path) -> str | None:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
         return None
-
-
-def _read_json_mapping(path: Path) -> dict[str, object] | None:
-    try:
-        data: object = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    return data if is_string_mapping(data) else None
 
 
 def _unindexable_reason(path: Path) -> str:
@@ -346,14 +344,6 @@ def _int_field(data: Mapping[str, object], key: str) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _read_index_data(index_path: Path) -> dict[str, object] | None:
-    try:
-        data: object = json.loads(index_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    return data if is_string_mapping(data) else None
-
-
 def _index_data_version(data: Mapping[str, object]) -> int | None:
     raw_version = data.get("version", 1)
     version = raw_version if isinstance(raw_version, int) else 1
@@ -366,7 +356,7 @@ def _index_data_documents(data: Mapping[str, object]) -> list[object] | None:
 
 
 def _load_index_data(index_path: Path) -> _LoadedIndexData | None:
-    data = _read_index_data(index_path)
+    data = _read_json_mapping(index_path)
     if data is None:
         return None
     version = _index_data_version(data)
@@ -516,7 +506,6 @@ class ArmoryIndex:
         if not embeddings:
             return None
         embed_path = self._embedding_cache_path(model_name, cache_key)
-        embed_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "content_hash": self.content_hash,
             "model_name": model_name,
@@ -524,10 +513,7 @@ class ArmoryIndex:
             "chunk_count": len(self.all_chunks),
             "embeddings": embeddings,
         }
-        embed_path.write_text(
-            json.dumps(data, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        _write_armory_index_json(self.armory_path, embed_path, data)
         _log.debug(
             "embeddings saved",
             extra={"fields": {"path": str(embed_path), "chunks": len(embeddings)}},
@@ -582,8 +568,7 @@ class ArmoryIndex:
             "state": state,
         }
         try:
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            _write_armory_index_json(self.armory_path, state_path, data)
         except (OSError, TypeError):
             return None
         _log.debug(
@@ -790,7 +775,6 @@ class ArmoryIndex:
 
     def save(self) -> Path:
         index_path = self.armory_path / ".hephaion" / _INDEX_FILE
-        index_path.parent.mkdir(parents=True, exist_ok=True)
         documents = [
             {
                 "source": doc.source,
@@ -823,7 +807,7 @@ class ArmoryIndex:
         signature = _index_signature(data)
         if signature is not None:
             data["cache_signature"] = signature
-        index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_armory_index_json(self.armory_path, index_path, data, indent=2)
         return index_path
 
     def load(self, *, allow_stale: bool = False) -> bool:

@@ -268,6 +268,22 @@ class TestAutoCompact:
         assert "compact-secret" not in serialized
         assert "***REDACTED***" in serialized
 
+    def test_transcript_rejects_symlinked_state_dir(self, tmp_path: Path) -> None:
+        messages = _build_messages(3)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        internal = tmp_path / ".hephaion"
+        internal.mkdir()
+        try:
+            (internal / "transcripts").symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        with pytest.raises(OSError, match="must not be a symlink"):
+            auto_compact(messages, MagicMock(), tmp_path)
+
+        assert list(outside.iterdir()) == []
+
     def test_returns_compressed_messages(
         self,
         tmp_path: Path,

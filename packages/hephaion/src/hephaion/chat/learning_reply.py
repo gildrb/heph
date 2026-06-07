@@ -166,6 +166,8 @@ def _deterministic_learning_reply(
         resolved.turn_contract,
     ):
         return prior_source_object_absence_reply
+    if no_evidence_reply := _no_evidence_deterministic_reply(session, plan, resolved):
+        return no_evidence_reply
     if abstain_reply := _source_qa_abstain_reply(plan, resolved):
         return _DeterministicLearningReply(abstain_reply, citation_required=False)
     if prior_list_transform_reply := _prior_answer_list_transform_reply(
@@ -195,14 +197,32 @@ def _deterministic_learning_reply(
         return _DeterministicLearningReply(overview_followup_reply, source_refs=source_refs)
     if resolved.turn_evidence is not None and resolved.turn_evidence.items:
         return None
+    return None
+
+
+def _no_evidence_deterministic_reply(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> _DeterministicLearningReply | None:
+    if resolved.turn_evidence is not None and resolved.turn_evidence.items:
+        return None
     if missing_reply := _missing_indexed_material_reply(session, plan.action):
-        return _DeterministicLearningReply(missing_reply, updates_learning_state=False)
+        return _DeterministicLearningReply(
+            missing_reply,
+            citation_required=False,
+            updates_learning_state=False,
+        )
     if no_match_reply := _no_matching_indexed_evidence_reply(
         session,
         plan,
         resolved.turn_contract,
     ):
-        return _DeterministicLearningReply(no_match_reply)
+        return _DeterministicLearningReply(
+            no_match_reply,
+            citation_required=False,
+            updates_learning_state=False,
+        )
     return None
 
 

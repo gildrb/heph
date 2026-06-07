@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -34,6 +33,7 @@ from ai.runtime import (
 )
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.armory.state_files import create_armory_state_text, read_armory_state_text
 from hephaion.rag.context import estimate_tokens
 
 if TYPE_CHECKING:
@@ -134,17 +134,18 @@ def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT)
 
 
 def _write_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
-    transcript_dir = workspace / TRANSCRIPTS_DIR
-    transcript_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    transcript_dir.chmod(0o700)
-    transcript_path = transcript_dir / f"transcript_{time.time_ns()}.jsonl"
-    fd = os.open(str(transcript_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as transcript_file:
-        transcript_file.writelines(
+    transcript_rel_path = Path(TRANSCRIPTS_DIR) / f"transcript_{time.time_ns()}.jsonl"
+    transcript_path = create_armory_state_text(
+        workspace,
+        transcript_rel_path,
+        "".join(
             json.dumps(_redacted_transcript_message(message), default=str, ensure_ascii=False)
             + "\n"
             for message in messages
-        )
+        ),
+    )
+    if transcript_path is None:
+        raise FileExistsError(workspace / transcript_rel_path)
     return transcript_path
 
 
@@ -200,27 +201,21 @@ def _recent_exchange_start(messages: list[ApiMessage], keep_recent_exchanges: in
     return user_indices[-keep_recent_exchanges]
 
 
-def _summary_cache_path(workspace: Path, messages: list[ApiMessage]) -> tuple[Path, str]:
+def _summary_cache_path(_workspace: Path, messages: list[ApiMessage]) -> tuple[Path, str]:
     serialized = json.dumps(messages, default=str, ensure_ascii=False, sort_keys=True)
     messages_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    return workspace / _COMPACTION_CACHE_DIR / f"{messages_hash}.txt", serialized
+    return Path(_COMPACTION_CACHE_DIR) / f"{messages_hash}.txt", serialized
 
 
-def _cached_summary(cache_path: Path) -> str | None:
-    if cache_path.is_file():
-        return cache_path.read_text(encoding="utf-8")
-    return None
-
-
-def _write_cached_summary(cache_path: Path, summary: str) -> None:
-    cache_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    cache_path.parent.chmod(0o700)
+def _cached_summary(workspace: Path, cache_path: Path) -> str | None:
     try:
-        fd = os.open(str(cache_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        return
-    with os.fdopen(fd, "w", encoding="utf-8") as cache_file:
-        cache_file.write(summary)
+        return read_armory_state_text(workspace, cache_path)
+    except OSError:
+        return None
+
+
+def _write_cached_summary(workspace: Path, cache_path: Path, summary: str) -> None:
+    create_armory_state_text(workspace, cache_path, summary)
 
 
 def _truncate_summary_source(serialized: str) -> str:
@@ -277,13 +272,13 @@ def _summary_for_messages(
     workspace: Path,
 ) -> str:
     cache_path, serialized = _summary_cache_path(workspace, messages)
-    summary = _cached_summary(cache_path)
+    summary = _cached_summary(workspace, cache_path)
     if summary is not None:
         return summary
 
     summary = _redacted_transcript_text(_request_summary(config, serialized))
     if _should_cache_summary(summary):
-        _write_cached_summary(cache_path, summary)
+        _write_cached_summary(workspace, cache_path, summary)
     return summary
 
 

@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Protocol
 
 from hephaion._types import is_string_mapping
+from hephaion.armory.state_files import (
+    armory_state_location,
+    read_armory_state_text,
+    write_armory_state_text,
+)
 from hephaion.learning.actions import AttemptAction, parse_attempt_action
 from hephaion.learning.observation import AttemptObservation
 from hephaion.learning.policy import StaticAttemptPolicy
@@ -72,6 +77,7 @@ class ExportedAttemptPolicy(AttemptPolicyProtocol):
     def choose(self, observation: AttemptObservation) -> AttemptAction:
         return (
             self.artifact.table.get(observation_bucket(observation))
+            or self.artifact.table.get(_pre_shape_observation_bucket(observation))
             or self.artifact.table.get(_legacy_observation_bucket(observation))
             or self.fallback.choose(observation)
         )
@@ -83,6 +89,7 @@ def observation_bucket(observation: AttemptObservation) -> str:
             _citation_bucket(observation),
             _evidence_bucket(observation),
             _relevance_bucket(observation),
+            _shape_bucket(observation),
             _source_bucket(observation),
             _length_bucket(observation),
             _overview_bucket(observation),
@@ -95,6 +102,19 @@ def _legacy_observation_bucket(observation: AttemptObservation) -> str:
         (
             _citation_bucket(observation),
             _evidence_bucket(observation),
+            _source_bucket(observation),
+            _length_bucket(observation),
+            _overview_bucket(observation),
+        )
+    )
+
+
+def _pre_shape_observation_bucket(observation: AttemptObservation) -> str:
+    return "|".join(
+        (
+            _citation_bucket(observation),
+            _evidence_bucket(observation),
+            _relevance_bucket(observation),
             _source_bucket(observation),
             _length_bucket(observation),
             _overview_bucket(observation),
@@ -130,6 +150,10 @@ def _relevance_bucket(observation: AttemptObservation) -> str:
     return "relevant"
 
 
+def _shape_bucket(observation: AttemptObservation) -> str:
+    return "bad_shape" if observation.answer_shape_failed else "shape_ok"
+
+
 def _source_bucket(observation: AttemptObservation) -> str:
     return "multi_source" if observation.distinct_source_count >= 2 else "single_source"
 
@@ -156,22 +180,26 @@ def load_runtime_policy(armory_path: Path | None) -> AttemptPolicyProtocol:
 
 def load_exported_policy(path: Path) -> ExportedPolicyArtifact | None:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        armory_path, rel_path = armory_state_location(path)
+        payload = json.loads(read_armory_state_text(armory_path, rel_path))
     except (OSError, json.JSONDecodeError):
         return None
     return ExportedPolicyArtifact.from_dict(payload)
 
 
 def write_exported_policy(path: Path, artifact: ExportedPolicyArtifact) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(artifact.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    armory_path, rel_path = armory_state_location(path)
+    write_armory_state_text(
+        armory_path,
+        rel_path,
+        json.dumps(artifact.to_dict(), indent=2, sort_keys=True) + "\n",
     )
 
 
 def _promotion_manifest_approves(path: Path, policy_id: str) -> bool:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        armory_path, rel_path = armory_state_location(path)
+        payload = json.loads(read_armory_state_text(armory_path, rel_path))
     except (OSError, json.JSONDecodeError):
         return False
     if not is_string_mapping(payload):

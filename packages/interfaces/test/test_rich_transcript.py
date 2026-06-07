@@ -11,7 +11,7 @@ from interfaces.tui.rich_transcript import (
     extract_cited_ids,
     normalize_markdown_tables,
 )
-from interfaces.tui.transcript import _EvidenceMarkdown
+from interfaces.tui.transcript import _EvidenceMarkdown, _TranscriptMarkdown
 from rich.console import Console
 from rich.segment import Segment
 from rich.style import Style
@@ -48,6 +48,11 @@ def _render_evidence_markdown(markdown_text: str) -> list[Segment]:
             _EvidenceMarkdown(markdown_text, Style.parse(f"dim {current_palette().text_muted}")),
         )
     )
+
+
+def _render_transcript_markdown(markdown_text: str) -> list[Segment]:
+    console = Console(width=160)
+    return list(console.render(_TranscriptMarkdown(markdown_text)))
 
 
 def _assert_dim_gray(style: Style | None) -> None:
@@ -370,6 +375,24 @@ def test_evidence_markdown_dims_inline_citations() -> None:
     assert len(citation_segments) == 2
     for segment in citation_segments:
         _assert_dim_gray(segment.style)
+
+
+def test_evidence_markdown_keeps_ordered_list_markers_plain() -> None:
+    segments = _render_evidence_markdown("1. First topic [E1]\n\n10. Tenth topic [E2]")
+    markers = [segment for segment in segments if segment.text.strip() in {"1", "10"}]
+
+    assert markers
+    for segment in markers:
+        assert segment.style is None
+
+
+def test_transcript_markdown_keeps_ordered_list_markers_plain() -> None:
+    segments = _render_transcript_markdown("1. First topic\n\n10. Tenth topic")
+    markers = [segment for segment in segments if segment.text.strip() in {"1", "10"}]
+
+    assert markers
+    for segment in markers:
+        assert segment.style is None
 
 
 def test_evidence_markdown_dims_sources_footer() -> None:

@@ -177,6 +177,31 @@ class TestArmoryIndexPersist:
         assert path.exists()
         assert path.name == "rag_index.json"
 
+    def test_save_creates_missing_state_root(self, tmp_path: Path) -> None:
+        armory_path = tmp_path / "missing-armory"
+        index = ArmoryIndex(armory_path)
+
+        path = index.save()
+
+        assert path == armory_path / ".hephaion" / "rag_index.json"
+        assert path.is_file()
+
+    def test_save_rejects_symlinked_index_file(self, armory: Path, tmp_path: Path) -> None:
+        outside = tmp_path / "outside-index.json"
+        outside.write_text("outside\n", encoding="utf-8")
+        index_file = armory / ".hephaion" / "rag_index.json"
+        try:
+            index_file.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+        index = ArmoryIndex(armory)
+        index.build()
+
+        with pytest.raises(OSError, match="must not be a symlink"):
+            index.save()
+
+        assert outside.read_text(encoding="utf-8") == "outside\n"
+
     def test_save_load_roundtrip(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         index.build()

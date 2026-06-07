@@ -25,6 +25,8 @@ class StaticAttemptPolicy:
 def _can_accept(observation: AttemptObservation) -> bool:
     if observation.reply_chars <= 0:
         return False
+    if _has_acceptance_blocker(observation):
+        return False
     if observation.citation_required and not observation.has_citations:
         return False
     return observation.all_citations_verified and (
@@ -32,17 +34,37 @@ def _can_accept(observation: AttemptObservation) -> bool:
     )
 
 
+def _has_acceptance_blocker(observation: AttemptObservation) -> bool:
+    return bool(
+        observation.off_topic_answer
+        or observation.unsupported_claim_count
+        or observation.answer_shape_failed
+        or observation.evidence_recommended_action == "abstain"
+        or (observation.evidence_count > 0 and not observation.evidence_sufficient)
+    )
+
+
 def _should_abstain(observation: AttemptObservation) -> bool:
     return bool(
-        observation.evidence_recommended_action == "abstain" and observation.attempt_index >= 2
+        observation.off_topic_answer
+        or (
+            observation.evidence_recommended_action == "abstain" and observation.attempt_index >= 2
+        )
     )
 
 
 def _needs_grounded_answer_retry(observation: AttemptObservation) -> bool:
     return bool(
-        observation.citation_required
+        not observation.off_topic_answer
+        and observation.citation_required
         and observation.evidence_count > 0
-        and (not observation.has_citations or not observation.all_citations_verified)
+        and (
+            observation.answer_shape_failed
+            or not observation.has_citations
+            or not observation.all_citations_verified
+            or observation.unsupported_claim_count
+            or observation.missing_required_citation_count
+        )
     )
 
 
@@ -54,5 +76,10 @@ def _action_allowed(action: AttemptAction, observation: AttemptObservation) -> b
     if action is AttemptAction.RETRY_OVERVIEW_SAMPLING:
         return observation.retrieval_strategy != "overview"
     if action is AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER:
-        return observation.citation_required and not observation.all_citations_verified
+        return observation.citation_required and bool(
+            observation.answer_shape_failed
+            or not observation.all_citations_verified
+            or observation.unsupported_claim_count
+            or observation.missing_required_citation_count
+        )
     return action not in {AttemptAction.ACCEPT, AttemptAction.ABSTAIN}

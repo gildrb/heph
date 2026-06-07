@@ -67,6 +67,13 @@ def validate(path: Path) -> None:
         raise ArmoryValidationError(f"armory does not exist: {path}")
     if not path.is_dir():
         raise ArmoryValidationError(f"path is not a directory: {path}")
+    try:
+        resolved_path = path.resolve(strict=True)
+    except OSError as exc:
+        raise ArmoryValidationError(f"armory cannot be resolved: {path}") from exc
+
+    for dirname in ARMORY_DIRS:
+        _validate_armory_dir(path, resolved_path, dirname)
 
     marker_path = path / MARKER_FILE
     if not marker_path.exists():
@@ -76,6 +83,20 @@ def validate(path: Path) -> None:
     if missing_dirs:
         missing = ", ".join(missing_dirs)
         raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
+
+
+def _validate_armory_dir(path: Path, resolved_path: Path, dirname: str) -> None:
+    target = path / dirname
+    if target.is_symlink():
+        raise ArmoryValidationError(f"armory directory must not be a symlink: {target}")
+    if not target.exists():
+        return
+    try:
+        resolved_target = target.resolve(strict=True)
+    except OSError as exc:
+        raise ArmoryValidationError(f"armory directory cannot be resolved: {target}") from exc
+    if not resolved_target.is_relative_to(resolved_path):
+        raise ArmoryValidationError(f"armory directory escapes armory: {target}")
 
 
 def read_marker(path: Path) -> dict[str, object]:

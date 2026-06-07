@@ -174,7 +174,7 @@ class _EvidenceMarkdown:
     """Markdown renderable with dimmed evidence metadata."""
 
     def __init__(self, markup: str, metadata_style: _RichStyle) -> None:
-        self._markdown = Markdown(markup)
+        self._markdown = _TranscriptMarkdown(markup)
         self._metadata_style = metadata_style
 
     def __rich_console__(
@@ -185,9 +185,6 @@ class _EvidenceMarkdown:
         line_start = True
         in_sources_footer = False
         for segment in console.render(self._markdown, options):
-            if segment.control:
-                yield segment
-                continue
             if self._starts_sources_footer(segment, line_start, in_sources_footer):
                 in_sources_footer = True
             yield from self._styled_segments(segment, in_sources_footer)
@@ -230,6 +227,34 @@ class _EvidenceMarkdown:
             yield Segment(text[last_end:], segment.style, segment.control)
 
 
+class _TranscriptMarkdown:
+    """Markdown renderable with transcript-safe list marker styling."""
+
+    def __init__(self, markup: str) -> None:
+        self._markdown = Markdown(markup)
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        for segment in console.render(self._markdown, options):
+            if segment.control:
+                yield segment
+                continue
+            yield _plain_markdown_list_marker_segment(segment)
+
+
+def _plain_markdown_list_marker_segment(segment: Segment) -> Segment:
+    text = segment.text
+    marker = text.strip()
+    if not marker.isdecimal():
+        return segment
+    if not text.startswith(" ") or not text.endswith(" "):
+        return segment
+    return Segment(text, None, segment.control)
+
+
 def _next_line_starts(text: str) -> bool:
     return text.endswith("\n") if "\n" in text else False
 
@@ -242,7 +267,7 @@ def _reply_renderable(entry: TuiTranscriptEntry) -> RenderableType:
     if entry.evidence and entry.evidence.items:
         renderable = _EvidenceMarkdown(entry.content, _evidence_metadata_style())
     else:
-        renderable = Markdown(entry.content)
+        renderable = _TranscriptMarkdown(entry.content)
     if Padding is None:
         return renderable
     return Padding(renderable, (0, _REPLY_TRANSCRIPT_HORIZONTAL_PADDING))

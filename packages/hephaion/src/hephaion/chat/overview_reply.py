@@ -57,6 +57,7 @@ from hephaion.study.prompt_plans import LearningTurnPlan
 _MARKDOWN_TABLE_SEPARATOR_LINE_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
 )
+_INLINE_LIST_MARKER_RE = re.compile(r"(?m)^\s*\S.*:\s*(?:[-*+]|\d+[.)])\s+\S")
 _OVERVIEW_MIN_WORDS = 24
 _OVERVIEW_MAX_WORDS = 110
 _OVERVIEW_MAX_CHARS = 700
@@ -940,21 +941,7 @@ def _overview_answer_has_bad_shape(
     max_chars = _OVERVIEW_MAX_TABLE_CHARS if has_table and allow_table else _OVERVIEW_MAX_CHARS
     if len(raw_reply) > max_chars:
         return True
-    if not has_table and len(words) > _OVERVIEW_MAX_WORDS:
-        return True
-    if not has_table and _has_uncited_tail_after_last_citation(raw_reply):
-        return True
-    if not has_table and len(citation_ids) > _OVERVIEW_MAX_CITATIONS:
-        return True
-    if not has_table and _overview_starts_with_sentence_fragment(raw_reply):
-        return True
-    if not has_table and _overview_has_long_uncited_lead(raw_reply):
-        return True
-    if (
-        not has_table
-        and evidence is not None
-        and _overview_is_extractive_inventory(raw_reply, evidence)
-    ):
+    if not has_table and _plain_overview_shape_is_bad(raw_reply, words, citation_ids, evidence):
         return True
     if has_table and _markdown_table_row_count(raw_reply) > _OVERVIEW_MAX_TABLE_ROWS:
         return True
@@ -965,6 +952,23 @@ def _overview_answer_has_bad_shape(
     if not has_table and len(words) < _OVERVIEW_MIN_WORDS:
         return True
     return evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence)
+
+
+def _plain_overview_shape_is_bad(
+    raw_reply: str,
+    words: Sequence[str],
+    citation_ids: tuple[str, ...],
+    evidence: TurnEvidence | None,
+) -> bool:
+    return (
+        len(words) > _OVERVIEW_MAX_WORDS
+        or _has_uncited_tail_after_last_citation(raw_reply)
+        or len(citation_ids) > _OVERVIEW_MAX_CITATIONS
+        or _overview_starts_with_sentence_fragment(raw_reply)
+        or _overview_has_inline_list_marker(raw_reply)
+        or _overview_has_long_uncited_lead(raw_reply)
+        or (evidence is not None and _overview_is_extractive_inventory(raw_reply, evidence))
+    )
 
 
 def _overview_has_long_uncited_lead(raw_reply: str) -> bool:
@@ -992,6 +996,10 @@ def _list_item_count(text: str) -> int:
 def _overview_starts_with_sentence_fragment(text: str) -> bool:
     first_alpha = next((char for char in text.lstrip() if char.isalpha()), "")
     return bool(first_alpha) and first_alpha.islower()
+
+
+def _overview_has_inline_list_marker(text: str) -> bool:
+    return bool(_INLINE_LIST_MARKER_RE.search(text))
 
 
 def _overview_citation_ids(raw_reply: str) -> tuple[str, ...]:

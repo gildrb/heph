@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,10 @@ from hephaion.learning.actions import AttemptAction
 from hephaion.learning.automation import AutoTrainingConfig, maybe_auto_train_attempt_policy
 from hephaion.learning.environment import ReplayHephEnv
 from hephaion.learning.observation import AttemptObservation, build_attempt_observation
+from hephaion.learning.observation_audit import (
+    audit_observation_probes,
+    randomized_observation_probes,
+)
 from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.learning.policy_artifact import (
     PROMOTED_POLICY_FILE,
@@ -34,6 +39,12 @@ from hephaion.learning.policy_artifact import (
     load_runtime_policy,
     observation_bucket,
     write_exported_policy,
+)
+from hephaion.learning.puffer_backend import (
+    masked_observation_features,
+    observation_feature_names,
+    observation_features,
+    randomized_segment_observation,
 )
 from hephaion.learning.reward import (
     RewardComponent,
@@ -55,7 +66,7 @@ from hephaion.learning.training import (
 )
 from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaion.study.policy import EvidenceAssessment
-from hephaion.study.prompt_plans import LearningTurnPlan
+from hephaion.study.prompt_plans import LearningTurnPlan, material_overview_plan
 from hephaion.study.state import LearningAction, LearningPhase
 
 
@@ -152,6 +163,67 @@ def _turn_evidence_with_content(evidence_id: str, source: str, content: str) -> 
         ),
         sampled_source_count=1,
         total_source_count=1,
+    )
+
+
+def _overview_evidence() -> TurnEvidence:
+    first = "Sorting procedures compare items and arrange them by key."
+    second = "Search trees organize ordered data for lookup operations."
+    third = "Counting arguments connect combinations to probability models."
+    fourth = "Graph examples describe paths, cycles, and reachability."
+    return TurnEvidence(
+        items=(
+            EvidenceChunk(
+                evidence_id="E1",
+                chunk=Chunk(
+                    text=first,
+                    source="materials/algorithms.md",
+                    index=0,
+                    char_start=0,
+                    char_end=len(first),
+                ),
+                score=1.0,
+                content=first,
+            ),
+            EvidenceChunk(
+                evidence_id="E2",
+                chunk=Chunk(
+                    text=second,
+                    source="materials/data-structures.md",
+                    index=0,
+                    char_start=0,
+                    char_end=len(second),
+                ),
+                score=1.0,
+                content=second,
+            ),
+            EvidenceChunk(
+                evidence_id="E3",
+                chunk=Chunk(
+                    text=third,
+                    source="materials/counting.md",
+                    index=0,
+                    char_start=0,
+                    char_end=len(third),
+                ),
+                score=1.0,
+                content=third,
+            ),
+            EvidenceChunk(
+                evidence_id="E4",
+                chunk=Chunk(
+                    text=fourth,
+                    source="materials/graphs.md",
+                    index=0,
+                    char_start=0,
+                    char_end=len(fourth),
+                ),
+                score=1.0,
+                content=fourth,
+            ),
+        ),
+        sampled_source_count=4,
+        total_source_count=4,
     )
 
 
@@ -293,7 +365,8 @@ def test_unsupported_citations_dominate_reward_negatively() -> None:
     reward = score_attempt_reward(observation, accepted=True, abstained=False)
 
     assert reward.total < 0
-    assert _component_value(reward.components, "citation_validity") == -1.0
+    assert _component_value(reward.components, "bad_accept") == -0.85
+    assert _component_value(reward.components, "accepted_invalid_or_unverified_citations") < 0
 
 
 def test_correct_abstention_receives_positive_reward_for_weak_evidence() -> None:
@@ -307,7 +380,82 @@ def test_correct_abstention_receives_positive_reward_for_weak_evidence() -> None
     reward = score_attempt_reward(observation, accepted=False, abstained=True)
 
     assert reward.total > 0
-    assert _component_value(reward.components, "abstention") > 0
+    assert _component_value(reward.components, "correct_abstain") > 0
+
+
+def test_observation_audit_core_signals_drive_policy_and_reward() -> None:
+    results = audit_observation_probes(seed=41)
+    failures = tuple(
+        (
+            result.probe.name,
+            result.chosen_action.value,
+            result.probe.expected_action.value,
+            result.reward_margin,
+            [(score.action.value, score.reward) for score in result.action_rewards[:3]],
+        )
+        for result in results
+        if not result.passed
+    )
+
+    assert not failures
+
+
+def test_observation_audit_randomizes_probe_order_by_seed() -> None:
+    first = tuple(probe.name for probe in randomized_observation_probes(seed=41))
+    repeated = tuple(probe.name for probe in randomized_observation_probes(seed=41))
+    second = tuple(probe.name for probe in randomized_observation_probes(seed=42))
+
+    assert first == repeated
+    assert first != second
+
+
+def test_masked_puffer_features_zero_inactive_observation_slots() -> None:
+    probe = next(
+        probe
+        for probe in randomized_observation_probes(seed=41)
+        if probe.name == "bad_answer_shape"
+    )
+    feature_names = observation_feature_names()
+    features = masked_observation_features(probe.observation, probe.active_feature_names)
+
+    for index, name in enumerate(feature_names):
+        if name not in probe.active_feature_names:
+            assert features[index] == 0.0
+    assert features[feature_names.index("answer_shape_failed")] > 0.0
+    assert features[feature_names.index("retrieval_strategy_overview")] > 0.0
+
+
+def test_puffer_features_include_retrieval_strategy_signal() -> None:
+    feature_names = observation_feature_names()
+    index = feature_names.index("retrieval_strategy_overview")
+
+    assert observation_features(AttemptObservation(retrieval_strategy="overview"))[index] == 1.0
+    assert observation_features(AttemptObservation(retrieval_strategy="targeted"))[index] == -1.0
+
+
+def test_puffer_segment_features_zero_missing_evidence_slots() -> None:
+    observation = AttemptObservation(
+        evidence_count=5,
+        distinct_source_count=3,
+        sampled_source_count=3,
+        total_source_count=3,
+        top_score=0.8,
+        evidence_sufficient=True,
+        evidence_confidence=0.9,
+    )
+    visible = randomized_segment_observation(observation, active_segment_count=2)
+    feature_names = observation_feature_names()
+    features = observation_features(visible)
+
+    assert visible.evidence_count == 2
+    assert visible.distinct_source_count == 2
+    assert not visible.evidence_sufficient
+    assert features[feature_names.index("evidence_segment_1_mask")] == 1.0
+    assert features[feature_names.index("evidence_segment_2_mask")] == 1.0
+    assert features[feature_names.index("evidence_segment_3_mask")] == 0.0
+    assert features[feature_names.index("source_segment_1_mask")] == 1.0
+    assert features[feature_names.index("source_segment_3_mask")] == 0.0
+    assert features[feature_names.index("evidence_segment_3_score")] == 0.0
 
 
 def test_off_topic_accepted_answer_is_rewarded_terribly() -> None:
@@ -352,7 +500,48 @@ def test_off_topic_accepted_answer_is_rewarded_terribly() -> None:
     assert observation.off_topic_answer
     assert observation.unsupported_claim_count == 1
     assert reward.total < 0
-    assert _component_value(reward.components, "accepted_off_topic_answer") == -1.0
+    assert _component_value(reward.components, "bad_accept") == -0.85
+    assert _component_value(reward.components, "accepted_off_topic_answer") < 0
+    assert StaticAttemptPolicy().choose(observation) is AttemptAction.ABSTAIN
+
+
+def test_bad_overview_shape_accepted_answer_is_rewarded_terribly() -> None:
+    observation = AttemptObservation(
+        intent="material_overview",
+        retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
+        citation_required=True,
+        evidence_count=10,
+        distinct_source_count=6,
+        sampled_source_count=10,
+        total_source_count=10,
+        top_score=1.0,
+        evidence_sufficient=True,
+        evidence_confidence=0.95,
+        evidence_recommended_action="answer",
+        has_citations=True,
+        citation_count=6,
+        all_citations_verified=True,
+        answer_shape_failed=True,
+        reply_chars=350,
+        latency_ms=9800.0,
+        cost_usd=0.002,
+        internal_passes=2,
+    )
+
+    reward = score_attempt_reward(observation, accepted=True, abstained=False)
+    retry_reward = score_action_outcome_reward(
+        observation,
+        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER,
+    )
+    abstain_reward = score_action_outcome_reward(observation, AttemptAction.ABSTAIN)
+
+    assert reward.total <= -0.9
+    assert _component_value(reward.components, "bad_accept") == -0.85
+    assert _component_value(reward.components, "accepted_bad_answer_shape") < 0
+    assert retry_reward.total > abstain_reward.total
+    assert StaticAttemptPolicy().choose(observation) is (
+        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
+    )
 
 
 def test_answer_relevance_scores_cited_evidence_not_uncited_context() -> None:
@@ -727,6 +916,60 @@ def test_structural_relevance_guard_replaces_off_topic_prior_followup(tmp_path: 
     assert any(
         state.name == "answer_relevance" and not state.passed
         for state in record.failed_validation_states
+    )
+
+
+def test_finalized_material_overview_records_bad_answer_shape(tmp_path: Path) -> None:
+    session = ChatSession(
+        config=ChatConfig(),
+        conversation=Conversation(),
+        session_id="session",
+        armory_path=tmp_path,
+    )
+    reply = (
+        "The material is mainly about computing concepts, especially: 1. "
+        "**Algorithms** such as sorting and lookup procedures [E1][E2]\n\n"
+        "2. **Discrete structures**, including counting arguments and graph examples [E3][E4]."
+    )
+    session.conversation.add("user", "What is the material about?")
+    session.conversation.add("assistant", reply)
+    probe = _FinalizationProbe(session)
+    probe.last_reply = reply
+    evidence = _overview_evidence()
+    resolved = ResolvedTurnPlan(
+        learning_plan=material_overview_plan("What is the material about?"),
+        turn_evidence=evidence,
+        evidence_assessment=EvidenceAssessment(
+            sufficient=True,
+            confidence=0.95,
+            supporting_refs=("E1", "E2", "E3", "E4"),
+            missing_information=(),
+            conflicts=(),
+            source_diversity_score=1.0,
+            recommended_action="answer",
+        ),
+        turn_contract=TurnContract(
+            original_user_input="What is the material about?",
+            resolved_intent="material_overview",
+            canonical_request="Give a compact overview of the material corpus.",
+            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
+            citation_required=True,
+        ),
+    )
+
+    probe._finalize_successful_turn("What is the material about?", resolved, latency_ms=10.0)
+    record = next(LearningStore(tmp_path).iter_attempts())
+
+    assert record.action is AttemptAction.ACCEPT
+    assert record.observation.answer_shape_failed
+    assert record.reward.total < 0
+    assert any(
+        state.name == "answer_shape" and not state.passed
+        for state in record.failed_validation_states
+    )
+    assert record.replay_metadata is not None
+    assert record.replay_metadata["policy_action"] == (
+        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER.value
     )
 
 
@@ -1226,6 +1469,10 @@ def test_training_promotes_only_reward_beating_policy_and_runtime_loads_it(
     assert report.decision == "promote"
     assert report.backend == PUFFERLIB_BACKEND_NAME
     assert report.trained_metrics.average_reward > report.baseline_metrics.average_reward
+    manifest = json.loads(report.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["backend_metadata"]["algorithm"] == "ppo"
+    assert manifest["backend_metadata"]["trainer"] == "pufferlib.pufferl.PuffeRL"
+    assert manifest["backend_metadata"]["export"] == "ppo_reward_checked_bucket_table"
     assert report.dataset_counts == {"public": 2, "synthetic": 2}
     assert (tmp_path / ".hephaion" / "learning" / "policies" / PROMOTED_POLICY_FILE).is_file()
 
@@ -1289,6 +1536,28 @@ def test_pufferlib_training_smoke_trains_exports_loads_and_infers(tmp_path: Path
     assert loaded_policy.choose(records[0].observation) is AttemptAction.ABSTAIN
 
 
+def test_training_rejects_symlinked_policies_dir(tmp_path: Path) -> None:
+    store = LearningStore(tmp_path)
+    store.root.mkdir(parents=True)
+    outside = tmp_path / "outside-policies"
+    outside.mkdir()
+    try:
+        store.policies_dir.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    with pytest.raises(OSError, match="must not be a symlink"):
+        train_attempt_policy(
+            armory_path=tmp_path,
+            dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
+            include_local=False,
+            backend=PUFFERLIB_BACKEND_NAME,
+            promote=True,
+        )
+
+    assert list(outside.iterdir()) == []
+
+
 def test_auto_training_waits_for_enough_local_attempts(tmp_path: Path) -> None:
     LearningStore(tmp_path).append_attempt(_record())
 
@@ -1326,6 +1595,46 @@ def test_auto_training_runs_once_for_new_attempt_digest(tmp_path: Path) -> None:
     assert "manifest_path" not in event_text
     assert second.status == "skipped"
     assert second.reason == "local attempts unchanged"
+
+
+def test_auto_training_rejects_symlinked_state_file(tmp_path: Path) -> None:
+    store = LearningStore(tmp_path)
+    store.append_attempt(_record())
+    outside = tmp_path / "outside-state.json"
+    outside.write_text("outside\n", encoding="utf-8")
+    try:
+        store.automation_state_path.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    with pytest.raises(OSError, match="must not be a symlink"):
+        maybe_auto_train_attempt_policy(
+            tmp_path,
+            config=AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1),
+        )
+
+    assert outside.read_text(encoding="utf-8") == "outside\n"
+
+
+def test_auto_training_rejects_valid_symlinked_state_before_skip(
+    tmp_path: Path,
+) -> None:
+    store = LearningStore(tmp_path)
+    store.append_attempt(_record())
+    config = AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1)
+    first = maybe_auto_train_attempt_policy(tmp_path, config=config)
+    assert first.status == "trained"
+
+    outside = tmp_path / "outside-state.json"
+    outside.write_text(store.automation_state_path.read_text(encoding="utf-8"), encoding="utf-8")
+    store.automation_state_path.unlink()
+    try:
+        store.automation_state_path.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    with pytest.raises(OSError, match="must not be a symlink"):
+        maybe_auto_train_attempt_policy(tmp_path, config=config)
 
 
 def test_auto_training_no_public_fixture_uses_local_records_only(tmp_path: Path) -> None:

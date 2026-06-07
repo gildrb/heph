@@ -4279,6 +4279,24 @@ def test_overview_fallback_needed_for_bad_shape() -> None:
         "Topic B covers problem-solving procedures [E2]."
     )
     assert _needs_overview_fallback(plan, copied_inventory_reply, evidence) is True
+    inline_ordered_list_reply = (
+        "The material is mainly about examples, especially: 1. Topic A connects "
+        "definitions to examples [E1]\n\n"
+        "2. Topic B covers problem-solving procedures [E2]."
+    )
+    assert _needs_overview_fallback(plan, inline_ordered_list_reply, evidence) is True
+    inline_parenthesized_list_reply = (
+        "The material is mainly about examples: 1) Topic A connects definitions "
+        "to examples [E1]\n\n"
+        "2) Topic B covers problem-solving procedures [E2]."
+    )
+    assert _needs_overview_fallback(plan, inline_parenthesized_list_reply, evidence) is True
+    inline_bullet_list_reply = (
+        "The material is mainly about examples: - Topic A connects definitions "
+        "to examples [E1]\n\n"
+        "- Topic B covers problem-solving procedures [E2]."
+    )
+    assert _needs_overview_fallback(plan, inline_bullet_list_reply, evidence) is True
     long_uncited_lead_reply = (
         "This overview makes a broad synthesized assessment across many sampled sources before "
         "it supplies any citation, which leaves too much interpretive material outside the "

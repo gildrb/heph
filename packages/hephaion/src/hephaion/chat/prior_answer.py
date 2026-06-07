@@ -117,22 +117,7 @@ def _turn_contract_prompt_context(contract: TurnContract | None) -> str:
             f"retrieval={contract.retrieval_strategy}; cite={contract.citation_required}."
         )
     ]
-    if contract.prior_turn_original_user_input and _contract_context_needs_prior_turn(contract):
-        lines.append(
-            "Prior: "
-            f"intent={contract.prior_turn_resolved_intent or 'unknown'}; "
-            f"refs={_intent_contract_refs_text(contract.prior_turn_evidence_refs)}; "
-            f"validation={contract.prior_turn_validation_result or 'unknown'}."
-        )
-        if (
-            contract.prior_turn_validation_result == "ok"
-            and contract.prior_turn_evidence_refs
-        ):
-            lines.append(
-                "Prior outcome: the referenced prior answer was verified with cited evidence. "
-                "Do not describe it as ungrounded; if the current request assumes failure, "
-                "correct that premise and explain any remaining limits from evidence."
-            )
+    lines.extend(_prior_turn_contract_context_lines(contract))
     lines.append(
         "Use current evidence for facts. Conversation text resolves references or requested shape "
         "only. Cite source claims; keep inference brief and clearly separated; keep compact; "
@@ -143,16 +128,42 @@ def _turn_contract_prompt_context(contract: TurnContract | None) -> str:
             "Direct-evidence turn: state only claims explicit in current evidence; "
             "otherwise abstain."
         )
-    if contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
-        lines.append("Pure rewrite: preserve prior claims and citations; add no new source facts.")
-    elif contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR:
+    if mode_instruction := _mode_contract_instruction(contract):
+        lines.append(mode_instruction)
+    return "\n".join(lines)
+
+
+def _prior_turn_contract_context_lines(contract: TurnContract) -> tuple[str, ...]:
+    if not (
+        contract.prior_turn_original_user_input and _contract_context_needs_prior_turn(contract)
+    ):
+        return ()
+    lines = [
+        "Prior: "
+        f"intent={contract.prior_turn_resolved_intent or 'unknown'}; "
+        f"refs={_intent_contract_refs_text(contract.prior_turn_evidence_refs)}; "
+        f"validation={contract.prior_turn_validation_result or 'unknown'}."
+    ]
+    if contract.prior_turn_validation_result == "ok" and contract.prior_turn_evidence_refs:
         lines.append(
+            "Prior outcome: the referenced prior answer was verified with cited evidence. "
+            "Do not describe it as ungrounded; if the current request assumes failure, "
+            "correct that premise and explain any remaining limits from evidence."
+        )
+    return tuple(lines)
+
+
+def _mode_contract_instruction(contract: TurnContract) -> str:
+    if contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
+        return "Pure rewrite: preserve prior claims and citations; add no new source facts."
+    if contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR:
+        return (
             "Referenced-answer reasoning: answer the user's reasoning/application request "
             "directly. Use the prior answer to identify the claim, cite source facts from "
             "evidence, and keep concise inference separate. Prior answer citations are not "
             "current evidence IDs."
         )
-    return "\n".join(lines)
+    return ""
 
 
 def _contract_context_needs_prior_turn(contract: TurnContract) -> bool:

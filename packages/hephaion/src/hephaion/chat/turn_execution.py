@@ -84,6 +84,8 @@ class _LearningReplyEmissionHost(Protocol):
         updates_learning_state: bool,
     ) -> str: ...
 
+    def _append_assistant_message(self, reply: str) -> None: ...
+
     def _prepare_learning_reply_for_emit(
         self,
         resolved: ResolvedTurnPlan,
@@ -108,7 +110,7 @@ class _LearningReplyEmissionHost(Protocol):
     ) -> bool: ...
 
     def _iter_final_learning_reply_events(
-        self,
+        self: _LearningReplyEmissionHost,
         plan: LearningTurnPlan,
         completion_event: TurnCompleteEvent | None,
         *,
@@ -304,46 +306,10 @@ class TurnExecutionMixin:
         streamed_reply: str,
         final_reply: str,
     ) -> Iterator[TurnEvent]:
-        self._persist_final_learning_reply(raw_reply, final_reply)
+        _persist_final_learning_reply(self, raw_reply, final_reply)
         self.last_reply = final_reply
-        yield from self._final_learning_delta_events(plan, streamed_reply, final_reply)
+        yield from _final_learning_delta_events(plan, streamed_reply, final_reply)
         yield _turn_complete_from_result(completion_event, final_reply)
-
-    def _persist_final_learning_reply(self, raw_reply: str, final_reply: str) -> None:
-        if not final_reply:
-            return
-        if self._should_append_final_learning_reply():
-            self._append_assistant_message(final_reply)
-            return
-        if raw_reply != final_reply:
-            self._replace_last_assistant_message(final_reply)
-
-    def _should_append_final_learning_reply(self) -> bool:
-        return (
-            not self.session.conversation.messages
-            or self.session.conversation.messages[-1].role != "assistant"
-        )
-
-    def _replace_last_assistant_message(self, final_reply: str) -> None:
-        for message in reversed(self.session.conversation.messages):
-            if message.role == "assistant":
-                message.content = final_reply
-                return
-
-    def _final_learning_delta_events(
-        self,
-        plan: LearningTurnPlan,
-        streamed_reply: str,
-        final_reply: str,
-    ) -> Iterator[AssistantDeltaEvent]:
-        if final_reply and (_should_buffer_learning_output(plan) or not streamed_reply):
-            yield AssistantDeltaEvent(final_reply)
-            return
-        if final_reply == streamed_reply:
-            return
-        suffix = final_reply.removeprefix(streamed_reply)
-        if suffix:
-            yield AssistantDeltaEvent(suffix)
 
     def _iter_learning_events(
         self: _LearningReplyEmissionHost,
@@ -405,17 +371,18 @@ class TurnExecutionMixin:
             updates_learning_state=deterministic_reply.updates_learning_state,
         )
         applied_reply = final_reply
-        _, final_reply = self._prepare_learning_reply_for_emit(
-            resolved,
-            final_reply,
-            user_input=user_input,
-            latency_ms=0.0,
-        )
-        self._restore_learning_state_for_rewritten_reply(
-            original_learning_state,
-            applied_reply,
-            final_reply,
-        )
+        if deterministic_reply.updates_learning_state:
+            _, final_reply = self._prepare_learning_reply_for_emit(
+                resolved,
+                final_reply,
+                user_input=user_input,
+                latency_ms=0.0,
+            )
+            self._restore_learning_state_for_rewritten_reply(
+                original_learning_state,
+                applied_reply,
+                final_reply,
+            )
         yield from _final_reply_events(final_reply)
 
     def _iter_agent_learning_reply_events(
@@ -472,9 +439,7 @@ class TurnExecutionMixin:
             resolved,
             final_reply,
             user_input=user_input,
-            latency_ms=(
-                completion_event.latency_ms if completion_event is not None else 0.0
-            ),
+            latency_ms=(completion_event.latency_ms if completion_event is not None else 0.0),
         )
         reply_rewritten = self._restore_learning_state_for_rewritten_reply(
             original_learning_state,
@@ -663,3 +628,45 @@ class TurnExecutionMixin:
             frustration_signal=outcome.frustration_signal,
             score=round(outcome.score, 3),
         )
+
+
+def _persist_final_learning_reply(
+    host: TurnExecutionMixin,
+    raw_reply: str,
+    final_reply: str,
+) -> None:
+    if not final_reply:
+        return
+    if _should_append_final_learning_reply(host.session):
+        host._append_assistant_message(final_reply)
+        return
+    if raw_reply != final_reply:
+        _replace_last_assistant_message(host.session, final_reply)
+
+
+def _should_append_final_learning_reply(session: ChatSession) -> bool:
+    return (
+        not session.conversation.messages or session.conversation.messages[-1].role != "assistant"
+    )
+
+
+def _replace_last_assistant_message(session: ChatSession, final_reply: str) -> None:
+    for message in reversed(session.conversation.messages):
+        if message.role == "assistant":
+            message.content = final_reply
+            return
+
+
+def _final_learning_delta_events(
+    plan: LearningTurnPlan,
+    streamed_reply: str,
+    final_reply: str,
+) -> Iterator[AssistantDeltaEvent]:
+    if final_reply and (_should_buffer_learning_output(plan) or not streamed_reply):
+        yield AssistantDeltaEvent(final_reply)
+        return
+    if final_reply == streamed_reply:
+        return
+    suffix = final_reply.removeprefix(streamed_reply)
+    if suffix:
+        yield AssistantDeltaEvent(suffix)

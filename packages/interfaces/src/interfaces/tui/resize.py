@@ -112,6 +112,8 @@ class _ResizeHost(Protocol):
 
     def _write_transcript_entry(self, entry: TuiTranscriptEntry) -> None: ...
 
+    def _reflow_transcript_entries(self) -> None: ...
+
     def _append_startup_card(self) -> None: ...
 
     def _append_armory_home(self) -> None: ...
@@ -350,7 +352,7 @@ class TuiResizeMixin:
         self._refresh_status()
         self._refresh_footer_hints()
         self._update_info_panel()
-        self._schedule_transcript_reflow()
+        self._reflow_transcript_entries()
         self.refresh(repaint=True, layout=True)
         self._schedule_resize_refresh()
 
@@ -374,7 +376,7 @@ class TuiResizeMixin:
         self._refresh_status()
         self._refresh_footer_hints()
         self._update_info_panel()
-        self._schedule_transcript_reflow()
+        self._reflow_transcript_entries()
         self._restore_focus_after_resize()
         self.refresh(repaint=True, layout=True)
 

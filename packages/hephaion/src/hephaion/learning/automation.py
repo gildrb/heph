@@ -10,6 +10,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from hephaion._types import is_string_mapping
+from hephaion.armory.state_files import (
+    ArmoryStateError,
+    append_armory_state_text,
+    read_armory_state_text,
+    write_armory_state_text,
+)
 from hephaion.learning.storage import AttemptRecord, LearningStore
 from hephaion.learning.training import (
     PUBLIC_SYNTHETIC_REPLAY,
@@ -162,14 +168,17 @@ def _write_state(store: LearningStore, decision: AutoTrainingDecision) -> None:
         "last_policy_id": report.policy_id if report is not None else "",
         "last_training_decision": report.decision if report is not None else "",
     }
-    _write_json(store.automation_state_path, payload)
+    _write_json(store, store.automation_state_path, payload)
 
 
 def _append_event(store: LearningStore, decision: AutoTrainingDecision) -> None:
     store.ensure_layout()
     payload = {"created_at": _now(), **decision.to_dict()}
-    with store.automation_events_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    append_armory_state_text(
+        store.armory_path,
+        store.state_rel_path(store.automation_events_path),
+        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+    )
 
 
 def _portable_training_report(report: TrainingReport) -> dict[str, object]:
@@ -181,9 +190,18 @@ def _portable_training_report(report: TrainingReport) -> dict[str, object]:
 
 def _load_state(store: LearningStore) -> Mapping[str, object]:
     try:
-        payload = json.loads(store.automation_state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        payload = json.loads(
+            read_armory_state_text(
+                store.armory_path,
+                store.state_rel_path(store.automation_state_path),
+            )
+        )
+    except FileNotFoundError:
         return {}
+    except json.JSONDecodeError:
+        return {}
+    except ArmoryStateError:
+        raise
     return payload if is_string_mapping(payload) else {}
 
 
@@ -212,9 +230,12 @@ def _training_corpus_digest(config: AutoTrainingConfig) -> str:
     return digest.hexdigest()
 
 
-def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def _write_json(store: LearningStore, path: Path, payload: Mapping[str, object]) -> None:
+    write_armory_state_text(
+        store.armory_path,
+        store.state_rel_path(path),
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def _state_string(payload: Mapping[str, object], key: str) -> str:

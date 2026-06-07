@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from hephaion._types import is_string_mapping
+from hephaion.armory.state_files import (
+    append_armory_state_text,
+    ensure_armory_state_dir,
+    read_armory_state_text,
+)
 from hephaion.learning.actions import AttemptAction, parse_attempt_action
 from hephaion.learning.observation import AttemptObservation
 from hephaion.learning.reward import AttemptReward, score_action_outcome_reward
@@ -17,6 +22,7 @@ from hephaion.rag.context import TurnEvidence
 LEARNING_DIR = ".hephaion/learning"
 POLICIES_DIR = "policies"
 REPLAY_DIR = "replay"
+REPORTS_DIR = "reports"
 ATTEMPTS_FILE = "attempts.jsonl"
 AUTOMATION_EVENTS_FILE = "automation-events.jsonl"
 AUTOMATION_STATE_FILE = "automation-state.json"
@@ -203,7 +209,14 @@ class AttemptRecord:
     def outcome_for(self, action: AttemptAction) -> ActionOutcome:
         for outcome in self.action_outcomes:
             if outcome.action is action:
-                return outcome
+                return replace(
+                    outcome,
+                    reward=score_action_outcome_reward(
+                        outcome.observation,
+                        action,
+                        final_outcome=outcome.final_outcome,
+                    ),
+                )
         if action is self.action:
             return ActionOutcome(
                 action=self.action,
@@ -262,6 +275,10 @@ class LearningStore:
         return self.root / REPLAY_DIR
 
     @property
+    def reports_dir(self) -> Path:
+        return self.root / REPORTS_DIR
+
+    @property
     def automation_state_path(self) -> Path:
         return self.root / AUTOMATION_STATE_FILE
 
@@ -269,24 +286,34 @@ class LearningStore:
     def automation_events_path(self) -> Path:
         return self.root / AUTOMATION_EVENTS_FILE
 
+    def state_rel_path(self, path: Path) -> Path:
+        try:
+            return path.relative_to(self.armory_path)
+        except ValueError as exc:
+            raise ValueError(f"learning state path escapes armory: {path}") from exc
+
     def ensure_layout(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.policies_dir.mkdir(parents=True, exist_ok=True)
-        self.replay_dir.mkdir(parents=True, exist_ok=True)
+        ensure_armory_state_dir(self.armory_path, LEARNING_DIR)
+        ensure_armory_state_dir(self.armory_path, Path(LEARNING_DIR) / POLICIES_DIR)
+        ensure_armory_state_dir(self.armory_path, Path(LEARNING_DIR) / REPLAY_DIR)
 
     def append_attempt(self, record: AttemptRecord) -> None:
         self.ensure_layout()
-        with self.attempts_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+        append_armory_state_text(
+            self.armory_path,
+            self.state_rel_path(self.attempts_path),
+            json.dumps(record.to_dict(), ensure_ascii=False) + "\n",
+        )
 
     def iter_attempts(self) -> Iterator[AttemptRecord]:
-        path = self.attempts_path
-        if not path.is_file():
+        try:
+            attempts_rel_path = self.state_rel_path(self.attempts_path)
+            text = read_armory_state_text(self.armory_path, attempts_rel_path)
+        except OSError:
             return
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                if record := _record_from_jsonl(line):
-                    yield record
+        for line in text.splitlines():
+            if record := _record_from_jsonl(line):
+                yield record
 
 
 def new_attempt_record(

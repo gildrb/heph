@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hephaion.armory.state_files import ensure_armory_state_dir, write_armory_state_text
 from hephaion.learning.actions import AttemptAction
 from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.learning.policy_artifact import (
@@ -237,12 +238,12 @@ def train_attempt_policy(
         manifest=manifest,
     )
     write_exported_policy(artifact_path, artifact)
-    _write_json(manifest_path, manifest)
+    _write_json(store, manifest_path, manifest)
     if decision == "promote":
         write_exported_policy(store.policies_dir / PROMOTED_POLICY_FILE, artifact)
-        _write_json(store.policies_dir / PROMOTION_MANIFEST_FILE, manifest)
+        _write_json(store, store.policies_dir / PROMOTION_MANIFEST_FILE, manifest)
     elif promote and clear_failed_promotion:
-        _clear_promoted_policy(store.policies_dir)
+        _clear_promoted_policy(store)
     return TrainingReport(
         policy_id=policy_id,
         decision=decision,
@@ -304,7 +305,10 @@ def _train_policy_table(
     raise ValueError(f"unknown learning backend: {backend}")
 
 
-def _clear_promoted_policy(policies_dir: Path) -> None:
+def _clear_promoted_policy(store: LearningStore) -> None:
+    policies_dir = ensure_armory_state_dir(
+        store.armory_path, store.state_rel_path(store.policies_dir)
+    )
     for filename in (PROMOTED_POLICY_FILE, PROMOTION_MANIFEST_FILE):
         (policies_dir / filename).unlink(missing_ok=True)
 
@@ -519,9 +523,12 @@ def _stable_bucket(value: str) -> int:
     return int(digest[:8], 16) % 100
 
 
-def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def _write_json(store: LearningStore, path: Path, payload: Mapping[str, object]) -> None:
+    write_armory_state_text(
+        store.armory_path,
+        store.state_rel_path(path),
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def _average(values: Iterable[float]) -> float:

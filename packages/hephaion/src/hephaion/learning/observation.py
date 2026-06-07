@@ -60,6 +60,7 @@ class AttemptObservation:
     answer_relevance_score: float = 1.0
     answer_relevance_required: bool = False
     off_topic_answer: bool = False
+    answer_shape_failed: bool = False
     missing_required_citation_count: int = 0
     confident_thin_evidence: bool = False
     reply_chars: int = 0
@@ -90,6 +91,7 @@ class AttemptObservation:
             "answer_relevance_score": self.answer_relevance_score,
             "answer_relevance_required": self.answer_relevance_required,
             "off_topic_answer": self.off_topic_answer,
+            "answer_shape_failed": self.answer_shape_failed,
             "missing_required_citation_count": self.missing_required_citation_count,
             "confident_thin_evidence": self.confident_thin_evidence,
             "reply_chars": self.reply_chars,
@@ -128,6 +130,7 @@ class AttemptObservation:
             ),
             answer_relevance_required=_payload_bool(payload, "answer_relevance_required"),
             off_topic_answer=_payload_bool(payload, "off_topic_answer"),
+            answer_shape_failed=_payload_bool(payload, "answer_shape_failed"),
             missing_required_citation_count=_payload_int(
                 payload,
                 "missing_required_citation_count",
@@ -156,6 +159,7 @@ def build_attempt_observation(
     cost_usd: float = 0.0,
     request_text: str = "",
     answer_relevance_required: bool = False,
+    answer_shape_failed: bool = False,
 ) -> AttemptObservation:
     evidence_stats = _evidence_stats(evidence)
     assessment_stats = _assessment_stats(evidence_assessment)
@@ -189,6 +193,7 @@ def build_attempt_observation(
         answer_relevance_score=relevance_stats.score,
         answer_relevance_required=relevance_stats.required,
         off_topic_answer=relevance_stats.off_topic,
+        answer_shape_failed=answer_shape_failed,
         missing_required_citation_count=(
             1 if citation_required and reply and not citation_result.has_citations else 0
         ),
@@ -252,16 +257,12 @@ def _cited_evidence_terms(
     if not cited_refs and evidence_assessment is not None:
         cited_refs = tuple(evidence_assessment.supporting_refs)
     chunks = tuple(
-        chunk
-        for evidence_id in cited_refs
-        if (chunk := evidence.get(evidence_id)) is not None
+        chunk for evidence_id in cited_refs if (chunk := evidence.get(evidence_id)) is not None
     )
     if not chunks:
         return frozenset()
     return frozenset(
-        term
-        for chunk in chunks
-        for term in _content_terms(f"{chunk.source}\n{chunk.content}")
+        term for chunk in chunks for term in _content_terms(f"{chunk.source}\n{chunk.content}")
     )
 
 

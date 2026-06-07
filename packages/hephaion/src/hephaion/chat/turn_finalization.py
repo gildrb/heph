@@ -41,6 +41,7 @@ from hephaion.chat.learning_signals import (
     _trace_turn_retrieval_query,
 )
 from hephaion.chat.material_state import _material_operation_events
+from hephaion.chat.overview_reply import _overview_answer_has_bad_shape
 from hephaion.chat.reply_repair import _MAX_INTERNAL_PASSES
 from hephaion.chat.titles import derive_title
 from hephaion.chat.turn_contract import (
@@ -49,6 +50,7 @@ from hephaion.chat.turn_contract import (
     RETRIEVAL_STRATEGY_EXPAND_PRIOR,
     TurnContract,
 )
+from hephaion.chat.turn_contract_checks import _contract_requests_table, _material_overview_turn
 from hephaion.chat.turn_history import build_turn_snapshot
 from hephaion.chat.turn_planning import (
     _resolved_turn_intent,
@@ -204,11 +206,11 @@ class TurnFinalizationMixin:
         )
         visible_evidence = _visible_turn_evidence(resolved)
         followup_evidence = None if self._learning_followup_seed_blocked else visible_evidence
+        notice = self._verification_notice(resolved, visible_evidence)
+        resolved = _resolved_with_validation_result(resolved, notice)
         followup_contract = (
             None if self._learning_followup_seed_blocked else resolved.turn_contract
         )
-        notice = self._verification_notice(resolved, visible_evidence)
-        resolved = _resolved_with_validation_result(resolved, notice)
         self._mark_session_dirty()
         self._record_successful_reply(
             resolved,
@@ -250,6 +252,10 @@ class TurnFinalizationMixin:
         latency_ms: float,
     ) -> tuple[ResolvedTurnPlan, str]:
         self.last_reply = final_reply
+        resolved = _resolved_with_citation_requirement(
+            resolved,
+            citation_required=self._last_reply_citation_required,
+        )
         visible_evidence = _visible_turn_evidence(resolved)
         resolved = _resolved_with_visible_evidence_refs(
             resolved,
@@ -760,6 +766,11 @@ def _evidence_validation_states(
             passed=not observation.off_topic_answer,
             detail=f"{observation.answer_relevance_score:.3f}",
         ),
+        ValidationState(
+            name="answer_shape",
+            passed=not observation.answer_shape_failed,
+            detail="ok" if not observation.answer_shape_failed else "bad_shape",
+        ),
     )
 
 
@@ -804,6 +815,7 @@ def _policy_observation(
         cost_usd=cost_usd,
         request_text=_answer_relevance_target(contract),
         answer_relevance_required=_answer_relevance_required(contract),
+        answer_shape_failed=_answer_shape_failed(resolved, visible_evidence, reply),
     )
 
 
@@ -849,6 +861,27 @@ def _answer_relevance_required(contract: TurnContract | None) -> bool:
         }
         or contract.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
         or contract.direct_evidence_required
+    )
+
+
+def _answer_shape_failed(
+    resolved: ResolvedTurnPlan,
+    visible_evidence: TurnEvidence | None,
+    reply: str,
+) -> bool:
+    plan = resolved.learning_plan
+    contract = resolved.turn_contract
+    if (
+        plan is None
+        or visible_evidence is None
+        or not visible_evidence.items
+        or not _material_overview_turn(plan, contract)
+    ):
+        return False
+    return _overview_answer_has_bad_shape(
+        reply,
+        visible_evidence,
+        allow_table=_contract_requests_table(contract),
     )
 
 

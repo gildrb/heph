@@ -9,9 +9,22 @@ from hephaion._types import is_object_list, is_string_mapping
 from hephaion.learning.actions import AttemptAction
 from hephaion.learning.observation import AttemptObservation
 
-_MIN_ABSTENTION_REWARD = 0.45
-_MAX_REWARD = 1.0
 _MIN_REWARD = -1.0
+_MAX_REWARD = 1.0
+
+_GOOD_ACCEPT_REWARD = 0.85
+_BAD_ACCEPT_REWARD = -0.85
+_CORRECT_ABSTAIN_REWARD = 0.55
+_UNNECESSARY_ABSTAIN_REWARD = -0.55
+_DEFENSIVE_ABSTAIN_REWARD = -0.05
+_MAX_ATTEMPT_FAILURE_REWARD = -0.75
+_RETRY_COST = -0.04
+_MAX_RETRY_FIT_REWARD = 0.06
+
+_MAX_QUALITY_SHAPING = 0.15
+_EMPTY_REPLY_PENALTY = -0.10
+_NON_EMPTY_REPLY_REWARD = 0.03
+
 type RetryValueScorer = Callable[[AttemptObservation], float]
 
 
@@ -71,24 +84,22 @@ def score_attempt_reward(
     abstained: bool,
     max_attempt_failure: bool = False,
 ) -> AttemptReward:
+    """Score an observed attempt outcome."""
+
     components: list[RewardComponent] = []
-    _add(components, "non_empty_answer", 0.10 if observation.reply_chars > 0 else -0.35)
-    _add_citation_components(components, observation)
-    _add_evidence_components(components, observation)
-    _add_cost_components(components, observation)
+    _add_reply_component(components, observation)
+    _add_quality_shaping(components, observation)
+
     if accepted:
-        _add_accept_decision_components(components, observation)
+        _add_accept_outcome(components, observation)
     elif abstained:
-        _add_abstain_decision_components(components, observation)
-    _add_terminal_components(
-        components,
-        observation,
-        accepted=accepted,
-        abstained=abstained,
-        max_attempt_failure=max_attempt_failure,
-    )
-    total = _clamp_reward(sum(component.value for component in components))
-    return AttemptReward(total=total, components=tuple(components))
+        _add_abstain_outcome(components, observation)
+
+    _add_cost_components(components, observation)
+    if max_attempt_failure:
+        _add(components, "max_attempt_failure", _MAX_ATTEMPT_FAILURE_REWARD)
+
+    return _finish(components)
 
 
 def score_action_outcome_reward(
@@ -97,58 +108,158 @@ def score_action_outcome_reward(
     *,
     final_outcome: str = "",
 ) -> AttemptReward:
-    """Score a structural policy decision without imitating a logged action."""
+    """Score the policy decision, not imitation of the logged decision."""
+
     components: list[RewardComponent] = []
-    accepted = action is AttemptAction.ACCEPT
-    abstained = action is AttemptAction.ABSTAIN
-    _add_citation_components(components, observation)
-    _add_evidence_components(components, observation)
+    _add_reply_component(components, observation)
+    _add_quality_shaping(components, observation)
     _add_cost_components(components, observation)
-    _add_policy_action_components(components, observation, action)
-    _add_terminal_components(
+
+    if action is AttemptAction.ACCEPT:
+        _add_accept_outcome(components, observation)
+    elif action is AttemptAction.ABSTAIN:
+        _add_abstain_outcome(components, observation)
+    else:
+        _add_retry_outcome(components, observation, action)
+
+    if final_outcome == "max_attempt_failure":
+        _add(components, "max_attempt_failure", _MAX_ATTEMPT_FAILURE_REWARD)
+
+    return _finish(components)
+
+
+def _add_reply_component(
+    components: list[RewardComponent],
+    observation: AttemptObservation,
+) -> None:
+    _add(
         components,
-        observation,
-        accepted=accepted,
-        abstained=abstained,
-        max_attempt_failure=final_outcome == "max_attempt_failure",
-    )
-    return AttemptReward(
-        total=_clamp_reward(sum(component.value for component in components)),
-        components=tuple(components),
+        "reply_present",
+        _NON_EMPTY_REPLY_REWARD if observation.reply_chars > 0 else _EMPTY_REPLY_PENALTY,
     )
 
 
-def _add_citation_components(
+def _add_quality_shaping(
     components: list[RewardComponent],
     observation: AttemptObservation,
 ) -> None:
-    if observation.citation_required:
-        _add(components, "citation_present", 0.15 if observation.has_citations else -0.35)
-        _add(
-            components,
-            "citation_validity",
-            0.25 if observation.all_citations_verified else -1.00,
-        )
-    elif observation.unverified_citation_count:
-        _add(components, "unneeded_invalid_citation", -0.40)
+    quality = _answer_quality(observation)
+    if quality != 0.0:
+        _add(components, "answer_quality_shaping", _MAX_QUALITY_SHAPING * quality)
 
 
-def _add_evidence_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-) -> None:
+def _answer_quality(observation: AttemptObservation) -> float:
+    """Return a bounded quality proxy in [-1, 1]."""
+
+    if (hard_score := _hard_answer_quality_score(observation)) is not None:
+        return hard_score
+
+    score = 0.0
     if observation.evidence_count:
-        _add(components, "evidence_available", 0.10)
+        score += 0.15
     if observation.evidence_sufficient:
-        _add(components, "evidence_sufficient", 0.25)
+        score += 0.35
     elif observation.evidence_recommended_action == "abstain":
-        _add(components, "thin_evidence", -0.20)
-    if observation.confident_thin_evidence:
-        _add(components, "confident_thin_evidence", -0.65)
-    if observation.answer_relevance_required and not observation.off_topic_answer:
-        _add(components, "answer_relevance", 0.10 * observation.answer_relevance_score)
+        score -= 0.25
+
+    if observation.answer_relevance_required:
+        score += 0.20 * _clamp01(observation.answer_relevance_score)
+
     if observation.distinct_source_count >= 2:
-        _add(components, "source_diversity", 0.15)
+        score += 0.10
+
+    score += _citation_quality_score(observation)
+    score -= min(0.50, 0.12 * observation.unsupported_claim_count)
+    score -= min(0.50, 0.15 * observation.missing_required_citation_count)
+    if observation.confident_thin_evidence:
+        score -= 0.45
+
+    return max(-1.0, min(1.0, score))
+
+
+def _hard_answer_quality_score(observation: AttemptObservation) -> float | None:
+    if observation.off_topic_answer or observation.answer_shape_failed:
+        return -1.0
+    if observation.reply_chars <= 0:
+        return -0.5
+    return None
+
+
+def _citation_quality_score(observation: AttemptObservation) -> float:
+    if not observation.citation_required:
+        return -0.30 if observation.unverified_citation_count else 0.0
+    if not observation.has_citations:
+        return -0.40
+    if observation.all_citations_verified:
+        return 0.25
+    return -0.55
+
+
+def _add_accept_outcome(
+    components: list[RewardComponent],
+    observation: AttemptObservation,
+) -> None:
+    if _grounded_accept(observation):
+        _add(components, "good_accept", _GOOD_ACCEPT_REWARD)
+        return
+
+    _add(components, "bad_accept", _BAD_ACCEPT_REWARD)
+    _add_bad_accept_components(components, observation)
+
+
+def _add_bad_accept_components(
+    components: list[RewardComponent],
+    observation: AttemptObservation,
+) -> None:
+    if observation.off_topic_answer:
+        _add(components, "accepted_off_topic_answer", -0.15)
+    if observation.answer_shape_failed:
+        _add(components, "accepted_bad_answer_shape", -0.15)
+    if observation.unsupported_claim_count:
+        _add(components, "accepted_unsupported_claims", -0.10)
+    if observation.missing_required_citation_count:
+        _add(components, "accepted_missing_required_citations", -0.10)
+    if observation.citation_required and not observation.has_citations:
+        _add(components, "accepted_uncited_required_answer", -0.10)
+    if observation.unverified_citation_count or not observation.all_citations_verified:
+        _add(components, "accepted_invalid_or_unverified_citations", -0.10)
+    if observation.confident_thin_evidence:
+        _add(components, "accepted_confident_thin_evidence", -0.10)
+
+
+def _add_abstain_outcome(
+    components: list[RewardComponent],
+    observation: AttemptObservation,
+) -> None:
+    if _should_abstain(observation):
+        _add(components, "correct_abstain", _CORRECT_ABSTAIN_REWARD)
+    elif _grounded_accept(observation):
+        _add(components, "unnecessary_abstain", _UNNECESSARY_ABSTAIN_REWARD)
+    else:
+        _add(components, "defensive_abstain", _DEFENSIVE_ABSTAIN_REWARD)
+
+
+def _add_retry_outcome(
+    components: list[RewardComponent],
+    observation: AttemptObservation,
+    action: AttemptAction,
+) -> None:
+    _add(components, "retry_cost", _RETRY_COST)
+
+    if _grounded_accept(observation):
+        _add(components, "retry_when_accept_ready", -0.12)
+        return
+    if _should_abstain(observation):
+        _add(components, "retry_when_abstain_ready", -0.08)
+        return
+
+    component = _RETRY_FIT_COMPONENTS.get(action)
+    if component is None:
+        _add(components, "unknown_retry_action", -0.08)
+        return
+
+    name, scorer = component
+    _add(components, name, scorer(observation))
 
 
 def _add_cost_components(
@@ -156,100 +267,55 @@ def _add_cost_components(
     observation: AttemptObservation,
 ) -> None:
     if observation.internal_passes > 1:
-        _add(components, "retry_cost", -0.05 * (observation.internal_passes - 1))
+        _add(
+            components,
+            "internal_pass_cost",
+            -min(0.12, 0.03 * (observation.internal_passes - 1)),
+        )
     if observation.latency_ms > 0:
-        _add(components, "latency_cost", -min(0.15, observation.latency_ms / 120_000))
+        _add(components, "latency_cost", -min(0.08, observation.latency_ms / 180_000))
     if observation.cost_usd > 0:
-        _add(components, "money_cost", -min(0.15, observation.cost_usd / 0.10))
-
-
-def _add_policy_action_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-    action: AttemptAction,
-) -> None:
-    if action is AttemptAction.ACCEPT:
-        _add_accept_decision_components(components, observation)
-        return
-    if action is AttemptAction.ABSTAIN:
-        _add_abstain_decision_components(components, observation)
-        return
-    _add_retry_decision_components(components, observation, action)
-
-
-def _add_accept_decision_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-) -> None:
-    if observation.off_topic_answer:
-        _add(components, "accepted_off_topic_answer", -1.00)
-    if observation.unsupported_claim_count:
-        _add(components, "accepted_unsupported_claims", -0.90)
-    if observation.missing_required_citation_count:
-        _add(components, "accepted_missing_required_citations", -0.75)
-    if observation.confident_thin_evidence:
-        _add(components, "accepted_confident_thin_evidence", -0.75)
-    if observation.citation_required and not observation.has_citations:
-        _add(components, "accepted_uncited_required_answer", -0.70)
-    if observation.unverified_citation_count:
-        _add(components, "accepted_invalid_citations", -0.90)
-    if _grounded_accept(observation):
-        _add(components, "grounded_accept", 0.55)
-
-
-def _add_abstain_decision_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-) -> None:
-    if _should_abstain(observation):
-        _add(components, "correct_abstain", 0.65)
-    elif _grounded_accept(observation):
-        _add(components, "unnecessary_abstain", -0.45)
-    else:
-        _add(components, "defensive_abstain", 0.10)
-
-
-def _add_retry_decision_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-    action: AttemptAction,
-) -> None:
-    _add(components, "retry_attempt_cost", -0.08)
-    component = _RETRY_FIT_COMPONENTS.get(action)
-    if component is None:
-        return
-    name, scorer = component
-    _add(components, name, scorer(observation))
+        _add(components, "money_cost", -min(0.08, observation.cost_usd / 0.20))
 
 
 def _strict_grounded_retry_value(observation: AttemptObservation) -> float:
-    return 0.35 if _needs_grounded_retry(observation) else -0.10
+    return _MAX_RETRY_FIT_REWARD if _needs_grounded_retry(observation) else -0.04
 
 
 def _expand_evidence_retry_value(observation: AttemptObservation) -> float:
-    return 0.30 if observation.evidence_count == 0 else 0.05
+    if observation.evidence_count == 0 and not observation.off_topic_answer:
+        return _MAX_RETRY_FIT_REWARD
+    return -0.04
 
 
 def _diversify_sources_retry_value(observation: AttemptObservation) -> float:
-    return 0.30 if 0 < observation.distinct_source_count < 2 else -0.10
+    if observation.evidence_count > 0 and observation.distinct_source_count < 2:
+        return 0.05
+    return -0.04
 
 
 def _neighbor_chunks_retry_value(observation: AttemptObservation) -> float:
     if observation.evidence_count > 0 and not observation.evidence_sufficient:
-        return 0.20
-    return -0.10
+        return 0.04
+    return -0.04
 
 
 def _shorter_answer_retry_value(observation: AttemptObservation) -> float:
-    return 0.20 if observation.reply_chars > 1200 else -0.10
+    if observation.reply_chars > 1200 and observation.unsupported_claim_count:
+        return 0.04
+    return -0.04
 
 
 def _overview_sampling_retry_value(observation: AttemptObservation) -> float:
-    return 0.25 if observation.retrieval_strategy != "overview" else -0.10
+    if observation.retrieval_strategy != "overview" and observation.top_score < 0.45:
+        return 0.04
+    return -0.04
 
 
 def _rewrite_query_retry_value(observation: AttemptObservation) -> float:
-    return 0.20 if observation.top_score < 0.35 else -0.05
+    if observation.top_score < 0.35 and not observation.evidence_sufficient:
+        return 0.05
+    return -0.04
 
 
 _RETRY_FIT_COMPONENTS: Mapping[AttemptAction, tuple[str, RetryValueScorer]] = {
@@ -284,61 +350,55 @@ _RETRY_FIT_COMPONENTS: Mapping[AttemptAction, tuple[str, RetryValueScorer]] = {
 }
 
 
-def _add_terminal_components(
-    components: list[RewardComponent],
-    observation: AttemptObservation,
-    *,
-    accepted: bool,
-    abstained: bool,
-    max_attempt_failure: bool,
-) -> None:
-    if abstained:
-        _add(
-            components,
-            "abstention",
-            _MIN_ABSTENTION_REWARD
-            if observation.evidence_recommended_action == "abstain"
-            else -0.25,
-        )
-    if accepted:
-        _add(components, "accepted_terminal", 0.25)
-    if max_attempt_failure:
-        _add(components, "max_attempt_failure", -0.60)
-
-
 def _grounded_accept(observation: AttemptObservation) -> bool:
-    if observation.reply_chars <= 0:
+    if observation.reply_chars <= 0 or observation.off_topic_answer:
+        return False
+    if observation.answer_shape_failed:
         return False
     if observation.unsupported_claim_count or observation.missing_required_citation_count:
         return False
     if observation.citation_required and not observation.has_citations:
         return False
-    return bool(observation.all_citations_verified and observation.evidence_sufficient)
+    if observation.unverified_citation_count or not observation.all_citations_verified:
+        return False
+    return bool(observation.evidence_sufficient)
 
 
 def _should_abstain(observation: AttemptObservation) -> bool:
     return bool(
-        observation.off_topic_answer
-        or observation.evidence_recommended_action == "abstain"
-        or (observation.evidence_count == 0 and observation.citation_required)
+        observation.off_topic_answer or observation.evidence_recommended_action == "abstain"
     )
 
 
 def _needs_grounded_retry(observation: AttemptObservation) -> bool:
     return bool(
         observation.evidence_count > 0
+        and not observation.off_topic_answer
         and (
             not observation.has_citations
             or not observation.all_citations_verified
             or observation.unsupported_claim_count
+            or observation.answer_shape_failed
             or observation.missing_required_citation_count
         )
     )
 
 
+def _finish(components: list[RewardComponent]) -> AttemptReward:
+    return AttemptReward(
+        total=_clamp_reward(sum(component.value for component in components)),
+        components=tuple(components),
+    )
+
+
 def _add(components: list[RewardComponent], name: str, value: float) -> None:
-    components.append(RewardComponent(name=name, value=value))
+    if value != 0.0:
+        components.append(RewardComponent(name=name, value=round(float(value), 4)))
 
 
 def _clamp_reward(value: float) -> float:
     return max(_MIN_REWARD, min(_MAX_REWARD, round(value, 4)))
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))

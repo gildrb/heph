@@ -87,6 +87,7 @@ def register(
         help="Minimum local attempts added since the last automated training run.",
     )
     auto_train.set_defaults(handler=_cmd_learning_auto_train)
+    learning_sub.metavar = "{train,auto-train}"
 
 
 def _cmd_learning_train(args: argparse.Namespace) -> None:
