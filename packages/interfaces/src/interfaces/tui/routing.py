@@ -19,6 +19,7 @@ class TuiInputRoute(Enum):
     SESSIONS = "sessions"
     TURN = "turn"
     NEW = "new"
+    DETACH = "detach"
     ARMORY = "armory"
     EXTERNAL = "external"
     CHAT = "chat"
@@ -64,4 +65,6 @@ def tui_input_route(value: str) -> TuiInputRoute:
     command = stripped[1:].partition(" ")[0].lower()
     if command == "new" and stripped == "/new":
         return TuiInputRoute.NEW
+    if command == "detach" and stripped == "/detach":
+        return TuiInputRoute.DETACH
     return _INLINE_ROUTES.get(command, TuiInputRoute.EXTERNAL)

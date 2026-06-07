@@ -2368,8 +2368,6 @@ def test_command_help_is_command_first() -> None:
     assert "/materials" in help_text
     assert "/sessions" in help_text
     assert "/status" in help_text
-    assert "/recommend" not in help_text
-    assert "/recommend-model" not in help_text
     assert "/sources" not in help_text
     assert "/history" not in help_text
 
@@ -2715,6 +2713,7 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/history browse", tui._TuiInputRoute.EXTERNAL),
         ("/history stats", tui._TuiInputRoute.EXTERNAL),
         ("/new", tui._TuiInputRoute.NEW),
+        ("/detach", tui._TuiInputRoute.DETACH),
         ("/armory", tui._TuiInputRoute.ARMORY),
         ("/armory open", tui._TuiInputRoute.ARMORY),
         ("/help", tui._TuiInputRoute.EXTERNAL),
@@ -2751,11 +2750,12 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     assert routes["/sessions"] is tui._TuiInputRoute.SESSIONS
     assert routes["/turn"] is tui._TuiInputRoute.TURN
     assert routes["/new"] is tui._TuiInputRoute.NEW
+    assert routes["/detach"] is tui._TuiInputRoute.DETACH
     assert routes["/armory"] is tui._TuiInputRoute.ARMORY
     assert all(
         route is tui._TuiInputRoute.EXTERNAL
         for command, route in routes.items()
-        if command not in {"/materials", "/sessions", "/turn", "/new", "/armory"}
+        if command not in {"/materials", "/sessions", "/turn", "/new", "/detach", "/armory"}
     )
 
 
@@ -3498,6 +3498,132 @@ def test_armory_input_executes_without_user_transcript(
     asyncio.run(check_inline_command())
 
 
+def test_plain_tui_opens_named_armory_without_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "module-2"
+    initialize(armory_path)
+    (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_named_armory() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "module-2"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.armory_path == armory_path.resolve()
+            assert app.session.source_file_count == 1
+            assert app.busy is False
+            assert any("Using armory" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_named_armory())
+
+
+def test_busy_plain_tui_keeps_named_armory_input_as_steering(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "module-2"
+    initialize(armory_path)
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_busy_named_armory() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            _mark_active_turn(app)
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "module-2"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.armory_path is None
+            assert app.session.steering.drain() == ["module-2"]
+            assert any(
+                "Steering queued: module-2" in entry.content for entry in app.state.transcript
+            )
+            assert not any("Using armory" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_busy_named_armory())
+
+
+def test_detach_command_returns_to_plain_tui(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "module"
+    initialize(armory_path)
+    (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
+    session = _plain_session()
+    session.armory_path = armory_path
+    session.source_file_count = 1
+
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_detach() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/detach"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.armory_path is None
+            assert app.busy is False
+            assert any("Armory detached" in entry.content for entry in app.state.transcript)
+            assert any("No armory attached" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_detach())
+
+
+def test_armory_reference_resolver_stays_inside_armory_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    armory_home = tmp_path / ".armories"
+    outside_home = tmp_path / "outside"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    inside = armory_home / "inside"
+    outside = outside_home / "outside"
+    initialize(inside)
+    initialize(outside)
+
+    assert tui_armory._resolve_armory_reference("inside") == inside.resolve()
+    assert tui_armory._resolve_armory_reference(str(outside)) is None
+    assert tui_armory._resolve_armory_reference("../outside/outside") is None
+    assert tui_armory._resolve_armory_reference("what is inside?") is None
+
+
 def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
@@ -3964,6 +4090,8 @@ def test_command_input_executes_without_user_transcript(
                 assert app._materials_inline_active is True
             elif command_input == "/new":
                 assert any("New chat started" in entry.content for entry in app.state.transcript)
+            elif command_input == "/detach":
+                assert any("No armory attached" in entry.content for entry in app.state.transcript)
             elif command_input.startswith(("/models", "/help", "/status", "!")):
                 assert app.state.pending_input is None
                 assert app.state.transcript
@@ -3998,6 +4126,9 @@ def test_busy_submit_routes_commands_without_steering(
     def record_new() -> None:
         calls.append(("new", ""))
 
+    def record_detach() -> None:
+        calls.append(("detach", ""))
+
     def record_armory(value: str) -> None:
         calls.append(("armory", value))
 
@@ -4013,6 +4144,7 @@ def test_busy_submit_routes_commands_without_steering(
             monkeypatch.setattr(app, "_open_materials_inline", record_materials)
             monkeypatch.setattr(app, "_handle_sessions_command", record_sessions)
             monkeypatch.setattr(app, "_handle_new", record_new)
+            monkeypatch.setattr(app, "_handle_detach", record_detach)
             monkeypatch.setattr(app, "_handle_armory_browser", record_armory)
             monkeypatch.setattr(app, "_handle_inline_command", record_inline)
             monkeypatch.setattr(app, "_handle_external_input", record_external)
@@ -4022,6 +4154,7 @@ def test_busy_submit_routes_commands_without_steering(
                 "/materials notes",
                 "/sessions",
                 "/new",
+                "/detach",
                 "/armory",
                 "/settings",
                 "/models",
@@ -4042,6 +4175,7 @@ def test_busy_submit_routes_commands_without_steering(
                 ("materials", "/materials notes"),
                 ("sessions", "/sessions"),
                 ("new", ""),
+                ("detach", ""),
                 ("armory", "/armory"),
                 ("inline", "/settings"),
                 ("inline", "/models"),
@@ -6252,7 +6386,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 "logout",
                 "status",
                 "new",
-                "armory",
+                "detach",
             ]
 
             expected = (

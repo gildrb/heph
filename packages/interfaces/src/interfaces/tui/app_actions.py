@@ -109,13 +109,19 @@ class _AppActionsHost(Protocol):
 
     def _submit_new_route(self, value: str) -> None: ...
 
+    def _submit_detach_route(self, value: str) -> None: ...
+
     def _submit_armory_route(self, value: str) -> None: ...
 
     def _submit_busy_value(self, route: _TuiInputRoute, value: str) -> bool: ...
 
+    def _open_armory_reference_from_input(self, value: str) -> bool: ...
+
     def _start_chat_turn(self, value: str) -> None: ...
 
     def _handle_new(self) -> None: ...
+
+    def _handle_detach(self) -> None: ...
 
     def _open_search(self) -> None: ...
 
@@ -181,6 +187,8 @@ class _AppActionsHost(Protocol):
 
     def _append_plain(self, text: str) -> None: ...
 
+    def _append_armory_home(self) -> None: ...
+
     def _sync_busy_to_current_session(self) -> None: ...
 
     def _update_info_panel(self) -> None: ...
@@ -235,6 +243,8 @@ class TuiAppActionsMixin:
             return
         if self.busy:
             self._submit_busy_value(route, value)
+            return
+        if route is _TuiInputRoute.CHAT and self._open_armory_reference_from_input(value):
             return
         route_handlers = {
             _TuiInputRoute.EXTERNAL: self._submit_external_value,
@@ -300,6 +310,7 @@ class TuiAppActionsMixin:
             _TuiInputRoute.SESSIONS: self._submit_sessions_route,
             _TuiInputRoute.TURN: self._submit_turn_route,
             _TuiInputRoute.NEW: self._submit_new_route,
+            _TuiInputRoute.DETACH: self._submit_detach_route,
             _TuiInputRoute.ARMORY: self._submit_armory_route,
         }
         if handler := route_handlers.get(route):
@@ -329,6 +340,10 @@ class TuiAppActionsMixin:
     def _submit_new_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
         self._handle_new()
+
+    def _submit_detach_route(self: _AppActionsHost, value: str) -> None:
+        self._record_history(value)
+        self._handle_detach()
 
     def _submit_armory_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
@@ -426,6 +441,24 @@ class TuiAppActionsMixin:
             self._focused_msg_index = None
             self._sync_busy_to_current_session()
             self._update_info_panel()
+
+    def _handle_detach(self: _AppActionsHost) -> None:
+        if self.session.armory_path is None:
+            self._append_notice("No armory attached.")
+            return
+        previous_session = self.session
+        turn_key = self._turn_key_for_session(previous_session)
+        self._turn_sessions[turn_key] = previous_session
+        tui_module = sys.modules["interfaces.tui"]
+        self.session = tui_module.start_fresh_session(self.session, None)
+        self._turn_sessions[self._turn_key_for_session(self.session)] = self.session
+        self.state.transcript.clear()
+        self.query_one(TRANSCRIPT_SELECTOR, RichLog).clear()
+        self._append_armory_home()
+        self._append_notice("Armory detached.")
+        self._focused_msg_index = None
+        self._sync_busy_to_current_session()
+        self._update_info_panel()
 
     def _replace_transcript_from_session(self: _AppActionsHost) -> None:
         self.state.transcript.clear()

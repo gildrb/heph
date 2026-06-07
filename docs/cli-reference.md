@@ -18,6 +18,7 @@
 | `heph health [path]` | Check indexed materials for generic extraction problems; defaults to the current armory. |
 | `heph learning train [path]` | Train a local PufferLib harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
 | `heph learning auto-train [path]` | Run the local learning automation gate; trains with PufferLib only when enough new armory attempts exist. |
+| `heph learning constellation-export [path]` | Export local numeric learning-attempt data to an armory-local PufferLib Constellation `experiments.json` file. |
 | `heph update` | Show how to update the active Heph install. |
 | `heph sdk serve` | Run the SDK JSONL stdio service. |
 | `heph config show` | Display current configuration. |
@@ -40,6 +41,7 @@
 | /logout | Clear stored subscription or API-key credentials |
 | /status | Show session, usage, armory, and review info |
 | /new | Start a new chat |
+| /detach | Detach the current armory |
 | /armory | Browse, open, or create armories |
 | /compact | Summarize conversation to reduce context size |
 | /evidence | Show retrieved evidence for the last turn |
@@ -49,9 +51,7 @@
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
-| /remind | Show upcoming review reminders and due cards |
 | /memory | Show local armory memory status |
-| /recommend | List recommended model picks |
 | /models | Pick the active model |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |

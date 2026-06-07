@@ -57,6 +57,7 @@ from hephaion.chat.prior_answer import (
     _prior_answer_target_phrase_reply,
 )
 from hephaion.chat.reply_repair import (
+    _evidence_pointer_excerpt,
     _evidence_quote_repair_reply,
     _normalize_escaped_evidence_citations,
     _normalize_structural_table_reply,
@@ -168,8 +169,8 @@ def _deterministic_learning_reply(
         return prior_source_object_absence_reply
     if no_evidence_reply := _no_evidence_deterministic_reply(session, plan, resolved):
         return no_evidence_reply
-    if abstain_reply := _source_qa_abstain_reply(plan, resolved):
-        return _DeterministicLearningReply(abstain_reply, citation_required=False)
+    if abstain_reply := _source_qa_deterministic_abstain(plan, resolved):
+        return abstain_reply
     if prior_list_transform_reply := _prior_answer_list_transform_reply(
         resolved.turn_contract,
         resolved.turn_evidence,
@@ -187,17 +188,43 @@ def _deterministic_learning_reply(
         resolved.turn_evidence,
     ):
         return prior_single_citation_reply
-    if overview_followup_reply := _deterministic_broad_overview_followup_reply(
+    if overview_reply := _overview_followup_deterministic_reply(session, plan, resolved):
+        return overview_reply
+    if resolved.turn_evidence is not None and resolved.turn_evidence.items:
+        return None
+    return None
+
+
+def _source_qa_deterministic_abstain(
+    plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> _DeterministicLearningReply | None:
+    abstain_reply = _source_qa_abstain_reply(plan, resolved)
+    if not abstain_reply:
+        return None
+    source_refs = _evidence_refs(resolved.turn_evidence) if resolved.turn_evidence else None
+    return _DeterministicLearningReply(
+        abstain_reply,
+        source_refs=source_refs,
+        citation_required=bool(source_refs and "[E" in abstain_reply),
+    )
+
+
+def _overview_followup_deterministic_reply(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> _DeterministicLearningReply | None:
+    reply = _deterministic_broad_overview_followup_reply(
         session,
         plan,
         resolved.turn_evidence,
         contract=resolved.turn_contract,
-    ):
-        source_refs = _evidence_refs(resolved.turn_evidence) if resolved.turn_evidence else None
-        return _DeterministicLearningReply(overview_followup_reply, source_refs=source_refs)
-    if resolved.turn_evidence is not None and resolved.turn_evidence.items:
+    )
+    if not reply:
         return None
-    return None
+    source_refs = _evidence_refs(resolved.turn_evidence) if resolved.turn_evidence else None
+    return _DeterministicLearningReply(reply, source_refs=source_refs)
 
 
 def _no_evidence_deterministic_reply(
@@ -243,7 +270,33 @@ def _source_qa_abstain_reply(
         or assessment.recommended_action != "abstain"
     ):
         return ""
+    if partial_reply := _source_qa_partial_progress_reply(
+        resolved.turn_evidence,
+        assessment.supporting_refs,
+    ):
+        return partial_reply
     return "The current evidence does not contain a direct source answer for this request."
+
+
+def _source_qa_partial_progress_reply(
+    evidence: TurnEvidence | None,
+    supporting_refs: tuple[str, ...],
+) -> str:
+    if evidence is None or not evidence.items:
+        return ""
+    item = next(
+        (candidate for candidate in evidence.items if candidate.evidence_id in supporting_refs),
+        None,
+    )
+    if item is None:
+        return ""
+    excerpt = _evidence_pointer_excerpt(item)
+    if not excerpt:
+        return ""
+    return (
+        f'The current evidence shows: "{excerpt}" [{item.evidence_id}]. '
+        "It does not contain a fuller direct source explanation for this request."
+    )
 
 
 def _validation_guard_abstain_reply(

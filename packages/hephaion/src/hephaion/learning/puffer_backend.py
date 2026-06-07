@@ -162,6 +162,10 @@ _OBSERVATION_FEATURES: tuple[_ObservationFeature, ...] = (
         "answer_shape_failed", lambda observation: _flag(observation.answer_shape_failed)
     ),
     _ObservationFeature(
+        "grounded_partial_progress",
+        lambda observation: _flag(observation.grounded_partial_progress),
+    ),
+    _ObservationFeature(
         "missing_required_citation_count",
         lambda observation: _bounded(observation.missing_required_citation_count / 4.0),
     ),

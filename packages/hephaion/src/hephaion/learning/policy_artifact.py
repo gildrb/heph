@@ -88,6 +88,7 @@ def observation_bucket(observation: AttemptObservation) -> str:
         (
             _citation_bucket(observation),
             _evidence_bucket(observation),
+            _progress_bucket(observation),
             _relevance_bucket(observation),
             _shape_bucket(observation),
             _source_bucket(observation),
@@ -114,6 +115,7 @@ def _pre_shape_observation_bucket(observation: AttemptObservation) -> str:
         (
             _citation_bucket(observation),
             _evidence_bucket(observation),
+            _progress_bucket(observation),
             _relevance_bucket(observation),
             _source_bucket(observation),
             _length_bucket(observation),
@@ -148,6 +150,10 @@ def _relevance_bucket(observation: AttemptObservation) -> str:
     if observation.answer_relevance_required and observation.answer_relevance_score < 0.35:
         return "weak_relevance"
     return "relevant"
+
+
+def _progress_bucket(observation: AttemptObservation) -> str:
+    return "partial_progress" if observation.grounded_partial_progress else "no_partial_progress"
 
 
 def _shape_bucket(observation: AttemptObservation) -> str:

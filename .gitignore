@@ -65,6 +65,7 @@ qa-results/
 droid-wiki/
 security-findings.json
 validated-findings.json
+/resources
 
 # Private benchmark suites, corpora, qrels, prompts, snapshots, and run outputs.
 # Benchmark evidence stays local only; do not commit anything under this tree.

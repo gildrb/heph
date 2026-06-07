@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import ai.providers.model_choices as _model_choices
@@ -73,6 +72,31 @@ def test_command_registry_includes_settings() -> None:
 
     assert registry.find("settings") is not None
     assert "settings" in names
+
+
+def test_detach_command_returns_plain_session(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="https://example.test", model="test-model"))
+    session.armory_path = tmp_path / "module"
+
+    result = commands.DetachCommand().handle(session, "")
+
+    assert result.new_session is not None
+    assert result.new_session.armory_path is None
+    assert "Armory detached" in capsys.readouterr().out
+
+
+def test_detach_command_without_armory_leaves_session_plain(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="https://example.test", model="test-model"))
+
+    result = commands.DetachCommand().handle(session, "")
+
+    assert result.new_session is None
+    assert "No armory attached" in capsys.readouterr().out
 
 
 def test_settings_command_prints_summary(capsys: pytest.CaptureFixture[str]) -> None:
@@ -364,15 +388,13 @@ def test_priority_command_prints_local_priority_scan(
     assert list((tmp_path / "Downloads").glob("hephaion-priority-*.pdf"))
 
 
-def test_command_registry_includes_memory_and_recommend() -> None:
+def test_command_registry_includes_memory() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
     assert registry.find("memory") is not None
-    assert registry.find("recommend") is not None
     assert "memory" in names
-    assert "recommend" in names
 
 
 def test_memory_status_reports_local_memory(capsys: pytest.CaptureFixture[str]) -> None:
@@ -384,16 +406,6 @@ def test_memory_status_reports_local_memory(capsys: pytest.CaptureFixture[str]) 
     assert result.output is None
     assert "Backend:" in out
     assert "Entries:" in out
-
-
-def test_recommend_command_lists_recommended_models(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.RecommendCommand().handle(session, "")
-
-    out = capsys.readouterr().out
-    assert "Model picks" in out
-    assert "recommended" in out
 
 
 def test_command_registry_uses_sessions_for_saved_chat_switching() -> None:
@@ -487,50 +499,13 @@ def test_stats_command_reports_study_recall_timing(
     assert "Scheduled: 1 item(s)" in out
 
 
-def test_remind_command_reports_due_study_items_without_vocab(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    armory = tmp_path / "remind-study"
-    initialize(armory)
-    session = ChatSession(
-        config=ChatConfig(api_key="test-key"),
-        conversation=Conversation(),
-        session_id="remind-study",
-        armory_path=armory,
-    )
-    store = load_recall_schedule(armory)
-    store.record_review(
-        "Explain Dijkstra",
-        retrieval_query="dijkstra",
-        source_refs=["materials/exam.md#chunk=0"],
-        rating=RecallRating.HARD,
-        elapsed_seconds=160,
-        concept="Dijkstra shortest paths",
-        error_type="misconception",
-        exam_importance=0.75,
-        now=datetime.now(UTC) - timedelta(days=2),
-    )
-    store.save()
-
-    commands.RemindCommand().handle(session, "")
-
-    out = capsys.readouterr().out
-    assert "recall item" in out
-    assert "recall item due" in out
-    assert "Explain Dijkstra" in out
-    assert "concept: Dijkstra shortest paths" in out
-    assert "last: misconception" in out
-    assert "failures: 1" in out
-    assert "exam priority: 75%" in out
-    assert "/exam" in out
-
-
 def test_command_registry_uses_models_not_model() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
+    assert registry.find("remind") is None
+    assert "remind" not in names
     assert registry.find("model") is None
     assert registry.find("models") is not None
     assert "model" not in names

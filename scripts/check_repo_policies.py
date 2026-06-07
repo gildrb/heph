@@ -268,6 +268,7 @@ HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
         "_overview_unavailable_reply",
         "_plain_empty_reply",
         "_source_qa_abstain_reply",
+        "_source_qa_partial_progress_reply",
         "empty_armory_guidance",
         "tui_dependency_message",
         "_unindexable_material_reply",

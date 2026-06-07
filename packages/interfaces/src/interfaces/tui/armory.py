@@ -95,6 +95,8 @@ class _ArmoryHost(Protocol):
 
     def _close_armory_inline(self) -> None: ...
 
+    def _record_history(self, value: str) -> None: ...
+
     def _refresh_armory_inline(self) -> None: ...
 
     def _refresh_armory_header(self) -> None: ...
@@ -120,6 +122,8 @@ class _ArmoryHost(Protocol):
     def _start_inline_create(self) -> None: ...
 
     def _open_selected_armory(self, path: Path) -> None: ...
+
+    def _append_hidden_armory_error(self, text: str) -> None: ...
 
 
 def _armory_command_flow(value: str) -> str | None:
@@ -147,6 +151,48 @@ def _display_path(path: Path) -> str:
         return f"~/{path.relative_to(Path.home())}"
     except ValueError:
         return str(path)
+
+
+def _armory_reference_tokens(value: str) -> tuple[str, ...]:
+    stripped = value.strip()
+    if not stripped:
+        return ()
+    return (stripped,)
+
+
+def _candidate_path_from_reference(reference: str) -> Path:
+    candidate = Path(reference).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve(strict=False)
+    return (default_armory_home() / candidate).resolve(strict=False)
+
+
+def _known_armory_paths_by_name() -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+    for entry in build_entries(allow_create=False, show_places=False):
+        if (
+            entry.path is None
+            or not _is_armory(entry.path)
+            or not _is_within_armory_home(entry.path)
+        ):
+            continue
+        paths.setdefault(entry.path.name, entry.path.resolve(strict=False))
+    return paths
+
+
+def _resolve_armory_reference(value: str) -> Path | None:
+    known_paths = _known_armory_paths_by_name()
+    matched_paths: set[Path] = set()
+    for token in _armory_reference_tokens(value):
+        if path := known_paths.get(token):
+            matched_paths.add(path)
+            continue
+        candidate = _candidate_path_from_reference(token)
+        if _is_within_armory_home(candidate) and _is_armory(candidate):
+            matched_paths.add(candidate)
+    if len(matched_paths) != 1:
+        return None
+    return next(iter(matched_paths))
 
 
 _ARMORY_DESCRIPTION_GAP = 4
@@ -360,6 +406,16 @@ def _armory_entry_text(
 
 
 class TuiArmoryMixin:
+    def _open_armory_reference_from_input(self: _ArmoryHost, value: str) -> bool:
+        if self.session.armory_path is not None:
+            return False
+        armory_path = _resolve_armory_reference(value)
+        if armory_path is None:
+            return False
+        self._record_history(value)
+        self._open_selected_armory(armory_path)
+        return True
+
     def _handle_armory_browser(self: _ArmoryHost, value: str) -> None:
         flow = _armory_command_flow(value)
         composer = self.query_one("#composer", Input)
@@ -644,17 +700,15 @@ class TuiArmoryMixin:
 
     def _open_selected_armory(self: _ArmoryHost, path: Path) -> None:
         if not _is_within_armory_home(path):
-            self.query_one("#armory-error-inline", Static).update(
-                f"Cannot open an armory outside armory home: {path}"
-            )
+            self._append_hidden_armory_error(f"Cannot open an armory outside armory home: {path}")
             return
         try:
             _validate_armory(path)
         except OSError as exc:
-            self.query_one("#armory-error-inline", Static).update(f"Could not read armory: {exc}")
+            self._append_hidden_armory_error(f"Could not read armory: {exc}")
             return
         except ArmoryError as exc:
-            self.query_one("#armory-error-inline", Static).update(f"Not a valid armory: {exc}")
+            self._append_hidden_armory_error(f"Not a valid armory: {exc}")
             return
         previous = self.session
         tui_module = sys.modules["interfaces.tui"]
@@ -667,7 +721,7 @@ class TuiArmoryMixin:
         else:
             self.session = reusable_session
         if self.session is previous:
-            self.query_one("#armory-error-inline", Static).update(f"Could not open armory: {path}")
+            self._append_hidden_armory_error(f"Could not open armory: {path}")
             return
         set_last_armory(path)
         self._turn_sessions[turn_key] = self.session
@@ -680,6 +734,11 @@ class TuiArmoryMixin:
         src_count = self.session.source_file_count or 0
         if src_count:
             self._append_notice(f"Loaded {src_count} file(s).")
+
+    def _append_hidden_armory_error(self: _ArmoryHost, text: str) -> None:
+        self.query_one("#armory-error-inline", Static).update(text)
+        if not self._armory_inline_active:
+            self._append_error(text)
 
     def _handle_armory_key(self: _ArmoryHost, event: events.Key) -> bool:
         composer = self.query_one("#composer", Input)

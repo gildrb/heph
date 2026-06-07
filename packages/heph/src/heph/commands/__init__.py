@@ -24,9 +24,9 @@ from heph.commands.display import (
 from heph.commands.help import ExitCommand, HelpCommand
 from heph.commands.memory import MemoryCommand
 from heph.commands.model import ModelsCommand
-from heph.commands.recommend import RecommendCommand
 from heph.commands.session import (
     ArmoryCommand,
+    DetachCommand,
     NewCommand,
     SessionsCommand,
     StatsCommand,
@@ -37,7 +37,6 @@ from heph.commands.settings import SettingsCommand
 from heph.commands.study import (
     ExamCommand,
     PriorityCommand,
-    RemindCommand,
     VocabCommand,
 )
 from heph.commands.suggestions import CommandSuggestion
@@ -77,6 +76,7 @@ def get_registry() -> CommandRegistry:
                 LogoutCommand,
                 StatusCommand,
                 NewCommand,
+                DetachCommand,
                 ArmoryCommand,
                 CompactCommand,
                 EvidenceCommand,
@@ -86,9 +86,7 @@ def get_registry() -> CommandRegistry:
                 ExamCommand,
                 ExportCommand,
                 ImportCommand,
-                RemindCommand,
                 MemoryCommand,
-                RecommendCommand,
                 ModelsCommand,
                 SettingsCommand,
                 SessionsCommand,
@@ -115,6 +113,7 @@ __all__ = [
     "CommandResult",
     "CompactCommand",
     "CostCommand",
+    "DetachCommand",
     "EvidenceCommand",
     "ExamCommand",
     "ExitCommand",
@@ -129,8 +128,6 @@ __all__ = [
     "NewCommand",
     "PriorityCommand",
     "ProviderConfig",
-    "RecommendCommand",
-    "RemindCommand",
     "SessionsCommand",
     "SettingsCommand",
     "StatsCommand",

@@ -735,6 +735,7 @@ def _attempt_record(
             "dataset_kind": "armory-local",
             "policy_action": recommended_action.value,
             "schema": "heph-learning-episode-v2",
+            "trajectory_window_size": 7,
         },
     )
 

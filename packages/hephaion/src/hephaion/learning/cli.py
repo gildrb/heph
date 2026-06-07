@@ -9,6 +9,10 @@ from pathlib import Path
 
 from hephaion.armory.storage import ArmoryError, normalize_path, validate
 from hephaion.learning.automation import AutoTrainingConfig, maybe_auto_train_attempt_policy
+from hephaion.learning.constellation import (
+    CONSTELLATION_EXPERIMENTS_PATH,
+    export_armory_constellation,
+)
 from hephaion.learning.training import train_attempt_policy
 
 
@@ -20,6 +24,15 @@ def register(
         help="Train and inspect local harness policy artifacts.",
     )
     learning_sub = learning.add_subparsers(dest="learning_command", required=True)
+    _register_train_parser(learning_sub)
+    _register_auto_train_parser(learning_sub)
+    _register_constellation_parser(learning_sub)
+    learning_sub.metavar = "{train,auto-train,constellation-export}"
+
+
+def _register_train_parser(
+    learning_sub: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     train = learning_sub.add_parser(
         "train",
         help="Train a local harness action policy from replay data.",
@@ -53,6 +66,11 @@ def register(
         help="Promote only when held-out gates beat the static fallback.",
     )
     train.set_defaults(handler=_cmd_learning_train)
+
+
+def _register_auto_train_parser(
+    learning_sub: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     auto_train = learning_sub.add_parser(
         "auto-train",
         help="Train and promote when enough new local attempts are available.",
@@ -87,7 +105,34 @@ def register(
         help="Minimum local attempts added since the last automated training run.",
     )
     auto_train.set_defaults(handler=_cmd_learning_auto_train)
-    learning_sub.metavar = "{train,auto-train}"
+
+
+def _register_constellation_parser(
+    learning_sub: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    constellation = learning_sub.add_parser(
+        "constellation-export",
+        help="Export local learning attempts for PufferLib Constellation.",
+    )
+    constellation.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Path to the armory folder. Defaults to the current directory.",
+    )
+    constellation.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Output experiments.json path. Defaults to the armory-local "
+            f"{CONSTELLATION_EXPERIMENTS_PATH}."
+        ),
+    )
+    constellation.add_argument(
+        "--env-name",
+        help="Top-level Constellation group name. Defaults to the armory folder name.",
+    )
+    constellation.set_defaults(handler=_cmd_learning_constellation_export)
 
 
 def _cmd_learning_train(args: argparse.Namespace) -> None:
@@ -124,6 +169,21 @@ def _cmd_learning_auto_train(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
+
+
+def _cmd_learning_constellation_export(args: argparse.Namespace) -> None:
+    armory_path = _validated_armory_path(args.path)
+    output_path = Path(args.output).expanduser() if args.output else None
+    try:
+        export = export_armory_constellation(
+            armory_path,
+            output_path=output_path,
+            env_name=args.env_name,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    print(json.dumps(export.to_dict(), indent=2, sort_keys=True))
 
 
 def _validated_armory_path(path: str) -> Path:

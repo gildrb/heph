@@ -158,6 +158,10 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Run the local learning automation gate; trains with PufferLib only when enough new "
         "armory attempts exist."
     ),
+    "heph learning constellation-export [path]": (
+        "Export local numeric learning-attempt data to an armory-local "
+        "PufferLib Constellation `experiments.json` file."
+    ),
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -292,6 +296,10 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} learning auto-train [path]",
             CLI_COMMAND_DESCRIPTIONS["heph learning auto-train [path]"],
+        ),
+        CommandLine(
+            f"{short_command} learning constellation-export [path]",
+            CLI_COMMAND_DESCRIPTIONS["heph learning constellation-export [path]"],
         ),
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),

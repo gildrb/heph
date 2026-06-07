@@ -95,8 +95,8 @@ heph health [path]      Check indexed materials.
 heph update             Show the update command.
 ```
 
-Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/evidence`,
-`/turn`, `/settings`, and `/exit`.
+Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/detach`,
+`/evidence`, `/turn`, `/settings`, and `/exit`.
 
 ## Docs
 

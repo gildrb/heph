@@ -10,7 +10,6 @@ from interfaces.tui.command_access import CommandSuggestion, get_registry
 from interfaces.tui.slash_completion import SlashCompletionEngine
 
 _COMMAND_HELP_GAP = 4
-_HELP_HIDDEN_COMMANDS = {"recommend"}
 
 
 def tui_command_suggestions() -> list[CommandSuggestion]:
@@ -36,11 +35,7 @@ def slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
 
 
 def command_help() -> str:
-    suggestions = [
-        suggestion
-        for suggestion in tui_command_suggestions()
-        if suggestion.name not in _HELP_HIDDEN_COMMANDS
-    ]
+    suggestions = tui_command_suggestions()
     label_width = max((len(f"/{suggestion.name}") for suggestion in suggestions), default=0)
     gap = " " * _COMMAND_HELP_GAP
     lines = []

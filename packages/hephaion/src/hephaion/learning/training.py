@@ -13,6 +13,7 @@ from pathlib import Path
 
 from hephaion.armory.state_files import ensure_armory_state_dir, write_armory_state_text
 from hephaion.learning.actions import AttemptAction
+from hephaion.learning.observation import AttemptObservation
 from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.learning.policy_artifact import (
     PROMOTED_POLICY_FILE,
@@ -27,6 +28,9 @@ from hephaion.learning.storage import AttemptRecord, LearningStore
 PUBLIC_SYNTHETIC_REPLAY = Path(__file__).parent / "fixtures" / "public_synthetic_replay.jsonl"
 TRAINING_REPORT_SCHEMA_VERSION = 1
 PUFFERLIB_BACKEND_NAME = "pufferlib"
+TRAJECTORY_WINDOW_SIZE = 7
+_TRAJECTORY_FAILURE_PENALTY = -0.08
+_TRAJECTORY_PROGRESS_BONUS = 0.04
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +43,11 @@ class DatasetSplit:
 class PolicyMetrics:
     count: int
     average_reward: float
-    abstention_correctness: float
+    grounded_progress_rate: float
+    bad_accept_rate: float
+    unnecessary_abstain_rate: float
+    abstain_rate: float
+    no_evidence_abstain_safety: float
     average_attempts: float
     average_latency_ms: float
     average_cost_usd: float
@@ -48,7 +56,11 @@ class PolicyMetrics:
         return {
             "count": self.count,
             "average_reward": self.average_reward,
-            "abstention_correctness": self.abstention_correctness,
+            "grounded_progress_rate": self.grounded_progress_rate,
+            "bad_accept_rate": self.bad_accept_rate,
+            "unnecessary_abstain_rate": self.unnecessary_abstain_rate,
+            "abstain_rate": self.abstain_rate,
+            "no_evidence_abstain_safety": self.no_evidence_abstain_safety,
             "average_attempts": self.average_attempts,
             "average_latency_ms": self.average_latency_ms,
             "average_cost_usd": self.average_cost_usd,
@@ -71,8 +83,20 @@ def _average_reward(metrics: PolicyMetrics) -> float:
     return metrics.average_reward
 
 
-def _abstention_correctness(metrics: PolicyMetrics) -> float:
-    return metrics.abstention_correctness
+def _grounded_progress_rate(metrics: PolicyMetrics) -> float:
+    return metrics.grounded_progress_rate
+
+
+def _bad_accept_rate(metrics: PolicyMetrics) -> float:
+    return metrics.bad_accept_rate
+
+
+def _unnecessary_abstain_rate(metrics: PolicyMetrics) -> float:
+    return metrics.unnecessary_abstain_rate
+
+
+def _no_evidence_abstain_safety(metrics: PolicyMetrics) -> float:
+    return metrics.no_evidence_abstain_safety
 
 
 def _average_attempts(metrics: PolicyMetrics) -> float:
@@ -107,9 +131,27 @@ _PROMOTION_METRIC_GATES: tuple[_MetricGate, ...] = (
         failed=_not_greater_than_baseline,
     ),
     _MetricGate(
-        reason="trained policy regressed abstention correctness",
-        origin_reason="trained policy regressed abstention correctness on {origin}",
-        value=_abstention_correctness,
+        reason="trained policy regressed grounded progress",
+        origin_reason="trained policy regressed grounded progress on {origin}",
+        value=_grounded_progress_rate,
+        failed=_less_than_baseline,
+    ),
+    _MetricGate(
+        reason="trained policy increased bad accepts",
+        origin_reason="trained policy increased bad accepts on {origin}",
+        value=_bad_accept_rate,
+        failed=_greater_than_baseline,
+    ),
+    _MetricGate(
+        reason="trained policy increased unnecessary abstains",
+        origin_reason="trained policy increased unnecessary abstains on {origin}",
+        value=_unnecessary_abstain_rate,
+        failed=_greater_than_baseline,
+    ),
+    _MetricGate(
+        reason="trained policy regressed no-evidence abstain safety",
+        origin_reason="trained policy regressed no-evidence abstain safety on {origin}",
+        value=_no_evidence_abstain_safety,
         failed=_less_than_baseline,
     ),
     _MetricGate(
@@ -228,6 +270,7 @@ def train_attempt_policy(
         "split_counts": {"train": len(split.train), "heldout": len(split.heldout)},
         "baseline_metrics": baseline_metrics.to_dict(),
         "trained_policy_metrics": trained_metrics.to_dict(),
+        "trajectory_window_size": TRAJECTORY_WINDOW_SIZE,
         "backend": backend,
         "backend_metadata": backend_metadata,
     }
@@ -360,7 +403,11 @@ def _evaluate_actions(
         return PolicyMetrics(
             count=0,
             average_reward=0.0,
-            abstention_correctness=0.0,
+            grounded_progress_rate=0.0,
+            bad_accept_rate=0.0,
+            unnecessary_abstain_rate=0.0,
+            abstain_rate=0.0,
+            no_evidence_abstain_safety=0.0,
             average_attempts=0.0,
             average_latency_ms=0.0,
             average_cost_usd=0.0,
@@ -369,23 +416,42 @@ def _evaluate_actions(
     attempts: list[int] = []
     latencies: list[float] = []
     costs: list[float] = []
-    abstain_needed = 0
-    abstain_correct = 0
-    for record, action in zip(records, actions, strict=True):
+    grounded_progress_count = 0
+    bad_accept_count = 0
+    unnecessary_abstain_count = 0
+    abstain_count = 0
+    no_evidence_abstain_needed = 0
+    no_evidence_abstain_correct = 0
+    trajectory_adjustments = _trajectory_reward_adjustments(records, actions)
+    for index, (record, action) in enumerate(zip(records, actions, strict=True)):
         outcome = record.outcome_for(action)
-        rewards.append(outcome.reward.total)
+        rewards.append(_clamp_reward(outcome.reward.total + trajectory_adjustments[index]))
         attempts.append(outcome.attempts)
         latencies.append(outcome.latency_ms)
         costs.append(outcome.cost_usd)
-        if _abstention_expected(record):
-            abstain_needed += 1
+        if _grounded_progress_action(record, action):
+            grounded_progress_count += 1
+        if _bad_accept_action(record, action):
+            bad_accept_count += 1
+        if action is AttemptAction.ABSTAIN:
+            abstain_count += 1
+            if _unnecessary_abstain_action(record):
+                unnecessary_abstain_count += 1
+        if _no_evidence_abstain_expected(record):
+            no_evidence_abstain_needed += 1
             if action is AttemptAction.ABSTAIN:
-                abstain_correct += 1
+                no_evidence_abstain_correct += 1
     return PolicyMetrics(
         count=len(records),
         average_reward=_average(rewards),
-        abstention_correctness=(
-            round(abstain_correct / abstain_needed, 4) if abstain_needed else 1.0
+        grounded_progress_rate=round(grounded_progress_count / len(records), 4),
+        bad_accept_rate=round(bad_accept_count / len(records), 4),
+        unnecessary_abstain_rate=round(unnecessary_abstain_count / len(records), 4),
+        abstain_rate=round(abstain_count / len(records), 4),
+        no_evidence_abstain_safety=(
+            round(no_evidence_abstain_correct / no_evidence_abstain_needed, 4)
+            if no_evidence_abstain_needed
+            else 1.0
         ),
         average_attempts=_average_ints(attempts),
         average_latency_ms=_average(latencies),
@@ -494,12 +560,127 @@ def _record_origin(record: AttemptRecord) -> str:
     return "local"
 
 
-def _abstention_expected(record: AttemptRecord) -> bool:
+def _trajectory_reward_adjustments(
+    records: Sequence[AttemptRecord],
+    actions: Sequence[AttemptAction],
+) -> list[float]:
+    adjustments = [0.0 for _record in records]
+    for indices in _indices_by_session(records).values():
+        _apply_trajectory_failure_penalties(adjustments, records, actions, indices)
+        _apply_trajectory_progress_bonuses(adjustments, records, actions, indices)
+    return [_clamp_adjustment(value) for value in adjustments]
+
+
+def _indices_by_session(records: Sequence[AttemptRecord]) -> dict[str, list[int]]:
+    indices_by_session: dict[str, list[int]] = {}
+    for index, record in enumerate(records):
+        indices_by_session.setdefault(record.session_id, []).append(index)
+    return indices_by_session
+
+
+def _apply_trajectory_failure_penalties(
+    adjustments: list[float],
+    records: Sequence[AttemptRecord],
+    actions: Sequence[AttemptAction],
+    indices: Sequence[int],
+) -> None:
+    for position, index in enumerate(indices):
+        if not _trajectory_failure_turn(records[index], actions[index]):
+            continue
+        start = max(0, position - TRAJECTORY_WINDOW_SIZE + 1)
+        for penalized in indices[start : position + 1]:
+            adjustments[penalized] += _TRAJECTORY_FAILURE_PENALTY
+
+
+def _apply_trajectory_progress_bonuses(
+    adjustments: list[float],
+    records: Sequence[AttemptRecord],
+    actions: Sequence[AttemptAction],
+    indices: Sequence[int],
+) -> None:
+    for offset in range(len(indices) - TRAJECTORY_WINDOW_SIZE + 1):
+        window = indices[offset : offset + TRAJECTORY_WINDOW_SIZE]
+        if not _progress_window(records, actions, window):
+            continue
+        for rewarded in window:
+            adjustments[rewarded] += _TRAJECTORY_PROGRESS_BONUS
+
+
+def _progress_window(
+    records: Sequence[AttemptRecord],
+    actions: Sequence[AttemptAction],
+    indices: Sequence[int],
+) -> bool:
+    return all(_grounded_progress_action(records[index], actions[index]) for index in indices)
+
+
+def _trajectory_failure_turn(record: AttemptRecord, action: AttemptAction) -> bool:
+    return bool(
+        _bad_accept_action(record, action)
+        or (action is AttemptAction.ABSTAIN and _unnecessary_abstain_action(record))
+        or (action is AttemptAction.ACCEPT and record.observation.reply_chars <= 0)
+    )
+
+
+def _grounded_progress_action(record: AttemptRecord, action: AttemptAction) -> bool:
     observation = record.observation
     return bool(
-        observation.evidence_recommended_action == "abstain"
-        or (observation.citation_required and observation.evidence_count == 0)
+        action is AttemptAction.ACCEPT
+        and observation.reply_chars > 0
+        and not _bad_accept_action(record, action)
+        and (observation.evidence_sufficient or observation.grounded_partial_progress)
     )
+
+
+def _bad_accept_action(record: AttemptRecord, action: AttemptAction) -> bool:
+    return bool(
+        action is AttemptAction.ACCEPT
+        and (
+            _invalid_accept_reply(record.observation)
+            or _insufficient_cited_answer(record.observation)
+        )
+    )
+
+
+def _invalid_accept_reply(observation: AttemptObservation) -> bool:
+    return bool(
+        observation.reply_chars <= 0
+        or observation.off_topic_answer
+        or observation.answer_shape_failed
+        or observation.unsupported_claim_count > 0
+        or observation.missing_required_citation_count > 0
+        or observation.unverified_citation_count > 0
+        or not observation.all_citations_verified
+    )
+
+
+def _insufficient_cited_answer(observation: AttemptObservation) -> bool:
+    return bool(
+        not observation.evidence_sufficient
+        and not observation.grounded_partial_progress
+        and observation.citation_required
+    )
+
+
+def _unnecessary_abstain_action(record: AttemptRecord) -> bool:
+    observation = record.observation
+    return bool(observation.evidence_sufficient or observation.grounded_partial_progress)
+
+
+def _no_evidence_abstain_expected(record: AttemptRecord) -> bool:
+    observation = record.observation
+    return bool(
+        observation.evidence_count == 0
+        and (observation.evidence_recommended_action == "abstain" or observation.citation_required)
+    )
+
+
+def _clamp_adjustment(value: float) -> float:
+    return max(-0.4, min(0.4, round(value, 4)))
+
+
+def _clamp_reward(value: float) -> float:
+    return max(-1.0, min(1.0, round(value, 4)))
 
 
 def _record_from_line(line: str) -> AttemptRecord | None:

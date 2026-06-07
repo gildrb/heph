@@ -61,6 +61,7 @@ class AttemptObservation:
     answer_relevance_required: bool = False
     off_topic_answer: bool = False
     answer_shape_failed: bool = False
+    grounded_partial_progress: bool = False
     missing_required_citation_count: int = 0
     confident_thin_evidence: bool = False
     reply_chars: int = 0
@@ -92,6 +93,7 @@ class AttemptObservation:
             "answer_relevance_required": self.answer_relevance_required,
             "off_topic_answer": self.off_topic_answer,
             "answer_shape_failed": self.answer_shape_failed,
+            "grounded_partial_progress": self.grounded_partial_progress,
             "missing_required_citation_count": self.missing_required_citation_count,
             "confident_thin_evidence": self.confident_thin_evidence,
             "reply_chars": self.reply_chars,
@@ -131,6 +133,7 @@ class AttemptObservation:
             answer_relevance_required=_payload_bool(payload, "answer_relevance_required"),
             off_topic_answer=_payload_bool(payload, "off_topic_answer"),
             answer_shape_failed=_payload_bool(payload, "answer_shape_failed"),
+            grounded_partial_progress=_payload_bool(payload, "grounded_partial_progress"),
             missing_required_citation_count=_payload_int(
                 payload,
                 "missing_required_citation_count",
@@ -194,6 +197,13 @@ def build_attempt_observation(
         answer_relevance_required=relevance_stats.required,
         off_topic_answer=relevance_stats.off_topic,
         answer_shape_failed=answer_shape_failed,
+        grounded_partial_progress=_grounded_partial_progress(
+            evidence_stats=evidence_stats,
+            assessment_stats=assessment_stats,
+            citation_result=citation_result,
+            reply=reply,
+            relevance_stats=relevance_stats,
+        ),
         missing_required_citation_count=(
             1 if citation_required and reply and not citation_result.has_citations else 0
         ),
@@ -292,6 +302,25 @@ def _confident_thin_evidence(assessment_stats: _EvidenceAssessmentStats) -> bool
         not assessment_stats.sufficient
         and assessment_stats.confidence >= 0.65
         and assessment_stats.recommended_action != "abstain"
+    )
+
+
+def _grounded_partial_progress(
+    *,
+    evidence_stats: _EvidenceObservationStats,
+    assessment_stats: _EvidenceAssessmentStats,
+    citation_result: VerificationResult,
+    reply: str,
+    relevance_stats: _AnswerRelevanceStats,
+) -> bool:
+    return bool(
+        reply.strip()
+        and evidence_stats.evidence_count > 0
+        and not assessment_stats.sufficient
+        and assessment_stats.recommended_action == "abstain"
+        and citation_result.has_citations
+        and citation_result.all_verified
+        and not relevance_stats.off_topic
     )
 
 

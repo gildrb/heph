@@ -231,6 +231,17 @@ def _create_new_chat(session: ChatSession) -> ChatSession | None:
     return new_session
 
 
+def _detach_armory(session: ChatSession) -> ChatSession | None:
+    if session.armory_path is None:
+        print_info("No armory attached.")
+        return None
+    _autosave_before_new_chat(session)
+    new_session = create_plain_session(session.config)
+    capture_analytics("armory_detached", {"model": new_session.config.model})
+    print_success("Armory detached.")
+    return new_session
+
+
 class StatusCommand(Command):
     name = "status"
     description = "Show session, usage, armory, and review info"
@@ -261,6 +272,16 @@ class NewCommand(Command):
         s = ensure_session(session)
         new = _create_new_chat(s)
         return CommandResult(new_session=new)
+
+
+class DetachCommand(Command):
+    name = "detach"
+    description = "Detach the current armory"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        del args
+        s = ensure_session(session)
+        return CommandResult(new_session=_detach_armory(s))
 
 
 class ArmoryCommand(Command):

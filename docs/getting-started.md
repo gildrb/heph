@@ -128,6 +128,7 @@ Inside Heph:
 - `/login` - Configure model access
 - `/models` - Choose an available model
 - `/armory` - View armory information
+- `/detach` - Leave the current armory and continue without one
 - `/evidence` - See retrieval evidence for the last answer
 - `/settings` - Configure privacy, diagnostics, and other options
 - `/exit` - Quit Heph

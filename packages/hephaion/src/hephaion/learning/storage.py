@@ -221,7 +221,11 @@ class AttemptRecord:
             return ActionOutcome(
                 action=self.action,
                 observation=self.observation,
-                reward=self.reward,
+                reward=score_action_outcome_reward(
+                    self.observation,
+                    self.action,
+                    final_outcome=self.final_outcome,
+                ),
                 final_outcome=self.final_outcome,
                 accepted=self.accepted,
                 abstained=self.abstained,

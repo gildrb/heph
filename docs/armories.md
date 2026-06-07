@@ -63,6 +63,10 @@ Heph discovers valid armory folders in `.armories` when it starts. Copied or
 synced armories are available as long as their `.hephaion/armory.toml` marker and
 `materials/` folder travel with them.
 
+When Heph is open without an attached armory, entering the exact name of a
+discovered armory opens it directly. Names and relative paths resolve inside
+`~/.armories`; Heph will not open armories outside that directory from this flow.
+
 ## Managing Documents
 
 ### Adding Documents

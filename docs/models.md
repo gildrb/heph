@@ -50,8 +50,8 @@ performance, privacy, and availability without binding an armory to one vendor.
 ## Choosing a Model
 
 Use `/models` to inspect models Heph can actually reach from your configured
-providers. Use `/recommend` for current model picks from the local provider
-catalog instead of relying on hardcoded docs.
+providers. The list refreshes live provider catalogs where supported, so new
+models can appear without a code release.
 
 General tradeoffs:
 

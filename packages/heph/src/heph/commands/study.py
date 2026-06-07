@@ -1,9 +1,8 @@
-"""Learning and vocabulary commands: vocabulary, remind."""
+"""Learning and vocabulary commands."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,16 +30,14 @@ from hephaion.study.priority import (
     generate_priority_report,
     priority_tier,
 )
-from hephaion.study.schedule import RecallItemState, load_recall_schedule
 from hephaion.vocab.drill import run_drill
 from hephaion.vocab.parser import scan_armory
-from hephaion.vocab.scheduler import Rating, select_due_cards
-from hephaion.vocab.state import VocabCardState, load_schedule, save_schedule
+from hephaion.vocab.scheduler import Rating
+from hephaion.vocab.state import load_schedule, save_schedule
 from interfaces.terminal import (
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_PROMPT,
-    STYLE_SUCCESS,
     MenuOption,
     confirm,
     direct_input,
@@ -65,107 +62,6 @@ _PRIORITY_PROGRESS_MESSAGES = {
     "writing": "Wrote index cache {detail}.",
     "skipped": "Skipped material source {detail}.",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class ReminderState:
-    all_cards: Sequence[VocabCardState]
-    due_cards: Sequence[VocabCardState]
-    recall_items: Sequence[RecallItemState]
-    due_recall_items: Sequence[RecallItemState]
-    now: datetime
-
-
-def _format_recall_item_metadata(item: RecallItemState) -> str:
-    details: list[str] = []
-    if item.concept:
-        details.append(f"concept: {item.concept[:40]}")
-    if item.error_type:
-        details.append(f"last: {item.error_type}")
-    if item.failures > 0:
-        details.append(f"failures: {item.failures}")
-    if item.last_confidence is not None:
-        details.append(f"confidence: {item.last_confidence:.0%}")
-    if item.exam_importance > 0:
-        details.append(f"exam priority: {item.exam_importance:.0%}")
-    return ", ".join(details)
-
-
-def _next_scheduled_line(
-    next_reviews: Sequence[datetime | None],
-    now: datetime,
-    template: str,
-) -> str | None:
-    scheduled = sorted(review for review in next_reviews if review is not None)
-    if not scheduled:
-        return None
-    secs = float((scheduled[0] - now).total_seconds())
-    if secs <= 0:
-        return None
-    hours = secs / 3600
-    if hours < 1:
-        when = f"{int(secs / 60)}m"
-    elif hours < 48:
-        when = f"{int(hours)}h"
-    else:
-        when = f"{int(hours / 24)}d"
-    count = len(scheduled)
-    return template.format(
-        when=when,
-        count=count,
-        plural="" if count == 1 else "s",
-    )
-
-
-def _remind_status_lines(
-    all_cards: Sequence[VocabCardState],
-    due_cards: Sequence[VocabCardState],
-    recall_items: Sequence[RecallItemState],
-    due_recall_items: Sequence[RecallItemState],
-) -> list[str]:
-    lines: list[str] = []
-
-    if due_cards:
-        lines.append(
-            f"You have {len(due_cards)} card{'s' if len(due_cards) != 1 else ''} due for review."
-        )
-        lines.append(f"  Run {styled('/vocabulary', STYLE_ACCENT)} to review them now.")
-    elif all_cards:
-        lines.append(styled("Vocabulary is caught up.", STYLE_SUCCESS))
-
-    if due_recall_items:
-        item_plural = "s" if len(due_recall_items) != 1 else ""
-        lines.append(f"You have {len(due_recall_items)} recall item{item_plural} due.")
-        lines.append(f"  Run {styled('/exam', STYLE_ACCENT)} or ask to review a due recall item.")
-    elif recall_items:
-        lines.append(styled("Material-backed recall items are caught up.", STYLE_SUCCESS))
-
-    return lines or ["No vocabulary cards yet, but you can start with /exam or /priority."]
-
-
-def _due_recall_item_lines(due_recall_items: Sequence[RecallItemState]) -> list[str]:
-    if not due_recall_items:
-        return []
-    lines = ["", "Due recall items:"]
-    for item in due_recall_items[:10]:
-        label = item.item or item.retrieval_query
-        lines.append(f"  {styled(label[:60], STYLE_DIM)}")
-        metadata = _format_recall_item_metadata(item)
-        if metadata:
-            lines.append(f"    {styled(metadata, STYLE_DIM)}")
-    if len(due_recall_items) > 10:
-        lines.append(f"  ... and {len(due_recall_items) - 10} more")
-    return lines
-
-
-def _due_vocab_card_lines(due_cards: Sequence[VocabCardState]) -> list[str]:
-    if not due_cards:
-        return []
-    lines = ["", "Due cards:"]
-    lines.extend(f"  {styled(card.front[:60], STYLE_DIM)}" for card in due_cards[:10])
-    if len(due_cards) > 10:
-        lines.append(f"  ... and {len(due_cards) - 10} more")
-    return lines
 
 
 class TerminalDrillUi:
@@ -255,90 +151,6 @@ class VocabCommand(Command):
         store.save()
         print_success("Vocabulary schedule reset. All cards are now new.")
         return CommandResult()
-
-
-class RemindCommand(Command):
-    name = "remind"
-    description = "Show upcoming review reminders and due cards"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        del args
-        s = ensure_session(session)
-        if s.armory_path is None:
-            print_error("No armory attached. Use /armory to open one.")
-            return CommandResult()
-
-        reminders = _load_reminder_state(s.armory_path)
-        if not reminders.all_cards and not reminders.recall_items:
-            print_info(
-                "No scheduled reviews yet. Use /exam or ask for a material-backed question "
-                "to start active recall."
-            )
-            return CommandResult()
-
-        print("\n".join(_reminder_lines(reminders)))
-        return CommandResult()
-
-
-def _load_reminder_state(armory_path: Path) -> ReminderState:
-    deck = scan_armory(armory_path)
-    store = load_schedule(armory_path)
-    store.sync_with_deck(deck)
-    save_schedule(store)
-
-    now = datetime.now(UTC)
-    recall_store = load_recall_schedule(armory_path)
-    return ReminderState(
-        all_cards=store.card_list,
-        due_cards=select_due_cards(store.card_list),
-        recall_items=recall_store.item_list,
-        due_recall_items=recall_store.due_items(now=now),
-        now=now,
-    )
-
-
-def _reminder_lines(reminders: ReminderState) -> list[str]:
-    lines = _remind_status_lines(
-        reminders.all_cards,
-        reminders.due_cards,
-        reminders.recall_items,
-        reminders.due_recall_items,
-    )
-    lines.extend(_next_recall_lines(reminders))
-    lines.extend(_due_recall_item_lines(reminders.due_recall_items))
-    if not reminders.all_cards:
-        return lines
-    if (
-        not reminders.due_cards
-        and not reminders.due_recall_items
-        and not _has_caught_up_line(lines)
-    ):
-        lines.append(styled("All caught up!", STYLE_SUCCESS))
-    lines.extend(_next_vocab_lines(reminders))
-    lines.extend(_due_vocab_card_lines(reminders.due_cards))
-    return lines
-
-
-def _next_recall_lines(reminders: ReminderState) -> list[str]:
-    line = _next_scheduled_line(
-        [item.next_review for item in reminders.recall_items],
-        reminders.now,
-        "  Next recall item in {when} ({count} item(s) scheduled).",
-    )
-    return [] if line is None else [line]
-
-
-def _next_vocab_lines(reminders: ReminderState) -> list[str]:
-    line = _next_scheduled_line(
-        [card.next_review for card in reminders.all_cards],
-        reminders.now,
-        "  Next review in {when} ({count} card{plural} scheduled).",
-    )
-    return [] if line is None else [line]
-
-
-def _has_caught_up_line(lines: Sequence[str]) -> bool:
-    return any("caught up" in line for line in lines)
 
 
 class ExamCommand(Command):

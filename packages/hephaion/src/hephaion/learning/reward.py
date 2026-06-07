@@ -13,8 +13,9 @@ _MIN_REWARD = -1.0
 _MAX_REWARD = 1.0
 
 _GOOD_ACCEPT_REWARD = 0.85
+_PARTIAL_PROGRESS_REWARD = 0.35
 _BAD_ACCEPT_REWARD = -0.85
-_CORRECT_ABSTAIN_REWARD = 0.55
+_CORRECT_ABSTAIN_REWARD = 0.0
 _UNNECESSARY_ABSTAIN_REWARD = -0.55
 _DEFENSIVE_ABSTAIN_REWARD = -0.05
 _MAX_ATTEMPT_FAILURE_REWARD = -0.75
@@ -87,8 +88,9 @@ def score_attempt_reward(
     """Score an observed attempt outcome."""
 
     components: list[RewardComponent] = []
-    _add_reply_component(components, observation)
-    _add_quality_shaping(components, observation)
+    if not _neutral_abstain(abstained=abstained, observation=observation):
+        _add_reply_component(components, observation)
+        _add_quality_shaping(components, observation)
 
     if accepted:
         _add_accept_outcome(components, observation)
@@ -111,8 +113,9 @@ def score_action_outcome_reward(
     """Score the policy decision, not imitation of the logged decision."""
 
     components: list[RewardComponent] = []
-    _add_reply_component(components, observation)
-    _add_quality_shaping(components, observation)
+    if not _neutral_abstain(abstained=action is AttemptAction.ABSTAIN, observation=observation):
+        _add_reply_component(components, observation)
+        _add_quality_shaping(components, observation)
     _add_cost_components(components, observation)
 
     if action is AttemptAction.ACCEPT:
@@ -202,6 +205,9 @@ def _add_accept_outcome(
     if _grounded_accept(observation):
         _add(components, "good_accept", _GOOD_ACCEPT_REWARD)
         return
+    if _grounded_partial_progress(observation):
+        _add(components, "grounded_partial_progress", _PARTIAL_PROGRESS_REWARD)
+        return
 
     _add(components, "bad_accept", _BAD_ACCEPT_REWARD)
     _add_bad_accept_components(components, observation)
@@ -233,7 +239,7 @@ def _add_abstain_outcome(
 ) -> None:
     if _should_abstain(observation):
         _add(components, "correct_abstain", _CORRECT_ABSTAIN_REWARD)
-    elif _grounded_accept(observation):
+    elif _grounded_accept(observation) or _grounded_partial_progress(observation):
         _add(components, "unnecessary_abstain", _UNNECESSARY_ABSTAIN_REWARD)
     else:
         _add(components, "defensive_abstain", _DEFENSIVE_ABSTAIN_REWARD)
@@ -364,9 +370,25 @@ def _grounded_accept(observation: AttemptObservation) -> bool:
     return bool(observation.evidence_sufficient)
 
 
+def _grounded_partial_progress(observation: AttemptObservation) -> bool:
+    if observation.reply_chars <= 0 or observation.off_topic_answer:
+        return False
+    if observation.answer_shape_failed:
+        return False
+    if observation.unsupported_claim_count or observation.missing_required_citation_count:
+        return False
+    if observation.unverified_citation_count or not observation.all_citations_verified:
+        return False
+    return bool(observation.grounded_partial_progress)
+
+
 def _should_abstain(observation: AttemptObservation) -> bool:
     return bool(
-        observation.off_topic_answer or observation.evidence_recommended_action == "abstain"
+        observation.off_topic_answer
+        or (
+            observation.evidence_recommended_action == "abstain"
+            and not _grounded_partial_progress(observation)
+        )
     )
 
 
@@ -382,6 +404,10 @@ def _needs_grounded_retry(observation: AttemptObservation) -> bool:
             or observation.missing_required_citation_count
         )
     )
+
+
+def _neutral_abstain(*, abstained: bool, observation: AttemptObservation) -> bool:
+    return bool(abstained and _should_abstain(observation))
 
 
 def _finish(components: list[RewardComponent]) -> AttemptReward:

@@ -29,7 +29,7 @@ def _can_accept(observation: AttemptObservation) -> bool:
         return False
     if observation.citation_required and not observation.has_citations:
         return False
-    return observation.all_citations_verified and (
+    return _citations_valid(observation) and (
         observation.evidence_sufficient or not observation.citation_required
     )
 
@@ -48,9 +48,14 @@ def _should_abstain(observation: AttemptObservation) -> bool:
     return bool(
         observation.off_topic_answer
         or (
-            observation.evidence_recommended_action == "abstain" and observation.attempt_index >= 2
+            observation.evidence_recommended_action == "abstain"
+            and not observation.grounded_partial_progress
         )
     )
+
+
+def _citations_valid(observation: AttemptObservation) -> bool:
+    return bool(observation.all_citations_verified and not observation.unverified_citation_count)
 
 
 def _needs_grounded_answer_retry(observation: AttemptObservation) -> bool:
