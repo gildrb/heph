@@ -5,6 +5,7 @@ This section contains documentation for developers working on Hephaion itself, r
 ## Architecture
 
 - [Architecture](../architecture.md) - Package boundaries, import rules, and dependency flow
+- [Heph SDK](sdk.md) - Programmatic runtime surface for native apps and automation
 
 ## Agent Development
 

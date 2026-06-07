@@ -19,6 +19,7 @@
 | `heph learning train [path]` | Train a local PufferLib harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
 | `heph learning auto-train [path]` | Run the local learning automation gate; trains with PufferLib only when enough new armory attempts exist. |
 | `heph update` | Show how to update the active Heph install. |
+| `heph sdk serve` | Run the SDK JSONL stdio service. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat ask <path> [prompt]` | Ask one question without opening the TUI. |

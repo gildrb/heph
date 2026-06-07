@@ -19,6 +19,7 @@ src/
   heph/
     cli/       Console entrypoint and top-level command routing
     commands/  Slash-command registry and command coordinators
+    sdk/       Programmatic runtime/session surface for native apps and automation
     product/   Temporary bridge for Heph self-knowledge context
     identity/  Stable agent identity target
     prompts/   Prompt-program target for Heph-facing behavior
@@ -39,6 +40,8 @@ composition instead of modifying harness or AI internals:
 - Heph calls AI for provider/model runtime.
 - Heph calls Interfaces for terminal and TUI presentation.
 - Heph calls Extensions for stable extension contracts.
+- Heph exposes SDK wrappers for non-terminal clients; those wrappers must stay
+  UI-neutral and must not import `interfaces.*`.
 
 Reusable validation behavior should move to Hephaion. Provider/API behavior
 should move to AI. Conversational strategy, research orchestration, and

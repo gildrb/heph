@@ -142,6 +142,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph armory init <name>": "Create a named armory in `~/.armories`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
+    "heph sdk serve": "Run the SDK JSONL stdio service for native clients.",
     "heph chat ask --jsonl <path> [prompt]": (
         "Emit structured turn events as JSON Lines for harness audits."
     ),
@@ -236,6 +237,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         "index",
         "health",
         "update",
+        "sdk",
         "config",
     }
     if not required_visible.issubset(top_level):
@@ -246,16 +248,19 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     armory_parser = subparsers.choices["armory"]
     materials_parser = subparsers.choices["materials"]
     config_parser = subparsers.choices["config"]
+    sdk_parser = subparsers.choices["sdk"]
     chat_parser = subparsers.choices["chat"]
 
     armory_sub = get_subparsers_action(armory_parser)
     materials_sub = get_subparsers_action(materials_parser)
     config_sub = get_subparsers_action(config_parser)
+    sdk_sub = get_subparsers_action(sdk_parser)
     chat_sub = get_subparsers_action(chat_parser)
 
     armory_help = build_help_map(armory_sub)
     materials_help = build_help_map(materials_sub)
     config_help = build_help_map(config_sub)
+    sdk_help = build_help_map(sdk_sub)
     chat_help = build_help_map(chat_sub)
 
     return (
@@ -289,6 +294,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             CLI_COMMAND_DESCRIPTIONS["heph learning auto-train [path]"],
         ),
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
+        CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),

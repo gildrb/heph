@@ -56,6 +56,9 @@ The core should be hard to change accidentally and easy to extend deliberately.
   `hephaion/agent` and `hephaion/chat` modules are migration-era harness
   surfaces; new agent-brain behavior should move toward Heph-facing modules and
   call Hephaion for validation rather than weakening the harness boundary.
+- **The SDK is a UI-neutral Heph surface.** `heph.sdk` wraps the lower packages
+  for native apps, GUI shells, automation, and future RPC transports. It must
+  expose structured values and events instead of terminal output.
 - **Extensions stay outside the core.** Optional behavior should attach through
   `extensions` contracts or adapter-level composition. Do not make extension
   behavior depend on editing AI, Hephaion, or Heph internals.
@@ -140,6 +143,7 @@ packages/
     src/heph/
       cli/        Console entrypoint and top-level subcommands
       commands/   Slash-command registry and command coordinators
+      sdk/        Programmatic runtime/session surface for native apps and automation
       product/    Temporary self-knowledge bridge
       identity/   Stable self-description and conversational identity target
       prompts/    Prompt programs treated as code

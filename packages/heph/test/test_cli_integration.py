@@ -48,6 +48,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "index" in help_text
     assert "health" in help_text
     assert "update" in help_text
+    assert "sdk" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text

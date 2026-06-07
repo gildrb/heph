@@ -132,6 +132,27 @@ def _cmd_chat_ask(args: argparse.Namespace) -> None:
     chat_cli._cmd_chat_ask(args)
 
 
+def _cmd_sdk_serve(args: argparse.Namespace) -> None:
+    if args.no_session and args.session_id is not None:
+        print("error: --session-id cannot be used with --no-session", file=sys.stderr)
+        raise SystemExit(2)
+    sdk_factory = importlib.import_module("heph.sdk.factory")
+    sdk_stdio = importlib.import_module("heph.sdk.stdio")
+    options = sdk_factory.HephSdkOptions(
+        armory_path=args.armory_path,
+        create_armory=args.create_armory,
+        session_id=args.session_id,
+        start_session=not args.no_session,
+        base_url=args.base_url,
+        model=args.model,
+        max_tokens=args.max_tokens,
+        rag_context_budget=args.rag_context_budget,
+        reasoning_level=args.reasoning_level,
+        temperature=args.temperature,
+    )
+    sdk_stdio.serve_stdio(options)
+
+
 def _validated_armory_path(path: str) -> Path:
     armory_storage = importlib.import_module("hephaion.armory.storage")
     try:
@@ -393,6 +414,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show how to update the active Heph install.",
     )
     update.set_defaults(handler=_cmd_update)
+
+    sdk = subparsers.add_parser(
+        "sdk",
+        help="Run SDK services for native clients.",
+    )
+    sdk_sub = sdk.add_subparsers(dest="sdk_command", required=True)
+    sdk_serve = sdk_sub.add_parser(
+        "serve",
+        help="Run the SDK JSONL stdio service.",
+    )
+    sdk_serve.add_argument(
+        "--armory",
+        dest="armory_path",
+        help="Armory path to open before serving. Defaults to plain chat.",
+    )
+    sdk_serve.add_argument(
+        "--create-armory",
+        action="store_true",
+        help="Create --armory before serving.",
+    )
+    sdk_serve.add_argument(
+        "--session-id",
+        help="Resume a saved session before serving.",
+    )
+    sdk_serve.add_argument(
+        "--no-session",
+        action="store_true",
+        help="Start without an active session.",
+    )
+    sdk_serve.add_argument("--base-url", help="Override the provider API base URL.")
+    sdk_serve.add_argument("--model", help="Override the active model.")
+    sdk_serve.add_argument("--max-tokens", type=int, help="Override max output tokens.")
+    sdk_serve.add_argument(
+        "--rag-context-budget",
+        type=int,
+        help="Override the retrieval context token budget.",
+    )
+    sdk_serve.add_argument("--reasoning-level", help="Override the reasoning level.")
+    sdk_serve.add_argument("--temperature", type=float, help="Override generation temperature.")
+    sdk_serve.set_defaults(handler=_cmd_sdk_serve)
 
     # Chat automation is hidden from the main help, but kept for scripts and
     # harness audits that need a structured non-interactive turn stream.

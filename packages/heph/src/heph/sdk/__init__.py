@@ -1,0 +1,95 @@
+"""Public SDK surface for embedding Heph in other runtimes."""
+
+from __future__ import annotations
+
+from heph.sdk.events import (
+    AssistantDelta,
+    CompactRequest,
+    Guardrail,
+    HephEvent,
+    MaterialOperation,
+    Notice,
+    ToolCall,
+    ToolResult,
+    TurnComplete,
+    event_to_dict,
+    from_turn_event,
+)
+from heph.sdk.factory import (
+    CreateHephRuntimeResult,
+    CreateHephServiceResult,
+    CreateHephSessionResult,
+    HephSdkOptions,
+    create_chat_config,
+    create_heph_runtime,
+    create_heph_service,
+    create_heph_session,
+)
+from heph.sdk.materials import (
+    ExtractionHealthIssueSummary,
+    ExtractionHealthSummary,
+    ImportMaterialsSummary,
+    IndexProgressEvent,
+    IndexSummary,
+    MaterialSummary,
+)
+from heph.sdk.runtime import (
+    ArmorySummary,
+    HephEventListener,
+    HephMessage,
+    HephRuntime,
+    HephSdkError,
+    HephSession,
+    SessionSummary,
+)
+from heph.sdk.service import HephService, ServicePayload, ServiceStream
+from heph.sdk.stdio import (
+    SDK_JSONL_PROTOCOL,
+    SDK_JSONL_VERSION,
+    JsonlSdkServer,
+    SdkProtocolError,
+    serve_stdio,
+)
+
+__all__ = [
+    "SDK_JSONL_PROTOCOL",
+    "SDK_JSONL_VERSION",
+    "ArmorySummary",
+    "AssistantDelta",
+    "CompactRequest",
+    "CreateHephRuntimeResult",
+    "CreateHephServiceResult",
+    "CreateHephSessionResult",
+    "ExtractionHealthIssueSummary",
+    "ExtractionHealthSummary",
+    "Guardrail",
+    "HephEvent",
+    "HephEventListener",
+    "HephMessage",
+    "HephRuntime",
+    "HephSdkError",
+    "HephSdkOptions",
+    "HephService",
+    "HephSession",
+    "ImportMaterialsSummary",
+    "IndexProgressEvent",
+    "IndexSummary",
+    "JsonlSdkServer",
+    "MaterialOperation",
+    "MaterialSummary",
+    "Notice",
+    "SdkProtocolError",
+    "ServicePayload",
+    "ServiceStream",
+    "SessionSummary",
+    "ToolCall",
+    "ToolResult",
+    "TurnComplete",
+    "create_chat_config",
+    "create_heph_runtime",
+    "create_heph_service",
+    "create_heph_session",
+    "event_to_dict",
+    "from_turn_event",
+    "serve_stdio",
+]

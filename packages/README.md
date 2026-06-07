@@ -21,6 +21,7 @@ packages/
     src/heph/
       cli/        Console entrypoint and top-level subcommands
       commands/   Slash-command registry and command coordinators
+      sdk/        Programmatic runtime/session surface for native apps and automation
       product/    Temporary self-knowledge bridge
       identity/   Stable self-description and conversational identity target
       prompts/    Prompt programs treated as code
