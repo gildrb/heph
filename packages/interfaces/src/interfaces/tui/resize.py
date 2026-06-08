@@ -114,8 +114,6 @@ class _ResizeHost(Protocol):
 
     def _reflow_transcript_entries(self) -> None: ...
 
-    def _append_startup_card(self) -> None: ...
-
     def _append_armory_home(self) -> None: ...
 
     def _update_info_panel(self) -> None: ...
@@ -287,19 +285,9 @@ class TuiResizeMixin:
         self.set_focus(composer)
 
     def _append_initial_cards(self: _ResizeHost) -> None:
-        if self.state.history_obj is not None and not self.state.startup_card_shown:
-            self.state.startup_card_shown = True
-            self._append_startup_card()
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
-
-    def _tui_session_seconds(self: _ResizeHost) -> int:
-        return max(0, int(time.monotonic() - self.state.tui_started_at))
-
-    def _tick_session_duration(self: _ResizeHost) -> None:
-        if self._focused_msg_index is None:
-            self._update_info_panel()
 
     def _prefetch_model_catalogs(self: _ResizeHost) -> None:
         try:

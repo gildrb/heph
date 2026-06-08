@@ -4,9 +4,6 @@
   <img alt="Hephaion" src="https://gildrb.github.io/heph/logo-auto.svg" width="128">
 </p>
 
-<img width="1624" height="1060" alt="image" src="https://github.com/user-attachments/assets/b146fcc6-b8b9-46f4-9cdd-ccfc048e8932" />
-
-
 # Hephaion
 
 **Hephaion is a local document harness for accurate, cited answers.**

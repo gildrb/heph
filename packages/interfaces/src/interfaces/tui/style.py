@@ -389,7 +389,7 @@ OptionList:focus > .option-list--option-highlighted {{
     min-width: 38;
     max-width: 38;
     height: 100%;
-    padding: 0 1;
+    padding: 0 0;
     content-align: left top;
     background: {bg};
     color: {p.text_muted};

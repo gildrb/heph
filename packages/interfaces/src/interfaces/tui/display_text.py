@@ -22,10 +22,11 @@ except ImportError:
 
 if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
+    from hephaion.rag.context import TurnEvidence
     from rich.text import Text
 
-_INFO_PANEL_MATERIAL_NAME_WIDTH = 31
-_INFO_PANEL_VISIBLE_WIDTH = 36
+_INFO_PANEL_MATERIAL_NAME_WIDTH = 35
+_INFO_PANEL_VISIBLE_WIDTH = 38
 _RECENT_ARMORY_NAME_WIDTH = 16
 _RECENT_ARMORY_PATH_WIDTH = 20
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
@@ -148,16 +149,6 @@ def _shortcut_hints_text(
     return text
 
 
-def _session_duration(seconds: int) -> str:
-    hours, remainder = divmod(max(0, seconds), 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h {minutes:02d}m"
-    if minutes:
-        return f"{minutes}m {secs:02d}s"
-    return f"{secs}s"
-
-
 def _material_panel_display_name(name: str) -> str:
     display_name = material_display_name(name)
     if len(display_name) <= _INFO_PANEL_MATERIAL_NAME_WIDTH:
@@ -169,11 +160,16 @@ def _active_material_count(session: ChatSession) -> int:
     return sum(1 for file in session.source_files if file not in session.disabled_source_files)
 
 
+def _count_label(count: int, singular: str, plural: str | None = None) -> str:
+    word = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {word}"
+
+
 def _info_panel_material_lines(session: ChatSession) -> list[str]:
     visible_materials = list(session.source_files[:8])
     active_count = _active_material_count(session)
     material_lines = [
-        "scope",
+        "Scope",
         f"  {active_count}/{len(session.source_files)} materials active",
     ]
     if not visible_materials:
@@ -194,23 +190,55 @@ def _info_panel_evidence_lines(
 ) -> list[str]:
     if busy:
         detail = progress or "working"
-        return ["grounding", f"  {detail}"]
+        return ["Grounding", f"  {detail}"]
     evidence = session.last_turn_evidence
     if evidence is None or not evidence.items:
-        return ["grounding", "  no evidence used yet"]
-    return ["grounding", f"  {evidence_summary_text(evidence)}", "  f8 or /evidence details"]
+        return ["Grounding", "  no evidence used yet"]
+    return _info_panel_evidence_used_lines(evidence)
+
+
+def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[str]:
+    sources = tuple(dict.fromkeys(item.source for item in evidence.items))
+    sampled_sources = evidence.sampled_source_count or len(sources)
+    total_sources = evidence.total_source_count or sampled_sources
+    lines = [
+        "Grounding",
+        f"  {_count_label(len(evidence.items), 'evidence excerpt')}",
+        f"  {_info_panel_source_scope(sampled_sources, total_sources)}",
+    ]
+    if source_line := _info_panel_source_line(sources):
+        lines.append(source_line)
+    lines.append("  f8 /evidence details")
+    return lines
+
+
+def _info_panel_source_scope(sampled_sources: int, total_sources: int) -> str:
+    if total_sources > sampled_sources:
+        return f"{sampled_sources}/{total_sources} sources sampled"
+    return _count_label(sampled_sources, "source") + " sampled"
+
+
+def _info_panel_source_line(sources: Sequence[str]) -> str:
+    if not sources:
+        return ""
+    visible_names = [_material_panel_display_name(source) for source in sources[:2]]
+    suffix = f", +{len(sources) - len(visible_names)}" if len(sources) > len(visible_names) else ""
+    return f"  top @{', @'.join(visible_names)}{suffix}"
+
+
+def _info_panel_title(session: ChatSession) -> str:
+    title = " ".join((session.title or "").split())
+    return title or "Grounding"
 
 
 def _info_panel_lines(
     session: ChatSession,
-    session_seconds: int,
     *,
     busy: bool,
     progress: str,
 ) -> list[str]:
     return [
-        session.title or "Grounding",
-        f"time {_session_duration(session_seconds)}",
+        _info_panel_title(session),
         "",
         *_info_panel_material_lines(session),
         "",
@@ -226,14 +254,14 @@ def _ellipsize_end(text: str, max_length: int) -> str:
     return f"{text[: max_length - 3].rstrip()}..."
 
 
-def _indented_info_panel_line(line: str) -> str:
+def _info_panel_line(line: str) -> str:
     if not line:
         return ""
-    return _ellipsize_end(f"  {line}", _INFO_PANEL_VISIBLE_WIDTH)
+    return _ellipsize_end(line, _INFO_PANEL_VISIBLE_WIDTH)
 
 
-def _indented_panel_text(lines: Sequence[str]) -> str:
-    return "\n".join(_indented_info_panel_line(line) for line in lines)
+def _info_panel_text(lines: Sequence[str]) -> str:
+    return "\n".join(_info_panel_line(line) for line in lines)
 
 
 def _stylize_all(text: Text, plain: str, label: str, style: str) -> None:
@@ -254,8 +282,15 @@ def _stylize_first(text: Text, plain: str, label: str, style: str) -> None:
 
 def _stylize_info_panel_labels(text: Text, plain: str) -> None:
     palette = current_palette()
-    for label in ("time", "scope", "grounding"):
-        _stylize_all(text, plain, label, palette.text_secondary)
+    labels = {"Scope", "Grounding"}
+    offset = 0
+    for line_number, line in enumerate(plain.splitlines(keepends=True)):
+        visible_line = line.removesuffix("\n")
+        label = visible_line.strip()
+        if line_number > 0 and label in labels:
+            label_start = offset + visible_line.index(label)
+            text.stylize(palette.text_secondary, label_start, label_start + len(label))
+        offset += len(line)
 
 
 def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) -> None:
@@ -289,14 +324,11 @@ def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession)
 def info_panel_default_text(
     session: ChatSession,
     *,
-    session_seconds: int = 0,
     busy: bool = False,
     progress: str = "",
 ) -> Text:
     palette = current_palette()
-    plain = _indented_panel_text(
-        _info_panel_lines(session, session_seconds, busy=busy, progress=progress)
-    )
+    plain = _info_panel_text(_info_panel_lines(session, busy=busy, progress=progress))
     text = require_rich_text()(plain, style=palette.text_muted)
     display_title = plain.splitlines()[0].strip()
     title_start = plain.index(display_title)
@@ -306,9 +338,6 @@ def info_panel_default_text(
         title_start + len(display_title),
     )
     _stylize_info_panel_labels(text, plain)
-    duration = _session_duration(session_seconds)
-    duration_start = plain.index(duration, plain.index("time "))
-    text.stylize(palette.text_muted, duration_start, duration_start + len(duration))
     _stylize_hidden_material_count(text, plain, session)
     _stylize_info_panel_materials(text, plain, session)
     return text
@@ -386,7 +415,7 @@ def armory_home_text() -> str:
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:
     palette = current_palette()
-    lines = [_indented_info_panel_line(line) for line in _info_panel_message_lines(entry, session)]
+    lines = [_info_panel_line(line) for line in _info_panel_message_lines(entry, session)]
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style=palette.text_muted)
     _stylize_message_panel_title(text, plain, lines[0].strip())

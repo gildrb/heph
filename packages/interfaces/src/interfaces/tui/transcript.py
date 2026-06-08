@@ -150,8 +150,6 @@ class _TranscriptHost(Protocol):
 
     def _update_materials_sidebar(self) -> None: ...
 
-    def _tui_session_seconds(self) -> int: ...
-
     def _update_static_region(
         self,
         selector: str,
@@ -768,7 +766,6 @@ class TuiTranscriptMixin:
             DirtyRegion.SIDE_PANEL,
             tui_module._info_panel_default_text(
                 self.session,
-                session_seconds=self._tui_session_seconds(),
                 busy=self.busy,
                 progress=self._side_panel_progress,
             ),

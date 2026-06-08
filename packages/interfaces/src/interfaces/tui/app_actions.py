@@ -14,7 +14,6 @@ from hephaion.armory.search import SearchResult
 from interfaces.tui.command_access import get_registry
 from interfaces.tui.display_text import armory_home_text as _armory_home_text
 from interfaces.tui.display_text import new_chat_card_text as _new_chat_card_text
-from interfaces.tui.display_text import startup_card_text as _startup_card_text
 from interfaces.tui.ids import COMPOSER_SELECTOR, TRANSCRIPT_SELECTOR
 from interfaces.tui.routing import TuiInputRoute as _TuiInputRoute
 from interfaces.tui.routing import tui_input_route as _tui_input_route
@@ -419,9 +418,6 @@ class TuiAppActionsMixin:
 
     def action_open_armory_home(self: _AppActionsHost) -> None:
         self._handle_armory_browser("/armory")
-
-    def _append_startup_card(self: _AppActionsHost) -> None:
-        self._append_entry(_startup_card_text(), "startup")
 
     def _append_armory_home(self: _AppActionsHost) -> None:
         self._append_plain(_armory_home_text())

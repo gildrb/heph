@@ -73,11 +73,16 @@ _NOTICE_PROGRESS_LABELS = {
     "reading": "reading materials",
     "evidence": "checking evidence",
     "writing": "writing response",
+    "model_request": "asking model",
+    "model_delta": "writing response",
+    "model_complete": "checking answer",
     "verification": "checking citations",
     "auto_compact": "compacting context",
     "context_compact": "compacting context",
     "context_warning": "checking context",
     "tool_runtime": "checking tool result",
+    "max_turns": "turn limit reached",
+    "dry_run": "previewing turn",
 }
 _IMPORTANT_NOTICE_CODES = frozenset(
     {
@@ -187,9 +192,9 @@ def _progress_text(
     event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
 ) -> str:
     if isinstance(event, ToolCallEvent):
-        return f"tool {event.name}"
+        return "checking sources"
     if isinstance(event, ToolResultEvent):
-        return f"tool {event.name} {'failed' if not event.success else 'done'}"
+        return "source check failed" if not event.success else "source check complete"
     if isinstance(event, MaterialOperationEvent):
         return _MATERIAL_PROGRESS_LABELS.get(event.operation, "working with materials")
     return _NOTICE_PROGRESS_LABELS.get(event.code, _truncate(event.message, _MAX_PROGRESS_TEXT))

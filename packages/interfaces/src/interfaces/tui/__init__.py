@@ -341,7 +341,6 @@ class HephTui(
             yield w.static(
                 _info_panel_default_text(
                     self.session,
-                    session_seconds=self._tui_session_seconds(),
                     busy=self.busy,
                     progress=self._side_panel_progress,
                 ),
@@ -361,7 +360,6 @@ class HephTui(
         self._schedule_transcript_reflow()
         self._prefetch_model_catalogs()
         self.set_interval(_LIVE_RESIZE_POLL_SECONDS, self._sync_terminal_size_from_tty)
-        self.set_interval(1.0, self._tick_session_duration)
 
     def on_unmount(self) -> None:
         self._pop_terminal_keyboard_protocol()

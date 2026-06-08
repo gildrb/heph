@@ -381,8 +381,7 @@ def selectable_transparent_input_class(base: type) -> type:
             )
 
         def get_selection(self, selection: Selection) -> tuple[str, str]:
-            visible_text = self.value or self.placeholder
-            return selection.extract(visible_text), "\n"
+            return selection.extract(self.value), "\n"
 
     return SelectableTransparentInput
 

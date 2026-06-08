@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import StringIO
@@ -38,7 +37,6 @@ class TuiRuntimeState:
     pending_input: str | None = None
     armory_home_shown: bool = False
     startup_card_shown: bool = False
-    tui_started_at: float = field(default_factory=time.monotonic)
 
 
 class TuiCaptureWriter(StringIO):

@@ -453,12 +453,13 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 ) -> None:
     monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
+    session.title = "Study plan"
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
 
     labelled_texts = (
         (tui._status_text(session), ("armory", "model")),
-        (tui._info_panel_default_text(session), ("scope", "time", "grounding")),
+        (tui._info_panel_default_text(session), ("Scope", "Grounding")),
         (
             tui._footer_hints_text(session),
             ("ctrl+o", "ctrl+p", "shift+tab"),
@@ -503,12 +504,8 @@ def test_secondary_chrome_details_share_darker_tint(
     assert effective_style(status, armory_value) == palette.text_muted
     assert effective_style(status, session.config.model) == palette.text_muted
 
-    panel = tui._info_panel_default_text(session, session_seconds=125)
-    for label in (
-        "2m 05s",
-        "+1 more",
-    ):
-        assert effective_style(panel, label) == palette.text_muted
+    panel = tui._info_panel_default_text(session)
+    assert effective_style(panel, "+1 more") == palette.text_muted
 
     assert palette.text_muted != palette.text_secondary
 
@@ -525,7 +522,7 @@ def test_info_panel_material_paths_are_truncated_to_one_line() -> None:
 
     assert len(material_lines) == 2
     assert material_lines[0].endswith("...")
-    assert len(material_lines[0]) <= 36
+    assert len(material_lines[0]) <= 38
     assert "command-line/index.html" not in material_lines[0]
     assert material_lines[1].strip() == "@short.md"
 
@@ -1339,6 +1336,33 @@ def test_composer_mouse_drag_uses_screen_text_selection() -> None:
     asyncio.run(check_drag_selection())
 
 
+def test_empty_composer_selection_does_not_copy_placeholder() -> None:
+    if tui.Input is None or tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_empty_selection() -> None:
+        async with typed_app.run_test(size=(100, 20)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            assert composer.value == ""
+            await pilot.pause()
+
+            await pilot.mouse_down("#composer", offset=(1, 0))
+            await pilot.hover("#composer", offset=(30, 0))
+            await pilot.pause()
+
+            selected_text = app.screen.get_selected_text()
+            assert selected_text is None or tui.COMPOSER_PLACEHOLDER not in selected_text
+
+    asyncio.run(check_empty_selection())
+
+
 def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
     if tui.Static is None:
         pytest.skip("Textual is not installed")
@@ -1375,50 +1399,19 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
     asyncio.run(check_selection_colours())
 
 
-def test_mouse_selection_skips_info_panel_leading_indentation() -> None:
+def test_info_panel_default_text_starts_at_sidebar_edge() -> None:
     if tui.Static is None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
     session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(9))
-    app = tui.HephTui(
-        session,
-        tui._TuiRuntimeState(armory_home_shown=True),
-        tui.current_palette(),
-    )
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
-    plus_line = next(index for index, line in enumerate(panel_lines) if "+1 more" in line)
-    grounding_line = next(index for index, line in enumerate(panel_lines) if "grounding" in line)
-    typed_app = cast("TextualApp[None]", app)
 
-    async def check_indentation_selection() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.pause()
-            panel = app.query_one("#info-panel", tui.Static)
-
-            for line_y, end_x in ((plus_line, 12), (grounding_line, 14)):
-                await pilot.mouse_down("#info-panel", offset=(4, line_y))
-                await pilot.hover("#info-panel", offset=(end_x, line_y))
-                await pilot.pause()
-
-                segments = list(panel.render_line(line_y))
-                leading_reverse = [
-                    segment
-                    for segment in segments
-                    if segment.text.isspace() and "reverse" in str(segment.style)
-                ]
-                visible_reverse = [
-                    segment
-                    for segment in segments
-                    if segment.text.strip() and "reverse" in str(segment.style)
-                ]
-
-                assert not leading_reverse
-                assert visible_reverse
-                await pilot.mouse_up("#info-panel", offset=(end_x, line_y))
-
-    asyncio.run(check_indentation_selection())
+    assert panel_lines[0] == "Grounding"
+    assert "Scope" in panel_lines
+    assert "Grounding" in panel_lines
+    assert next(line for line in panel_lines if "+1 more" in line).startswith("  +1 more")
 
 
 def test_tui_css_has_info_panel_layout() -> None:
@@ -1437,7 +1430,7 @@ def test_tui_css_has_info_panel_layout() -> None:
     assert "width: 38;" in info_block
     assert "min-width: 38;" in info_block
     assert "max-width: 38;" in info_block
-    assert "padding: 0 1;" in info_block
+    assert "padding: 0 0;" in info_block
 
 
 def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
@@ -2408,25 +2401,20 @@ def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
     assert suggestion == "/materials "
 
 
-def test_info_panel_shows_session_duration_and_material_names() -> None:
+def test_info_panel_shows_title_and_material_names_without_session_duration() -> None:
     session = _plain_session()
     session.source_files = ("materials/exam-review.pdf", "materials/calculus.md")
     session.source_file_count = 2
 
-    panel = tui._info_panel_default_text(
-        session,
-        session_seconds=125,
-    )
+    panel = tui._info_panel_default_text(session)
 
     lines = panel.plain.splitlines()
-    assert lines[0].startswith("  Grounding")
-    assert lines[1].startswith("  time 2m 05s")
+    assert lines[0] == "Grounding"
     assert "\u2500" not in panel.plain
-    assert all(line.startswith("  ") for line in lines if line)
-    assert "time 2m 05s" in panel.plain
-    assert "scope" in panel.plain
+    assert "time" not in panel.plain
+    assert "Scope" in panel.plain
     assert "2/2 materials active" in panel.plain
-    assert "grounding" in panel.plain
+    assert "Grounding" in panel.plain
     assert "no evidence used yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
@@ -2437,34 +2425,48 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     assert "armory" not in panel.plain
 
 
-def test_info_panel_message_text_is_indented_from_sidebar_edge() -> None:
+def test_info_panel_title_is_single_line_and_ellipsized() -> None:
+    session = _plain_session()
+    session.title = (
+        "Build a careful comparison of very long learning goals\n"
+        "that should never wrap into the Scope lines"
+    )
+
+    panel = tui._info_panel_default_text(session)
+    lines = panel.plain.splitlines()
+
+    assert lines[0] == "Build a careful comparison of very..."
+    assert len(lines[0]) <= 38
+    assert "that should never wrap" not in panel.plain
+    assert "..." in lines[0]
+    assert lines[1] == ""
+    assert lines[2] == "Scope"
+
+
+def test_info_panel_message_text_starts_at_sidebar_edge() -> None:
     session = _plain_session()
     entry = tui.TuiTranscriptEntry("How do I prepare for the exam?", kind="user")
 
     panel = tui._info_panel_message_text(entry, session)
 
     lines = panel.plain.splitlines()
-    assert lines[0].startswith("  You message")
-    assert lines[1].startswith("  \u2500")
-    assert all(line.startswith("  ") for line in lines if line)
+    assert lines[0] == "You message"
+    assert lines[1].startswith("\u2500")
 
 
-def test_info_panel_busy_progress_is_clipped_inside_sidebar_indent() -> None:
+def test_info_panel_busy_progress_is_clipped_inside_sidebar_width() -> None:
     session = _plain_session()
     panel = tui._info_panel_default_text(
         session,
         busy=True,
-        progress=(
-            "Read complete model response from gpt-5.4-mini: "
-            "464 character(s), 0 tool call(s) in 2.4s."
-        ),
+        progress="checking answer",
     )
 
     lines = panel.plain.splitlines()
-    progress_lines = [line for line in lines if "Read complete model response" in line]
 
-    assert progress_lines == ["    Read complete model response..."]
-    assert all(len(line) <= 36 for line in lines)
+    assert "  checking answer" in lines
+    assert "tool call" not in panel.plain
+    assert all(len(line) <= 38 for line in lines)
 
 
 def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3362,6 +3364,28 @@ def test_startup_copy_stays_readable_in_narrow_panes() -> None:
     assert startup_lines[8] == "  Warnings"
     assert startup_lines[9].startswith("    Verify")
     assert max(len(line) for line in startup_lines) <= 39
+
+
+def test_tui_launch_does_not_append_startup_copy_to_transcript() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    state = tui._TuiRuntimeState(
+        armory_home_shown=True,
+        history_obj=tui.InputHistory(),
+    )
+    app = tui.HephTui(
+        _plain_session(),
+        state,
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_no_startup_copy() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            assert state.transcript == []
+
+    asyncio.run(check_no_startup_copy())
 
 
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
