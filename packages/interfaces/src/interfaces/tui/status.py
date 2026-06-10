@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
 STATUS_FIELD_GAP = "  "
-_BASE_STATUS_LABELS = ("armory", "model", "reasoning")
+_BASE_STATUS_FIELDS = ("armory", "model", "reasoning")
 
 
 def status_lines(session: ChatSession, *, draft: str = "") -> str:
@@ -37,16 +37,18 @@ def status_lines(session: ChatSession, *, draft: str = "") -> str:
         ("reasoning", session.config.reasoning_level),
         *_live_usage_fields(session),
     ]
-    return STATUS_FIELD_GAP.join(("Heph", *(f"{label} {value}" for label, value in fields)))
+    return STATUS_FIELD_GAP.join(
+        ("Heph", *(f"{label.upper()} {value.lower()}" for label, value in fields))
+    )
 
 
 def status_labels(session: ChatSession) -> tuple[str, ...]:
-    labels = [*_BASE_STATUS_LABELS]
+    labels = [*_BASE_STATUS_FIELDS]
     if session.live_tokens_visible:
         labels.append("tokens")
     if session.live_cost_visible:
         labels.append("cost")
-    return tuple(labels)
+    return tuple(label.upper() for label in labels)
 
 
 def _live_usage_fields(session: ChatSession) -> list[tuple[str, str]]:

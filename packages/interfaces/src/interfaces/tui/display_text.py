@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
@@ -8,6 +9,7 @@ from hephaion.materials import material_display_name
 
 from interfaces.terminal import current_palette
 from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
+from interfaces.tui.keybinds import footer_keybind_hints
 from interfaces.tui.keymap import armory_shortcut_key
 from interfaces.tui.rich_transcript import evidence_summary_text
 from interfaces.tui.session_state import TuiTranscriptEntry
@@ -25,7 +27,15 @@ if TYPE_CHECKING:
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 35
 _INFO_PANEL_VISIBLE_WIDTH = 38
+_INFO_PANEL_SCOPE = "scope"
+_INFO_PANEL_EVIDENCE = "evidence"
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
+
+
+@dataclass(frozen=True)
+class _InfoPanelLine:
+    content: str
+    is_heading: bool = False
 
 
 def require_rich_text() -> type[Text]:
@@ -76,15 +86,16 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
     palette = current_palette()
     footer_style = palette.text_muted
     shortcut_style = palette.text_secondary
+    section = "armory".upper()
     if creating:
-        parts = ["armory", "enter create", "esc cancel"]
+        parts = [section, "enter create", "esc cancel"]
     elif filtering:
-        parts = ["armory", "enter open", "esc clear", "arrows move", "n new"]
+        parts = [section, "enter open", "esc clear", "arrows move", "n new"]
     else:
-        parts = ["armory", "type filter", "enter open", "n new", "esc close"]
+        parts = [section, "type filter", "enter open", "n new", "esc close"]
     return _shortcut_hints_text(
         parts,
-        ("armory", "enter", "esc", "arrows", "type", "n"),
+        (section, "enter", "esc", "arrows", "type", "n"),
         footer_style=footer_style,
         shortcut_style=shortcut_style,
         every_match=True,
@@ -109,17 +120,13 @@ def footer_hints_text(
         )
 
     key_ok = has_configured_access(session.config, refresh_oauth=False)
-    shortcut = armory_shortcut_key()
-    parts = [
-        f"{shortcut} armory",
-        "ctrl+p commands",
-        "shift+tab reasoning",
-    ]
+    keybind_hints = footer_keybind_hints()
+    parts = [f"{hint.label} {hint.key}" for hint in keybind_hints]
     if not key_ok:
         parts.append("api missing")
     text = _shortcut_hints_text(
         parts,
-        (shortcut, "ctrl+p", "shift+tab"),
+        tuple(hint.label for hint in keybind_hints),
         footer_style=footer_style,
         shortcut_style=shortcut_style,
     )
@@ -164,20 +171,24 @@ def _count_label(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {word}"
 
 
-def _info_panel_material_lines(session: ChatSession) -> list[str]:
+def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
     visible_materials = list(session.source_files[:8])
     active_count = _active_material_count(session)
     material_lines = [
-        "<scope>",
-        f"{active_count}/{len(session.source_files)} materials active",
+        _InfoPanelLine(_INFO_PANEL_SCOPE.upper(), is_heading=True),
+        _InfoPanelLine(f"{active_count}/{len(session.source_files)} materials active"),
     ]
     if not visible_materials:
-        material_lines.append("no materials attached")
+        material_lines.append(_InfoPanelLine("no materials attached"))
         return material_lines
 
-    material_lines.extend(f"@{_material_panel_display_name(name)}" for name in visible_materials)
+    material_lines.extend(
+        _InfoPanelLine(f"@{_material_panel_display_name(name)}") for name in visible_materials
+    )
     if len(session.source_files) > len(visible_materials):
-        material_lines.append(f"+{len(session.source_files) - len(visible_materials)} more")
+        material_lines.append(
+            _InfoPanelLine(f"+{len(session.source_files) - len(visible_materials)} more")
+        )
     return material_lines
 
 
@@ -186,28 +197,34 @@ def _info_panel_evidence_lines(
     *,
     busy: bool,
     progress: str,
-) -> list[str]:
+) -> list[_InfoPanelLine]:
     if busy:
         detail = progress or "working"
-        return ["<grounding>", detail]
+        return [
+            _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
+            _InfoPanelLine(detail),
+        ]
     evidence = session.last_turn_evidence
     if evidence is None or not evidence.items:
-        return ["<grounding>", "no evidence used yet"]
+        return [
+            _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
+            _InfoPanelLine("no evidence used yet"),
+        ]
     return _info_panel_evidence_used_lines(evidence)
 
 
-def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[str]:
+def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
     sources = tuple(dict.fromkeys(item.source for item in evidence.items))
     sampled_sources = evidence.sampled_source_count or len(sources)
     total_sources = evidence.total_source_count or sampled_sources
     lines = [
-        "<grounding>",
-        _count_label(len(evidence.items), "evidence excerpt"),
-        _info_panel_source_scope(sampled_sources, total_sources),
+        _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
+        _InfoPanelLine(_count_label(len(evidence.items), "evidence excerpt")),
+        _InfoPanelLine(_info_panel_source_scope(sampled_sources, total_sources)),
     ]
     if source_line := _info_panel_source_line(sources):
-        lines.append(source_line)
-    lines.append("f8 /evidence details")
+        lines.append(_InfoPanelLine(source_line))
+    lines.append(_InfoPanelLine("f8 /evidence details"))
     return lines
 
 
@@ -230,10 +247,10 @@ def _info_panel_lines(
     *,
     busy: bool,
     progress: str,
-) -> list[str]:
+) -> list[_InfoPanelLine]:
     return [
         *_info_panel_material_lines(session),
-        "",
+        _InfoPanelLine(""),
         *_info_panel_evidence_lines(session, busy=busy, progress=progress),
     ]
 
@@ -252,8 +269,15 @@ def _info_panel_line(line: str) -> str:
     return _ellipsize_end(line, _INFO_PANEL_VISIBLE_WIDTH)
 
 
-def _info_panel_text(lines: Sequence[str]) -> str:
-    return "\n".join(_info_panel_line(line) for line in lines)
+def _visible_info_panel_lines(lines: Sequence[_InfoPanelLine]) -> list[_InfoPanelLine]:
+    return [
+        _InfoPanelLine(_info_panel_line(line.content), is_heading=line.is_heading)
+        for line in lines
+    ]
+
+
+def _info_panel_text(lines: Sequence[_InfoPanelLine]) -> str:
+    return "\n".join(line.content for line in _visible_info_panel_lines(lines))
 
 
 def _stylize_all(text: Text, plain: str, label: str, style: str) -> None:
@@ -272,17 +296,16 @@ def _stylize_first(text: Text, plain: str, label: str, style: str) -> None:
         text.stylize(style, idx, idx + len(label))
 
 
-def _stylize_info_panel_labels(text: Text, plain: str) -> None:
+def _stylize_info_panel_labels(text: Text, lines: Sequence[_InfoPanelLine]) -> None:
     palette = current_palette()
-    labels = {"<scope>", "<grounding>"}
     offset = 0
-    for line in plain.splitlines(keepends=True):
-        visible_line = line.removesuffix("\n")
-        label = visible_line.strip()
-        if label in labels:
-            label_start = offset + visible_line.index(label)
-            text.stylize(palette.text_secondary, label_start, label_start + len(label))
-        offset += len(line)
+    for index, line in enumerate(lines):
+        if line.is_heading and line.content:
+            label_start = offset + line.content.index(line.content.strip())
+            text.stylize(palette.text_secondary, label_start, label_start + len(line.content))
+        offset += len(line.content)
+        if index + 1 < len(lines):
+            offset += 1
 
 
 def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) -> None:
@@ -320,9 +343,10 @@ def info_panel_default_text(
     progress: str = "",
 ) -> Text:
     palette = current_palette()
-    plain = _info_panel_text(_info_panel_lines(session, busy=busy, progress=progress))
+    lines = _visible_info_panel_lines(_info_panel_lines(session, busy=busy, progress=progress))
+    plain = "\n".join(line.content for line in lines)
     text = require_rich_text()(plain, style=palette.text_muted)
-    _stylize_info_panel_labels(text, plain)
+    _stylize_info_panel_labels(text, lines)
     _stylize_hidden_material_count(text, plain, session)
     _stylize_info_panel_materials(text, plain, session)
     return text
@@ -390,14 +414,17 @@ def _assistant_message_panel_lines(
     model = session.config.model or "unknown"
     evidence_str = evidence_summary_text(entry.evidence or session.last_turn_evidence)
     usage = session.usage.summary()
+    fields = (
+        ("model", model),
+        ("tokens", usage["total_tokens"]),
+        ("cost", f"${usage['cost_usd']:.4f}"),
+        ("evidence", evidence_str),
+        ("details", "f8 or /evidence"),
+    )
     return [
         "Assistant reply",
         sep,
-        f"model   {model}",
-        f"tokens  {usage['total_tokens']}",
-        f"cost    ${usage['cost_usd']:.4f}",
-        f"evidence {evidence_str}",
-        "details f8 or /evidence",
+        *(f"{label.upper():<8} {str(value).lower()}" for label, value in fields),
     ]
 
 
@@ -409,5 +436,11 @@ def _stylize_message_panel_title(text: Text, plain: str, title: str) -> None:
 
 def _stylize_message_panel_labels(text: Text, plain: str) -> None:
     palette = current_palette()
-    for label in ("model", "tokens", "cost", "evidence", "details"):
-        _stylize_first(text, plain, label, f"dim {palette.text_muted}")
+    offset = 0
+    for line in plain.splitlines(keepends=True):
+        visible_line = line.removesuffix("\n")
+        label = visible_line.split(maxsplit=1)[0] if visible_line else ""
+        if label.isupper():
+            label_start = offset + visible_line.index(label)
+            text.stylize(f"dim {palette.text_muted}", label_start, label_start + len(label))
+        offset += len(line)

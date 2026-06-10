@@ -37,7 +37,7 @@ from interfaces import tui
 from interfaces.palette import DARK_THEME, LIGHT_THEME
 from interfaces.terminal import current_theme_name, set_theme
 from interfaces.tui import armory as tui_armory
-from interfaces.tui import keymap
+from interfaces.tui import keybinds, keymap
 from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
@@ -160,7 +160,7 @@ def _armory_description_columns(app: tui.HephTui) -> list[int]:
 
 
 def _footer_armory_hint() -> str:
-    return f"{keymap.armory_shortcut_key()} armory"
+    return f"ARMORY {keymap.armory_shortcut_key()}"
 
 
 def _plain_session() -> ChatSession:
@@ -249,15 +249,25 @@ def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())
 
-    assert status == "Heph  armory none  model test-model  reasoning low"
+    assert status == "Heph  ARMORY none  MODEL test-model  REASONING low"
     assert "Heph" in status
     assert "test-model" in status
-    assert "armory" in status
+    assert "ARMORY" in status
     assert " mode " not in status
     assert "api" not in status
     assert "materials" not in status
     assert "enter" not in status
     assert "/help" not in status
+
+
+def test_session_status_normalizes_label_and_value_casing() -> None:
+    session = _plain_session()
+    session.config.model = "Test-MODEL"
+
+    status = tui._status_lines(session)
+
+    assert "MODEL test-model" in status
+    assert "REASONING low" in status
 
 
 def test_session_status_omits_api_badge_for_keyless_provider() -> None:
@@ -279,7 +289,7 @@ def test_session_status_shows_live_tokens_when_enabled() -> None:
 
     status = tui._status_lines(session)
 
-    assert "tokens ↑1.5k ↓250" in status
+    assert "TOKENS ↑1.5k ↓250" in status
     assert "prompt/" not in status
     assert "left" not in status
 
@@ -290,7 +300,7 @@ def test_session_status_shows_zero_live_tokens_before_usage() -> None:
 
     status = tui._status_lines(session)
 
-    assert "tokens 0" in status
+    assert "TOKENS 0" in status
 
 
 def test_session_status_shows_live_cost_when_enabled() -> None:
@@ -300,7 +310,7 @@ def test_session_status_shows_live_cost_when_enabled() -> None:
 
     status = tui._status_lines(session)
 
-    assert "cost $0.000" in status
+    assert "COST $0.000" in status
 
 
 def test_session_status_marks_subscription_cost_estimate() -> None:
@@ -310,7 +320,7 @@ def test_session_status_marks_subscription_cost_estimate() -> None:
 
     status = tui._status_lines(session)
 
-    assert "cost $0.000 (sub)" in status
+    assert "COST $0.000 (sub)" in status
 
 
 def test_shift_tab_opens_reasoning_level_control(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -349,7 +359,7 @@ def test_shift_tab_opens_reasoning_level_control(monkeypatch: pytest.MonkeyPatch
             await pilot.pause()
             assert session.config.reasoning_level == "medium"
             assert " mode " not in tui._status_lines(session)
-            assert "reasoning medium" in tui._status_lines(session)
+            assert "REASONING medium" in tui._status_lines(session)
             assert [entry.content for entry in app.state.transcript] == ["Reasoning medium."]
 
     asyncio.run(check_reasoning_cycle())
@@ -427,21 +437,39 @@ def test_resize_redraw_state_tracks_follow_up_frame_after_resize_spam() -> None:
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
 
     assert "ctrl+a" in plain
-    assert "ctrl+a armory" in plain
-    assert "ctrl+p commands" in plain
-    assert "shift+tab reasoning" in plain
-    assert plain.startswith("ctrl+a armory  ctrl+p commands  shift+tab reasoning")
+    assert "ARMORY ctrl+a" in plain
+    assert "COMMANDS ctrl+p" in plain
+    assert "REASONING shift+tab" in plain
+    assert plain.startswith("ARMORY ctrl+a  COMMANDS ctrl+p  REASONING shift+tab")
     assert "enter" not in plain
     assert "tab complete" not in plain
     assert "ctrl+c" not in plain
     assert "ctrl+d" not in plain
     assert "test-model" not in plain
+
+
+def test_footer_hints_derive_labels_and_keys_from_keybind_specs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
+
+    specs_by_action = {spec.action: spec for spec in keybinds.tui_keybinds()}
+    hints = keybinds.footer_keybind_hints()
+
+    assert specs_by_action["open_armory_home"].keys == "ctrl+a,ctrl+o"
+    assert specs_by_action["command_palette"].keys == "ctrl+p"
+    assert specs_by_action["cycle_reasoning_level"].keys == "shift+tab"
+    assert [(hint.label, hint.key) for hint in hints] == [
+        ("ARMORY", "ctrl+o"),
+        ("COMMANDS", "ctrl+p"),
+        ("REASONING", "shift+tab"),
+    ]
 
 
 def test_footer_hints_show_escape_cancel_and_ctrl_c_exit_when_busy() -> None:
@@ -499,26 +527,26 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
     assert "api missing" in plain
 
 
-def test_footer_command_shortcuts_share_neutral_shortcut_token(
+def test_footer_action_labels_share_neutral_label_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+a")
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
     footer_label_style = palette.text_muted
     shortcut_style = palette.text_secondary
-    labels = ("ctrl+a", "ctrl+p", "shift+tab")
-    shortcut_styles: dict[str, list[str]] = {}
+    labels = ("ARMORY", "COMMANDS", "REASONING")
+    label_styles: dict[str, list[str]] = {}
     for label in labels:
         start = hints.plain.index(label)
         end = start + len(label)
-        shortcut_styles[label] = [
+        label_styles[label] = [
             str(span.style) for span in hints.spans if span.start <= start and span.end >= end
         ]
 
     assert str(hints.style) == footer_label_style
-    for styles in shortcut_styles.values():
+    for styles in label_styles.values():
         assert styles == [shortcut_style]
         assert not any(palette.action_primary_bg in style for style in styles)
         assert not any(palette.text_primary in style for style in styles)
@@ -528,17 +556,17 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 def test_status_sidebar_and_footer_chrome_labels_share_one_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
 
     labelled_texts = (
-        (tui._status_text(session), ("armory", "model")),
-        (tui._info_panel_default_text(session), ("<scope>", "<grounding>")),
+        (tui._status_text(session), ("ARMORY", "MODEL")),
+        (tui._info_panel_default_text(session), ("SCOPE", "EVIDENCE")),
         (
             tui._footer_hints_text(session),
-            ("ctrl+o", "ctrl+p", "shift+tab"),
+            ("ARMORY", "COMMANDS", "REASONING"),
         ),
     )
 
@@ -555,7 +583,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 def test_secondary_chrome_details_share_darker_tint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
     session.armory_path = Path.home() / ".armories" / "sample-course"
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
@@ -572,11 +600,11 @@ def test_secondary_chrome_details_share_darker_tint(
         return str(text.style)
 
     footer = tui._footer_hints_text(session)
-    for label in ("commands", "reasoning", "armory"):
-        assert effective_style(footer, label) == palette.text_muted
+    for keybind in ("ctrl+o", "ctrl+p", "shift+tab"):
+        assert effective_style(footer, keybind) == palette.text_muted
 
     status = tui._status_text(session)
-    armory_value = status.plain.split("armory ", maxsplit=1)[1].split("  model ", maxsplit=1)[0]
+    armory_value = status.plain.split("ARMORY ", maxsplit=1)[1].split("  MODEL ", maxsplit=1)[0]
     assert effective_style(status, armory_value) == palette.text_muted
     assert effective_style(status, session.config.model) == palette.text_muted
 
@@ -620,23 +648,26 @@ def test_dark_routine_labels_use_neutral_emphasis() -> None:
             for span in status.spans
             if span.start <= brand_start and span.end >= brand_start + len("Heph")
         ]
-        reasoning_start = status.plain.index("reasoning")
+        reasoning_start = status.plain.index("REASONING")
         reasoning_styles = [
             str(span.style)
             for span in status.spans
-            if span.start <= reasoning_start and span.end >= reasoning_start + len("reasoning")
+            if span.start <= reasoning_start and span.end >= reasoning_start + len("REASONING")
         ]
-        shortcut_start = hints.plain.index("ctrl+p")
-        shortcut_styles = [
+        footer_label_start = hints.plain.index("COMMANDS")
+        footer_label_styles = [
             str(span.style)
             for span in hints.spans
-            if span.start <= shortcut_start and span.end >= shortcut_start + len("ctrl+p")
+            if (
+                span.start <= footer_label_start
+                and span.end >= footer_label_start + len("COMMANDS")
+            )
         ]
-        scope_start = panel.plain.index("<scope>")
+        scope_start = panel.plain.index("SCOPE")
         scope_styles = [
             str(span.style)
             for span in panel.spans
-            if span.start <= scope_start and span.end >= scope_start + len("<scope>")
+            if span.start <= scope_start and span.end >= scope_start + len("SCOPE")
         ]
 
         assert reasoning_styles == [palette.text_secondary]
@@ -646,9 +677,9 @@ def test_dark_routine_labels_use_neutral_emphasis() -> None:
             assert not any(palette.action_primary_bg in style for style in styles)
         assert brand_styles == [f"bold {palette.brand_primary}"]
         assert str(hints.style) == palette.text_muted
-        assert shortcut_styles == [palette.text_secondary]
-        assert not any(palette.text_primary in style for style in shortcut_styles)
-        assert not any(palette.action_primary_bg in style for style in shortcut_styles)
+        assert footer_label_styles == [palette.text_secondary]
+        assert not any(palette.text_primary in style for style in footer_label_styles)
+        assert not any(palette.action_primary_bg in style for style in footer_label_styles)
     finally:
         set_theme("dark")
 
@@ -1484,9 +1515,9 @@ def test_info_panel_default_text_starts_at_sidebar_edge() -> None:
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
 
-    assert panel_lines[0] == "<scope>"
+    assert panel_lines[0] == "SCOPE"
     assert "Grounding" not in panel_lines
-    assert "<grounding>" in panel_lines
+    assert "EVIDENCE" in panel_lines
     assert next(line for line in panel_lines if "+1 more" in line) == "+1 more"
 
 
@@ -2485,11 +2516,11 @@ def test_info_panel_shows_scope_and_material_names_without_session_duration() ->
     panel = tui._info_panel_default_text(session)
 
     lines = panel.plain.splitlines()
-    assert lines[0] == "<scope>"
+    assert lines[0] == "SCOPE"
     assert "\u2500" not in panel.plain
     assert "time" not in panel.plain
     assert "2/2 materials active" in panel.plain
-    assert "<grounding>" in panel.plain
+    assert "EVIDENCE" in panel.plain
     assert "no evidence used yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
@@ -2510,7 +2541,7 @@ def test_info_panel_ignores_generated_session_title() -> None:
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert lines[0] == "<scope>"
+    assert lines[0] == "SCOPE"
     assert len(lines[0]) <= 38
     assert "Build a careful comparison" not in panel.plain
     assert "that should never wrap" not in panel.plain
@@ -2519,7 +2550,7 @@ def test_info_panel_ignores_generated_session_title() -> None:
     assert lines[2] == "no materials attached"
 
 
-def test_info_panel_grounding_summarizes_evidence_without_tool_details() -> None:
+def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
     session = _plain_session()
     session.last_turn_evidence = _turn_evidence_with_sources(
         "materials/week-01-foundations.pdf",
@@ -2790,7 +2821,7 @@ def test_status_lines_shows_armory_path() -> None:
 
     status = tui._status_lines(session)
 
-    assert "armory /tmp/my-armory" in status
+    assert "ARMORY /tmp/my-armory" in status
 
 
 def test_status_lines_truncates_long_armory_path() -> None:
@@ -2799,8 +2830,8 @@ def test_status_lines_truncates_long_armory_path() -> None:
 
     status = tui._status_lines(session)
 
-    assert "armory ...qa-status/nested/folder/very-long-armory-name" in status
-    assert "model test-model" in status
+    assert "ARMORY ...qa-status/nested/folder/very-long-armory-name" in status
+    assert "MODEL test-model" in status
     assert " mode " not in status
 
 
@@ -2810,7 +2841,7 @@ def test_status_lines_shows_none_when_no_armory() -> None:
 
     status = tui._status_lines(session)
 
-    assert "armory none" in status
+    assert "ARMORY none" in status
 
 
 def test_create_startup_session_applies_live_usage_settings(
@@ -2894,7 +2925,7 @@ def test_status_text_styles_live_usage_labels() -> None:
 
     status = tui._status_text(session)
 
-    for label in ("tokens", "cost"):
+    for label in ("TOKENS", "COST"):
         start = status.plain.index(label)
         end = start + len(label)
         styles = [
@@ -2941,7 +2972,7 @@ def test_live_token_status_ignores_draft_until_usage_recorded(
             app._refresh_live_token_status(composer.value)
 
             assert str(status.content) != initial
-            assert "tokens ↑100 ↓20" in str(status.content)
+            assert "TOKENS ↑100 ↓20" in str(status.content)
 
     asyncio.run(check_live_token_status())
 
@@ -5389,7 +5420,7 @@ def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._open_armory_inline("manage")
             hints = app.query_one("#footer-hints", tui.Static)
-            assert "armory" in str(hints.render())
+            assert "ARMORY" in str(hints.render())
             await pilot.press("escape")
             await pilot.pause()
             assert _footer_armory_hint() in str(hints.render())

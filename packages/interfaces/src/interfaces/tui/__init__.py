@@ -63,8 +63,8 @@ from interfaces.tui.ids import (
     TRANSCRIPT_SPACER_ID,
 )
 from interfaces.tui.inline_flows import TuiInlineFlowMixin
+from interfaces.tui.keybinds import tui_keybinds
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
-from interfaces.tui.keymap import armory_binding_keys
 from interfaces.tui.materials import TuiMaterialsMixin
 from interfaces.tui.render_state import DirtyRegion, TuiRenderCache
 from interfaces.tui.resize import (
@@ -233,22 +233,14 @@ class HephTui(
     App[None],
 ):
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("tab", "complete", "Complete"),
-        Binding("shift+tab", "cycle_reasoning_level", "Reasoning", show=False, priority=True),
-        Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
-        Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
-        Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
-        Binding("f8", "evidence", "Evidence", show=False, priority=True),
         Binding(
-            "shift+enter,ctrl+enter,alt+enter,ctrl+j",
-            "insert_composer_newline",
-            "Newline",
-            show=False,
-            priority=True,
-        ),
-        Binding("ctrl+c", "quit", "Quit", priority=True),
-        Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
-        Binding("ctrl+d", "quit", "Quit", priority=True),
+            spec.keys,
+            spec.action,
+            spec.label,
+            show=spec.show,
+            priority=spec.priority,
+        )
+        for spec in tui_keybinds()
     ]
 
     def __init__(
