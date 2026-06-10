@@ -51,9 +51,13 @@ def test_load_raw_settings_refreshes_after_external_write(
     assert settings.load_raw_settings() == {"model": "updated-model"}
 
 
-def test_app_settings_default_activity_trace_mode_is_tool_calls() -> None:
+def test_app_settings_default_activity_trace_mode_is_minimal_tool_calls() -> None:
     s = settings.AppSettings()
-    assert s.activity_trace_mode == settings.DEFAULT_ACTIVITY_TRACE_MODE
+    assert (
+        s.activity_trace_mode
+        == settings.DEFAULT_ACTIVITY_TRACE_MODE
+        == settings.ACTIVITY_TRACE_MINIMAL_TOOL_CALLS
+    )
 
 
 def test_app_settings_default_theme_is_dark() -> None:
@@ -73,10 +77,10 @@ def test_app_settings_default_live_usage_visibility_is_off() -> None:
     assert s.live_cost_visible is False
 
 
-def test_app_settings_default_thinking_visibility_is_off() -> None:
+def test_app_settings_default_thinking_visibility_is_minimal() -> None:
     s = settings.AppSettings()
 
-    assert s.thinking_visibility == settings.DEFAULT_THINKING_VISIBILITY == "off"
+    assert s.thinking_visibility == settings.DEFAULT_THINKING_VISIBILITY == "minimal"
 
 
 def test_load_app_settings_ignores_removed_interface_mode(

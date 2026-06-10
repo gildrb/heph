@@ -12,7 +12,7 @@ import heph.commands.study as _learning_commands
 import pytest
 from ai.providers import catalog
 from ai.providers.catalog import LiveProviderCatalog
-from ai.providers.config import Provider, default_config
+from ai.providers.config import Provider, ProviderConfig, default_config
 from ai.providers.llama_cpp import (
     LLAMA_CPP_PROVIDER_SLUG,
     LlamaCppInstallResult,
@@ -484,56 +484,35 @@ def test_command_registry_includes_session_utility_commands() -> None:
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
-    for name in ("evidence", "tokens", "cost", "thinking", "stats"):
+    for name in ("evidence", "cost", "stats"):
         assert registry.find(name) is not None
         assert name in names
+    assert registry.find("tokens") is None
+    assert registry.find("thinking") is None
+    assert registry.find("reasoning") is None
+    assert "tokens" not in names
+    assert "thinking" not in names
 
 
-def test_tokens_and_cost_commands_toggle_live_toolbar() -> None:
+def test_cost_command_toggles_live_toolbar() -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
-    commands.TokensCommand().handle(session, "show")
     commands.CostCommand().handle(session, "show")
 
-    assert session.live_tokens_visible is True
     assert session.live_cost_visible is True
 
-    commands.TokensCommand().handle(session, "hide")
     commands.CostCommand().handle(session, "hide")
 
-    assert session.live_tokens_visible is False
     assert session.live_cost_visible is False
 
 
-def test_tokens_and_cost_commands_persist_live_toolbar_state() -> None:
+def test_cost_command_persists_live_toolbar_state() -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
-    commands.TokensCommand().handle(session, "show")
     commands.CostCommand().handle(session, "hide")
 
     saved = settings_store.load_raw_settings()
-    assert saved["live_tokens_visible"] is True
     assert saved["live_cost_visible"] is False
-
-
-def test_thinking_command_sets_and_persists_visibility() -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ThinkingCommand().handle(session, "all")
-
-    saved = settings_store.load_raw_settings()
-    assert session.config.thinking_visibility == "all"
-    assert saved["thinking_visibility"] == "all"
-
-
-def test_thinking_command_cycles_visibility(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ThinkingCommand().handle(session, "")
-
-    out = capsys.readouterr().out
-    assert session.config.thinking_visibility == "minimal"
-    assert "Model thinking: Minimal." in out
 
 
 def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str]) -> None:
@@ -804,6 +783,11 @@ def test_switch_model_starts_local_llama_record(
     )
     monkeypatch.setattr(_model_selection.ProviderConfig, "save", lambda _self: None)
     monkeypatch.setattr(
+        _model_selection,
+        "hydrate_provider_models",
+        lambda _pc, *, provider_slugs: None,
+    )
+    monkeypatch.setattr(
         _model_selection.llama_cpp,
         "model_record",
         lambda model: record if model == record.model_id else None,
@@ -811,6 +795,66 @@ def test_switch_model_starts_local_llama_record(
     monkeypatch.setattr(_model_selection.llama_cpp, "start_record", lambda _record: server)
 
     assert _model_selection.switch_model(session, LLAMA_CPP_PROVIDER_SLUG, record.model_id)
+    assert provider.endpoint == server.endpoint
+    assert provider.current_model == record.model_id
+    assert session.config.base_url == server.endpoint
+    assert session.config.model == record.model_id
+    assert session.config.provider_slug == LLAMA_CPP_PROVIDER_SLUG
+
+
+def test_switch_model_hydrates_local_llama_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/model:Q4_K_M",
+        repo_id="acme/model",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    server = LlamaCppServerState(
+        pid=123,
+        endpoint="http://127.0.0.1:18124/v1",
+        model_id=record.model_id,
+        started_at=1.0,
+    )
+    pc = default_config()
+    provider = pc.providers[LLAMA_CPP_PROVIDER_SLUG]
+    session = ChatSession(
+        config=ChatConfig(base_url="", model=""),
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+    hydrated_slugs: list[set[str]] = []
+
+    def fake_hydrate_provider_models(
+        config: ProviderConfig,
+        *,
+        provider_slugs: set[str] | None = None,
+    ) -> None:
+        hydrated_slugs.append(set(provider_slugs or ()))
+        config.providers[LLAMA_CPP_PROVIDER_SLUG].models = [record.model_id]
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(_model_selection.ProviderConfig, "save", lambda _self: None)
+    monkeypatch.setattr(
+        _model_selection,
+        "hydrate_provider_models",
+        fake_hydrate_provider_models,
+    )
+    monkeypatch.setattr(
+        _model_selection.llama_cpp,
+        "model_record",
+        lambda model: record if model == record.model_id else None,
+    )
+    monkeypatch.setattr(_model_selection.llama_cpp, "start_record", lambda _record: server)
+
+    assert _model_selection.switch_model(session, LLAMA_CPP_PROVIDER_SLUG, record.model_id)
+    assert hydrated_slugs == [{LLAMA_CPP_PROVIDER_SLUG}]
     assert provider.endpoint == server.endpoint
     assert provider.current_model == record.model_id
     assert session.config.base_url == server.endpoint
@@ -1303,26 +1347,6 @@ def test_compact_command_empty_session(
     assert "Nothing to compact" in out
 
 
-def test_tokens_command_invalid_arg(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.TokensCommand().handle(session, "bogus")
-    out = capsys.readouterr().out
-    assert "Usage:" in out or "toggle" in out.lower()
-
-
-def test_tokens_command_toggle(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.TokensCommand().handle(session, "")
-    out = capsys.readouterr().out
-    assert "tokens" in out.lower()
-
-
 def test_cost_command_invalid_arg(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1341,13 +1365,3 @@ def test_cost_command_toggle(
     commands.CostCommand().handle(session, "")
     out = capsys.readouterr().out
     assert "cost" in out.lower()
-
-
-def test_thinking_command_invalid_arg(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ThinkingCommand().handle(session, "verbose")
-    out = capsys.readouterr().out
-    assert "Usage: /thinking" in out

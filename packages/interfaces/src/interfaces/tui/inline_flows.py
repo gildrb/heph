@@ -9,12 +9,13 @@ from hephaion.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
-    ACTIVITY_TRACE_MODES,
     ACTIVITY_TRACE_TOOL_CALLS,
     THEME_LABELS,
     THEME_PRESETS,
+    THINKING_VISIBILITY_ALL,
     THINKING_VISIBILITY_LABELS,
-    THINKING_VISIBILITY_MODES,
+    THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_OFF,
     VOCAB_STRICTNESS_LABELS,
     VOCAB_STRICTNESS_MODES,
     load_app_settings,
@@ -47,6 +48,7 @@ from interfaces.tui.inline_menu import (
     _selected_inline_label,
     _session_menu_option_text,
 )
+from interfaces.tui.local_flows import TuiLocalFlowMixin
 from interfaces.tui.model_flow import (
     _model_choice_from_label,
     _model_choice_label,
@@ -87,18 +89,32 @@ if TYPE_CHECKING:
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")
 
-_ACTIVITY_TRACE_DESCRIPTIONS = {
-    ACTIVITY_TRACE_TOOL_CALLS: "live reads, commands, model calls, results",
-    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "compact status and final summary",
-    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
+_ACTIVITY_TRACE_CYCLE = (
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_TOOL_CALLS,
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+)
+_THINKING_VISIBILITY_ALIASES = {
+    THINKING_VISIBILITY_OFF: THINKING_VISIBILITY_OFF,
+    "hidden": THINKING_VISIBILITY_OFF,
+    THINKING_VISIBILITY_MINIMAL: THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_ALL: THINKING_VISIBILITY_ALL,
 }
-_ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_LABELS.items()}
-_THINKING_VISIBILITY_DESCRIPTIONS = {
-    "off": "hide provider-exposed thinking",
-    "minimal": "show reasoning summaries when available",
-    "all": "show all provider-exposed thinking text",
+_THINKING_VISIBILITY_CYCLE = (
+    THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_ALL,
+    THINKING_VISIBILITY_OFF,
+)
+_LIVE_TOKENS_ALIASES = {
+    "shown": True,
+    "show": True,
+    "on": True,
+    "true": True,
+    "hidden": False,
+    "hide": False,
+    "off": False,
+    "false": False,
 }
-_THINKING_VISIBILITY_BY_LABEL = {label: mode for mode, label in THINKING_VISIBILITY_LABELS.items()}
 
 
 class _StyleObject(Protocol):
@@ -188,6 +204,8 @@ class _InlineFlowHost(Protocol):
 
     def _open_models_flow(self) -> None: ...
 
+    def _open_local_flow(self, query: str = "") -> None: ...
+
     def _handle_sessions_command(self, value: str) -> None: ...
 
     def _handle_turn_command(self, value: str) -> None: ...
@@ -258,6 +276,8 @@ class _InlineFlowHost(Protocol):
 
     def _thinking_visibility_summary(self) -> str: ...
 
+    def _live_tokens_summary(self) -> str: ...
+
     def _privacy_option_description(
         self,
         *,
@@ -268,13 +288,19 @@ class _InlineFlowHost(Protocol):
 
     def _open_privacy_flow(self, selected_label: str | None = None) -> None: ...
 
-    def _open_appearance_flow(self, selected_label: str | None = None) -> None: ...
+    def _cycle_appearance_setting(self) -> None: ...
 
-    def _open_activity_trace_flow(self, selected_label: str | None = None) -> None: ...
+    def _cycle_activity_trace_setting(self) -> None: ...
 
-    def _open_thinking_visibility_flow(self, selected_label: str | None = None) -> None: ...
+    def _cycle_thinking_visibility_setting(self) -> None: ...
 
-    def _open_vocabulary_flow(self, selected_label: str | None = None) -> None: ...
+    def _cycle_live_tokens_setting(self) -> None: ...
+
+    def _cycle_vocabulary_setting(self) -> None: ...
+
+    def _submit_live_tokens_command(self, value: str) -> None: ...
+
+    def _submit_thinking_visibility_command(self, value: str) -> None: ...
 
     def _model_flow_options(
         self,
@@ -313,13 +339,7 @@ class _InlineFlowHost(Protocol):
 
     def _handle_privacy_choice(self, label: str) -> None: ...
 
-    def _handle_appearance_choice(self, label: str) -> None: ...
-
-    def _handle_activity_trace_choice(self, label: str) -> None: ...
-
-    def _handle_thinking_visibility_choice(self, label: str) -> None: ...
-
-    def _handle_vocabulary_choice(self, label: str) -> None: ...
+    def _handle_local_choice(self, label: str) -> None: ...
 
     def _refresh_tui_css(self) -> None: ...
 
@@ -349,10 +369,11 @@ class _InlineFlowHost(Protocol):
 def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
     return {
         "Privacy & Diagnostics": host._open_privacy_flow,
-        "Appearance": host._open_appearance_flow,
-        "Activity trace": host._open_activity_trace_flow,
-        "Model thinking": host._open_thinking_visibility_flow,
-        "Vocabulary practice": host._open_vocabulary_flow,
+        "Appearance": host._cycle_appearance_setting,
+        "Activity trace": host._cycle_activity_trace_setting,
+        "Model thinking": host._cycle_thinking_visibility_setting,
+        "Live tokens": host._cycle_live_tokens_setting,
+        "Vocabulary practice": host._cycle_vocabulary_setting,
         "Login": host._open_login_flow,
         "Logout": host._open_logout_flow,
     }
@@ -361,15 +382,12 @@ def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None
 def _settings_step_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
     return {
         "privacy": host._handle_privacy_choice,
-        "appearance": host._handle_appearance_choice,
-        "activity_trace": host._handle_activity_trace_choice,
-        "thinking_visibility": host._handle_thinking_visibility_choice,
-        "vocabulary": host._handle_vocabulary_choice,
     }
 
 
 def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
     return {
+        "local": host._handle_local_choice,
         "settings": host._handle_settings_choice,
         "models": host._perform_model_switch,
         "logout": host._perform_logout,
@@ -378,11 +396,17 @@ def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], Non
     }
 
 
-class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixin):
+class TuiInlineFlowMixin(
+    TuiAuthFlowMixin,
+    TuiLocalFlowMixin,
+    TuiModelFlowMixin,
+    TuiSessionFlowMixin,
+):
     def _handle_inline_command(self: _InlineFlowHost, value: str) -> None:
         command = value.split(maxsplit=1)[0]
         actions = {
             "/login": self._open_login_flow,
+            "/local": self._open_local_flow,
             "/logout": self._open_logout_flow,
             "/settings": self._open_settings_flow,
             "/models": self._open_models_flow,
@@ -529,11 +553,15 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
     def _filter_inline_menu_options(self: _InlineFlowHost, query: str) -> None:
         if not self._inline_flow.all_options:
             return
+        selected_label = _highlighted_inline_label(self)
         self._inline_flow.options = _filtered_inline_options(
             self._inline_flow.all_options,
             query,
         )
-        self._render_inline_menu_options(self._inline_flow.options)
+        self._render_inline_menu_options(
+            self._inline_flow.options,
+            highlighted=_inline_option_index(self._inline_flow.options, selected_label),
+        )
 
     def _open_settings_flow(
         self: _InlineFlowHost,
@@ -551,6 +579,7 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
                 ("Appearance", f"theme: {THEME_LABELS.get(settings.theme, settings.theme)}"),
                 ("Activity trace", self._activity_trace_summary()),
                 ("Model thinking", self._thinking_visibility_summary()),
+                ("Live tokens", self._live_tokens_summary()),
                 (
                     "Vocabulary practice",
                     VOCAB_STRICTNESS_LABELS.get(
@@ -579,6 +608,9 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
     def _thinking_visibility_summary(self: _InlineFlowHost) -> str:
         thinking_visibility = load_app_settings().thinking_visibility
         return THINKING_VISIBILITY_LABELS.get(thinking_visibility, thinking_visibility)
+
+    def _live_tokens_summary(self: _InlineFlowHost) -> str:
+        return _live_tokens_state(load_app_settings().live_tokens_visible)
 
     def _privacy_option_description(
         self: _InlineFlowHost,
@@ -619,87 +651,56 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
             selected_label=selected_label,
         )
 
-    def _open_appearance_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
-        current = load_app_settings().theme
-        _open_settings_submenu(
+    def _cycle_appearance_setting(self: _InlineFlowHost) -> None:
+        theme = _next_cycle_value(load_app_settings().theme, THEME_PRESETS)
+        _apply_theme_setting(self, theme)
+
+    def _cycle_activity_trace_setting(self: _InlineFlowHost) -> None:
+        activity_trace_mode = _next_cycle_value(
+            load_app_settings().activity_trace_mode,
+            _ACTIVITY_TRACE_CYCLE,
+        )
+        _apply_activity_trace_setting(self, activity_trace_mode)
+
+    def _cycle_thinking_visibility_setting(self: _InlineFlowHost) -> None:
+        visibility = _next_cycle_value(
+            load_app_settings().thinking_visibility,
+            _THINKING_VISIBILITY_CYCLE,
+        )
+        _apply_thinking_visibility_setting(self, visibility)
+
+    def _cycle_live_tokens_setting(self: _InlineFlowHost) -> None:
+        _apply_live_tokens_setting(
             self,
-            parent_label="Appearance",
-            step="appearance",
-            title="Settings  Appearance",
-            options=[
-                (
-                    THEME_LABELS[theme],
-                    "current theme" if theme == current else "theme preset",
-                )
-                for theme in THEME_PRESETS
-            ],
-            selected_label=selected_label,
+            not load_app_settings().live_tokens_visible,
         )
 
-    def _open_activity_trace_flow(
-        self: _InlineFlowHost,
-        selected_label: str | None = None,
-    ) -> None:
-        current_activity_trace_mode = load_app_settings().activity_trace_mode
-        _open_settings_submenu(
-            self,
-            parent_label="Activity trace",
-            step="activity_trace",
-            title="Settings  Activity trace",
-            options=[
-                (
-                    ACTIVITY_TRACE_LABELS[activity_trace_mode],
-                    (
-                        f"{_ACTIVITY_TRACE_DESCRIPTIONS[activity_trace_mode]}  current"
-                        if activity_trace_mode == current_activity_trace_mode
-                        else _ACTIVITY_TRACE_DESCRIPTIONS[activity_trace_mode]
-                    ),
-                )
-                for activity_trace_mode in ACTIVITY_TRACE_MODES
-            ],
-            selected_label=selected_label,
+    def _cycle_vocabulary_setting(self: _InlineFlowHost) -> None:
+        strictness = _next_cycle_value(
+            load_app_settings().vocab_strictness,
+            VOCAB_STRICTNESS_MODES,
         )
+        _apply_vocabulary_setting(self, strictness)
 
-    def _open_thinking_visibility_flow(
-        self: _InlineFlowHost,
-        selected_label: str | None = None,
-    ) -> None:
-        current_visibility = load_app_settings().thinking_visibility
-        _open_settings_submenu(
-            self,
-            parent_label="Model thinking",
-            step="thinking_visibility",
-            title="Settings  Model thinking",
-            options=[
-                (
-                    THINKING_VISIBILITY_LABELS[visibility],
-                    (
-                        f"{_THINKING_VISIBILITY_DESCRIPTIONS[visibility]}  current"
-                        if visibility == current_visibility
-                        else _THINKING_VISIBILITY_DESCRIPTIONS[visibility]
-                    ),
-                )
-                for visibility in THINKING_VISIBILITY_MODES
-            ],
-            selected_label=selected_label,
-        )
+    def _submit_live_tokens_command(self: _InlineFlowHost, value: str) -> None:
+        is_valid, visible = _live_tokens_command_visibility(value)
+        if not is_valid:
+            self._append_error("Usage: /tokens [shown|hidden]")
+            return
+        if visible is None:
+            self._cycle_live_tokens_setting()
+            return
+        _apply_live_tokens_setting(self, visible)
 
-    def _open_vocabulary_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
-        current_strictness = load_app_settings().vocab_strictness
-        _open_settings_submenu(
-            self,
-            parent_label="Vocabulary practice",
-            step="vocabulary",
-            title="Settings  Vocabulary practice",
-            options=[
-                (
-                    VOCAB_STRICTNESS_LABELS[strictness],
-                    "current" if strictness == current_strictness else "answer matching",
-                )
-                for strictness in VOCAB_STRICTNESS_MODES
-            ],
-            selected_label=selected_label,
-        )
+    def _submit_thinking_visibility_command(self: _InlineFlowHost, value: str) -> None:
+        is_valid, visibility = _thinking_visibility_command_value(value)
+        if not is_valid:
+            self._append_error("Usage: /thinking [hidden|minimal|all]")
+            return
+        if visibility is None:
+            self._cycle_thinking_visibility_setting()
+            return
+        _apply_thinking_visibility_setting(self, visibility)
 
     def _handle_inline_flow_key(self: _InlineFlowHost, event: events.Key) -> bool:
         if event.key == "escape":
@@ -770,42 +771,12 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
         self._open_privacy_flow(selected_label=label)
 
     def _handle_appearance_choice(self: _InlineFlowHost, label: str) -> None:
-        theme = _setting_value_from_label(THEME_LABELS, label)
-        if theme is None and label in THEME_PRESETS:
-            theme = label
-        if theme is None:
+        theme = label.strip().casefold()
+        if theme not in THEME_PRESETS:
+            theme = _theme_from_label(label)
+        if theme not in THEME_PRESETS:
             return
-        save_setting("theme", theme)
-        set_theme(theme)
-        self._refresh_tui_css()
-        display_label = THEME_LABELS[theme]
-        self._replace_last_notice(f"{display_label} theme.")
-        self._open_appearance_flow(selected_label=display_label)
-
-    def _handle_activity_trace_choice(self: _InlineFlowHost, label: str) -> None:
-        activity_trace_mode = _ACTIVITY_TRACE_MODE_BY_LABEL.get(label)
-        if activity_trace_mode is None:
-            return
-        save_setting("activity_trace_mode", activity_trace_mode)
-        self._append_notice(f"activity trace: {ACTIVITY_TRACE_LABELS[activity_trace_mode]}")
-        self._open_activity_trace_flow(selected_label=label)
-
-    def _handle_thinking_visibility_choice(self: _InlineFlowHost, label: str) -> None:
-        visibility = _THINKING_VISIBILITY_BY_LABEL.get(label)
-        if visibility is None:
-            return
-        save_setting("thinking_visibility", visibility)
-        self.session.config.thinking_visibility = visibility
-        self._append_notice(f"model thinking: {THINKING_VISIBILITY_LABELS[visibility]}")
-        self._open_thinking_visibility_flow(selected_label=label)
-
-    def _handle_vocabulary_choice(self: _InlineFlowHost, label: str) -> None:
-        strictness = _setting_value_from_label(VOCAB_STRICTNESS_LABELS, label)
-        if strictness is None:
-            return
-        save_setting("vocab_strictness", strictness)
-        self._append_notice(f"vocabulary practice: {VOCAB_STRICTNESS_LABELS[strictness]}")
-        self._open_vocabulary_flow(selected_label=label)
+        _apply_theme_setting(self, theme)
 
     def _refresh_tui_css(self: _InlineFlowHost) -> None:
         palette = current_palette()
@@ -878,8 +849,89 @@ def _open_settings_submenu(
     host._inline_flow.slug = parent_label
 
 
-def _setting_value_from_label(labels_by_value: dict[str, str], label: str) -> str | None:
-    for value, value_label in labels_by_value.items():
-        if value_label == label:
-            return value
-    return None
+def _next_cycle_value(current: str, values: tuple[str, ...]) -> str:
+    if not values:
+        return current
+    if current not in values:
+        return values[0]
+    index = values.index(current)
+    return values[(index + 1) % len(values)]
+
+
+def _highlighted_inline_label(host: _InlineFlowHost) -> str | None:
+    suggestions = host.query_one("#suggestions", OptionList)
+    highlighted = suggestions.highlighted
+    if highlighted is None or not 0 <= highlighted < len(host._inline_flow.options):
+        return None
+    return host._inline_flow.options[highlighted][0]
+
+
+def _command_arg(value: str) -> str:
+    stripped = value.strip()
+    if not stripped.startswith("/"):
+        return ""
+    return stripped[1:].partition(" ")[2].strip().casefold()
+
+
+def _live_tokens_command_visibility(value: str) -> tuple[bool, bool | None]:
+    arg = _command_arg(value)
+    if not arg:
+        return True, None
+    if arg in _LIVE_TOKENS_ALIASES:
+        return True, _LIVE_TOKENS_ALIASES[arg]
+    return False, None
+
+
+def _thinking_visibility_command_value(value: str) -> tuple[bool, str | None]:
+    arg = _command_arg(value)
+    if not arg:
+        return True, None
+    if arg in _THINKING_VISIBILITY_ALIASES:
+        return True, _THINKING_VISIBILITY_ALIASES[arg]
+    return False, None
+
+
+def _theme_from_label(label: str) -> str:
+    for theme, theme_label in THEME_LABELS.items():
+        if theme_label.casefold() == label.strip().casefold():
+            return theme
+    return ""
+
+
+def _apply_theme_setting(host: _InlineFlowHost, theme: str) -> None:
+    save_setting("theme", theme)
+    set_theme(theme)
+    host._refresh_tui_css()
+    host._replace_last_notice(f"{THEME_LABELS[theme]} theme.")
+    host._open_settings_flow(selected_label="Appearance")
+
+
+def _apply_activity_trace_setting(host: _InlineFlowHost, activity_trace_mode: str) -> None:
+    save_setting("activity_trace_mode", activity_trace_mode)
+    host._replace_last_notice(f"Activity trace: {ACTIVITY_TRACE_LABELS[activity_trace_mode]}.")
+    host._open_settings_flow(selected_label="Activity trace")
+
+
+def _apply_thinking_visibility_setting(host: _InlineFlowHost, visibility: str) -> None:
+    save_setting("thinking_visibility", visibility)
+    host.session.config.thinking_visibility = visibility
+    host._replace_last_notice(f"Model thinking: {THINKING_VISIBILITY_LABELS[visibility]}.")
+    host._open_settings_flow(selected_label="Model thinking")
+
+
+def _apply_live_tokens_setting(host: _InlineFlowHost, visible: bool) -> None:
+    save_setting("live_tokens_visible", visible)
+    host.session.live_tokens_visible = visible
+    host._refresh_status()
+    host._replace_last_notice(f"Live tokens {_live_tokens_state(visible)}.")
+    host._open_settings_flow(selected_label="Live tokens")
+
+
+def _apply_vocabulary_setting(host: _InlineFlowHost, strictness: str) -> None:
+    save_setting("vocab_strictness", strictness)
+    host._replace_last_notice(f"Vocabulary practice: {VOCAB_STRICTNESS_LABELS[strictness]}.")
+    host._open_settings_flow(selected_label="Vocabulary practice")
+
+
+def _live_tokens_state(visible: bool) -> str:
+    return "shown" if visible else "hidden"

@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai.runtime import next_thinking_visibility
 from hephaion.chat.session import ChatSession
-from hephaion.parameters.settings import (
-    THINKING_VISIBILITY_LABELS,
-    THINKING_VISIBILITY_MODES,
-    save_setting,
-)
+from hephaion.parameters.settings import save_setting
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.source_mapping import (
     SourceLineSpan,
@@ -30,7 +25,6 @@ from heph.commands.terminal_text import terminal_safe_text as _terminal_safe_tex
 
 _VISIBILITY_ON = ("show", "on", "yes", "true", "1")
 _VISIBILITY_OFF = ("hide", "off", "no", "false", "0")
-_THINKING_USAGE = "Usage: /thinking [off|minimal|all]"
 
 
 def _evidence_request(args: str) -> tuple[str | None, bool]:
@@ -191,18 +185,6 @@ def _handle_evidence_item(
     return CommandResult()
 
 
-class TokensCommand(Command):
-    name = "tokens"
-    description = "Show or hide live token estimates"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        _update_visibility(
-            s, args, "live_tokens_visible", "Live tokens", "Usage: /tokens [show|hide]"
-        )
-        return CommandResult()
-
-
 class CostCommand(Command):
     name = "cost"
     description = "Show or hide live cost estimates"
@@ -210,26 +192,4 @@ class CostCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
         _update_visibility(s, args, "live_cost_visible", "Live cost", "Usage: /cost [show|hide]")
-        return CommandResult()
-
-
-class ThinkingCommand(Command):
-    name = "thinking"
-    description = "Show provider-exposed model thinking"
-    aliases = ("reasoning",)
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        requested = args.strip().lower()
-        if not requested:
-            mode = next_thinking_visibility(s.config.thinking_visibility)
-        elif requested in THINKING_VISIBILITY_MODES:
-            mode = requested
-        else:
-            print_error(_THINKING_USAGE)
-            return CommandResult()
-
-        s.config.thinking_visibility = mode
-        save_setting("thinking_visibility", mode)
-        print_success(f"Model thinking: {THINKING_VISIBILITY_LABELS[mode]}.")
         return CommandResult()

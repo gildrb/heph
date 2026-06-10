@@ -3028,6 +3028,11 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/detach", tui._TuiInputRoute.DETACH),
         ("/armory", tui._TuiInputRoute.ARMORY),
         ("/armory open", tui._TuiInputRoute.ARMORY),
+        ("/tokens", tui._TuiInputRoute.LIVE_TOKENS),
+        ("/tokens show", tui._TuiInputRoute.LIVE_TOKENS),
+        ("/thinking", tui._TuiInputRoute.THINKING_VISIBILITY),
+        ("/thinking all", tui._TuiInputRoute.THINKING_VISIBILITY),
+        ("/reasoning", tui._TuiInputRoute.THINKING_VISIBILITY),
         ("/help", tui._TuiInputRoute.EXTERNAL),
         ("!echo hi", tui._TuiInputRoute.CHAT),
     ],
@@ -3058,17 +3063,79 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     assert routes["/models"] is tui._TuiInputRoute.EXTERNAL
     assert "/sources" not in routes
     assert "/history" not in routes
+    assert "/tokens" not in routes
+    assert "/thinking" not in routes
+    assert "/reasoning" not in routes
     assert routes["/materials"] is tui._TuiInputRoute.MATERIALS
     assert routes["/sessions"] is tui._TuiInputRoute.SESSIONS
     assert routes["/turn"] is tui._TuiInputRoute.TURN
+    assert routes["/local"] is tui._TuiInputRoute.LOCAL
     assert routes["/new"] is tui._TuiInputRoute.NEW
     assert routes["/detach"] is tui._TuiInputRoute.DETACH
     assert routes["/armory"] is tui._TuiInputRoute.ARMORY
     assert all(
         route is tui._TuiInputRoute.EXTERNAL
         for command, route in routes.items()
-        if command not in {"/materials", "/sessions", "/turn", "/new", "/detach", "/armory"}
+        if command
+        not in {"/materials", "/sessions", "/turn", "/local", "/new", "/detach", "/armory"}
     )
+
+
+@pytest.mark.parametrize(
+    ("value", "selected_label", "expected_notice", "expected_value"),
+    [
+        ("/tokens", "Live tokens", "Live tokens shown.", "shown"),
+        ("/tokens hidden", "Live tokens", "Live tokens hidden.", "hidden"),
+        ("/thinking", "Model thinking", "Model thinking: All.", "all"),
+        ("/thinking hidden", "Model thinking", "Model thinking: Hidden.", "off"),
+        ("/reasoning", "Model thinking", "Model thinking: All.", "all"),
+    ],
+)
+def test_display_setting_input_cycles_settings_without_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+    selected_label: str,
+    expected_notice: str,
+    expected_value: str,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_settings_route() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = value
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.name == "settings"
+            assert app._inline_flow.step == "menu"
+            assert app.state.history == []
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            labels = [label for label, _description in app._inline_flow.options]
+            assert suggestions.highlighted == labels.index(selected_label)
+            assert app.state.transcript[-1].kind == "notice"
+            assert app.state.transcript[-1].content == expected_notice
+            settings = settings_store.load_app_settings()
+            if selected_label == "Live tokens":
+                assert settings.live_tokens_visible is (expected_value == "shown")
+            else:
+                assert settings.thinking_visibility == expected_value
+
+    asyncio.run(check_settings_route())
 
 
 def test_armory_command_flow_validates_supported_subcommands() -> None:
@@ -3171,15 +3238,25 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
             assert "Appearance" in labels
             assert "Activity trace" in labels
             assert "Model thinking" in labels
+            assert "Live tokens" in labels
+            assert "Vocabulary practice" in labels
             assert "Login" in labels
             assert "Logout" in labels
 
     asyncio.run(check_settings_menu())
 
 
-def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
+def test_settings_inline_privacy_submenu_exposes_and_toggles_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
 
     app = tui.HephTui(
         _plain_session(),
@@ -3199,34 +3276,15 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             assert "Crash reports" in privacy_labels
             assert "Back" not in privacy_labels
 
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Appearance")
-            appearance_labels = [label for label, _description in app._inline_flow.options]
+            app._submit_inline_flow("Usage analytics")
 
-            assert app._inline_flow.step == "appearance"
-            assert appearance_labels == ["Dark", "Light"]
-            assert "Back" not in appearance_labels
-
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Activity trace")
-            activity_labels = [label for label, _description in app._inline_flow.options]
-
-            assert app._inline_flow.step == "activity_trace"
-            assert "Tool calls" in activity_labels
-            assert "Minimal tool calls" in activity_labels
-            assert "Hidden tool calls" in activity_labels
-
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Model thinking")
-            thinking_labels = [label for label, _description in app._inline_flow.options]
-
-            assert app._inline_flow.step == "thinking_visibility"
-            assert thinking_labels == ["Off", "Minimal", "All"]
+            assert settings_store.load_app_settings().analytics_enabled is True
+            assert app._inline_flow.step == "privacy"
 
     asyncio.run(check_settings_submenus())
 
 
-def test_settings_inline_escape_returns_from_submenu() -> None:
+def test_settings_inline_escape_returns_from_privacy_submenu() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3239,24 +3297,17 @@ def test_settings_inline_escape_returns_from_submenu() -> None:
 
     async def check_escape_back_navigation() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            for submenu in (
-                "Privacy & Diagnostics",
-                "Appearance",
-                "Activity trace",
-                "Model thinking",
-                "Vocabulary practice",
-            ):
-                app._open_settings_flow()
-                app._handle_inline_menu_choice(submenu)
+            app._open_settings_flow()
+            app._handle_inline_menu_choice("Privacy & Diagnostics")
 
-                await pilot.press("escape")
+            await pilot.press("escape")
 
-                assert app._inline_flow.active is True
-                assert app._inline_flow.name == "settings"
-                assert app._inline_flow.step == "menu"
-                labels = [label for label, _description in app._inline_flow.options]
-                suggestions = app.query_one("#suggestions", tui.OptionList)
-                assert suggestions.highlighted == labels.index(submenu)
+            assert app._inline_flow.active is True
+            assert app._inline_flow.name == "settings"
+            assert app._inline_flow.step == "menu"
+            labels = [label for label, _description in app._inline_flow.options]
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert suggestions.highlighted == labels.index("Privacy & Diagnostics")
 
             await pilot.press("escape")
 
@@ -3265,7 +3316,7 @@ def test_settings_inline_escape_returns_from_submenu() -> None:
     asyncio.run(check_escape_back_navigation())
 
 
-def test_settings_inline_toggles_privacy_and_theme(
+def test_settings_inline_cycles_display_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3287,47 +3338,116 @@ def test_settings_inline_toggles_privacy_and_theme(
     async def check_settings_changes() -> None:
         async with typed_app.run_test(size=(120, 24)):
             app._open_settings_flow()
-            app._submit_inline_flow("Privacy & Diagnostics")
-            app._submit_inline_flow("Usage analytics")
+            descriptions = dict(app._inline_flow.options)
 
-            assert settings_store.load_app_settings().analytics_enabled is True
+            assert descriptions["Appearance"] == "theme: Dark"
+            assert descriptions["Activity trace"] == "Minimal tool calls"
+            assert descriptions["Model thinking"] == "Minimal"
+            assert descriptions["Live tokens"] == "hidden"
+            assert descriptions["Vocabulary practice"] == "Strict"
 
-            app._open_settings_flow()
             app._submit_inline_flow("Appearance")
-            app._submit_inline_flow("light")
 
             assert settings_store.load_app_settings().theme == "light"
             assert tui.current_palette().text_primary in app.CSS
             assert [entry.content for entry in app.state.transcript if entry.kind == "notice"] == [
                 "Light theme."
             ]
+            assert app._inline_flow.step == "menu"
+            assert dict(app._inline_flow.options)["Appearance"] == "theme: Light"
 
-            app._submit_inline_flow("Dark")
+            app._submit_inline_flow("Appearance")
 
             assert settings_store.load_app_settings().theme == "dark"
             assert [entry.content for entry in app.state.transcript if entry.kind == "notice"] == [
                 "Dark theme."
             ]
 
-            app._open_settings_flow()
             app._submit_inline_flow("Activity trace")
-            app._submit_inline_flow("Hidden tool calls")
+
+            assert settings_store.load_app_settings().activity_trace_mode == (
+                settings_store.ACTIVITY_TRACE_TOOL_CALLS
+            )
+            assert dict(app._inline_flow.options)["Activity trace"] == "All tool calls"
+
+            app._submit_inline_flow("Activity trace")
 
             assert settings_store.load_app_settings().activity_trace_mode == (
                 settings_store.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
             )
+            assert dict(app._inline_flow.options)["Activity trace"] == "Hidden tool calls"
 
-            app._open_settings_flow()
             app._submit_inline_flow("Model thinking")
-            app._submit_inline_flow("All")
 
             assert settings_store.load_app_settings().thinking_visibility == "all"
             assert app.session.config.thinking_visibility == "all"
+            assert dict(app._inline_flow.options)["Model thinking"] == "All"
+
+            app._submit_inline_flow("Model thinking")
+
+            assert settings_store.load_app_settings().thinking_visibility == "off"
+            assert app.session.config.thinking_visibility == "off"
+            assert dict(app._inline_flow.options)["Model thinking"] == "Hidden"
+
+            app._submit_inline_flow("Live tokens")
+
+            assert settings_store.load_app_settings().live_tokens_visible is True
+            assert app.session.live_tokens_visible is True
+            assert "TOKENS 0" in str(app.query_one("#status", tui.Static).content)
+            assert app.state.transcript[-1].content == "Live tokens shown."
+
+            app._submit_inline_flow("Vocabulary practice")
+
+            assert settings_store.load_app_settings().vocab_strictness == (
+                settings_store.VOCAB_STRICTNESS_LENIENT
+            )
+            assert dict(app._inline_flow.options)["Vocabulary practice"] == "Lenient punctuation"
+
+            labels = [label for label, _description in app._inline_flow.options]
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert suggestions.highlighted == labels.index("Vocabulary practice")
 
     try:
         asyncio.run(check_settings_changes())
     finally:
         set_theme("dark")
+
+
+def test_settings_live_tokens_replaces_notice_and_marks_current(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_live_tokens_notice() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_settings_flow()
+            app._submit_inline_flow("Live tokens")
+            app._submit_inline_flow("Live tokens")
+
+            notices = [entry.content for entry in app.state.transcript if entry.kind == "notice"]
+            descriptions = dict(app._inline_flow.options)
+
+            assert notices == ["Live tokens hidden."]
+            assert app.session.live_tokens_visible is False
+            assert settings_store.load_app_settings().live_tokens_visible is False
+            assert descriptions["Live tokens"] == "hidden"
+            assert "TOKENS " not in str(app.query_one("#status", tui.Static).content)
+
+    asyncio.run(check_live_tokens_notice())
 
 
 def test_login_inline_menu_aligns_descriptions_after_filter_reset() -> None:
@@ -3480,24 +3600,35 @@ def test_settings_inline_keeps_selected_row_after_changes(
     async def check_stable_selection() -> None:
         async with typed_app.run_test(size=(120, 24)):
             cases = [
-                ("Privacy & Diagnostics", "Crash reports"),
-                ("Appearance", "Light"),
-                ("Activity trace", "Hidden tool calls"),
-                ("Model thinking", "All"),
-                ("Vocabulary practice", "Lenient punctuation"),
+                "Appearance",
+                "Activity trace",
+                "Model thinking",
+                "Live tokens",
+                "Vocabulary practice",
             ]
-            for submenu, choice in cases:
+            for setting in cases:
                 app._open_settings_flow()
-                app._submit_inline_flow(submenu)
                 before = list(app._inline_flow.options)
 
-                app._submit_inline_flow(choice)
+                app._submit_inline_flow(setting)
 
                 after = list(app._inline_flow.options)
                 labels = [label for label, _description in after]
                 suggestions = app.query_one("#suggestions", tui.OptionList)
                 assert [label for label, _description in before] == labels
-                assert suggestions.highlighted == labels.index(choice)
+                assert suggestions.highlighted == labels.index(setting)
+
+            app._open_settings_flow()
+            app._submit_inline_flow("Privacy & Diagnostics")
+            before = list(app._inline_flow.options)
+
+            app._submit_inline_flow("Crash reports")
+
+            after = list(app._inline_flow.options)
+            labels = [label for label, _description in after]
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert [label for label, _description in before] == labels
+            assert suggestions.highlighted == labels.index("Crash reports")
 
     try:
         asyncio.run(check_stable_selection())
@@ -4500,7 +4631,14 @@ def test_command_input_executes_without_user_transcript(
             composer.value = command_input
             await pilot.press("enter")
             await pilot.pause()
-            assert not any("You:" in entry.content for entry in app.state.transcript)
+            assert not any(
+                entry.kind == "user" and entry.content == command_input
+                for entry in app.state.transcript
+            )
+            assert not any(
+                message.role == "user" and message.content == command_input
+                for message in app.session.conversation.messages
+            )
             if command_input == "/armory":
                 assert app._armory_inline_active is True
             elif command_input == "/materials":
@@ -4650,7 +4788,18 @@ def test_busy_materials_and_settings_remain_interactive() -> None:
     asyncio.run(check_busy_inline_commands())
 
 
-def test_inline_command_output_has_command_boundary() -> None:
+@pytest.mark.parametrize(
+    ("command_input", "flow_name"),
+    [
+        ("/settings", "settings"),
+        ("/local", "local"),
+    ],
+)
+def test_inline_command_opens_menu_without_command_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    command_input: str,
+    flow_name: str,
+) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -4661,26 +4810,27 @@ def test_inline_command_output_has_command_boundary() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_command_boundary() -> None:
+    def fake_run_worker(work: object, *, thread: bool = False) -> None:
+        del work, thread
+
+    async def check_command_transcript() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "run_worker", fake_run_worker)
             app._append_notice("Previous action finished.")
             composer = app.query_one("#composer", tui.Input)
-            composer.value = "/settings"
+            composer.value = command_input
             await pilot.press("enter")
             await pilot.pause()
 
-            previous_index = next(
-                index
-                for index, entry in enumerate(app.state.transcript)
-                if entry.content == "Previous action finished."
+            assert not any(
+                entry.kind == "user" and entry.content == command_input
+                for entry in app.state.transcript
             )
-            command_entry = app.state.transcript[previous_index + 1]
-
-            assert command_entry.kind == "user"
-            assert command_entry.content == "/settings"
             assert app._inline_flow.active is True
+            assert app._inline_flow.name == flow_name
+            assert command_input not in app.state.history
 
-    asyncio.run(check_command_boundary())
+    asyncio.run(check_command_transcript())
 
 
 def test_materials_inline_toggles_rag_sources() -> None:
@@ -5082,6 +5232,9 @@ def test_help_executes_inline_without_restarting_tui(
             assert exit_calls == 0
             assert app.state.pending_input is None
             assert any("Commands" in entry.content for entry in app.state.transcript)
+            assert not any(
+                entry.kind == "user" and entry.content == "/help" for entry in app.state.transcript
+            )
 
     asyncio.run(check_inline_help())
 
@@ -6876,9 +7029,6 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
     )
     calls: list[str] = []
 
-    def fake_append_user(value: str, mark_working: bool = True) -> None:
-        calls.append(f"user:{value}:{mark_working}")
-
     def fake_refresh_status() -> None:
         calls.append("status")
 
@@ -6886,7 +7036,6 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
         calls.append(f"worker:{thread}")
         return work
 
-    monkeypatch.setattr(app, "_append_user", fake_append_user)
     monkeypatch.setattr(app, "_refresh_status", fake_refresh_status)
     monkeypatch.setattr(app, "run_worker", fake_run_worker)
 
@@ -6894,7 +7043,7 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
 
     assert app.busy is True
     assert app._thinking_label == "working"
-    assert calls == ["user:/priority:True", "status", "worker:True"]
+    assert calls == ["status", "worker:True"]
 
 
 def test_external_command_collects_plain_output_for_compact_append(
@@ -6956,8 +7105,15 @@ def test_status_command_output_is_not_streamed_line_by_line(
 
 
 def test_external_command_indents_streamed_activity_lines(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+    settings_store.save_setting("activity_trace_mode", settings_store.ACTIVITY_TRACE_TOOL_CALLS)
+
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),

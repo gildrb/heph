@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _WidgetT = TypeVar("_WidgetT")
 
 _INLINE_MENU_DESCRIPTION_GAP = 4
+_INLINE_MENU_FALLBACK_VISIBLE_ROWS = 7
 _SESSION_OPTION_SEPARATOR = "\t"
 _SESSION_TITLE_GAP = 2
 _SESSION_METADATA_GAP = 2
@@ -196,11 +197,13 @@ def _inline_menu_visible_label_width(
     highlighted: int,
     rendered_height: int,
 ) -> int:
-    if highlighted <= 0 or rendered_height <= 0:
+    if rendered_height <= 0:
+        rendered_height = min(len(options), _INLINE_MENU_FALLBACK_VISIBLE_ROWS)
+    if rendered_height <= 0:
         return _inline_menu_label_width(options)
     visible_options = options[
         completion_menu_visible_slice(
-            highlighted,
+            max(0, highlighted),
             len(options),
             rendered_height,
         )
@@ -219,7 +222,9 @@ def _inline_menu_scrolled_label_width(
     if not options:
         return 0
     if rendered_height <= 0:
-        return _inline_menu_label_width(options)
+        rendered_height = min(len(options), _INLINE_MENU_FALLBACK_VISIBLE_ROWS)
+    if rendered_height <= 0:
+        return 0
     visible_count = len(
         options[
             completion_menu_visible_slice(

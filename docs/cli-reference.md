@@ -51,9 +51,7 @@
 | /armory | Browse, open, or create armories |
 | /compact | Summarize conversation to reduce context size |
 | /evidence | Show retrieved evidence for the last turn |
-| /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /thinking | Show provider-exposed model thinking |
 | /priority | Generate a printable priority PDF cheat sheet |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |

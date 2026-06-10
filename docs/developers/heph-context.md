@@ -20,7 +20,8 @@ Core commands:
 - Start/open: `heph`, `heph NAME`, `heph PATH`, `heph armory init NAME`, `/armory`.
 - Materials: put files in `materials/`; use `/import`, `/index`, `heph index PATH`,
   `heph materials list PATH`, `heph materials count PATH`.
-- Check state: `/status`, `heph health PATH`, `/evidence`, `/tokens`, `/cost`.
+- Check state: `/status`, `heph health PATH`, `/evidence`, `/cost`; use
+  `/settings` for live token visibility.
 - Models/auth: `/login`, `/logout`, `/models`, `/settings`; supports Codex
   subscription login, OpenAI API key, OpenRouter, Pollinations AI, Z.AI, and custom
   OpenAI-compatible endpoints.

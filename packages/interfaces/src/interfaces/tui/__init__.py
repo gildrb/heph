@@ -215,7 +215,7 @@ _TuiRuntimeState = TuiRuntimeState
 _tui_input_route = tui_input_route
 _TuiInputRoute = TuiInputRoute
 
-_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
+_INLINE_COMMANDS = {"/login", "/local", "/logout", "/settings", "/models"}
 _InlineFlow = InlineFlow
 
 

@@ -47,12 +47,16 @@ Access settings via the `/settings` command in Heph:
 
 - **Privacy and diagnostics**: anonymous analytics and redacted crash reports,
   both opt-in
-- **Appearance**: saved TUI theme preference
-- **Activity trace**: local session trace visibility
+- **Appearance**: saved TUI theme preference; press Enter to cycle themes
+- **Activity trace**: local session trace visibility; defaults to minimal tool
+  calls
 - **Model thinking**: provider-exposed thinking visibility (`off`, `minimal`,
-  or `all`); hidden model reasoning is not exposed by providers that keep it
-  private
-- **Vocabulary practice**: learning/practice preferences
+  or `all`), defaulting to `minimal`; hidden model reasoning is not exposed by
+  providers that keep it private
+- **Live tokens**: show or hide token estimates in the TUI status bar; press
+  Enter to toggle
+- **Vocabulary practice**: learning/practice preferences; press Enter to cycle
+  modes
 - **Login / Logout**: provider authentication flow
 
 Source and Git installs do not enable hosted diagnostics by default.
@@ -74,8 +78,8 @@ heph config set live_tokens_visible true
 These preferences are stored in the user config directory, not inside
 `.armories`. Provider credentials stay in the OS keyring, environment variables,
 or session memory fallback; they are never written into armory folders.
-The `/thinking`, `/tokens`, and `/cost` toggles update the same config file, so
-model-thinking and status-bar usage visibility are remembered across TUI
+The `/settings` TUI controls and the `/cost` toggle update the same config file,
+so model-thinking and status-bar usage visibility are remembered across TUI
 restarts.
 
 Use `heph local` or `/local` for private local llama.cpp models:

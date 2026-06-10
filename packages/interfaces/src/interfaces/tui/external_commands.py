@@ -76,8 +76,6 @@ class _ExternalCommandHost(Protocol):
         **kwargs: _P.kwargs,
     ) -> object: ...
 
-    def _append_user(self, text: str) -> None: ...
-
     def _append_notice(self, text: str) -> None: ...
 
     def _append_error(self, text: str) -> None: ...
@@ -159,7 +157,6 @@ class TuiExternalCommandMixin:
             return
 
         self._thinking_label = "working"
-        self._append_user(value)
         self.busy = True
         self.abort_event.clear()
         self._refresh_status()

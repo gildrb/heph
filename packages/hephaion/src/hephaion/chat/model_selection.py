@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 def switch_model(session: ChatSession, slug: str, model: str) -> bool:
     pc = ProviderConfig.load()
+    if slug == llama_cpp.LLAMA_CPP_PROVIDER_SLUG:
+        hydrate_provider_models(pc, provider_slugs={slug})
     provider = pc.providers.get(slug)
     if provider is None or model not in provider.models:
         return False

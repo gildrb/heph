@@ -16,6 +16,7 @@ from interfaces.tui.display_text import armory_home_text as _armory_home_text
 from interfaces.tui.display_text import new_chat_card_text as _new_chat_card_text
 from interfaces.tui.ids import COMPOSER_SELECTOR, TRANSCRIPT_SELECTOR
 from interfaces.tui.routing import TuiInputRoute as _TuiInputRoute
+from interfaces.tui.routing import local_picker_query as _local_picker_query
 from interfaces.tui.routing import tui_input_route as _tui_input_route
 from interfaces.tui.search_screen import SearchScreen
 from interfaces.tui.status import config_error as _config_error
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 
 _WidgetT = TypeVar("_WidgetT")
 
-_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
+_INLINE_COMMANDS = {"/login", "/local", "/logout", "/settings", "/models"}
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
@@ -106,11 +107,21 @@ class _AppActionsHost(Protocol):
 
     def _submit_turn_route(self, value: str) -> None: ...
 
+    def _submit_local_route(self, value: str) -> None: ...
+
     def _submit_new_route(self, value: str) -> None: ...
 
     def _submit_detach_route(self, value: str) -> None: ...
 
     def _submit_armory_route(self, value: str) -> None: ...
+
+    def _submit_live_tokens_route(self, value: str) -> None: ...
+
+    def _submit_thinking_visibility_route(self, value: str) -> None: ...
+
+    def _submit_live_tokens_command(self, value: str) -> None: ...
+
+    def _submit_thinking_visibility_command(self, value: str) -> None: ...
 
     def _submit_busy_value(self, route: _TuiInputRoute, value: str) -> bool: ...
 
@@ -157,6 +168,8 @@ class _AppActionsHost(Protocol):
     def _append_user(self, text: str, *, mark_working: bool = True) -> None: ...
 
     def _handle_inline_command(self, value: str) -> None: ...
+
+    def _open_local_flow(self, query: str = "") -> None: ...
 
     def _open_materials_inline(self, value: str) -> None: ...
 
@@ -312,16 +325,17 @@ class TuiAppActionsMixin:
             _TuiInputRoute.MATERIALS: self._submit_materials_route,
             _TuiInputRoute.SESSIONS: self._submit_sessions_route,
             _TuiInputRoute.TURN: self._submit_turn_route,
+            _TuiInputRoute.LOCAL: self._submit_local_route,
             _TuiInputRoute.NEW: self._submit_new_route,
             _TuiInputRoute.DETACH: self._submit_detach_route,
             _TuiInputRoute.ARMORY: self._submit_armory_route,
+            _TuiInputRoute.LIVE_TOKENS: self._submit_live_tokens_route,
+            _TuiInputRoute.THINKING_VISIBILITY: self._submit_thinking_visibility_route,
         }
         if handler := route_handlers.get(route):
             handler(value)
             return True
         if value in _INLINE_COMMANDS:
-            self._record_history(value)
-            self._append_user(value, mark_working=False)
             self._handle_inline_command(value)
             return True
         return False
@@ -332,13 +346,18 @@ class TuiAppActionsMixin:
 
     def _submit_sessions_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
-        self._append_user(value, mark_working=False)
         self._handle_sessions_command(value)
 
     def _submit_turn_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
-        self._append_user(value, mark_working=False)
         self._handle_turn_command(value)
+
+    def _submit_local_route(self: _AppActionsHost, value: str) -> None:
+        query = _local_picker_query(value)
+        if query is None:
+            self._submit_external_value(value)
+            return
+        self._open_local_flow(query)
 
     def _submit_new_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
@@ -357,6 +376,12 @@ class TuiAppActionsMixin:
     def _submit_armory_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
         self._handle_armory_browser(value)
+
+    def _submit_live_tokens_route(self: _AppActionsHost, value: str) -> None:
+        self._submit_live_tokens_command(value)
+
+    def _submit_thinking_visibility_route(self: _AppActionsHost, value: str) -> None:
+        self._submit_thinking_visibility_command(value)
 
     def _submit_busy_value(
         self: _AppActionsHost,

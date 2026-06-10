@@ -19,8 +19,6 @@ from heph.commands.compact import CompactCommand
 from heph.commands.display import (
     CostCommand,
     EvidenceCommand,
-    ThinkingCommand,
-    TokensCommand,
 )
 from heph.commands.help import ExitCommand, HelpCommand
 from heph.commands.local import LocalCommand
@@ -83,9 +81,7 @@ def get_registry() -> CommandRegistry:
                 ArmoryCommand,
                 CompactCommand,
                 EvidenceCommand,
-                TokensCommand,
                 CostCommand,
-                ThinkingCommand,
                 PriorityCommand,
                 ExamCommand,
                 ExportCommand,
@@ -137,8 +133,6 @@ __all__ = [
     "SettingsCommand",
     "StatsCommand",
     "StatusCommand",
-    "ThinkingCommand",
-    "TokensCommand",
     "TurnCommand",
     "VocabCommand",
     # Re-exported helpers (for test monkeypatching)

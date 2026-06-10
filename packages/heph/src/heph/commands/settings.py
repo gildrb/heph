@@ -45,10 +45,12 @@ class SettingsCommand(Command):
         default_armory = settings.default_armory_path or "none"
         analytics = "enabled" if analytics_enabled() else "disabled"
         crash_reports = "enabled" if crash_reports_enabled() else "disabled"
+        live_tokens = "shown" if settings.live_tokens_visible else "hidden"
         print(
             "Settings are managed in the TUI with /settings. "
             f"Theme: {settings.theme}; Activity trace: {activity}; "
             f"Model thinking: {thinking}; "
+            f"Live tokens: {live_tokens}; "
             f"Vocabulary practice: {vocab}; Default armory: {default_armory}; "
             f"Usage analytics: {analytics}; Crash reports: {crash_reports}; "
             f"Provider: {provider}."
