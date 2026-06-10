@@ -11,11 +11,14 @@ from pathlib import Path
 from hephaion.agent.mutation_queue import get_queue
 from hephaion.agent.path_safety import prepare_write_target, safe_path, write_text_no_follow
 from hephaion.agent.tool_schema import ToolHandlerResult, ToolResult
+from hephaion.armory.state_files import write_armory_state_text
 
 _MAX_READ_CHARS = 50_000
+_MAX_TEXT_FILE_BYTES = 1_000_000
 _MAX_SEARCH_RESULTS = 50
 _SEARCH_SKIP_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"})
 _BINARY_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"})
+_AGENT_WRITABLE_STATE_PATHS = frozenset({Path(".hephaion/exam_bank.json")})
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +58,8 @@ def run_read_file(
         target = safe_path(workspace, path)
     except ValueError as exc:
         return str(exc)
+    if error := _protected_workspace_path_error(workspace, target):
+        return error
     if not target.is_file():
         return f"File not found: {path}"
     read_result = _read_file_text(target, path)
@@ -71,9 +76,13 @@ def run_write_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
+    if state_rel_path := _agent_writable_state_path(path):
+        return _write_agent_state_file(workspace, state_rel_path, content, path)
     target = prepare_write_target(workspace, path)
     if isinstance(target, str):
         return target
+    if error := _protected_workspace_path_error(workspace, target):
+        return error
     try:
         write_text_no_follow(target, content)
         return f"Wrote {len(content)} chars to {path}"
@@ -160,7 +169,47 @@ def _binary_read_error(path: str, suffix: str) -> str:
     return f"Cannot read (binary file): {path}"
 
 
+def _agent_writable_state_path(path: str) -> Path | None:
+    rel_path = Path(path)
+    return rel_path if rel_path in _AGENT_WRITABLE_STATE_PATHS else None
+
+
+def _write_agent_state_file(
+    workspace: Path,
+    rel_path: Path,
+    content: str,
+    display_path: str,
+) -> str:
+    try:
+        write_armory_state_text(workspace, rel_path, content)
+        return f"Wrote {len(content)} chars to {display_path}"
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+
+def _protected_workspace_path_error(workspace: Path, target: Path) -> str:
+    try:
+        rel = target.resolve(strict=False).relative_to(workspace.resolve(strict=True))
+    except (OSError, RuntimeError, ValueError):
+        return "Path escapes workspace."
+    if ".hephaion" in rel.parts:
+        return "Access denied: .hephaion contains internal armory state."
+    return ""
+
+
+def _large_text_file_error(target: Path, display_path: str) -> str:
+    try:
+        size = target.stat().st_size
+    except OSError as exc:
+        return f"Error reading file: {exc}"
+    if size > _MAX_TEXT_FILE_BYTES:
+        return f"File too large: {display_path} exceeds {_MAX_TEXT_FILE_BYTES:,} byte tool limit."
+    return ""
+
+
 def _read_file_text(target: Path, display_path: str) -> FileReadResult:
+    if error := _large_text_file_error(target, display_path):
+        return FileReadResult(error, error=True)
     try:
         return FileReadResult(target.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
@@ -185,6 +234,10 @@ def _edit_file_text(workspace: Path, path: str) -> tuple[Path, str] | str:
         return str(exc)
     if not target.is_file():
         return f"File not found: {path}"
+    if error := _protected_workspace_path_error(workspace, target):
+        return error
+    if error := _large_text_file_error(target, path):
+        return error
     try:
         return target, target.read_text(encoding="utf-8")
     except OSError as exc:
@@ -232,6 +285,7 @@ def _is_searchable_file(file_path: Path, workspace: Path) -> bool:
         and _path_resolves_within(file_path, workspace)
         and not any(part.startswith(".") for part in rel.parts)
         and file_path.suffix.lower() not in _SEARCH_SKIP_SUFFIXES
+        and _text_file_size_within_limit(file_path)
     )
 
 
@@ -239,6 +293,13 @@ def _path_resolves_within(path: Path, workspace: Path) -> bool:
     try:
         return path.resolve(strict=True).is_relative_to(workspace.resolve(strict=True))
     except (OSError, RuntimeError):
+        return False
+
+
+def _text_file_size_within_limit(file_path: Path) -> bool:
+    try:
+        return file_path.stat().st_size <= _MAX_TEXT_FILE_BYTES
+    except OSError:
         return False
 
 
@@ -275,10 +336,7 @@ def _format_search_results(pattern: str, file_count: int, matches: Sequence[str]
 
 def _compile_search_pattern(pattern: str, *, case_sensitive: bool) -> re.Pattern[str] | str:
     flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        return re.compile(pattern, flags)
-    except re.error as exc:
-        return f"Invalid regex pattern: {exc}"
+    return re.compile(re.escape(pattern), flags)
 
 
 def _target_search_dir(workspace: Path, path: str) -> Path | str:

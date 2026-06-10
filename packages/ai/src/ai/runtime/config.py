@@ -9,6 +9,7 @@ from typing import cast
 
 from ai.providers.keyring_store import resolve_key as _resolve_key
 from ai.providers.reasoning import DEFAULT_REASONING_LEVEL, normalize_reasoning_level
+from ai.runtime.thinking import DEFAULT_THINKING_VISIBILITY, normalize_thinking_visibility
 
 
 def resolve_key(slug: str, env_var: str = "") -> str:
@@ -38,6 +39,7 @@ class ChatConfig:
     max_tokens: int = 4096
     rag_context_budget: int = 2000
     reasoning_level: str = DEFAULT_REASONING_LEVEL
+    thinking_visibility: str = DEFAULT_THINKING_VISIBILITY
     temperature: float | None = 0.0
     feature_flags: frozenset[str] = field(default_factory=frozenset)
     _provider_slug: str = field(default="", repr=False)
@@ -48,6 +50,7 @@ class ChatConfig:
 
     def __post_init__(self) -> None:
         self.reasoning_level = normalize_reasoning_level(self.reasoning_level)
+        self.thinking_visibility = normalize_thinking_visibility(self.thinking_visibility)
         if self.temperature is not None:
             self.temperature = min(2.0, max(0.0, self.temperature))
 

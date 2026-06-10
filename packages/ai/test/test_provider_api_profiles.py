@@ -10,6 +10,7 @@ from ai.providers.model_support import (
     is_supported_model_for_endpoint,
 )
 from ai.providers.reasoning import reasoning_levels_for_model
+from ai.providers.registry import ModelInfo, get_registry
 from ai.runtime.config import ChatConfig
 from ai.runtime.request_payload import request_kwargs
 
@@ -99,6 +100,36 @@ def test_custom_provider_does_not_receive_vendor_reasoning_fields() -> None:
         "custom",
         "https://example.invalid/v1",
         "gpt-5.5",
+        "high",
+    )
+
+    kwargs = request_kwargs(config, [], tools=None, tool_choice=None)
+
+    assert "reasoning_effort" not in kwargs
+    assert "extra_body" not in kwargs
+    assert kwargs["temperature"] == 0.7
+
+
+def test_llama_cpp_provider_does_not_receive_vendor_reasoning_fields() -> None:
+    model = "llama-cpp/acme/model:Q4_K_M"
+    get_registry().register(
+        ModelInfo(
+            model,
+            "llama-cpp",
+            "Local Acme Model",
+            8_192,
+            4_096,
+            0.0,
+            0.0,
+            tags=("local", "reasoning", "tools"),
+            reasoning_efforts=("low", "medium", "high"),
+            supports_tools=True,
+        )
+    )
+    config = _provider_config(
+        "llama-cpp",
+        "http://127.0.0.1:18080/v1",
+        model,
         "high",
     )
 

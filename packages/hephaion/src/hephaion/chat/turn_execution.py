@@ -6,6 +6,7 @@ import threading
 from collections.abc import Generator, Iterator
 from typing import TYPE_CHECKING, Protocol
 
+from ai.runtime import THINKING_VISIBILITY_ALL, THINKING_VISIBILITY_MINIMAL, CompletionDelta
 from ai.runtime.engine import build_client, stream_completion
 from ai.runtime.errors import RetryConfig
 
@@ -14,7 +15,13 @@ from hephaion.chat.agent_request import (
     _learning_agent_output_from_buffer,
     _learning_agent_request,
 )
-from hephaion.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent, TurnEvent
+from hephaion.chat.events import (
+    AssistantDeltaEvent,
+    NoticeEvent,
+    ReasoningDeltaEvent,
+    TurnCompleteEvent,
+    TurnEvent,
+)
 from hephaion.chat.evidence import ResolvedTurnPlan
 from hephaion.chat.evidence import evidence_refs as _evidence_refs
 from hephaion.chat.learning_reply import (
@@ -156,6 +163,20 @@ class _LearningReplyEmissionHost(Protocol):
     ) -> Iterator[TurnEvent]: ...
 
 
+def _plain_reasoning_delta_event(
+    delta: CompletionDelta,
+    thinking_visibility: str,
+) -> ReasoningDeltaEvent | None:
+    if delta.reasoning and thinking_visibility == THINKING_VISIBILITY_ALL:
+        return ReasoningDeltaEvent(delta.reasoning)
+    if delta.reasoning_summary and thinking_visibility in {
+        THINKING_VISIBILITY_MINIMAL,
+        THINKING_VISIBILITY_ALL,
+    }:
+        return ReasoningDeltaEvent(delta.reasoning_summary, summary=True)
+    return None
+
+
 class TurnExecutionMixin:
     session: ChatSession
     retry: RetryConfig | None
@@ -178,6 +199,11 @@ class TurnExecutionMixin:
             retry=self.retry,
             client_factory=build_client,
         ):
+            if reasoning_event := _plain_reasoning_delta_event(
+                delta,
+                session.config.thinking_visibility,
+            ):
+                yield reasoning_event
             if not delta.content:
                 continue
             parts.append(delta.content)
@@ -253,6 +279,8 @@ class TurnExecutionMixin:
             buffer.add_delta(event.delta, visible=not buffer_output)
             if not buffer_output:
                 yield event
+            return
+        if isinstance(event, ReasoningDeltaEvent) and buffer_output:
             return
         if isinstance(event, TurnCompleteEvent):
             buffer.completion_event = event

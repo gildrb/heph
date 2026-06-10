@@ -5,6 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from hephaion.armory.state_files import (
+    ArmoryStateError,
+    armory_state_location,
+    read_armory_state_text,
+    write_armory_state_text,
+)
+
 
 class InputHistory:
     def __init__(self, entries: list[str] | None = None) -> None:
@@ -25,17 +32,34 @@ class InputHistory:
             self._entries = self._entries[-1000:]
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self._entries[-500:], indent=None) + "\n")
+        _write_history_text(path, json.dumps(self._entries[-500:], indent=None) + "\n")
 
     @classmethod
     def load(cls, path: Path) -> InputHistory:
         if not path.exists():
             return cls()
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(_read_history_text(path))
             if isinstance(raw, list):
                 return cls([str(e) for e in raw])
         except (json.JSONDecodeError, OSError):
             pass
         return cls()
+
+
+def _read_history_text(path: Path) -> str:
+    try:
+        armory_path, rel_path = armory_state_location(path)
+    except ArmoryStateError:
+        return path.read_text()
+    return read_armory_state_text(armory_path, rel_path)
+
+
+def _write_history_text(path: Path, content: str) -> None:
+    try:
+        armory_path, rel_path = armory_state_location(path)
+    except ArmoryStateError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return
+    write_armory_state_text(armory_path, rel_path, content)

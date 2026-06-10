@@ -116,6 +116,8 @@ class _AppActionsHost(Protocol):
 
     def _open_armory_reference_from_input(self, value: str) -> bool: ...
 
+    def _detach_current_armory_from_input(self, value: str) -> bool: ...
+
     def _start_chat_turn(self, value: str) -> None: ...
 
     def _handle_new(self) -> None: ...
@@ -240,6 +242,8 @@ class TuiAppActionsMixin:
             return
         if self._submit_special_route(route, value):
             return
+        if route is _TuiInputRoute.CHAT and self._detach_current_armory_from_input(value):
+            return
         if self.busy:
             self._submit_busy_value(route, value)
             return
@@ -344,6 +348,12 @@ class TuiAppActionsMixin:
         self._record_history(value)
         self._handle_detach()
 
+    def _detach_current_armory_from_input(self: _AppActionsHost, value: str) -> bool:
+        if self.session.armory_path is None or value.strip() != "detach":
+            return False
+        self._submit_detach_route(value)
+        return True
+
     def _submit_armory_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
         self._handle_armory_browser(value)
@@ -428,7 +438,8 @@ class TuiAppActionsMixin:
             return
         result = command.handle(self.session, "")
         if result.new_session is not None:
-            self.session = result.new_session
+            tui_module = sys.modules["interfaces.tui"]
+            self.session = tui_module.apply_display_settings(result.new_session)
             self._turn_sessions[self._turn_key_for_session(self.session)] = self.session
             self.state.transcript.clear()
             self.query_one(TRANSCRIPT_SELECTOR, RichLog).clear()

@@ -132,6 +132,23 @@ def test_session_id_cannot_escape_chats_directory(tmp_path: Path) -> None:
         save(armory, "../escape", conv)
 
 
+def test_save_rejects_symlinked_session_file(tmp_path: Path) -> None:
+    armory = _init_armory(tmp_path)
+    session_id = new_session_id()
+    outside = tmp_path / "outside-session.json"
+    outside.write_text("unchanged", encoding="utf-8")
+    session_path = armory / ".hephaion" / "chats" / f"{session_id}.json"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.symlink_to(outside)
+    conv = Conversation()
+    conv.add("user", "hello")
+
+    with pytest.raises(ChatStorageError, match="invalid session id"):
+        save(armory, session_id, conv)
+
+    assert outside.read_text(encoding="utf-8") == "unchanged"
+
+
 @pytest.mark.parametrize("session_id", ["", ".hidden", "nested/session", r"nested\\session", ".."])
 def test_session_id_rejects_unsafe_names(tmp_path: Path, session_id: str) -> None:
     armory = _init_armory(tmp_path)

@@ -336,39 +336,77 @@ def _agent_import_source(raw_path: str, workspace: Path) -> Path | ToolResult:
             content="Source path is required.",
             error="missing_source_path",
         )
-    candidate = Path(cleaned).expanduser()
-    if candidate.is_absolute():
-        return _absolute_no_follow(candidate)
-
-    workspace_candidate = _absolute_no_follow(workspace / candidate)
-    cwd_candidate = _absolute_no_follow(Path.cwd() / candidate)
-    workspace_exists = workspace_candidate.exists()
-    cwd_exists = cwd_candidate.exists()
-    if (
-        workspace_exists
-        and cwd_exists
-        and not _same_resolved_path(workspace_candidate, cwd_candidate)
-    ):
+    candidate = Path(cleaned)
+    if candidate.is_absolute() or (candidate.parts and candidate.parts[0].startswith("~")):
         return ToolResult(
             success=False,
             content=(
-                "Relative source path is ambiguous. It exists in both the current armory "
-                f"({workspace_candidate}) and the launch directory ({cwd_candidate}). "
-                "Use an absolute path."
+                "Absolute source paths and home shortcuts are not accepted in agent turns. "
+                "Use a path relative to the current armory workspace."
             ),
-            metadata={
-                "workspace_candidate": str(workspace_candidate),
-                "cwd_candidate": str(cwd_candidate),
-            },
-            error="ambiguous_source_path",
+            metadata={"source_path": cleaned},
+            error="absolute_source_rejected",
         )
-    if workspace_exists:
-        return workspace_candidate
-    return cwd_candidate
+    if ".." in candidate.parts:
+        return ToolResult(
+            success=False,
+            content=f"Source path escapes the current armory workspace: {raw_path}",
+            metadata={"source_path": raw_path},
+            error="path_escape",
+        )
+
+    return _workspace_import_source(candidate, workspace, raw_path)
 
 
-def _absolute_no_follow(path: Path) -> Path:
-    return path.absolute()
+def _workspace_import_source(candidate: Path, workspace: Path, raw_path: str) -> Path | ToolResult:
+    try:
+        workspace_root = workspace.expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        return ToolResult(
+            success=False,
+            content=f"Current workspace is not a valid Heph armory: {workspace}\n{exc}",
+            metadata={"source_path": raw_path},
+            error="invalid_current_armory",
+        )
+
+    current = workspace_root
+    for part in candidate.parts:
+        current /= part
+        component_error = _source_component_error(current, workspace_root, raw_path)
+        if component_error is not None:
+            return component_error
+    return current
+
+
+def _source_component_error(
+    current: Path,
+    workspace_root: Path,
+    raw_path: str,
+) -> ToolResult | None:
+    if current.is_symlink():
+        return ToolResult(
+            success=False,
+            content=f"Source path must not traverse symlinks: {raw_path}",
+            metadata={"source_path": raw_path},
+            error="symlink_source_rejected",
+        )
+    try:
+        resolved = current.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        return ToolResult(
+            success=False,
+            content=f"Source path cannot be resolved: {raw_path}\n{exc}",
+            metadata={"source_path": raw_path},
+            error="invalid_source_path",
+        )
+    if not resolved.is_relative_to(workspace_root):
+        return ToolResult(
+            success=False,
+            content=f"Source path escapes the current armory workspace: {raw_path}",
+            metadata={"source_path": raw_path},
+            error="path_escape",
+        )
+    return None
 
 
 def _single_path_argument(raw_path: str) -> str:

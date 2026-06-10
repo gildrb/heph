@@ -591,6 +591,49 @@ class TestConversationConsistency:
         assert result == "Hello!"
         assert capsys.readouterr().out == "Assistant: Hello!\n"
 
+    def test_turn_lifecycle_prepares_model_before_request(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        config = _config()
+        conv = Conversation()
+        session = ChatSession(
+            config=config,
+            conversation=conv,
+            session_id="test-model-ready",
+            armory_path=_workspace(),
+        )
+        prepared_sessions: list[str] = []
+
+        def fake_ensure_model_ready(active_session: ChatSession) -> bool:
+            prepared_sessions.append(active_session.session_id)
+            return True
+
+        def fake_iter_prepared_turn(
+            self: TurnOrchestrator,
+            _prepared: object,
+            _user_input: str,
+            *,
+            abort: threading.Event | None = None,
+        ):
+            assert abort is None
+            self.session.conversation.add("assistant", "Hello!")
+            self.last_reply = "Hello!"
+            yield AssistantDeltaEvent("Hello!")
+
+        monkeypatch.setattr(
+            "hephaion.chat.turn_lifecycle.ensure_session_model_ready",
+            fake_ensure_model_ready,
+        )
+        monkeypatch.setattr(TurnOrchestrator, "_iter_prepared_turn", fake_iter_prepared_turn)
+
+        events = list(TurnOrchestrator(session).iter_events("Hi"))
+
+        assert prepared_sessions == ["test-model-ready"]
+        assert events == [AssistantDeltaEvent("Hello!")]
+        assert conv.messages[0].role == "user"
+        assert conv.messages[0].content == "Hi"
+
 
 # ---------------------------------------------------------------------------
 # Agent loop retry

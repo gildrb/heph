@@ -13,6 +13,7 @@ from ai.runtime.errors import EngineError, StreamRecoveryError
 
 from hephaion.chat.events import GuardrailEvent, NoticeEvent, TurnEvent
 from hephaion.chat.evidence import ResolvedTurnPlan
+from hephaion.chat.model_selection import ensure_session_model_ready
 from hephaion.chat.turn_event_helpers import _final_reply_events
 from hephaion.safety.contracts import (
     GUARDRAIL_ACTION_WARN,
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
 _log = get_logger("hephaion.chat.turn_lifecycle")
+_MODEL_UNAVAILABLE_REPLY = (
+    "Local model unavailable. Use /local status to inspect the managed server, "
+    "or /models to choose another model."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +142,10 @@ class TurnLifecycleMixin:
         if prepared.guardrail_event is not None:
             yield prepared.guardrail_event
         if prepared.blocked:
+            yield from _final_reply_events(self.last_reply)
+            return
+        if not ensure_session_model_ready(self.session):
+            self.last_reply = _MODEL_UNAVAILABLE_REPLY
             yield from _final_reply_events(self.last_reply)
             return
 

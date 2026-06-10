@@ -49,6 +49,9 @@ Access settings via the `/settings` command in Heph:
   both opt-in
 - **Appearance**: saved TUI theme preference
 - **Activity trace**: local session trace visibility
+- **Model thinking**: provider-exposed thinking visibility (`off`, `minimal`,
+  or `all`); hidden model reasoning is not exposed by providers that keep it
+  private
 - **Vocabulary practice**: learning/practice preferences
 - **Login / Logout**: provider authentication flow
 
@@ -64,11 +67,32 @@ heph config show
 heph config set model <model-id>
 heph config set temperature 0.2
 heph config set rag_context_budget 6000
+heph config set thinking_visibility minimal
+heph config set live_tokens_visible true
 ```
 
 These preferences are stored in the user config directory, not inside
 `.armories`. Provider credentials stay in the OS keyring, environment variables,
 or session memory fallback; they are never written into armory folders.
+The `/thinking`, `/tokens`, and `/cost` toggles update the same config file, so
+model-thinking and status-bar usage visibility are remembered across TUI
+restarts.
+
+Use `heph local` or `/local` for private local llama.cpp models:
+
+```bash
+heph local search qwen
+heph local install <owner>/<repo>:Q4_K_M
+heph local status
+heph local revalidate llama-cpp/<owner>/<repo>:Q4_K_M
+heph local stop
+```
+
+Heph downloads the managed `llama-server` binary into
+`~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
+`~/.cache/hephaion/llama.cpp/models`, and persists local model validation state
+in the user config directory. Local models appear in `/models` only after the
+tool-call probe passes.
 
 ## Model Providers
 
@@ -104,6 +128,12 @@ No configuration required - free and open.
 ```bash
 export ZAI_API_KEY="sk-..."
 ```
+
+### Local llama.cpp
+
+No API key is required. Use `/local` for a guided install or `heph local` for
+CLI management. Heph binds the managed server to `127.0.0.1` and never falls
+back to a hosted provider for a local model.
 
 ### Custom Endpoint
 

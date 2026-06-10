@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import os
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -18,6 +17,7 @@ from hephaion.agent.prompt import build_system_prompt
 from hephaion.agent.steering import Steering
 from hephaion.agent.tools import ToolRegistry, default_registry
 from hephaion.armory.storage import normalize_path, read_marker, validate
+from hephaion.armory.trust import armory_path_trusted
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.message_delivery import send_user_message as _deliver_user_message
 from hephaion.chat.session_persistence import save_session, session_has_messages
@@ -132,7 +132,7 @@ class SessionError(Exception):
 
 
 ARMORY_PLUGINS_TRUST_ENV = "HEPHAION_TRUST_ARMORY_PLUGINS"
-_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "enabled"})
+ARMORY_MEMORY_TRUST_ENV = "HEPHAION_TRUST_ARMORY_MEMORY"
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -200,7 +200,7 @@ def refresh_armory_sources(session: ChatSession) -> None:
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     registry = default_registry.child()
     tools_dir = armory_path / ".hephaion" / "tools"
-    if not _armory_plugins_trusted():
+    if not _armory_plugins_trusted(armory_path):
         _warn_untrusted_armory_plugins(armory_path, tools_dir)
         return registry
 
@@ -213,8 +213,8 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     return registry
 
 
-def _armory_plugins_trusted() -> bool:
-    return os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "").strip().lower() in _TRUTHY_ENV_VALUES
+def _armory_plugins_trusted(armory_path: Path) -> bool:
+    return armory_path_trusted(armory_path, ARMORY_PLUGINS_TRUST_ENV)
 
 
 def _warn_untrusted_armory_plugins(armory_path: Path, tools_dir: Path) -> None:
@@ -286,9 +286,27 @@ def _armory_system_prompt(armory_path: Path, source_files: list[str] | None = No
 
 
 def _memory_system_context(armory_path: Path) -> str:
+    if not armory_path_trusted(armory_path, ARMORY_MEMORY_TRUST_ENV):
+        _warn_untrusted_armory_memory(armory_path)
+        return ""
     with contextlib.suppress(Exception):
         return load_memory(armory_path).build_system_context()
     return ""
+
+
+def _warn_untrusted_armory_memory(armory_path: Path) -> None:
+    memory_file = armory_path / ".hephaion" / "memory.json"
+    if not memory_file.is_file():
+        return
+    _log.warning(
+        "armory memory skipped for system context; explicit trust not enabled",
+        extra={
+            "fields": {
+                "armory": str(armory_path),
+                "env": ARMORY_MEMORY_TRUST_ENV,
+            }
+        },
+    )
 
 
 def create_plain_session(config: ChatConfig) -> ChatSession:

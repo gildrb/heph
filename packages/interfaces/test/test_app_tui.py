@@ -21,13 +21,24 @@ from ai.runtime import ChatConfig, Conversation
 from hephaion.armory.search import ArmoryEntry, remember_armory
 from hephaion.armory.storage import initialize
 from hephaion.chat import storage as chat_storage
-from hephaion.chat.session import ChatSession, record_turn_snapshot
+from hephaion.chat.events import (
+    AssistantDeltaEvent,
+    NoticeEvent,
+    ReasoningDeltaEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
+from hephaion.chat.session import ChatSession, record_turn_snapshot, save_session
+from hephaion.chat.usage import TokenUsage
 from hephaion.parameters import settings as settings_store
+from hephaion.rag.chunker import Chunk
+from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from interfaces import tui
 from interfaces.palette import DARK_THEME, LIGHT_THEME
 from interfaces.terminal import current_theme_name, set_theme
 from interfaces.tui import armory as tui_armory
 from interfaces.tui import keymap
+from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from interfaces.tui.inline_menu import (
@@ -162,6 +173,28 @@ def _plain_session() -> ChatSession:
     )
 
 
+def _turn_evidence_with_sources(*sources: str) -> TurnEvidence:
+    return TurnEvidence(
+        tuple(
+            EvidenceChunk(
+                evidence_id=f"E{index + 1}",
+                chunk=Chunk(
+                    text="evidence",
+                    source=source,
+                    index=index,
+                    char_start=0,
+                    char_end=8,
+                ),
+                score=0.8,
+                content="evidence",
+            )
+            for index, source in enumerate(sources)
+        ),
+        sampled_source_count=len(sources),
+        total_source_count=len(sources),
+    )
+
+
 def _mark_active_turn(
     app: tui.HephTui,
     session: ChatSession | None = None,
@@ -234,6 +267,50 @@ def test_session_status_omits_api_badge_for_keyless_provider() -> None:
     assert "free" not in status
     assert "configured" not in status
     assert "missing" not in status
+
+
+def test_session_status_shows_live_tokens_when_enabled() -> None:
+    session = _plain_session()
+    session.live_tokens_visible = True
+    session.usage.record(
+        TokenUsage(prompt_tokens=1_500, completion_tokens=250, total_tokens=1_750),
+        session.config.model,
+    )
+
+    status = tui._status_lines(session)
+
+    assert "tokens ↑1.5k ↓250" in status
+    assert "prompt/" not in status
+    assert "left" not in status
+
+
+def test_session_status_shows_zero_live_tokens_before_usage() -> None:
+    session = _plain_session()
+    session.live_tokens_visible = True
+
+    status = tui._status_lines(session)
+
+    assert "tokens 0" in status
+
+
+def test_session_status_shows_live_cost_when_enabled() -> None:
+    session = _plain_session()
+    session.live_cost_visible = True
+    session.usage.estimate_from_chars(400, 80, session.config.model)
+
+    status = tui._status_lines(session)
+
+    assert "cost $0.000" in status
+
+
+def test_session_status_marks_subscription_cost_estimate() -> None:
+    session = _plain_session()
+    session.config.apply_provider_reference("openai-codex", "OPENAI_CODEX_OAUTH_TOKEN")
+    session.live_cost_visible = True
+
+    status = tui._status_lines(session)
+
+    assert "cost $0.000 (sub)" in status
 
 
 def test_shift_tab_opens_reasoning_level_control(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -453,13 +530,12 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 ) -> None:
     monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
     session = _plain_session()
-    session.title = "Study plan"
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
 
     labelled_texts = (
         (tui._status_text(session), ("armory", "model")),
-        (tui._info_panel_default_text(session), ("Scope", "Grounding")),
+        (tui._info_panel_default_text(session), ("<scope>", "<grounding>")),
         (
             tui._footer_hints_text(session),
             ("ctrl+o", "ctrl+p", "shift+tab"),
@@ -556,17 +632,17 @@ def test_dark_routine_labels_use_neutral_emphasis() -> None:
             for span in hints.spans
             if span.start <= shortcut_start and span.end >= shortcut_start + len("ctrl+p")
         ]
-        title_start = panel.plain.index("Grounding")
-        title_styles = [
+        scope_start = panel.plain.index("<scope>")
+        scope_styles = [
             str(span.style)
             for span in panel.spans
-            if span.start <= title_start and span.end >= title_start + len("Grounding")
+            if span.start <= scope_start and span.end >= scope_start + len("<scope>")
         ]
 
         assert reasoning_styles == [palette.text_secondary]
         assert not any(palette.action_primary_bg in style for style in reasoning_styles)
-        for styles in (title_styles,):
-            assert any(palette.text_primary in style for style in styles)
+        for styles in (scope_styles,):
+            assert styles == [palette.text_secondary]
             assert not any(palette.action_primary_bg in style for style in styles)
         assert brand_styles == [f"bold {palette.brand_primary}"]
         assert str(hints.style) == palette.text_muted
@@ -1381,14 +1457,14 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             await pilot.pause()
 
-            await pilot.mouse_down("#info-panel", offset=(3, 3))
-            await pilot.hover("#info-panel", offset=(11, 3))
+            await pilot.mouse_down("#info-panel", offset=(3, 1))
+            await pilot.hover("#info-panel", offset=(11, 1))
             await pilot.pause()
 
             panel = app.query_one("#info-panel", tui.Static)
             selected_styles = [
                 str(segment.style).lower()
-                for segment in panel.render_line(3)
+                for segment in panel.render_line(1)
                 if segment.text.strip() and "reverse" in str(segment.style)
             ]
 
@@ -1408,10 +1484,10 @@ def test_info_panel_default_text_starts_at_sidebar_edge() -> None:
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
 
-    assert panel_lines[0] == "Grounding"
-    assert "Scope" in panel_lines
-    assert "Grounding" in panel_lines
-    assert next(line for line in panel_lines if "+1 more" in line).startswith("  +1 more")
+    assert panel_lines[0] == "<scope>"
+    assert "Grounding" not in panel_lines
+    assert "<grounding>" in panel_lines
+    assert next(line for line in panel_lines if "+1 more" in line) == "+1 more"
 
 
 def test_tui_css_has_info_panel_layout() -> None:
@@ -2401,7 +2477,7 @@ def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
     assert suggestion == "/materials "
 
 
-def test_info_panel_shows_title_and_material_names_without_session_duration() -> None:
+def test_info_panel_shows_scope_and_material_names_without_session_duration() -> None:
     session = _plain_session()
     session.source_files = ("materials/exam-review.pdf", "materials/calculus.md")
     session.source_file_count = 2
@@ -2409,12 +2485,11 @@ def test_info_panel_shows_title_and_material_names_without_session_duration() ->
     panel = tui._info_panel_default_text(session)
 
     lines = panel.plain.splitlines()
-    assert lines[0] == "Grounding"
+    assert lines[0] == "<scope>"
     assert "\u2500" not in panel.plain
     assert "time" not in panel.plain
-    assert "Scope" in panel.plain
     assert "2/2 materials active" in panel.plain
-    assert "Grounding" in panel.plain
+    assert "<grounding>" in panel.plain
     assert "no evidence used yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
@@ -2425,7 +2500,7 @@ def test_info_panel_shows_title_and_material_names_without_session_duration() ->
     assert "armory" not in panel.plain
 
 
-def test_info_panel_title_is_single_line_and_ellipsized() -> None:
+def test_info_panel_ignores_generated_session_title() -> None:
     session = _plain_session()
     session.title = (
         "Build a careful comparison of very long learning goals\n"
@@ -2435,12 +2510,32 @@ def test_info_panel_title_is_single_line_and_ellipsized() -> None:
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert lines[0] == "Build a careful comparison of very..."
+    assert lines[0] == "<scope>"
     assert len(lines[0]) <= 38
+    assert "Build a careful comparison" not in panel.plain
     assert "that should never wrap" not in panel.plain
-    assert "..." in lines[0]
-    assert lines[1] == ""
-    assert lines[2] == "Scope"
+    assert "Grounding" not in panel.plain
+    assert lines[1] == "0/0 materials active"
+    assert lines[2] == "no materials attached"
+
+
+def test_info_panel_grounding_summarizes_evidence_without_tool_details() -> None:
+    session = _plain_session()
+    session.last_turn_evidence = _turn_evidence_with_sources(
+        "materials/week-01-foundations.pdf",
+        "materials/week-02-methods.pdf",
+        "materials/week-03-results.pdf",
+    )
+
+    panel = tui._info_panel_default_text(session)
+    lines = panel.plain.splitlines()
+
+    assert "3 evidence excerpts" in lines
+    assert "3 sources sampled" in lines
+    assert any(line.startswith("top @week-01-foundations.pdf") for line in lines)
+    assert "f8 /evidence details" in lines
+    assert "tool" not in panel.plain
+    assert all(len(line) <= 38 for line in lines)
 
 
 def test_info_panel_message_text_starts_at_sidebar_edge() -> None:
@@ -2464,9 +2559,77 @@ def test_info_panel_busy_progress_is_clipped_inside_sidebar_width() -> None:
 
     lines = panel.plain.splitlines()
 
-    assert "  checking answer" in lines
+    assert "checking answer" in lines
     assert "tool call" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
+
+
+def test_turn_progress_uses_reader_facing_source_labels() -> None:
+    tool_call = ToolCallEvent(
+        call_id="call-1",
+        name="search_materials",
+        arguments={"query": "weak points"},
+        display="searching materials",
+    )
+    tool_result = ToolResultEvent(
+        call_id="call-1",
+        name="search_materials",
+        content="[]",
+        summary="No matches.",
+    )
+    model_complete = NoticeEvent(
+        "Read complete model response from gpt-5.4-mini: 0 tool call(s).",
+        code="model_complete",
+    )
+
+    assert tui_streaming._progress_text(tool_call) == "checking sources"
+    assert tui_streaming._progress_text(tool_result) == "source check complete"
+    assert tui_streaming._progress_text(model_complete) == "checking answer"
+
+
+def test_run_tui_turn_reports_reasoning_activity_without_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _plain_session()
+
+    def fake_iter_chat_events(
+        _session: ChatSession,
+        _prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> list[object]:
+        assert abort is not None
+        return [
+            ReasoningDeltaEvent("short summary", summary=True),
+            AssistantDeltaEvent("Final reply."),
+        ]
+
+    monkeypatch.setattr(tui_streaming, "iter_chat_events", fake_iter_chat_events)
+    replies: list[str] = []
+    notices: list[str] = []
+    errors: list[str] = []
+    progress: list[str] = []
+    activity: list[str] = []
+    finished: list[bool] = []
+
+    tui_streaming.run_tui_turn(
+        session,
+        "prompt",
+        threading.Event(),
+        on_reply=replies.append,
+        on_notice=notices.append,
+        on_error=errors.append,
+        on_finish=lambda: finished.append(True),
+        on_progress=progress.append,
+        on_activity=activity.append,
+    )
+
+    assert replies == ["Final reply."]
+    assert activity == ["    thinking summary: short summary"]
+    assert progress == ["reading model thinking"]
+    assert notices == []
+    assert errors == []
+    assert finished == [True]
 
 
 def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2650,6 +2813,62 @@ def test_status_lines_shows_none_when_no_armory() -> None:
     assert "armory none" in status
 
 
+def test_create_startup_session_applies_live_usage_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_store.save_setting("thinking_visibility", "all")
+    settings_store.save_setting("live_tokens_visible", True)
+    settings_store.save_setting("live_cost_visible", True)
+    monkeypatch.setattr(
+        "interfaces.tui.session_actions.discover_startup_armory",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "interfaces.tui.session_actions.discover_available_armories",
+        list,
+    )
+
+    session = tui.create_startup_session(
+        ChatConfig(base_url="https://example.test", model="test-model")
+    )
+
+    assert session.live_tokens_visible is True
+    assert session.live_cost_visible is True
+    assert session.config.thinking_visibility == "all"
+
+
+def test_tui_new_chat_applies_live_usage_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+    settings_store.save_setting("thinking_visibility", "minimal")
+    settings_store.save_setting("live_tokens_visible", True)
+    settings_store.save_setting("live_cost_visible", True)
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_new_chat_settings() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._handle_new()
+
+            assert app.session.live_tokens_visible is True
+            assert app.session.live_cost_visible is True
+            assert app.session.config.thinking_visibility == "minimal"
+
+    asyncio.run(check_new_chat_settings())
+
+
 def test_status_lines_omits_removed_learning_mode() -> None:
     session = _plain_session()
 
@@ -2665,6 +2884,66 @@ def test_status_text_omits_removed_learning_mode() -> None:
 
     assert " mode " not in status.plain
     assert "autopilot" not in status.plain
+
+
+def test_status_text_styles_live_usage_labels() -> None:
+    session = _plain_session()
+    session.live_tokens_visible = True
+    session.live_cost_visible = True
+    palette = tui.current_palette()
+
+    status = tui._status_text(session)
+
+    for label in ("tokens", "cost"):
+        start = status.plain.index(label)
+        end = start + len(label)
+        styles = [
+            str(span.style) for span in status.spans if span.start <= start and span.end >= end
+        ]
+        assert styles == [palette.text_secondary]
+
+
+def test_live_token_status_ignores_draft_until_usage_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setattr(
+        "interfaces.tui.composer_controls.prefetch_provider_model_catalogs",
+        lambda _config, **_kwargs: None,
+    )
+    session = _plain_session()
+    session.live_tokens_visible = True
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_live_token_status() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            composer = app.query_one("#composer", tui.Input)
+            status = app.query_one("#status", tui.Static)
+            initial = str(status.content)
+
+            composer.value = "This draft should be counted in the live token estimate."
+            app._refresh_live_token_status(composer.value)
+
+            assert str(status.content) == initial
+            assert str(status.content) == tui._status_text(session, draft=composer.value).plain
+
+            session.usage.record(
+                TokenUsage(prompt_tokens=100, completion_tokens=20, total_tokens=120),
+                session.config.model,
+            )
+            app._refresh_live_token_status(composer.value)
+
+            assert str(status.content) != initial
+            assert "tokens ↑100 ↓20" in str(status.content)
+
+    asyncio.run(check_live_token_status())
 
 
 def test_run_tui_for_path_none_delegates_to_run_tui(
@@ -2860,6 +3139,7 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
             assert "Privacy & Diagnostics" in labels
             assert "Appearance" in labels
             assert "Activity trace" in labels
+            assert "Model thinking" in labels
             assert "Login" in labels
             assert "Logout" in labels
 
@@ -2905,6 +3185,13 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             assert "Minimal tool calls" in activity_labels
             assert "Hidden tool calls" in activity_labels
 
+            app._open_settings_flow()
+            app._handle_inline_menu_choice("Model thinking")
+            thinking_labels = [label for label, _description in app._inline_flow.options]
+
+            assert app._inline_flow.step == "thinking_visibility"
+            assert thinking_labels == ["Off", "Minimal", "All"]
+
     asyncio.run(check_settings_submenus())
 
 
@@ -2925,6 +3212,7 @@ def test_settings_inline_escape_returns_from_submenu() -> None:
                 "Privacy & Diagnostics",
                 "Appearance",
                 "Activity trace",
+                "Model thinking",
                 "Vocabulary practice",
             ):
                 app._open_settings_flow()
@@ -2997,6 +3285,13 @@ def test_settings_inline_toggles_privacy_and_theme(
             assert settings_store.load_app_settings().activity_trace_mode == (
                 settings_store.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
             )
+
+            app._open_settings_flow()
+            app._submit_inline_flow("Model thinking")
+            app._submit_inline_flow("All")
+
+            assert settings_store.load_app_settings().thinking_visibility == "all"
+            assert app.session.config.thinking_visibility == "all"
 
     try:
         asyncio.run(check_settings_changes())
@@ -3157,6 +3452,7 @@ def test_settings_inline_keeps_selected_row_after_changes(
                 ("Privacy & Diagnostics", "Crash reports"),
                 ("Appearance", "Light"),
                 ("Activity trace", "Hidden tool calls"),
+                ("Model thinking", "All"),
                 ("Vocabulary practice", "Lenient punctuation"),
             ]
             for submenu, choice in cases:
@@ -3331,24 +3627,22 @@ def test_logout_inline_clears_selected_credential_kind_for_duplicate_slug(
     asyncio.run(check_selected_kind())
 
 
-def test_armory_home_text_includes_recent_armories(
-    tmp_path: Path,
+def test_armory_home_text_omits_available_armory_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
-    monkeypatch.setattr("interfaces.tui.display_text.load_available_armories", lambda: known)
     monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui_display_text.armory_home_text()
 
-    assert "No armory attached." in text
-    assert "Existing armories found." in text
-    assert "What module or topic" not in text
+    assert "No armory attached." not in text
+    assert "What document" not in text
+    assert "Available armories:" not in text
     assert "ctrl+a" in text
+    assert "type exact armory name" in text
     assert "materials/" in text
-    assert "Recent armories:" in text
-    assert "linear-algebra" in text
-    assert "algorithms" in text
+    assert "linear-algebra" not in text
+    assert "algorithms" not in text
+    assert "/linear-algebra" not in text
     assert max(len(line) for line in text.splitlines()) <= 40
 
 
@@ -3403,7 +3697,7 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
     async def check_home_notice() -> None:
         async with typed_app.run_test(size=(120, 24)):
             assert app.state.armory_home_shown is True
-            assert any("No armory attached" in entry.content for entry in app.state.transcript)
+            assert not any("No armory attached" in entry.content for entry in app.state.transcript)
             assert any("materials/" in entry.content for entry in app.state.transcript)
             assert any("ctrl+a" in entry.content for entry in app.state.transcript)
 
@@ -3434,11 +3728,10 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
         async with typed_app.run_test(size=(120, 24)):
             assert app.state.armory_home_shown is True
             assert app._armory_inline_active is False
-            assert any("No armory attached" in entry.content for entry in app.state.transcript)
-            assert any(
-                "Existing armories found" in entry.content for entry in app.state.transcript
-            )
-            assert any("known" in entry.content for entry in app.state.transcript)
+            assert not any("No armory attached" in entry.content for entry in app.state.transcript)
+            assert any("type exact armory name" in entry.content for entry in app.state.transcript)
+            assert not any("Available armories" in entry.content for entry in app.state.transcript)
+            assert not any("known" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_armory_menu())
 
@@ -3556,6 +3849,39 @@ def test_plain_tui_opens_named_armory_without_path(
     asyncio.run(check_named_armory())
 
 
+def test_plain_tui_opens_armory_named_detach_instead_of_detaching(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "detach"
+    initialize(armory_path)
+    (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_named_detach_armory() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "detach"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.armory_path == armory_path.resolve()
+            assert any("Using armory" in entry.content for entry in app.state.transcript)
+            assert not any("Armory detached" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_named_detach_armory())
+
+
 def test_busy_plain_tui_keeps_named_armory_input_as_steering(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3624,9 +3950,43 @@ def test_detach_command_returns_to_plain_tui(
             assert app.session.armory_path is None
             assert app.busy is False
             assert any("Armory detached" in entry.content for entry in app.state.transcript)
-            assert any("No armory attached" in entry.content for entry in app.state.transcript)
+            assert any("type exact armory name" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_detach())
+
+
+def test_bare_detach_returns_attached_tui_to_plain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "module"
+    initialize(armory_path)
+    session = _plain_session()
+    session.armory_path = armory_path
+
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_bare_detach() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "detach"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.armory_path is None
+            assert app.busy is False
+            assert any("Armory detached" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_bare_detach())
 
 
 def test_armory_reference_resolver_stays_inside_armory_home(
@@ -3654,9 +4014,11 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
 
     armory = tmp_path / "module"
     initialize(armory)
-    saved_conversation = Conversation()
-    saved_conversation.add("user", "What did I review?")
-    chat_storage.save(armory, "abc123", saved_conversation, title="Session recap")
+    saved_session = _plain_session()
+    saved_session.session_id = "abc123"
+    saved_session.armory_path = armory
+    saved_session.conversation.add("user", "What did I review?")
+    save_session(saved_session)
 
     session = _plain_session()
     session.armory_path = armory
@@ -3676,7 +4038,7 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
 
             assert any("Saved sessions for" in entry.content for entry in app.state.transcript)
             assert any("abc123" in entry.content for entry in app.state.transcript)
-            assert any("Session recap" in entry.content for entry in app.state.transcript)
+            assert any("What did I review?" in entry.content for entry in app.state.transcript)
             assert app.state.pending_input is None
 
     asyncio.run(check_sessions_listing())
@@ -6407,10 +6769,10 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 "help",
                 "exit",
                 "login",
+                "local",
                 "logout",
                 "status",
                 "new",
-                "detach",
             ]
 
             expected = (

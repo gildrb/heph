@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 
 from ai.diagnostics import get_meter, get_tracer
 from ai.logging import Timer, get_logger, redact_text
-from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.endpoints import provider_uses_keyless_access
 from ai.providers.model_support import is_supported_model_for_endpoint
 from ai.providers.oauth import load_credentials
 from ai.providers.registry import get_registry as get_provider_registry
@@ -207,6 +207,7 @@ class _OpenAIStreamProgress:
     def record(self, delta: CompletionDelta) -> None:
         if delta.content:
             self.partial_parts.append(delta.content)
+        # Reasoning deltas are progress only; answer-safe retries are still possible.
         if delta.content or delta.tool_calls:
             self.saw_output = True
 
@@ -358,7 +359,7 @@ def build_client(config: ChatConfig) -> OpenAI:
 
 
 def _api_key_for_config(config: ChatConfig) -> str:
-    if is_keyless_endpoint(config.base_url):
+    if provider_uses_keyless_access(config.provider_slug, config.base_url):
         return "no-key-required"
     if config.resolved_api_key:
         return config.resolved_api_key
@@ -431,7 +432,7 @@ def _mark_span_error(span: _SpanProtocol, error_type: str) -> None:
 
 
 def has_configured_access(config: ChatConfig, *, refresh_oauth: bool = True) -> bool:
-    if is_keyless_endpoint(config.base_url):
+    if provider_uses_keyless_access(config.provider_slug, config.base_url):
         return True
     if config.provider_slug == "openai-codex":
         return load_credentials("openai-codex", refresh_expired=refresh_oauth) is not None
@@ -538,6 +539,8 @@ def _completion_delta_from_choice(
 ) -> CompletionDelta:
     return CompletionDelta(
         content=_choice_delta_content(delta),
+        reasoning=_choice_delta_reasoning(delta),
+        reasoning_summary=_choice_delta_reasoning_summary(delta),
         tool_calls=_choice_delta_tool_calls(delta),
         finish_reason=finish_reason,
         usage=usage,
@@ -545,8 +548,23 @@ def _completion_delta_from_choice(
 
 
 def _choice_delta_content(delta: object) -> str | None:
-    content = getattr(delta, "content", None)
-    return content or None if isinstance(content, str) else None
+    return _first_string_attr(delta, ("content",))
+
+
+def _choice_delta_reasoning(delta: object) -> str | None:
+    return _first_string_attr(delta, ("reasoning_content", "reasoning"))
+
+
+def _choice_delta_reasoning_summary(delta: object) -> str | None:
+    return _first_string_attr(delta, ("reasoning_summary",))
+
+
+def _first_string_attr(delta: object, names: tuple[str, ...]) -> str | None:
+    for name in names:
+        value = getattr(delta, name, None)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _choice_delta_tool_calls(delta: object) -> list[ToolCallDelta] | None:
@@ -561,7 +579,9 @@ def _empty_choice_delta(
     usage: UsagePayload | None,
 ) -> bool:
     return not (
-        getattr(delta, "content", None)
+        _choice_delta_content(delta)
+        or _choice_delta_reasoning(delta)
+        or _choice_delta_reasoning_summary(delta)
         or getattr(delta, "tool_calls", None)
         or finish_reason
         or usage is not None

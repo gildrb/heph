@@ -7,6 +7,7 @@ import pytest
 from ai.providers import catalog
 from ai.providers.catalog import LiveProviderCatalog
 from ai.providers.config import default_config
+from ai.providers.llama_cpp import LlamaCppModelRecord
 from ai.providers.model_choices import configured_model_choices, model_picker_columns
 from ai.providers.reasoning import reasoning_levels_for_model
 from ai.providers.registry import ModelInfo, get_registry
@@ -75,6 +76,14 @@ def test_model_picker_columns_use_readable_labels() -> None:
         is_free=True,
         is_current=False,
     ) == ("Poolside", "laguna-m.1:free", "OpenRouter", "free+key")
+    assert model_picker_columns(
+        slug="llama-cpp",
+        model="llama-cpp/acme/model:Q4_K_M",
+        display_name="Local llama.cpp",
+        endpoint="http://127.0.0.1:18080/v1",
+        is_free=True,
+        is_current=False,
+    ) == ("Local", "model:Q4_K_M", "Local", "local tool-capable free")
 
 
 def test_configured_choices_uses_cached_openrouter_live_catalog(
@@ -126,6 +135,32 @@ def test_configured_choices_schedules_refresh_without_waiting(
 
     assert any(choice[0] == "openrouter" for choice in choices)
     assert scheduled == ["openrouter"]
+
+
+def test_configured_choices_include_only_tool_capable_local_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    passing = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/pass:Q4_K_M",
+        repo_id="acme/pass",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    monkeypatch.setattr(catalog, "installed_tool_capable_records", lambda: [passing])
+    config = default_config()
+
+    choices = configured_model_choices(config)
+
+    assert config.providers["llama-cpp"].models == [passing.model_id]
+    assert config.providers["llama-cpp"].endpoint == passing.endpoint
+    assert (passing.model_id, "llama-cpp") in {
+        (model, slug) for slug, model, _display, _free in choices
+    }
+    info = get_registry().get(passing.model_id, provider="llama-cpp")
+    assert info is not None
+    assert info.supports_tools is True
+    assert set(info.tags) == {"local", "tools"}
 
 
 def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(

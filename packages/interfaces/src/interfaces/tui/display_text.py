@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-from hephaion.armory.search import load_available_armories
 from hephaion.materials import material_display_name
 
 from interfaces.terminal import current_palette
@@ -13,7 +11,7 @@ from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_messa
 from interfaces.tui.keymap import armory_shortcut_key
 from interfaces.tui.rich_transcript import evidence_summary_text
 from interfaces.tui.session_state import TuiTranscriptEntry
-from interfaces.tui.status import STATUS_FIELD_GAP, status_lines
+from interfaces.tui.status import STATUS_FIELD_GAP, status_labels, status_lines
 
 try:
     from rich.text import Text as _RichText
@@ -27,8 +25,6 @@ if TYPE_CHECKING:
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 35
 _INFO_PANEL_VISIBLE_WIDTH = 38
-_RECENT_ARMORY_NAME_WIDTH = 16
-_RECENT_ARMORY_PATH_WIDTH = 20
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
 
 
@@ -38,38 +34,41 @@ def require_rich_text() -> type[Text]:
     return _RichText
 
 
-def status_text(session: ChatSession) -> Text:
-    plain = status_lines(session)
+def status_text(session: ChatSession, *, draft: str = "") -> Text:
+    plain = status_lines(session, draft=draft)
     palette = current_palette()
 
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.text_muted)
     text.stylize(f"bold {palette.brand_primary}", 0, len("Heph"))
-    _stylize_status_labels(text, plain)
-    _stylize_status_values(text, plain)
+    _stylize_status_labels(text, plain, status_labels(session))
+    _stylize_status_values(text, plain, status_labels(session))
     return text
 
 
-def _stylize_status_labels(text: Text, plain: str) -> None:
+def _stylize_status_labels(text: Text, plain: str, labels: Sequence[str]) -> None:
     palette = current_palette()
-    for label in ("armory", "model", "reasoning"):
+    for label in labels:
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
         text.stylize(palette.text_secondary, start, start + len(label))
 
 
-def _stylize_status_values(text: Text, plain: str) -> None:
+def _stylize_status_values(text: Text, plain: str, labels: Sequence[str]) -> None:
     palette = current_palette()
-    for label in ("armory", "model", "reasoning"):
+    for index, label in enumerate(labels):
         value_start = plain.index(f"{label} ") + len(label) + 1
-        value_end = _status_value_end(plain, label, value_start)
+        value_end = _status_value_end(plain, labels, index, value_start)
         text.stylize(palette.text_muted, value_start, value_end)
 
 
-def _status_value_end(plain: str, label: str, value_start: int) -> int:
-    if label == "armory":
-        return plain.index(f"{STATUS_FIELD_GAP}model ", value_start)
-    if label == "model":
-        return plain.index(f"{STATUS_FIELD_GAP}reasoning ", value_start)
+def _status_value_end(
+    plain: str,
+    labels: Sequence[str],
+    index: int,
+    value_start: int,
+) -> int:
+    if index + 1 < len(labels):
+        return plain.index(f"{STATUS_FIELD_GAP}{labels[index + 1]} ", value_start)
     return len(plain)
 
 
@@ -169,16 +168,16 @@ def _info_panel_material_lines(session: ChatSession) -> list[str]:
     visible_materials = list(session.source_files[:8])
     active_count = _active_material_count(session)
     material_lines = [
-        "Scope",
-        f"  {active_count}/{len(session.source_files)} materials active",
+        "<scope>",
+        f"{active_count}/{len(session.source_files)} materials active",
     ]
     if not visible_materials:
-        material_lines.append("  no materials attached")
+        material_lines.append("no materials attached")
         return material_lines
 
-    material_lines.extend(f"  @{_material_panel_display_name(name)}" for name in visible_materials)
+    material_lines.extend(f"@{_material_panel_display_name(name)}" for name in visible_materials)
     if len(session.source_files) > len(visible_materials):
-        material_lines.append(f"  +{len(session.source_files) - len(visible_materials)} more")
+        material_lines.append(f"+{len(session.source_files) - len(visible_materials)} more")
     return material_lines
 
 
@@ -190,10 +189,10 @@ def _info_panel_evidence_lines(
 ) -> list[str]:
     if busy:
         detail = progress or "working"
-        return ["Grounding", f"  {detail}"]
+        return ["<grounding>", detail]
     evidence = session.last_turn_evidence
     if evidence is None or not evidence.items:
-        return ["Grounding", "  no evidence used yet"]
+        return ["<grounding>", "no evidence used yet"]
     return _info_panel_evidence_used_lines(evidence)
 
 
@@ -202,13 +201,13 @@ def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[str]:
     sampled_sources = evidence.sampled_source_count or len(sources)
     total_sources = evidence.total_source_count or sampled_sources
     lines = [
-        "Grounding",
-        f"  {_count_label(len(evidence.items), 'evidence excerpt')}",
-        f"  {_info_panel_source_scope(sampled_sources, total_sources)}",
+        "<grounding>",
+        _count_label(len(evidence.items), "evidence excerpt"),
+        _info_panel_source_scope(sampled_sources, total_sources),
     ]
     if source_line := _info_panel_source_line(sources):
         lines.append(source_line)
-    lines.append("  f8 /evidence details")
+    lines.append("f8 /evidence details")
     return lines
 
 
@@ -223,12 +222,7 @@ def _info_panel_source_line(sources: Sequence[str]) -> str:
         return ""
     visible_names = [_material_panel_display_name(source) for source in sources[:2]]
     suffix = f", +{len(sources) - len(visible_names)}" if len(sources) > len(visible_names) else ""
-    return f"  top @{', @'.join(visible_names)}{suffix}"
-
-
-def _info_panel_title(session: ChatSession) -> str:
-    title = " ".join((session.title or "").split())
-    return title or "Grounding"
+    return f"top @{', @'.join(visible_names)}{suffix}"
 
 
 def _info_panel_lines(
@@ -238,8 +232,6 @@ def _info_panel_lines(
     progress: str,
 ) -> list[str]:
     return [
-        _info_panel_title(session),
-        "",
         *_info_panel_material_lines(session),
         "",
         *_info_panel_evidence_lines(session, busy=busy, progress=progress),
@@ -282,12 +274,12 @@ def _stylize_first(text: Text, plain: str, label: str, style: str) -> None:
 
 def _stylize_info_panel_labels(text: Text, plain: str) -> None:
     palette = current_palette()
-    labels = {"Scope", "Grounding"}
+    labels = {"<scope>", "<grounding>"}
     offset = 0
-    for line_number, line in enumerate(plain.splitlines(keepends=True)):
+    for line in plain.splitlines(keepends=True):
         visible_line = line.removesuffix("\n")
         label = visible_line.strip()
-        if line_number > 0 and label in labels:
+        if label in labels:
             label_start = offset + visible_line.index(label)
             text.stylize(palette.text_secondary, label_start, label_start + len(label))
         offset += len(line)
@@ -330,13 +322,6 @@ def info_panel_default_text(
     palette = current_palette()
     plain = _info_panel_text(_info_panel_lines(session, busy=busy, progress=progress))
     text = require_rich_text()(plain, style=palette.text_muted)
-    display_title = plain.splitlines()[0].strip()
-    title_start = plain.index(display_title)
-    text.stylize(
-        f"bold {palette.text_primary}",
-        title_start,
-        title_start + len(display_title),
-    )
     _stylize_info_panel_labels(text, plain)
     _stylize_hidden_material_count(text, plain, session)
     _stylize_info_panel_materials(text, plain, session)
@@ -364,53 +349,12 @@ def new_chat_card_text() -> str:
     return "Tip: use @file for focused document analysis; inspect citations with /evidence."
 
 
-def _ellipsize_middle(text: str, max_length: int) -> str:
-    if len(text) <= max_length:
-        return text
-    if max_length <= 3:
-        return "." * max_length
-    head_length = max(1, (max_length - 3) // 2)
-    tail_length = max_length - 3 - head_length
-    return f"{text[:head_length]}...{text[-tail_length:]}"
-
-
-def _compact_armory_path(path: Path) -> str:
-    resolved = path.expanduser()
-    try:
-        display = f"~/{resolved.relative_to(Path.home())}"
-    except ValueError:
-        display = str(path)
-    return _ellipsize_middle(display, _RECENT_ARMORY_PATH_WIDTH)
-
-
-def _recent_armory_line(path: Path) -> str:
-    name = _ellipsize_middle(path.name, _RECENT_ARMORY_NAME_WIDTH)
-    return f"  {name:<{_RECENT_ARMORY_NAME_WIDTH}}  {_compact_armory_path(path)}"
-
-
 def armory_home_text() -> str:
-    recent = load_available_armories()[:5]
-    if recent:
-        lines = [
-            "No armory attached.",
-            "",
-            "Existing armories found.",
-            f"Press {armory_shortcut_key()} to open/create.",
-            "Saved in ~/.armories/.",
-            "Add docs to materials/.",
-        ]
-        lines.extend(["", "Recent armories:"])
-        lines.extend(_recent_armory_line(path) for path in recent)
-        return "\n".join(lines)
-    lines = [
-        "No armory attached.",
-        "",
-        "What document set are you working on?",
-        f"Press {armory_shortcut_key()} to open/create.",
-        "Saved in ~/.armories/.",
-        "Add docs to materials/.",
+    hints = [
+        f"Open: {armory_shortcut_key()}, or type exact armory name",
+        "Saved in ~/.armories; docs in materials/",
     ]
-    return "\n".join(lines)
+    return "\n".join(hints)
 
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:

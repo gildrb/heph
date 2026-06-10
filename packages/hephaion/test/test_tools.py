@@ -25,6 +25,7 @@ from hephaion.agent.tools import (
     run_web_fetch,
     run_write_file,
 )
+from hephaion.agent.web_tools import _WEB_FETCH_MAX_BYTES
 
 # ---------------------------------------------------------------------------
 # BashResult
@@ -304,7 +305,25 @@ class TestArmoryTools:
         assert result.success is False
         assert result.error == "invalid_armory_name"
 
-    def test_import_materials_copies_absolute_source_to_current_armory(
+    def test_import_materials_copies_workspace_relative_source_to_current_armory(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        armory = tmp_path / "current"
+        run_create_armory(".", workspace=armory)
+        source = armory / "lecture.md"
+        source.write_text("source notes", encoding="utf-8")
+
+        result = run_import_materials("lecture.md", workspace=armory)
+
+        assert result.success is True
+        assert result.metadata["current_armory"] is True
+        assert result.metadata["refresh_current_armory"] is True
+        assert result.metadata["imported"] == ["lecture.md"]
+        assert (armory / "materials" / "lecture.md").read_text(encoding="utf-8") == "source notes"
+        assert source.read_text(encoding="utf-8") == "source notes"
+
+    def test_import_materials_rejects_absolute_source_in_agent_turn(
         self,
         tmp_path: Path,
     ) -> None:
@@ -315,12 +334,30 @@ class TestArmoryTools:
 
         result = run_import_materials(str(source), workspace=armory)
 
-        assert result.success is True
-        assert result.metadata["current_armory"] is True
-        assert result.metadata["refresh_current_armory"] is True
-        assert result.metadata["imported"] == ["lecture.md"]
-        assert (armory / "materials" / "lecture.md").read_text(encoding="utf-8") == "source notes"
-        assert source.read_text(encoding="utf-8") == "source notes"
+        assert result.success is False
+        assert result.error == "absolute_source_rejected"
+        assert not (armory / "materials" / "lecture.md").exists()
+
+    def test_import_materials_rejects_symlink_source_parent_escape(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        armory = tmp_path / "current"
+        run_create_armory(".", workspace=armory)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.md").write_text("outside secret", encoding="utf-8")
+        link = armory / "linked"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        result = run_import_materials("linked/secret.md", workspace=armory)
+
+        assert result.success is False
+        assert result.error == "symlink_source_rejected"
+        assert not (armory / "materials" / "secret.md").exists()
 
     def test_import_materials_rejects_missing_exact_armory_without_fuzzy_fallback(
         self,
@@ -330,12 +367,12 @@ class TestArmoryTools:
         armory = tmp_path / "current"
         run_create_armory(".", workspace=armory)
         run_create_armory("reference-armory", workspace=home)
-        source = tmp_path / "notes.md"
+        source = armory / "notes.md"
         source.write_text("notes", encoding="utf-8")
 
         with patch.dict("os.environ", {"HEPHAION_ARMORY_HOME": str(home)}, clear=False):
             result = run_import_materials(
-                str(source),
+                "notes.md",
                 target_armory="missing-armory",
                 workspace=armory,
             )
@@ -352,12 +389,12 @@ class TestArmoryTools:
         home = tmp_path / "armories"
         armory = tmp_path / "current"
         run_create_armory(".", workspace=armory)
-        source = tmp_path / "notes.md"
+        source = armory / "notes.md"
         source.write_text("notes", encoding="utf-8")
 
         with patch.dict("os.environ", {"HEPHAION_ARMORY_HOME": str(home)}, clear=False):
             result = run_import_materials(
-                str(source),
+                "notes.md",
                 target_armory="bfi-2",
                 create_if_missing=True,
                 workspace=armory,
@@ -367,7 +404,7 @@ class TestArmoryTools:
         assert result.metadata["current_armory"] is False
         assert (home / "bfi-2" / "materials" / "notes.md").read_text(encoding="utf-8") == "notes"
 
-    def test_import_materials_rejects_ambiguous_relative_source(
+    def test_import_materials_uses_current_armory_for_relative_source(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -382,9 +419,8 @@ class TestArmoryTools:
 
         result = run_import_materials("shared.md", workspace=armory)
 
-        assert result.success is False
-        assert result.error == "ambiguous_source_path"
-        assert not (armory / "materials" / "shared.md").exists()
+        assert result.success is True
+        assert (armory / "materials" / "shared.md").read_text(encoding="utf-8") == "armory copy"
 
     def test_search_materials_uses_indexed_armory_content(self, tmp_path: Path) -> None:
         run_create_armory(".", workspace=tmp_path)
@@ -470,6 +506,20 @@ class TestArmoryTools:
 
 
 class TestWorkspaceFileTools:
+    def test_write_file_allows_exam_bank_state_file(self, tmp_path: Path) -> None:
+        content = '{"version": 1, "items": []}\n'
+
+        result = run_write_file(".hephaion/exam_bank.json", content, workspace=tmp_path)
+
+        assert result == f"Wrote {len(content)} chars to .hephaion/exam_bank.json"
+        assert (tmp_path / ".hephaion" / "exam_bank.json").read_text(encoding="utf-8") == content
+
+    def test_write_file_denies_other_armory_state_files(self, tmp_path: Path) -> None:
+        result = run_write_file(".hephaion/memory.json", "{}", workspace=tmp_path)
+
+        assert result == "Access denied: .hephaion contains internal armory state."
+        assert not (tmp_path / ".hephaion" / "memory.json").exists()
+
     def test_search_files_skips_symlink_escape(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -545,6 +595,7 @@ class TestWebFetch:
         assert "Source: https://example.com/test" in result
         assert "Test content" in result
         assert "End of fetched content" in result
+        mock_response.read.assert_called_once_with(_WEB_FETCH_MAX_BYTES + 1)
 
     def test_fetch_http_error(self):
         with patch(
@@ -592,6 +643,19 @@ class TestWebFetch:
             result = run_web_fetch("https://example.com/start")
 
         assert "blocked private/internal host" in result
+
+    def test_fetch_blocks_non_global_carrier_grade_nat_target(self):
+        with (
+            patch(
+                "hephaion.agent.web_tools._resolve_hostname_ips",
+                return_value=["100.64.0.1"],
+            ),
+            patch("hephaion.agent.web_tools._open_without_redirect") as open_url,
+        ):
+            result = run_web_fetch("https://example.com/internal")
+
+        assert "blocked private/internal host" in result
+        open_url.assert_not_called()
 
     def test_fetch_follows_safe_redirect(self):
         headers = Message()

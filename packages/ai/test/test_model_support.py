@@ -89,6 +89,13 @@ class TestFilterSupportedModels:
         result = filter_supported_models(models, "pollinations")
         assert result == ["openai", "openai-fast"]
 
+    def test_llama_cpp_keeps_only_local_model_ids(self) -> None:
+        models = ["llama-cpp/acme/model:Q4_K_M", "openai/gpt-5.4", "legacy-model"]
+
+        result = filter_supported_models(models, "llama-cpp")
+
+        assert result == ["llama-cpp/acme/model:Q4_K_M"]
+
 
 # ---------------------------------------------------------------------------
 # is_supported_model_for_provider
@@ -120,6 +127,10 @@ class TestIsSupportedModelForProvider:
 
     def test_empty_model_name(self) -> None:
         assert is_supported_model_for_provider("", "openrouter") is False
+
+    def test_llama_cpp_matching(self) -> None:
+        assert is_supported_model_for_provider("llama-cpp/acme/model:Q4_K_M", "llama-cpp")
+        assert not is_supported_model_for_provider("acme/model:Q4_K_M", "llama-cpp")
 
 
 # ---------------------------------------------------------------------------

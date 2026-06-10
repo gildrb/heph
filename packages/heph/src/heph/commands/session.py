@@ -6,7 +6,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.endpoints import provider_uses_keyless_access
 from ai.runtime import has_configured_access
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.session import (
@@ -184,7 +184,7 @@ def _session_armory_label(session: ChatSession) -> str:
 
 
 def _session_key_status(session: ChatSession) -> str:
-    if is_keyless_endpoint(session.config.base_url):
+    if provider_uses_keyless_access(session.config.provider_slug, session.config.base_url):
         return "not needed (free provider)"
     if has_configured_access(session.config, refresh_oauth=False):
         return "configured"

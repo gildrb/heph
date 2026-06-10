@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from hephaion.memory import MemoryEntry
+
 from heph.commands._base import Command, CommandResult, ensure_session
+from heph.commands.terminal_text import terminal_safe_text
+
+
+def _format_memory_entry(entry: MemoryEntry) -> str:
+    source = f" ({terminal_safe_text(entry.source)})" if entry.source else ""
+    return (
+        f"- [{terminal_safe_text(entry.confidence)}] "
+        f"{terminal_safe_text(entry.topic)}: {terminal_safe_text(entry.content)}{source}"
+    )
 
 
 class MemoryCommand(Command):
     name = "memory"
-    description = "Show local armory memory status"
+    description = "Show saved armory memory"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -15,8 +26,10 @@ class MemoryCommand(Command):
         if subcommand != "status":
             print("Usage: /memory [status]")
             return CommandResult()
-        backend = "armory-local" if s.armory_path is not None else "session-local"
-        entries = len(s.memory.entries) if s.memory is not None else 0
-        print(f"Backend: {backend}")
-        print(f"Entries: {entries}")
+        if s.memory is None or not s.memory.entries:
+            print("No saved memory yet.")
+            return CommandResult()
+        print("Saved memory:")
+        for entry in s.memory.entries:
+            print(_format_memory_entry(entry))
         return CommandResult()

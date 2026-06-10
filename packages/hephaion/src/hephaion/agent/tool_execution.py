@@ -12,7 +12,7 @@ from ai.logging import Timer, get_logger
 from ai.runtime import ApiMessage, ToolCallDelta
 
 from hephaion._types import is_string_mapping
-from hephaion.agent.tool_schema import ToolHandlerResult
+from hephaion.agent.tool_schema import ToolHandlerResult, ToolSpec
 from hephaion.agent.tools import ToolRegistry, ToolResult, default_registry
 
 _log = get_logger("hephaion.agent.tool_execution")
@@ -20,6 +20,7 @@ _log = get_logger("hephaion.agent.tool_execution")
 _MAX_RESULT_DISPLAY = 200
 _MAX_TOOL_CALLS_PER_TURN = 5
 _TOOL_DISPLAY_INDENT = "    "
+_RESERVED_TOOL_ARGUMENTS = frozenset({"workspace", "abort"})
 _TOOL_DISPLAY_FIELDS = {
     "bash": ("Running", "command"),
     "read_file": ("Reading", "path"),
@@ -116,10 +117,13 @@ def _execute_tool_call(
     if arguments is None:
         return _invalid_json_message(call_id, name)
 
-    arguments.pop("workspace", None)
     handler = registry.get_handler(name)
-    if handler is None:
+    spec = registry.get(name)
+    if handler is None or spec is None:
         return _unknown_tool_message(call_id, name)
+    validation_error = _tool_argument_validation_error(spec, arguments)
+    if validation_error:
+        return _invalid_tool_arguments_message(call_id, name, validation_error)
     if abort is not None and abort.is_set():
         return _cancelled_tool_message(call_id, name)
 
@@ -175,6 +179,28 @@ def _parse_tool_call_arguments(
 def _invalid_json_message(call_id: str, name: str) -> ApiMessage:
     content = f"Error: invalid JSON arguments for {name}"
     return _tool_message(call_id, ToolResult(False, content, error=content))
+
+
+def _invalid_tool_arguments_message(call_id: str, name: str, error: str) -> ApiMessage:
+    content = f"Error: invalid arguments for {name}: {error}"
+    return _tool_message(call_id, ToolResult(False, content, error=content))
+
+
+def _tool_argument_validation_error(spec: ToolSpec, arguments: dict[str, object]) -> str:
+    parameters = spec.schema["function"]["parameters"]
+    allowed = set(parameters["properties"])
+    supplied = set(arguments)
+    reserved = supplied & _RESERVED_TOOL_ARGUMENTS
+    if reserved:
+        return f"reserved argument(s): {', '.join(sorted(reserved))}"
+    if parameters.get("additionalProperties") is False:
+        unexpected = supplied - allowed
+        if unexpected:
+            return f"unexpected argument(s): {', '.join(sorted(unexpected))}"
+    missing = set(parameters["required"]) - supplied
+    if missing:
+        return f"missing required argument(s): {', '.join(sorted(missing))}"
+    return ""
 
 
 def _unknown_tool_message(call_id: str, name: str) -> ApiMessage:

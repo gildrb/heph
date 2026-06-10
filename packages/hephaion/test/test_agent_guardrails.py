@@ -7,12 +7,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ai.logging import Timer
-from ai.runtime import ChatConfig, Conversation
+from ai.runtime import ChatConfig, CompletionDelta, Conversation
 from hephaion.agent.dispatch import AgentLoopState, _tool_turn_events, iter_agent_events
-from hephaion.agent.model_stream import ModelStreamState, ModelTurnResult
+from hephaion.agent.model_stream import (
+    ModelStreamState,
+    ModelTurnResult,
+    _reasoning_delta_event,
+)
 from hephaion.agent.tool_execution import ToolCall
 from hephaion.agent.tools import ToolRegistry
-from hephaion.chat.events import GuardrailEvent, TurnCompleteEvent, TurnEvent
+from hephaion.chat.events import GuardrailEvent, ReasoningDeltaEvent, TurnCompleteEvent, TurnEvent
+from hephaion.chat.orchestrator import TurnOrchestrator
+from hephaion.chat.session import ChatSession
+from hephaion.chat.turn_execution import _plain_reasoning_delta_event
+from hephaion.chat.turn_outputs import _LearningAgentBuffer
 from hephaion.chat.usage import ContextBudget
 
 
@@ -58,6 +66,54 @@ def test_unknown_tool_call_is_blocked_before_execution(tmp_path: Path) -> None:
         conversation.messages[-1].content
         == "Blocked a tool call that is not registered in this armory."
     )
+
+
+def test_reasoning_delta_visibility_respects_configured_mode() -> None:
+    summary_delta = CompletionDelta(reasoning_summary="short summary")
+    raw_delta = CompletionDelta(reasoning="raw thinking")
+    combined_delta = CompletionDelta(reasoning="raw thinking", reasoning_summary="short summary")
+
+    assert _reasoning_delta_event(summary_delta, "off") is None
+    minimal_event = _reasoning_delta_event(summary_delta, "minimal")
+    all_event = _reasoning_delta_event(raw_delta, "all")
+
+    assert minimal_event == ReasoningDeltaEvent("short summary", summary=True)
+    assert _reasoning_delta_event(raw_delta, "minimal") is None
+    assert all_event == ReasoningDeltaEvent("raw thinking")
+    assert _reasoning_delta_event(combined_delta, "all") == ReasoningDeltaEvent("raw thinking")
+    assert _plain_reasoning_delta_event(combined_delta, "all") == ReasoningDeltaEvent(
+        "raw thinking"
+    )
+
+
+def test_buffered_learning_agent_suppresses_reasoning_events() -> None:
+    orchestrator = TurnOrchestrator(
+        ChatSession(
+            config=ChatConfig(model="test-model"),
+            conversation=Conversation(),
+            session_id="test-session",
+        )
+    )
+    hidden_reasoning = ReasoningDeltaEvent("hidden source-grounded pass", summary=True)
+    visible_reasoning = ReasoningDeltaEvent("visible pass", summary=True)
+
+    hidden_events = list(
+        orchestrator._record_learning_agent_event(
+            hidden_reasoning,
+            _LearningAgentBuffer(),
+            buffer_output=True,
+        )
+    )
+    visible_events = list(
+        orchestrator._record_learning_agent_event(
+            visible_reasoning,
+            _LearningAgentBuffer(),
+            buffer_output=False,
+        )
+    )
+
+    assert hidden_events == []
+    assert visible_events == [visible_reasoning]
 
 
 def test_blocked_tool_call_completes_agent_loop(tmp_path: Path) -> None:

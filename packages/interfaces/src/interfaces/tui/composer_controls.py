@@ -139,6 +139,8 @@ class _ComposerControlsHost(Protocol):
 
     def _apply_highlighted_completion(self) -> None: ...
 
+    def _refresh_live_token_status(self, draft: str) -> None: ...
+
     def _completion_menu_visible(self) -> bool: ...
 
     def _refresh_completions(self) -> None: ...
@@ -362,6 +364,7 @@ class TuiComposerControlsMixin:
                 self._materials_filter = event.value
                 self._refresh_materials_inline()
                 return
+            self._refresh_live_token_status(event.value)
             self._refresh_completions()
 
     def on_option_list_option_selected(
@@ -538,6 +541,12 @@ class TuiComposerControlsMixin:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         highlighted = suggestions.highlighted
         self._apply_completion(highlighted if highlighted is not None else 0)
+
+    def _refresh_live_token_status(self: _ComposerControlsHost, draft: str) -> None:
+        if not self.session.live_tokens_visible:
+            return
+        chat_draft = "" if draft.lstrip().startswith("/") else draft
+        self.query_one("#status", Static).update(_status_text(self.session, draft=chat_draft))
 
     def _completion_menu_visible(self: _ComposerControlsHost) -> bool:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)

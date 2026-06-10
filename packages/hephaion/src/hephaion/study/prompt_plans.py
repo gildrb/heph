@@ -52,6 +52,7 @@ _MATERIAL_OVERVIEW_ANSWER_RULES = (
     "- Do not copy source lines, use filenames/metadata as facts, append inventories, "
     "or add offers.",
 )
+_MATERIAL_PRESENTATION_TOOL_NAMES = ("search_materials", "open_material")
 
 _ACTIVE_RECALL_QUESTION_CONTRACT = (
     "- Use only the provided source material; do not invent facts beyond normal wording "
@@ -317,6 +318,7 @@ def material_topic_presentation_plan(
         original_user_input=user_request,
         retrieval_query=query,
         allow_tools=True,
+        allowed_tool_names=_MATERIAL_PRESENTATION_TOOL_NAMES,
     )
 
 

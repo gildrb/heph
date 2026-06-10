@@ -105,6 +105,7 @@ def _tool(
                 "type": "object",
                 "properties": properties if properties is not None else {},
                 "required": list(required),
+                "additionalProperties": False,
             },
         },
     }
@@ -192,7 +193,8 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         ),
         {
             "source_path": _string(
-                "Exact local file or directory path to copy. Absolute paths and ~ are accepted."
+                "Workspace-relative file or directory path to copy. Absolute paths and ~ are "
+                "rejected in agent turns."
             ),
             "target_armory": _string(
                 "Optional exact armory name or explicit armory path. Defaults to current armory."
@@ -207,7 +209,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         "search_files",
         "Search text files in the workspace.",
         {
-            "pattern": _string("Text or regex pattern to search for."),
+            "pattern": _string("Literal text to search for."),
             "path": _string("Directory to search in. Defaults to workspace root."),
             "case_sensitive": {
                 "type": "boolean",

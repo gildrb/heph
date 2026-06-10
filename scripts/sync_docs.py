@@ -162,6 +162,14 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Export local numeric learning-attempt data to an armory-local "
         "PufferLib Constellation `experiments.json` file."
     ),
+    "heph local search [query]": "Search public non-gated GGUF models on Hugging Face.",
+    "heph local install <repo-or-path>": (
+        "Install a Hugging Face GGUF model or local `.gguf` path, then activate it only if "
+        "it passes Heph's tool-call probe."
+    ),
+    "heph local status": "Show managed llama.cpp cache, server, and installed-model status.",
+    "heph local revalidate <model-id>": "Rerun the tool-call probe for an installed local model.",
+    "heph local stop": "Stop the managed localhost llama.cpp server.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -240,6 +248,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         "materials",
         "index",
         "health",
+        "local",
         "update",
         "sdk",
         "config",
@@ -252,6 +261,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     armory_parser = subparsers.choices["armory"]
     materials_parser = subparsers.choices["materials"]
     config_parser = subparsers.choices["config"]
+    local_parser = subparsers.choices["local"]
     sdk_parser = subparsers.choices["sdk"]
     chat_parser = subparsers.choices["chat"]
 
@@ -264,6 +274,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     armory_help = build_help_map(armory_sub)
     materials_help = build_help_map(materials_sub)
     config_help = build_help_map(config_sub)
+    local_sub = get_subparsers_action(local_parser)
+    local_help = build_help_map(local_sub)
     sdk_help = build_help_map(sdk_sub)
     chat_help = build_help_map(chat_sub)
 
@@ -301,6 +313,20 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             f"{short_command} learning constellation-export [path]",
             CLI_COMMAND_DESCRIPTIONS["heph learning constellation-export [path]"],
         ),
+        CommandLine(
+            f"{short_command} local search [query]",
+            CLI_COMMAND_DESCRIPTIONS["heph local search [query]"],
+        ),
+        CommandLine(
+            f"{short_command} local install <repo-or-path>",
+            CLI_COMMAND_DESCRIPTIONS["heph local install <repo-or-path>"],
+        ),
+        CommandLine(f"{short_command} local status", local_help["status"]),
+        CommandLine(
+            f"{short_command} local revalidate <model-id>",
+            CLI_COMMAND_DESCRIPTIONS["heph local revalidate <model-id>"],
+        ),
+        CommandLine(f"{short_command} local stop", local_help["stop"]),
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
@@ -332,6 +358,9 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} materials index <path>",
         f"{short_command} index [path]",
         f"{short_command} health [path]",
+        f"{short_command} local search [query]",
+        f"{short_command} local install <repo-or-path>",
+        f"{short_command} local status",
         f"{short_command} update",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat ask --jsonl <path> [prompt]",

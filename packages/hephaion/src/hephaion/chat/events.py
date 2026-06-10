@@ -9,6 +9,7 @@ CompactRequestEvent = _events.CompactRequestEvent
 GuardrailEvent = _events.GuardrailEvent
 MaterialOperationEvent = _events.MaterialOperationEvent
 NoticeEvent = _events.NoticeEvent
+ReasoningDeltaEvent = _events.ReasoningDeltaEvent
 ToolCallEvent = _events.ToolCallEvent
 ToolResultEvent = _events.ToolResultEvent
 TurnCompleteEvent = _events.TurnCompleteEvent
@@ -19,6 +20,8 @@ strip_decorative_symbols = _events.strip_decorative_symbols
 def render_turn_event(event: TurnEvent) -> str:
     if isinstance(event, AssistantDeltaEvent):
         return event.delta
+    if isinstance(event, ReasoningDeltaEvent):
+        return ""
     if isinstance(event, NoticeEvent):
         return _render_notice(event)
     if isinstance(event, GuardrailEvent):

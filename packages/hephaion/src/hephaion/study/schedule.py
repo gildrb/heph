@@ -11,11 +11,14 @@ from pathlib import Path
 from typing import TypedDict
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.armory.state_files import read_armory_state_text, write_armory_state_text
 from hephaion.study.mastery import next_recall_mastery
 from hephaion.study.state import RecallRating
 
 _RECALL_SCHEDULE_FILE = "recall_schedule.json"
 _LEGACY_RECALL_SCHEDULE_FILE = "study_schedule.json"
+_RECALL_SCHEDULE_REL_PATH = f".hephaion/{_RECALL_SCHEDULE_FILE}"
+_LEGACY_RECALL_SCHEDULE_REL_PATH = f".hephaion/{_LEGACY_RECALL_SCHEDULE_FILE}"
 _DEFAULT_DIFFICULTY = 5.0
 _DEFAULT_STABILITY = 1.0
 _MAX_INTERVAL_DAYS = 365
@@ -287,8 +290,13 @@ class RecallScheduleStore:
         path = self._read_path
         if not path.is_file():
             return False
+        rel_path = (
+            _RECALL_SCHEDULE_REL_PATH if path == self._path else _LEGACY_RECALL_SCHEDULE_REL_PATH
+        )
         with contextlib.suppress(json.JSONDecodeError, OSError):
-            payload = _schedule_payload(json.loads(path.read_text(encoding="utf-8")))
+            payload = _schedule_payload(
+                json.loads(read_armory_state_text(self.armory_path, rel_path))
+            )
             if payload is None:
                 return False
             self.items = payload.items
@@ -297,7 +305,6 @@ class RecallScheduleStore:
         return False
 
     def save(self) -> Path:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": 2,
             "updated_at": datetime.now(UTC).isoformat(),
@@ -306,9 +313,13 @@ class RecallScheduleStore:
                 key: stats.to_dict() for key, stats in sorted(self.policy_stats.items())
             },
         }
-        self._path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        path = write_armory_state_text(
+            self.armory_path,
+            _RECALL_SCHEDULE_REL_PATH,
+            json.dumps(payload, indent=2) + "\n",
+        )
         self._dirty = False
-        return self._path
+        return path
 
     def record_review(
         self,

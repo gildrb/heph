@@ -265,6 +265,117 @@ def _cmd_update(_args: argparse.Namespace) -> None:
     print("  uv tool upgrade heph")
 
 
+def _cmd_local(args: argparse.Namespace) -> None:
+    command = args.local_command
+    if command == "search":
+        _cmd_local_search(args)
+        return
+    if command == "install":
+        _cmd_local_install(args)
+        return
+    if command == "status":
+        _cmd_local_status()
+        return
+    if command == "revalidate":
+        _cmd_local_revalidate(args)
+        return
+    if command == "stop":
+        _cmd_local_stop()
+
+
+def _cmd_local_search(args: argparse.Namespace) -> None:
+    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
+    query = " ".join(args.query).strip()
+    candidates = llama_cpp.search_gguf_models(query, limit=args.limit)
+    if not candidates:
+        print("No public non-gated GGUF models matched that search.")
+        return
+    for index, candidate in enumerate(candidates, start=1):
+        details = _local_candidate_details(candidate)
+        suffix = f"  {details}" if details else ""
+        print(f"{index}. {candidate.label}{suffix}")
+
+
+def _cmd_local_install(args: argparse.Namespace) -> None:
+    if not args.target:
+        print(
+            "error: local install requires a Hugging Face repo or local .gguf path",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    local_llm = importlib.import_module("heph.local_llm")
+    try:
+        result = local_llm.install_local_target(args.target, model_id=args.model_id or "")
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if not result.capability.passed:
+        reason = result.capability.reason or "model did not return a valid tool call"
+        print(
+            f"Installed but not activated because the tool-call probe failed: {reason}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    local_llm.activate_local_record(result.record)
+    print(f"Activated local model: {result.record.model_id}")
+
+
+def _cmd_local_status() -> None:
+    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
+    print("Local llama.cpp")
+    print(f"  cache: {llama_cpp.llama_cpp_cache_dir()}")
+    print(f"  models: {llama_cpp.llama_cpp_model_cache_dir()}")
+    server = llama_cpp.current_server_state()
+    if server is None:
+        print("  server: stopped")
+    else:
+        print(f"  server: running on {server.endpoint}")
+        print(f"  active model: {server.model_id}")
+    records = llama_cpp.installed_records()
+    if not records:
+        print("  installed: none")
+        return
+    print("  installed:")
+    for record in records:
+        status = "tool-capable" if record.tool_capable else "not selectable"
+        print(f"  - {record.model_id} ({status})")
+
+
+def _cmd_local_revalidate(args: argparse.Namespace) -> None:
+    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
+    local_llm = importlib.import_module("heph.local_llm")
+    capability = llama_cpp.revalidate_model(args.model_id)
+    record = llama_cpp.model_record(args.model_id)
+    if record is None:
+        print(f"error: {capability.reason or 'model is not installed'}", file=sys.stderr)
+        raise SystemExit(1)
+    if not capability.passed:
+        reason = capability.reason or "model did not return a valid tool call"
+        print(f"error: tool-call probe failed: {reason}", file=sys.stderr)
+        raise SystemExit(1)
+    local_llm.activate_local_record(record)
+    print(f"Revalidated and activated local model: {args.model_id}")
+
+
+def _cmd_local_stop() -> None:
+    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
+    if llama_cpp.stop_llama_server():
+        print("Stopped llama.cpp.")
+        return
+    print("No managed llama.cpp server was running.")
+
+
+def _local_candidate_details(candidate: object) -> str:
+    details: list[str] = []
+    downloads = getattr(candidate, "downloads", 0)
+    likes = getattr(candidate, "likes", 0)
+    if isinstance(downloads, int) and downloads:
+        details.append(f"{downloads:,} downloads")
+    if isinstance(likes, int) and likes:
+        details.append(f"{likes:,} likes")
+    return ", ".join(details)
+
+
 def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
     if not rows:
         return []
@@ -414,6 +525,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show how to update the active Heph install.",
     )
     update.set_defaults(handler=_cmd_update)
+
+    local = subparsers.add_parser(
+        "local",
+        help="Manage private local llama.cpp models.",
+    )
+    local_sub = local.add_subparsers(dest="local_command", required=True)
+    local_search = local_sub.add_parser("search", help="Search public non-gated GGUF models.")
+    local_search.add_argument(
+        "query",
+        nargs="*",
+        help="Search terms or a Hugging Face owner/repo.",
+    )
+    local_search.add_argument("--limit", type=int, default=20, help="Maximum results to show.")
+    local_search.set_defaults(handler=_cmd_local)
+
+    local_install = local_sub.add_parser(
+        "install",
+        help="Install a Hugging Face GGUF model or local .gguf path.",
+    )
+    local_install.add_argument(
+        "target",
+        nargs="?",
+        help="Hugging Face repo[:quant] or .gguf path.",
+    )
+    local_install.add_argument(
+        "--model-id",
+        default="",
+        help="Model id alias for a local .gguf path.",
+    )
+    local_install.set_defaults(handler=_cmd_local)
+
+    local_status = local_sub.add_parser("status", help="Show local llama.cpp status.")
+    local_status.set_defaults(handler=_cmd_local)
+
+    local_revalidate = local_sub.add_parser(
+        "revalidate",
+        help="Run the tool-call probe for an installed local model.",
+    )
+    local_revalidate.add_argument("model_id", help="Installed local model id.")
+    local_revalidate.set_defaults(handler=_cmd_local)
+
+    local_stop = local_sub.add_parser("stop", help="Stop the managed llama.cpp server.")
+    local_stop.set_defaults(handler=_cmd_local)
 
     sdk = subparsers.add_parser(
         "sdk",

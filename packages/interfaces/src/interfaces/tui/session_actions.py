@@ -21,6 +21,7 @@ from hephaion.chat.session import (
 )
 from hephaion.diagnostics.events import capture as capture_analytics
 from hephaion.parameters.cli import load_config
+from hephaion.parameters.settings import load_app_settings
 
 from interfaces.terminal import current_palette, print_error, print_info, set_theme
 from interfaces.terminal.history import InputHistory
@@ -35,6 +36,14 @@ if TYPE_CHECKING:
     from ai.runtime import ChatConfig
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaion"
+
+
+def apply_display_settings(session: ChatSession) -> ChatSession:
+    settings = load_app_settings()
+    session.config.thinking_visibility = settings.thinking_visibility
+    session.live_tokens_visible = settings.live_tokens_visible
+    session.live_cost_visible = settings.live_cost_visible
+    return session
 
 
 def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
@@ -63,7 +72,7 @@ def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatS
                 "model": new_session.config.model,
             },
         )
-    return new_session
+    return apply_display_settings(new_session)
 
 
 def create_startup_session(config: ChatConfig) -> ChatSession:
@@ -73,15 +82,15 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
             print_info("Multiple armories found. Use /armory to choose one.")
         else:
             print_info("No armory attached. Use /armory or `heph armory init <name>`.")
-        return create_plain_session(config)
+        return apply_display_settings(create_plain_session(config))
     try:
         session = create_session(config, armory)
         set_last_armory(armory)
-        return session
+        return apply_display_settings(session)
     except SessionError:
         print_error("Auto-discovered armory has no materials.")
         print_info(empty_armory_guidance(armory))
-        return create_plain_session(config)
+        return apply_display_settings(create_plain_session(config))
 
 
 def get_history_path(session: ChatSession) -> Path:
@@ -125,7 +134,7 @@ def _ensure_tui_dependencies(tui_module) -> None:
 
 def _startup_session(tui_module, session: ChatSession | None) -> ChatSession:
     if session is not None:
-        return session
+        return apply_display_settings(session)
     return tui_module.create_startup_session(load_config())
 
 
@@ -199,4 +208,4 @@ def run_tui_for_path(path: Path | None) -> None:
 
 
 def resolve_armory_session(path: str) -> ChatSession:
-    return chat_resolve_armory_session(path)
+    return apply_display_settings(chat_resolve_armory_session(path))

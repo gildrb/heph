@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.armory.state_files import read_armory_state_text
 
 _EXAM_BANK_FILE = "exam_bank.json"
+_EXAM_BANK_REL_PATH = f".hephaion/{_EXAM_BANK_FILE}"
 _EXAM_BANK_VERSION = 1
 
 
@@ -67,7 +69,7 @@ def load_exam_bank(armory_path: Path) -> ExamBank:
     if not path.is_file():
         return ExamBank(items=())
     with contextlib.suppress(json.JSONDecodeError, OSError):
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(read_armory_state_text(armory_path, _EXAM_BANK_REL_PATH))
         if is_string_mapping(payload):
             return _exam_bank_from_payload(payload)
     return ExamBank(items=())

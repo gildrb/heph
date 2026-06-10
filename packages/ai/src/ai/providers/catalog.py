@@ -22,6 +22,11 @@ import certifi
 
 from ai.logging import get_logger
 from ai.providers.config import ProviderConfig
+from ai.providers.llama_cpp import (
+    LLAMA_CPP_PROVIDER_SLUG,
+    installed_tool_capable_records,
+    model_info_for_record,
+)
 from ai.providers.model_support import is_supported_model_for_provider
 from ai.providers.registry import ModelInfo, get_registry
 from ai.types import is_object_list, is_string_mapping
@@ -62,6 +67,9 @@ def hydrate_provider_models(
     allow_network: bool = False,
     provider_slugs: set[str] | None = None,
 ) -> None:
+    if provider_slugs is None or LLAMA_CPP_PROVIDER_SLUG in provider_slugs:
+        _hydrate_llama_cpp_models(config)
+
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
@@ -69,6 +77,8 @@ def hydrate_provider_models(
 
     for slug, provider in config.providers.items():
         if provider_slugs is not None and slug not in provider_slugs:
+            continue
+        if slug == LLAMA_CPP_PROVIDER_SLUG:
             continue
         catalog = _live_catalog_for_provider(
             slug,
@@ -83,6 +93,21 @@ def hydrate_provider_models(
         registry = get_registry()
         for info in catalog.metadata:
             registry.register(info)
+
+
+def _hydrate_llama_cpp_models(config: ProviderConfig) -> None:
+    provider = config.providers.get(LLAMA_CPP_PROVIDER_SLUG)
+    if provider is None:
+        return
+    records = installed_tool_capable_records()
+    provider.models = [record.model_id for record in records]
+    if records:
+        provider.endpoint = records[0].endpoint
+    if provider.current_model and provider.current_model not in provider.models:
+        provider.current_model = ""
+    registry = get_registry()
+    for record in records:
+        registry.register(model_info_for_record(record))
 
 
 def prefetch_provider_model_catalogs(

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 import pytest
-from hephaion.armory.state_files import armory_state_location
+from hephaion.armory import state_files
+from hephaion.armory.state_files import armory_state_location, write_armory_state_text
 from hephaion.armory.storage import (
     ARMORY_DIRS,
     MARKER_FILE,
@@ -69,6 +71,20 @@ def test_armory_state_location_uses_armory_internal_dir_boundary(tmp_path: Path)
 
     assert parsed_armory == armory_path
     assert rel_path == Path(".hephaion/learning/attempts.jsonl")
+
+
+def test_write_armory_state_text_falls_back_without_fchmod(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    armory_path = tmp_path / "armory"
+    initialize(armory_path)
+    monkeypatch.delattr(state_files.os, "fchmod", raising=False)
+
+    state_path = write_armory_state_text(armory_path, ".hephaion/session.json", "ok")
+
+    assert state_path.read_text(encoding="utf-8") == "ok"
+    assert stat.S_IMODE(state_path.stat().st_mode) == state_files.STATE_FILE_MODE
 
 
 def test_normalize_path_returns_absolute_path(tmp_path: Path) -> None:

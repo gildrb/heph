@@ -66,6 +66,8 @@ synced armories are available as long as their `.hephaion/armory.toml` marker an
 When Heph is open without an attached armory, entering the exact name of a
 discovered armory opens it directly. Names and relative paths resolve inside
 `~/.armories`; Heph will not open armories outside that directory from this flow.
+When Heph is already attached to an armory, entering exactly `detach` leaves the
+current armory and continues in plain chat.
 
 ## Managing Documents
 

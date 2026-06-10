@@ -10,7 +10,12 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from ai.providers.config import ProviderConfig, default_config
-from ai.runtime import ChatConfig, has_configured_access, is_keyless_endpoint
+from ai.runtime import (
+    ChatConfig,
+    has_configured_access,
+    is_keyless_endpoint,
+    normalize_thinking_visibility,
+)
 
 from hephaion.parameters import settings as settings_store
 from hephaion.privacy import consent as privacy_consent
@@ -80,6 +85,8 @@ def _apply_mapping_overrides(config: ChatConfig, values: Mapping[str, str]) -> N
     _apply_float_override(config, "temperature", values.get("temperature"))
     if feature_flags := values.get("feature_flags"):
         config.feature_flags = settings_store.parse_feature_flags(feature_flags)
+    if thinking_visibility := values.get("thinking_visibility"):
+        config.thinking_visibility = normalize_thinking_visibility(thinking_visibility)
 
 
 def _apply_int_override(config: ChatConfig, field_name: str, value: str | None) -> None:
@@ -122,11 +129,19 @@ _CONFIG_KEY_TO_ENV = {
     "theme": "",
     "default_armory_path": "",
     "activity_trace_mode": "",
+    "thinking_visibility": "",
+    "live_tokens_visible": "",
+    "live_cost_visible": "",
     "analytics_enabled": "HEPHAION_ANALYTICS_ENABLED",
     "crash_reports_enabled": "HEPHAION_CRASH_REPORTS_ENABLED",
 }
 
-_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled"}
+_BOOL_KEYS = {
+    "analytics_enabled",
+    "crash_reports_enabled",
+    "live_tokens_visible",
+    "live_cost_visible",
+}
 _SETTING_DESCRIPTIONS = {
     "base_url": "OpenAI-compatible API base URL",
     "model": "Model identifier",
@@ -137,6 +152,9 @@ _SETTING_DESCRIPTIONS = {
     "theme": "TUI theme preset",
     "default_armory_path": "Startup armory fallback path",
     "activity_trace_mode": "Live activity trace verbosity",
+    "thinking_visibility": "Model thinking visibility: off, minimal, or all",
+    "live_tokens_visible": "Show token estimates in the TUI status bar",
+    "live_cost_visible": "Show cost estimates in the TUI status bar",
     "analytics_enabled": "Anonymous usage analytics opt-in",
     "crash_reports_enabled": "Redacted crash reporting opt-in",
 }
@@ -148,6 +166,9 @@ def _effective_setting_value(key: str) -> str:
         "theme": app_settings.theme,
         "default_armory_path": app_settings.default_armory_path or "(not set)",
         "activity_trace_mode": app_settings.activity_trace_mode,
+        "thinking_visibility": app_settings.thinking_visibility,
+        "live_tokens_visible": str(app_settings.live_tokens_visible).lower(),
+        "live_cost_visible": str(app_settings.live_cost_visible).lower(),
     }.get(key)
     if app_value is not None:
         return app_value
@@ -190,6 +211,9 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  theme: {_effective_setting_value('theme')}")
     print(f"  default_armory_path: {_effective_setting_value('default_armory_path')}")
     print(f"  activity_trace_mode: {_effective_setting_value('activity_trace_mode')}")
+    print(f"  thinking_visibility: {_effective_setting_value('thinking_visibility')}")
+    print(f"  live_tokens_visible: {_effective_setting_value('live_tokens_visible')}")
+    print(f"  live_cost_visible: {_effective_setting_value('live_cost_visible')}")
     print(f"  analytics_enabled: {_effective_setting_value('analytics_enabled')}")
     print(f"  crash_reports_enabled: {_effective_setting_value('crash_reports_enabled')}")
 
@@ -250,11 +274,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
     set_cmd.add_argument(
         "key",
-        help=(
-            "Config key "
-            "(base_url, model, max_tokens, rag_context_budget, temperature, feature_flags, theme, "
-            "default_armory_path, analytics_enabled, crash_reports_enabled)."
-        ),
+        help=f"Config key ({', '.join(_CONFIG_KEY_TO_ENV)}).",
     )
     set_cmd.add_argument("value", help="Value to set.")
     set_cmd.set_defaults(handler=_cmd_config_set)

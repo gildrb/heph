@@ -6,18 +6,28 @@ from pathlib import Path
 
 import ai.providers.model_choices as _model_choices
 import heph.commands.display as _commands_display
+import heph.commands.local as _commands_local
 import heph.commands.model as _commands_model
 import heph.commands.study as _learning_commands
 import pytest
 from ai.providers import catalog
 from ai.providers.catalog import LiveProviderCatalog
 from ai.providers.config import Provider, default_config
+from ai.providers.llama_cpp import (
+    LLAMA_CPP_PROVIDER_SLUG,
+    LlamaCppInstallResult,
+    LlamaCppModelRecord,
+    LlamaCppServerState,
+    ToolCapabilityResult,
+)
 from ai.providers.registry import ModelInfo
 from ai.runtime import ChatConfig, Conversation
 from heph import commands
 from hephaion.armory.storage import initialize
 from hephaion.chat import model_selection as _model_selection
 from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.memory import MemoryStore
+from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
@@ -74,6 +84,15 @@ def test_command_registry_includes_settings() -> None:
     assert "settings" in names
 
 
+def test_command_registry_includes_local() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("local") is not None
+    assert "local" in names
+
+
 def test_detach_command_returns_plain_session(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
@@ -108,6 +127,7 @@ def test_settings_command_prints_summary(capsys: pytest.CaptureFixture[str]) -> 
     assert "Settings are managed in the TUI with /settings." in out
     assert "Theme:" in out
     assert "Activity trace:" in out
+    assert "Model thinking:" in out
     assert "Provider:" in out
 
 
@@ -397,15 +417,51 @@ def test_command_registry_includes_memory() -> None:
     assert "memory" in names
 
 
-def test_memory_status_reports_local_memory(capsys: pytest.CaptureFixture[str]) -> None:
+def test_memory_status_reports_saved_memory(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
+    memory = MemoryStore(tmp_path)
+    memory.add(
+        "citation style",
+        "User prefers compact cited answers.",
+        source="conversation",
+        confidence="verified",
+    )
+    session.configure_armory_context(memory=memory)
 
     result = commands.MemoryCommand().handle(session, "status")
 
     out = capsys.readouterr().out
     assert result.output is None
-    assert "Backend:" in out
-    assert "Entries:" in out
+    assert "Saved memory:" in out
+    assert "- [verified] citation style: User prefers compact cited answers. (conversation)" in out
+    assert "Entries:" not in out
+
+
+def test_memory_status_escapes_terminal_controls(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    memory = MemoryStore(tmp_path)
+    memory.add(
+        "topic\x1b[31m",
+        "content\x07",
+        source="source\x1b[0m",
+        confidence="verified",
+    )
+    session.configure_armory_context(memory=memory)
+
+    commands.MemoryCommand().handle(session, "status")
+
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "\x07" not in out
+    assert "topic\\x1b[31m" in out
+    assert "content\\x07" in out
+    assert "source\\x1b[0m" in out
 
 
 def test_command_registry_uses_sessions_for_saved_chat_switching() -> None:
@@ -428,7 +484,7 @@ def test_command_registry_includes_session_utility_commands() -> None:
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
-    for name in ("evidence", "tokens", "cost", "stats"):
+    for name in ("evidence", "tokens", "cost", "thinking", "stats"):
         assert registry.find(name) is not None
         assert name in names
 
@@ -447,6 +503,37 @@ def test_tokens_and_cost_commands_toggle_live_toolbar() -> None:
 
     assert session.live_tokens_visible is False
     assert session.live_cost_visible is False
+
+
+def test_tokens_and_cost_commands_persist_live_toolbar_state() -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.TokensCommand().handle(session, "show")
+    commands.CostCommand().handle(session, "hide")
+
+    saved = settings_store.load_raw_settings()
+    assert saved["live_tokens_visible"] is True
+    assert saved["live_cost_visible"] is False
+
+
+def test_thinking_command_sets_and_persists_visibility() -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ThinkingCommand().handle(session, "all")
+
+    saved = settings_store.load_raw_settings()
+    assert session.config.thinking_visibility == "all"
+    assert saved["thinking_visibility"] == "all"
+
+
+def test_thinking_command_cycles_visibility(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ThinkingCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert session.config.thinking_visibility == "minimal"
+    assert "Model thinking: Minimal." in out
 
 
 def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str]) -> None:
@@ -684,6 +771,245 @@ def test_switch_model_rejects_inaccessible_provider(
     assert session.config.model == "openai"
 
 
+def test_switch_model_starts_local_llama_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/model:Q4_K_M",
+        repo_id="acme/model",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    server = LlamaCppServerState(
+        pid=123,
+        endpoint="http://127.0.0.1:18124/v1",
+        model_id=record.model_id,
+        started_at=1.0,
+    )
+    pc = default_config()
+    provider = pc.providers[LLAMA_CPP_PROVIDER_SLUG]
+    provider.models = [record.model_id]
+    provider.endpoint = record.endpoint
+    session = ChatSession(
+        config=ChatConfig(base_url="", model=""),
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(_model_selection.ProviderConfig, "save", lambda _self: None)
+    monkeypatch.setattr(
+        _model_selection.llama_cpp,
+        "model_record",
+        lambda model: record if model == record.model_id else None,
+    )
+    monkeypatch.setattr(_model_selection.llama_cpp, "start_record", lambda _record: server)
+
+    assert _model_selection.switch_model(session, LLAMA_CPP_PROVIDER_SLUG, record.model_id)
+    assert provider.endpoint == server.endpoint
+    assert provider.current_model == record.model_id
+    assert session.config.base_url == server.endpoint
+    assert session.config.model == record.model_id
+    assert session.config.provider_slug == LLAMA_CPP_PROVIDER_SLUG
+
+
+def test_ensure_session_model_ready_starts_saved_local_llama_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/model:Q4_K_M",
+        repo_id="acme/model",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    server = LlamaCppServerState(
+        pid=123,
+        endpoint="http://127.0.0.1:18124/v1",
+        model_id=record.model_id,
+        started_at=1.0,
+    )
+    pc = default_config()
+    provider = pc.providers[LLAMA_CPP_PROVIDER_SLUG]
+    provider.models = [record.model_id]
+    provider.current_model = record.model_id
+    provider.endpoint = record.endpoint
+    pc.set_active(LLAMA_CPP_PROVIDER_SLUG)
+    session = ChatSession(
+        config=ChatConfig(base_url=record.endpoint, model=record.model_id),
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(_model_selection.ProviderConfig, "save", lambda _self: None)
+    monkeypatch.setattr(
+        _model_selection,
+        "hydrate_provider_models",
+        lambda _pc, *, provider_slugs: None,
+    )
+    monkeypatch.setattr(
+        _model_selection.llama_cpp,
+        "model_record",
+        lambda model: record if model == record.model_id else None,
+    )
+    monkeypatch.setattr(_model_selection.llama_cpp, "start_record", lambda _record: server)
+
+    assert _model_selection.ensure_session_model_ready(session)
+    assert provider.endpoint == server.endpoint
+    assert session.config.base_url == server.endpoint
+    assert session.config.model == record.model_id
+    assert session.config.provider_slug == LLAMA_CPP_PROVIDER_SLUG
+
+
+def test_ensure_session_model_ready_ignores_remote_session_with_active_local_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pc = default_config()
+    provider = pc.providers[LLAMA_CPP_PROVIDER_SLUG]
+    provider.models = ["llama-cpp/acme/model:Q4_K_M"]
+    provider.current_model = "llama-cpp/acme/model:Q4_K_M"
+    pc.set_active(LLAMA_CPP_PROVIDER_SLUG)
+    config = ChatConfig(base_url="https://api.openai.com/v1", model="gpt-5.5")
+    config.apply_provider_reference("openai", "OPENAI_API_KEY")
+    session = ChatSession(
+        config=config,
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(
+        _model_selection,
+        "hydrate_provider_models",
+        lambda _pc, *, provider_slugs: pytest.fail(
+            "remote sessions must not hydrate local models"
+        ),
+    )
+    monkeypatch.setattr(
+        _model_selection.llama_cpp,
+        "start_record",
+        lambda _record: pytest.fail("remote sessions must not start llama.cpp"),
+    )
+
+    assert _model_selection.ensure_session_model_ready(session)
+    assert session.config.base_url == "https://api.openai.com/v1"
+    assert session.config.model == "gpt-5.5"
+    assert session.config.provider_slug == "openai"
+
+
+def test_ensure_session_model_ready_ignores_remote_override_after_local_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ChatConfig(base_url="https://example.test/v1", model="custom-model")
+    config.apply_provider_reference(LLAMA_CPP_PROVIDER_SLUG, "")
+    session = ChatSession(
+        config=config,
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pytest.fail("remote overrides must not load provider config")),
+    )
+
+    assert _model_selection.ensure_session_model_ready(session)
+    assert session.config.base_url == "https://example.test/v1"
+    assert session.config.model == "custom-model"
+    assert session.config.provider_slug == LLAMA_CPP_PROVIDER_SLUG
+
+
+def test_local_command_activates_tool_capable_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="", model=""))
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/model:Q4_K_M",
+        repo_id="acme/model",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    result = LlamaCppInstallResult(
+        record=record,
+        capability=ToolCapabilityResult(True),
+        server=LlamaCppServerState(
+            pid=123,
+            endpoint=record.endpoint,
+            model_id=record.model_id,
+            started_at=1.0,
+        ),
+    )
+    activated: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(_commands_local, "install_local_target", lambda _target: result)
+    monkeypatch.setattr(
+        _commands_local,
+        "activate_local_record",
+        lambda installed, active_session: activated.append(
+            (installed.model_id, active_session.session_id)
+        ),
+    )
+
+    commands.LocalCommand().handle(session, "install acme/model:Q4_K_M")
+
+    assert activated == [(record.model_id, session.session_id)]
+
+
+def test_local_command_keeps_failed_probe_unselectable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="", model=""))
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/acme/model:Q4_K_M",
+        repo_id="acme/model",
+        quant="Q4_K_M",
+        tool_capable=False,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+    result = LlamaCppInstallResult(
+        record=record,
+        capability=ToolCapabilityResult(False, "model did not return a tool call"),
+        server=LlamaCppServerState(
+            pid=123,
+            endpoint=record.endpoint,
+            model_id=record.model_id,
+            started_at=1.0,
+        ),
+    )
+    messages: list[str] = []
+
+    monkeypatch.setattr(_commands_local, "install_local_target", lambda _target: result)
+    monkeypatch.setattr(
+        _commands_local,
+        "activate_local_record",
+        lambda _record, _session: messages.append("activated"),
+    )
+    monkeypatch.setattr(_commands_local, "print_error", messages.append)
+
+    commands.LocalCommand().handle(session, "install acme/model:Q4_K_M")
+
+    assert messages == [
+        "Local model installed but not activated because the tool-call probe failed: "
+        "model did not return a tool call"
+    ]
+
+
 def test_models_command_reports_no_matching_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -892,6 +1218,39 @@ def test_evidence_command_shows_numbered_excerpt(
     assert "Open source: /evidence E1 open" in out
 
 
+def test_evidence_command_escapes_terminal_controls(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "evidence-armory"
+    initialize(armory)
+    source = armory / "materials" / "notes.md"
+    text = "Safe text \x1b[31mnot a terminal command.\n"
+    source.write_text(text, encoding="utf-8")
+    chunk = Chunk(
+        text=text.strip(),
+        source="materials/notes.md",
+        index=0,
+        char_start=0,
+        char_end=len(text),
+    )
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="evidence-session",
+        armory_path=armory,
+    )
+    session.last_turn_evidence = TurnEvidence(
+        (EvidenceChunk(evidence_id="E1", chunk=chunk, score=0.91, content=chunk.text),)
+    )
+
+    commands.EvidenceCommand().handle(session, "E1")
+
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "\\x1b[31mnot a terminal command" in out
+
+
 def test_evidence_command_opens_source_at_line(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -982,3 +1341,13 @@ def test_cost_command_toggle(
     commands.CostCommand().handle(session, "")
     out = capsys.readouterr().out
     assert "cost" in out.lower()
+
+
+def test_thinking_command_invalid_arg(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ThinkingCommand().handle(session, "verbose")
+    out = capsys.readouterr().out
+    assert "Usage: /thinking" in out

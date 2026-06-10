@@ -15,6 +15,8 @@ from hephaion.agent.tools import (
     ToolSpec,
     default_registry,
 )
+from hephaion.armory.state_files import read_armory_state_text
+from hephaion.armory.trust import armory_path_trusted
 from hephaion.materials import MaterialRole, infer_material_role
 
 if TYPE_CHECKING:
@@ -47,6 +49,7 @@ _BASE_GUIDELINES = (
 
 
 _CUSTOM_PROMPT_FILE = Path(".hephaion/system_prompt.md")
+ARMORY_PROMPT_TRUST_ENV = "HEPHAION_TRUST_ARMORY_PROMPTS"
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,8 +114,27 @@ def _prompt_role(armory_path: Path | None) -> str:
     custom_prompt_file = armory_path / _CUSTOM_PROMPT_FILE
     if not custom_prompt_file.is_file():
         return _DEFAULT_ROLE_BLOCK
+    if not armory_path_trusted(armory_path, ARMORY_PROMPT_TRUST_ENV):
+        _log.warning(
+            "custom system prompt skipped; explicit armory trust not enabled",
+            extra={
+                "fields": {
+                    "armory": str(armory_path),
+                    "file": str(_CUSTOM_PROMPT_FILE),
+                    "env": ARMORY_PROMPT_TRUST_ENV,
+                }
+            },
+        )
+        return _DEFAULT_ROLE_BLOCK
 
-    custom_prompt = custom_prompt_file.read_text(encoding="utf-8").strip()
+    try:
+        custom_prompt = read_armory_state_text(armory_path, _CUSTOM_PROMPT_FILE).strip()
+    except OSError as exc:
+        _log.warning(
+            "custom system prompt skipped; prompt file could not be read safely",
+            extra={"fields": {"armory": str(armory_path), "error": str(exc)}},
+        )
+        return _DEFAULT_ROLE_BLOCK
     if not custom_prompt:
         return _DEFAULT_ROLE_BLOCK
 

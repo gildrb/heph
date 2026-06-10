@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO
 
 from ai.logging import get_logger, redact_mapping
 
+from hephaion.armory.state_files import append_armory_state_text
 from hephaion.armory.storage import TRACES_DIR
 
 
@@ -22,7 +21,6 @@ class TraceWriter:
         self.session_id = session_id
         self._armory_path = armory_path
         self._path: Path | None = None
-        self._file_handle: TextIO | None = None
         self._log = get_logger("trace")
 
     @property
@@ -32,26 +30,17 @@ class TraceWriter:
         return self._path
 
     def _write(self, event: Mapping[str, object]) -> None:
-        file_handle = self._trace_file_handle()
-        if file_handle is None:
+        if self._armory_path is None:
             return
         line = json.dumps(redact_mapping(event), default=str, ensure_ascii=False)
         try:
-            file_handle.write(line + "\n")
-            file_handle.flush()
+            append_armory_state_text(
+                self._armory_path,
+                f"{TRACES_DIR}/{self.session_id}.jsonl",
+                line + "\n",
+            )
         except OSError as exc:
             self._log.warning("trace write failed", extra={"fields": {"error": str(exc)}})
-
-    def _trace_file_handle(self) -> TextIO | None:
-        if self._file_handle is not None:
-            return self._file_handle
-        if self._armory_path is None:
-            return None
-        path = self.path
-        assert path is not None
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._file_handle = path.open("a", encoding="utf-8")
-        return self._file_handle
 
     @staticmethod
     def _ts() -> str:
@@ -110,7 +99,4 @@ class TraceWriter:
         self._write(entry)
 
     def close(self) -> None:
-        if self._file_handle is not None:
-            with contextlib.suppress(OSError):
-                self._file_handle.close()
-            self._file_handle = None
+        pass

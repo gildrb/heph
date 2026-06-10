@@ -12,6 +12,7 @@ _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
     "openai-codex": ("gpt-",),
     "deepseek": ("deepseek-",),
     "zai": ("glm-",),
+    "llama-cpp": ("llama-cpp/",),
 }
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 from ai.runtime import ChatConfig
@@ -33,14 +32,9 @@ def test_report_all_csi_u_key_names_restore_printable_text() -> None:
     assert csi_u_key_text("shift+1") == "!"
 
 
-def test_armory_home_notice_does_not_use_rich_path_highlight_colors(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_armory_home_notice_uses_neutral_text_style() -> None:
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
-    known = [tmp_path / ".armories" / "sample-1778273613"]
-    monkeypatch.setattr("interfaces.tui.display_text.load_available_armories", lambda: known)
 
     app = tui.HephTui(
         create_plain_session(ChatConfig()),
@@ -57,7 +51,7 @@ def test_armory_home_notice_does_not_use_rich_path_highlight_colors(
                 str(segment.style).lower()
                 for line in transcript.lines
                 for segment in line
-                if ".armories" in segment.text or "1778273613" in segment.text
+                if "Open:" in segment.text or "materials/" in segment.text
             ]
 
             assert styles

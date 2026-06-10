@@ -88,6 +88,9 @@ from interfaces.tui.routing import (
     pending_input_requires_terminal as _pending_input_requires_terminal,
 )
 from interfaces.tui.session_actions import (
+    apply_display_settings as apply_display_settings,
+)
+from interfaces.tui.session_actions import (
     create_startup_session as create_startup_session,
 )
 from interfaces.tui.session_actions import (

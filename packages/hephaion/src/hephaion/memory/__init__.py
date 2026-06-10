@@ -13,6 +13,7 @@ from typing import TypedDict
 from ai.logging import get_logger
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.armory.state_files import read_armory_state_text, write_armory_state_text
 
 _log = get_logger("memory")
 
@@ -104,6 +105,14 @@ def _entries_from_payload(payload: object) -> list[MemoryEntry] | None:
     return [MemoryEntry.from_dict(entry) for entry in entry_list if is_string_mapping(entry)]
 
 
+def _loaded_entry_is_safe(entry: MemoryEntry) -> bool:
+    if not entry.topic.strip() or not entry.content.strip():
+        return False
+    if len(entry.topic) + len(entry.content) > _ENTRY_CHAR_LIMIT:
+        return False
+    return _scan_memory_content(_entry_text(entry)) is None
+
+
 @dataclass
 class MemoryEntry:
     topic: str
@@ -160,7 +169,9 @@ class MemoryStore:
         if not self._path.is_file():
             return False
         try:
-            entries = _entries_from_payload(json.loads(self._path.read_text(encoding="utf-8")))
+            entries = _entries_from_payload(
+                json.loads(read_armory_state_text(self.armory_path, ".hephaion/memory.json"))
+            )
         except (json.JSONDecodeError, OSError) as exc:
             _log.warning(
                 "memory load failed",
@@ -174,7 +185,7 @@ class MemoryStore:
         if entries is None:
             _log.warning("memory load failed", extra={"fields": {"error": "invalid payload"}})
             return False
-        self.entries = entries
+        self.entries = [entry for entry in entries if _loaded_entry_is_safe(entry)]
         self._log_loaded()
         return True
 
@@ -190,15 +201,15 @@ class MemoryStore:
         )
 
     def save(self) -> Path:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 1,
             "updated_at": time.time(),
             "entries": [e.to_dict() for e in self.entries],
         }
-        self._path.write_text(
+        path = write_armory_state_text(
+            self.armory_path,
+            ".hephaion/memory.json",
             json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
         )
         self._dirty = False
         _log.info(
@@ -210,7 +221,7 @@ class MemoryStore:
                 }
             },
         )
-        return self._path
+        return path
 
     def topics_covered(self) -> list[str]:
         return [e.topic for e in self.entries if e.topic]

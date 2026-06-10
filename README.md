@@ -81,9 +81,10 @@ Use `/login` to connect OAuth or API-key access, then `/models` to choose from t
 models available to those credentials.
 
 Heph works with Pollinations AI, OpenRouter, OpenAI API keys, OpenAI Codex
-subscription login, Z.AI, and custom OpenAI-compatible endpoints. You can also use
-environment variables such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`,
-`CUSTOM_API_KEY`, `HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
+subscription login, Z.AI, local tool-capable llama.cpp models, and custom
+OpenAI-compatible endpoints. You can also use environment variables such as
+`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`,
+`HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
 
 ## Commands
 
@@ -92,11 +93,12 @@ heph [name-or-path]     Open Heph.
 heph armory init NAME   Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
+heph local status       Show local llama.cpp status.
 heph update             Show the update command.
 ```
 
-Inside Heph, the important commands are `/login`, `/models`, `/armory`, `/detach`,
-`/evidence`, `/turn`, `/settings`, and `/exit`.
+Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`,
+`/detach`, `/evidence`, `/turn`, `/settings`, and `/exit`.
 
 ## Docs
 

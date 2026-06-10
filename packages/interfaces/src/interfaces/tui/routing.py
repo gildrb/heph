@@ -9,6 +9,7 @@ from __future__ import annotations
 from enum import Enum
 
 TERMINAL_INTERACTIVE_COMMANDS = {
+    "local",
     "vocabulary",
 }
 
@@ -44,6 +45,8 @@ def pending_input_requires_terminal(value: str) -> bool:
 
     if command_name in {"login", "logout", "settings"}:
         return False
+    if command_name == "local":
+        return arg_text.lower() not in {"status", "stop"}
     if command_name == "vocabulary":
         return arg_text.lower() != "status"
 

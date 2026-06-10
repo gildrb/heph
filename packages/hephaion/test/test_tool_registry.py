@@ -297,6 +297,7 @@ class TestDispatchWithRegistry:
                             "type": "object",
                             "properties": {"msg": {"type": "string"}},
                             "required": ["msg"],
+                            "additionalProperties": False,
                         },
                     },
                 },
@@ -318,6 +319,67 @@ class TestDispatchWithRegistry:
         assert "echo: hello" in message_text(results[0])
         assert results[0].get("tool_success") is True
 
+    def test_execute_allows_extra_arguments_when_schema_allows_them(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        reg = ToolRegistry()
+        reg.register(
+            ToolSpec(
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "open_args",
+                        "description": "",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                            "additionalProperties": True,
+                        },
+                    },
+                },
+                handler=lambda extra, **_kw: f"extra: {extra}",
+            )
+        )
+        tool_calls: list[ToolCall] = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "open_args",
+                    "arguments": json.dumps({"extra": "accepted"}),
+                },
+            }
+        ]
+
+        results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
+
+        assert message_text(results[0]) == "extra: accepted"
+        assert results[0].get("tool_success") is True
+
+    def test_execute_allows_extra_arguments_when_schema_omits_additional_properties(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        reg = ToolRegistry()
+        reg.register(make_tool_spec("legacy_open_args", handler=lambda extra, **_kw: str(extra)))
+        tool_calls: list[ToolCall] = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "legacy_open_args",
+                    "arguments": json.dumps({"extra": "accepted"}),
+                },
+            }
+        ]
+
+        results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
+
+        assert message_text(results[0]) == "accepted"
+        assert results[0].get("tool_success") is True
+
     def test_execute_with_structured_tool_result(self, tmp_path: Path) -> None:
         reg = ToolRegistry()
         reg.register(
@@ -331,6 +393,7 @@ class TestDispatchWithRegistry:
                             "type": "object",
                             "properties": {},
                             "required": [],
+                            "additionalProperties": False,
                         },
                     },
                 },

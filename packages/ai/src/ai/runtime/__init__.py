@@ -1,5 +1,6 @@
 """Shared LLM runtime primitives used across Heph packages."""
 
+from ai.providers.endpoints import is_keyless_endpoint
 from ai.runtime._api_types import (
     ApiMessage,
     ContentPart,
@@ -12,7 +13,6 @@ from ai.runtime.delta import CompletionDelta
 from ai.runtime.engine import (
     build_client,
     has_configured_access,
-    is_keyless_endpoint,
     missing_api_key_message,
     reset_provider_circuit_breaker,
     stream_completion,
@@ -26,8 +26,22 @@ from ai.runtime.resilience import (
     is_network_error,
     offline_message,
 )
+from ai.runtime.thinking import (
+    DEFAULT_THINKING_VISIBILITY,
+    THINKING_VISIBILITY_ALL,
+    THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_MODES,
+    THINKING_VISIBILITY_OFF,
+    next_thinking_visibility,
+    normalize_thinking_visibility,
+)
 
 __all__ = [
+    "DEFAULT_THINKING_VISIBILITY",
+    "THINKING_VISIBILITY_ALL",
+    "THINKING_VISIBILITY_MINIMAL",
+    "THINKING_VISIBILITY_MODES",
+    "THINKING_VISIBILITY_OFF",
     "ApiMessage",
     "ChatConfig",
     "CircuitBreaker",
@@ -48,6 +62,8 @@ __all__ = [
     "is_network_error",
     "message_content_text",
     "missing_api_key_message",
+    "next_thinking_visibility",
+    "normalize_thinking_visibility",
     "offline_message",
     "reset_provider_circuit_breaker",
     "stream_completion",

@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ai.providers.config import ProviderConfig
-from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.endpoints import provider_uses_keyless_access
 from ai.providers.model_choices import configured_model_choices, model_free_description
+from ai.runtime import ChatConfig
 from hephaion.chat.model_selection import switch_model
 from hephaion.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
@@ -69,7 +70,7 @@ def _filtered_model_choices(choices: Sequence[ModelChoice], query: str) -> list[
 
 def _no_matching_model_text(session: object) -> str:
     s = ensure_session(session)
-    key_status = _model_key_status(s.config.base_url, s.config.resolved_api_key)
+    key_status = _model_key_status(s.config)
     return (
         "No matching models available. "
         f"Current model: {s.config.model}; API: {s.config.base_url}; key: {key_status}. "
@@ -77,10 +78,10 @@ def _no_matching_model_text(session: object) -> str:
     )
 
 
-def _model_key_status(base_url: str, resolved_api_key: str) -> str:
-    if is_keyless_endpoint(base_url):
+def _model_key_status(config: ChatConfig) -> str:
+    if provider_uses_keyless_access(config.provider_slug, config.base_url):
         return "not needed (free provider)"
-    return "configured" if resolved_api_key else styled("not set", STYLE_DIM)
+    return "configured" if config.resolved_api_key else styled("not set", STYLE_DIM)
 
 
 def _model_menu_items(
@@ -114,7 +115,7 @@ def _model_option_description(
 ) -> str:
     parts = [f"via {display_name}"]
     if is_free:
-        parts.append(model_free_description(pc.providers[slug].endpoint))
+        parts.append(model_free_description(pc.providers[slug].endpoint, provider_slug=slug))
     if is_current:
         parts.append("current")
     return "  ".join(parts)

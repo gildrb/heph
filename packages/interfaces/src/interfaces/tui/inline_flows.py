@@ -13,6 +13,8 @@ from hephaion.parameters.settings import (
     ACTIVITY_TRACE_TOOL_CALLS,
     THEME_LABELS,
     THEME_PRESETS,
+    THINKING_VISIBILITY_LABELS,
+    THINKING_VISIBILITY_MODES,
     VOCAB_STRICTNESS_LABELS,
     VOCAB_STRICTNESS_MODES,
     load_app_settings,
@@ -91,6 +93,12 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_LABELS.items()}
+_THINKING_VISIBILITY_DESCRIPTIONS = {
+    "off": "hide provider-exposed thinking",
+    "minimal": "show reasoning summaries when available",
+    "all": "show all provider-exposed thinking text",
+}
+_THINKING_VISIBILITY_BY_LABEL = {label: mode for mode, label in THINKING_VISIBILITY_LABELS.items()}
 
 
 class _StyleObject(Protocol):
@@ -248,6 +256,8 @@ class _InlineFlowHost(Protocol):
 
     def _activity_trace_summary(self) -> str: ...
 
+    def _thinking_visibility_summary(self) -> str: ...
+
     def _privacy_option_description(
         self,
         *,
@@ -261,6 +271,8 @@ class _InlineFlowHost(Protocol):
     def _open_appearance_flow(self, selected_label: str | None = None) -> None: ...
 
     def _open_activity_trace_flow(self, selected_label: str | None = None) -> None: ...
+
+    def _open_thinking_visibility_flow(self, selected_label: str | None = None) -> None: ...
 
     def _open_vocabulary_flow(self, selected_label: str | None = None) -> None: ...
 
@@ -305,6 +317,8 @@ class _InlineFlowHost(Protocol):
 
     def _handle_activity_trace_choice(self, label: str) -> None: ...
 
+    def _handle_thinking_visibility_choice(self, label: str) -> None: ...
+
     def _handle_vocabulary_choice(self, label: str) -> None: ...
 
     def _refresh_tui_css(self) -> None: ...
@@ -337,6 +351,7 @@ def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None
         "Privacy & Diagnostics": host._open_privacy_flow,
         "Appearance": host._open_appearance_flow,
         "Activity trace": host._open_activity_trace_flow,
+        "Model thinking": host._open_thinking_visibility_flow,
         "Vocabulary practice": host._open_vocabulary_flow,
         "Login": host._open_login_flow,
         "Logout": host._open_logout_flow,
@@ -348,6 +363,7 @@ def _settings_step_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], N
         "privacy": host._handle_privacy_choice,
         "appearance": host._handle_appearance_choice,
         "activity_trace": host._handle_activity_trace_choice,
+        "thinking_visibility": host._handle_thinking_visibility_choice,
         "vocabulary": host._handle_vocabulary_choice,
     }
 
@@ -534,6 +550,7 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
                 ("Privacy & Diagnostics", self._privacy_settings_summary()),
                 ("Appearance", f"theme: {THEME_LABELS.get(settings.theme, settings.theme)}"),
                 ("Activity trace", self._activity_trace_summary()),
+                ("Model thinking", self._thinking_visibility_summary()),
                 (
                     "Vocabulary practice",
                     VOCAB_STRICTNESS_LABELS.get(
@@ -558,6 +575,10 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
             activity_trace_mode,
             ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS],
         )
+
+    def _thinking_visibility_summary(self: _InlineFlowHost) -> str:
+        thinking_visibility = load_app_settings().thinking_visibility
+        return THINKING_VISIBILITY_LABELS.get(thinking_visibility, thinking_visibility)
 
     def _privacy_option_description(
         self: _InlineFlowHost,
@@ -635,6 +656,30 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
                     ),
                 )
                 for activity_trace_mode in ACTIVITY_TRACE_MODES
+            ],
+            selected_label=selected_label,
+        )
+
+    def _open_thinking_visibility_flow(
+        self: _InlineFlowHost,
+        selected_label: str | None = None,
+    ) -> None:
+        current_visibility = load_app_settings().thinking_visibility
+        _open_settings_submenu(
+            self,
+            parent_label="Model thinking",
+            step="thinking_visibility",
+            title="Settings  Model thinking",
+            options=[
+                (
+                    THINKING_VISIBILITY_LABELS[visibility],
+                    (
+                        f"{_THINKING_VISIBILITY_DESCRIPTIONS[visibility]}  current"
+                        if visibility == current_visibility
+                        else _THINKING_VISIBILITY_DESCRIPTIONS[visibility]
+                    ),
+                )
+                for visibility in THINKING_VISIBILITY_MODES
             ],
             selected_label=selected_label,
         )
@@ -744,6 +789,15 @@ class TuiInlineFlowMixin(TuiAuthFlowMixin, TuiModelFlowMixin, TuiSessionFlowMixi
         save_setting("activity_trace_mode", activity_trace_mode)
         self._append_notice(f"activity trace: {ACTIVITY_TRACE_LABELS[activity_trace_mode]}")
         self._open_activity_trace_flow(selected_label=label)
+
+    def _handle_thinking_visibility_choice(self: _InlineFlowHost, label: str) -> None:
+        visibility = _THINKING_VISIBILITY_BY_LABEL.get(label)
+        if visibility is None:
+            return
+        save_setting("thinking_visibility", visibility)
+        self.session.config.thinking_visibility = visibility
+        self._append_notice(f"model thinking: {THINKING_VISIBILITY_LABELS[visibility]}")
+        self._open_thinking_visibility_flow(selected_label=label)
 
     def _handle_vocabulary_choice(self: _InlineFlowHost, label: str) -> None:
         strictness = _setting_value_from_label(VOCAB_STRICTNESS_LABELS, label)

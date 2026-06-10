@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from hephaion.agent.prompt import build_system_prompt, build_system_prompt_sections
 from hephaion.rag.context import estimate_tokens
 from hephaion.rag.health import ExtractionHealthIssue
@@ -42,9 +43,23 @@ def test_default_prompt_and_common_steering_fit_token_budget() -> None:
         assert estimate_tokens(f"{prompt}\n\n{steering}") <= 1000
 
 
-def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
+def test_custom_system_prompt_is_skipped_without_path_trust(armory: Path) -> None:
     prompt_file = armory / ".hephaion" / "system_prompt.md"
     prompt_file.write_text("Custom system prompt.", encoding="utf-8")
+
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
+
+    assert prompt.startswith("You are running inside Heph.")
+    assert "Custom system prompt." not in prompt
+
+
+def test_custom_system_prompt_replaces_default_role_block_with_path_trust(
+    armory: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompt_file = armory / ".hephaion" / "system_prompt.md"
+    prompt_file.write_text("Custom system prompt.", encoding="utf-8")
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PROMPTS", str(armory.resolve()))
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
@@ -54,9 +69,13 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     assert "## Guidelines" in prompt
 
 
-def test_blank_custom_system_prompt_falls_back_to_default_role_block(armory: Path) -> None:
+def test_blank_custom_system_prompt_falls_back_to_default_role_block(
+    armory: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     prompt_file = armory / ".hephaion" / "system_prompt.md"
     prompt_file.write_text("   \n", encoding="utf-8")
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PROMPTS", str(armory.resolve()))
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 

@@ -22,6 +22,7 @@ from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
+    ReasoningDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -186,6 +187,11 @@ def _activity_line(
     if event.code in _ACTIVITY_NOTICE_CODES:
         return f"{_ACTIVITY_TRACE_INDENT}{_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
     return None
+
+
+def _reasoning_activity_line(event: ReasoningDeltaEvent) -> str:
+    label = "thinking summary" if event.summary else "thinking"
+    return f"{_ACTIVITY_TRACE_INDENT}{label}: {_truncate(event.delta, _MAX_ACTIVITY_TEXT)}"
 
 
 def _progress_text(
@@ -528,11 +534,27 @@ def _handle_turn_event(
     if isinstance(event, AssistantDeltaEvent):
         state.reply_parts.append(event.delta)
         return
+    if isinstance(event, ReasoningDeltaEvent):
+        _handle_reasoning_event(event, callbacks)
+        return
     if isinstance(event, TurnCompleteEvent):
         state.completed_reply = event.full_text
         return
     if isinstance(event, ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent):
         _handle_activity_event(event, state, trace_config, callbacks)
+
+
+def _handle_reasoning_event(
+    event: ReasoningDeltaEvent,
+    callbacks: _TurnCallbacks,
+) -> None:
+    if callbacks.on_progress is not None:
+        callbacks.on_progress("reading model thinking")
+    line = _reasoning_activity_line(event)
+    if callbacks.on_activity is not None:
+        callbacks.on_activity(line)
+    else:
+        callbacks.on_notice(line.strip())
 
 
 def _assembled_reply(state: _TurnStreamState) -> str:

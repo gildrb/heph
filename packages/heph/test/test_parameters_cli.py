@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ai.providers import llama_cpp
 from ai.runtime import ChatConfig
 from heph.cli.main import build_parser, run_argv
 from hephaion.parameters import cli as params_cli
@@ -31,6 +33,9 @@ def test_config_show_uses_registered_handler(
             "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
+            "thinking_visibility": "off",
+            "live_tokens_visible": "false",
+            "live_cost_visible": "false",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
         }[key],
@@ -46,7 +51,28 @@ def test_config_show_uses_registered_handler(
     assert "rag_context_budget: 4321" in out
     assert "temperature: 0.2" in out
     assert "theme: dark" in out
+    assert "thinking_visibility: off" in out
+    assert "live_tokens_visible: false" in out
+    assert "live_cost_visible: false" in out
     assert "analytics_enabled: false [unavailable]" in out
+
+
+def test_local_status_uses_registered_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_dir = tmp_path / "llama-cache"
+    monkeypatch.setattr(llama_cpp, "_CACHE_DIR", cache_dir)
+    monkeypatch.setattr(llama_cpp, "_MODEL_CACHE_DIR", cache_dir / "models")
+    monkeypatch.setattr(llama_cpp, "_STATE_FILE", tmp_path / "llama-state.json")
+
+    run_argv(build_parser(), ["local", "status"])
+
+    out = capsys.readouterr().out
+    assert "Local llama.cpp" in out
+    assert "server: stopped" in out
+    assert "installed: none" in out
 
 
 def test_config_set_persists_override(
@@ -84,6 +110,7 @@ def test_load_config_precedence(
                 "max_tokens": "2000",
                 "rag_context_budget": "3000",
                 "temperature": "0.3",
+                "thinking_visibility": "minimal",
             }
         ),
         encoding="utf-8",
@@ -112,6 +139,7 @@ def test_load_config_precedence(
     assert config.max_tokens == 4000
     assert config.rag_context_budget == 5000
     assert config.temperature == 0.0
+    assert config.thinking_visibility == "minimal"
 
 
 def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
@@ -302,6 +330,9 @@ def test_config_show_displays_feature_flags(
             "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
+            "thinking_visibility": "off",
+            "live_tokens_visible": "false",
+            "live_cost_visible": "false",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
         }[key],
@@ -333,6 +364,9 @@ def test_config_show_displays_no_feature_flags(
             "theme": "dark",
             "default_armory_path": "(not set)",
             "activity_trace_mode": "tool_calls",
+            "thinking_visibility": "off",
+            "live_tokens_visible": "false",
+            "live_cost_visible": "false",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
         }[key],
@@ -355,6 +389,28 @@ def test_config_set_bool_setting_persists_boolean(
     assert saved["analytics_enabled"] is True
 
 
+def test_config_set_live_usage_visibility_persists_boolean(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "live_tokens_visible", "true"])
+
+    out = capsys.readouterr().out
+    assert "Set live_tokens_visible = true" in out
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert saved["live_tokens_visible"] is True
+
+
+def test_config_set_thinking_visibility_persists_string(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "thinking_visibility", "minimal"])
+
+    out = capsys.readouterr().out
+    assert "Set thinking_visibility = minimal" in out
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert saved["thinking_visibility"] == "minimal"
+
+
 def test_config_path_prints_persistent_config_file(
     isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -371,6 +427,8 @@ def test_config_list_includes_persistent_preferences(
 
     out = capsys.readouterr().out
     assert "theme: TUI theme preset" in out
+    assert "thinking_visibility: Model thinking visibility: off, minimal, or all" in out
+    assert "live_tokens_visible: Show token estimates in the TUI status bar" in out
     assert "analytics_enabled: Anonymous usage analytics opt-in" in out
 
 

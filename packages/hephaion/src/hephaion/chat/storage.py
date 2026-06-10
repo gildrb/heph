@@ -10,6 +10,7 @@ from ai.logging import get_logger
 from ai.runtime import Conversation
 
 from hephaion._types import is_object_list, is_string_mapping
+from hephaion.armory.state_files import read_armory_state_text, write_armory_state_text
 from hephaion.chat.titles import sanitize_title_text
 
 _log = get_logger("hephaion.chat.storage")
@@ -34,6 +35,10 @@ def _chats_path(armory_path: Path) -> Path:
 
 def _session_path(armory_path: Path, session_id: str) -> Path:
     return _chats_path(armory_path) / f"{session_id}.json"
+
+
+def _session_rel_path(session_id: str) -> str:
+    return f"{CHATS_DIR}/{session_id}.json"
 
 
 def _session_id_is_safe(session_id: str) -> bool:
@@ -70,12 +75,8 @@ def save(
 ) -> Path:
     _validate_session_path(armory_path, session_id)
 
-    chats = _chats_path(armory_path)
-    chats.mkdir(parents=True, exist_ok=True)
-
-    file_path = _session_path(armory_path, session_id)
     now = datetime.now(UTC).isoformat()
-    existing = _read_existing_session_data(file_path)
+    existing = _read_existing_session_data(armory_path, session_id)
     data = _session_data(
         session_id=session_id,
         title=title,
@@ -85,9 +86,10 @@ def save(
         metadata=metadata,
     )
 
-    file_path.write_text(
+    file_path = write_armory_state_text(
+        armory_path,
+        _session_rel_path(session_id),
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )
     _log.info(
         "session saved",
@@ -127,10 +129,13 @@ def _session_data(
     return data
 
 
-def _read_existing_session_data(file_path: Path) -> dict[str, object]:
+def _read_existing_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
+    file_path = _session_path(armory_path, session_id)
     if not file_path.exists():
         return {}
-    raw_existing: object = json.loads(file_path.read_text(encoding="utf-8"))
+    raw_existing: object = json.loads(
+        read_armory_state_text(armory_path, _session_rel_path(session_id))
+    )
     return raw_existing if is_string_mapping(raw_existing) else {}
 
 
@@ -142,7 +147,9 @@ def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
         raise ChatStorageError(f"chat session not found: {session_id}")
 
     try:
-        raw_data: object = json.loads(file_path.read_text(encoding="utf-8"))
+        raw_data: object = json.loads(
+            read_armory_state_text(armory_path, _session_rel_path(session_id))
+        )
     except (json.JSONDecodeError, OSError) as exc:
         raise ChatStorageError(f"corrupt session file {session_id}") from exc
     if not is_string_mapping(raw_data):
@@ -199,7 +206,9 @@ def list_sessions(armory_path: Path) -> list[SessionRecord]:
     sessions: list[SessionRecord] = []
     for file_path in sorted(chats.glob("*.json")):
         try:
-            data = json.loads(file_path.read_text(encoding="utf-8"))
+            data = json.loads(
+                read_armory_state_text(armory_path, _session_rel_path(file_path.stem))
+            )
             if not is_string_mapping(data):
                 continue
             sessions.append(
@@ -210,6 +219,6 @@ def list_sessions(armory_path: Path) -> list[SessionRecord]:
                     "updated_at": str(data.get("updated_at", "")),
                 }
             )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError):
             continue
     return sessions

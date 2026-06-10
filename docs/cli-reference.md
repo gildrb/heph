@@ -19,6 +19,11 @@
 | `heph learning train [path]` | Train a local PufferLib harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
 | `heph learning auto-train [path]` | Run the local learning automation gate; trains with PufferLib only when enough new armory attempts exist. |
 | `heph learning constellation-export [path]` | Export local numeric learning-attempt data to an armory-local PufferLib Constellation `experiments.json` file. |
+| `heph local search [query]` | Search public non-gated GGUF models on Hugging Face. |
+| `heph local install <repo-or-path>` | Install a Hugging Face GGUF model or local `.gguf` path, then activate it only if it passes Heph's tool-call probe. |
+| `heph local status` | Show local llama.cpp status. |
+| `heph local revalidate <model-id>` | Rerun the tool-call probe for an installed local model. |
+| `heph local stop` | Stop the managed llama.cpp server. |
 | `heph update` | Show how to update the active Heph install. |
 | `heph sdk serve` | Run the SDK JSONL stdio service. |
 | `heph config show` | Display current configuration. |
@@ -38,6 +43,7 @@
 | /help | Show available commands |
 | /exit | Leave Heph |
 | /login | Authenticate with a subscription or API key |
+| /local | Install and manage private tool-capable llama.cpp models |
 | /logout | Clear stored subscription or API-key credentials |
 | /status | Show session, usage, armory, and review info |
 | /new | Start a new chat |
@@ -47,11 +53,12 @@
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
+| /thinking | Show provider-exposed model thinking |
 | /priority | Generate a printable priority PDF cheat sheet |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
-| /memory | Show local armory memory status |
+| /memory | Show saved armory memory |
 | /models | Pick the active model |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |

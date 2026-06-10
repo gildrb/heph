@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ai.runtime import ChatConfig
+from ai.runtime import ChatConfig, normalize_thinking_visibility
 from hephaion.armory.storage import normalize_path
 from hephaion.parameters.cli import load_config
 
@@ -25,6 +25,7 @@ class HephSdkOptions:
     max_tokens: int | None = None
     rag_context_budget: int | None = None
     reasoning_level: str | None = None
+    thinking_visibility: str | None = None
     temperature: float | None = None
     feature_flags: frozenset[str] | None = None
 
@@ -142,6 +143,8 @@ def _apply_config_overrides(config: ChatConfig, options: HephSdkOptions) -> None
         config.rag_context_budget = options.rag_context_budget
     if options.reasoning_level is not None:
         config.reasoning_level = options.reasoning_level
+    if options.thinking_visibility is not None:
+        config.thinking_visibility = normalize_thinking_visibility(options.thinking_visibility)
     if options.temperature is not None:
         config.temperature = min(2.0, max(0.0, options.temperature))
     if options.feature_flags is not None:

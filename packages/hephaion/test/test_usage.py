@@ -253,3 +253,17 @@ class TestUsagePersistence:
         path = save_usage(tmp_path, "test-session", session)
         assert path is not None
         assert path.exists()
+
+    def test_save_rejects_symlinked_usage_file(self, tmp_path: Path):
+        outside = tmp_path / "outside-usage.json"
+        outside.write_text("unchanged", encoding="utf-8")
+        path = tmp_path / ".hephaion" / "usage" / "test-session.json"
+        path.parent.mkdir(parents=True)
+        path.symlink_to(outside)
+        session = SessionUsage()
+        session.record(TokenUsage(100, 50, 150), "gpt-4o-mini")
+
+        with pytest.raises(OSError, match="symlink"):
+            save_usage(tmp_path, "test-session", session)
+
+        assert outside.read_text(encoding="utf-8") == "unchanged"

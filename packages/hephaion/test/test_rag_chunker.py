@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -86,6 +87,21 @@ class TestChunkFile:
         assert doc.source == "materials/notes.md"
         assert len(doc.chunks) >= 1
         assert doc.content_hash != ""
+
+    def test_chunk_text_file_skips_oversized_text(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "notes.txt"
+        src.write_text("oversized")
+        monkeypatch.setattr("hephaion.rag.chunker._MAX_INDEXABLE_TEXT_BYTES", 2)
+
+        doc = chunk_file(src, armory)
+
+        assert doc is None
 
     def test_skip_binary_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
@@ -424,24 +440,35 @@ class TestDoclingIntegration:
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         pdf = tmp_path / "scan.pdf"
         pdf.write_bytes(b"%PDF\x00image")
         commands: list[list[str]] = []
+        caplog.set_level(logging.WARNING, logger="hephaion.rag.chunker")
 
         def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
             commands.append(args)
             completed = MagicMock()
-            completed.returncode = 0
             completed.stderr = ""
             if args[0] == "pdftoppm":
+                completed.returncode = 0 if args[4] == "1" else 1
+                if completed.returncode != 0:
+                    completed.stderr = "page out of range"
+                    return completed
                 Path(f"{args[-1]}-1.png").write_bytes(b"png")
                 completed.stdout = ""
                 return completed
+            completed.returncode = 0
             completed.stdout = "OCR extracted theorem text."
             return completed
 
-        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        def fake_which(name: str) -> str | None:
+            if name in {"pdftoppm", "tesseract"}:
+                return "/usr/bin/tool"
+            return None
+
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", fake_which)
         monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         text = _convert_pdf_with_ocr(pdf)
@@ -454,10 +481,48 @@ class TestDoclingIntegration:
             "-f",
             "1",
             "-l",
-            str(rag_chunker._PDF_OCR_MAX_PAGES),
+            "1",
             "-png",
             str(pdf),
         ]
+        assert commands[1][0] == "pdftoppm"
+        assert commands[2][0] == "tesseract"
+        assert not [
+            record for record in caplog.records if record.message == "pdf OCR render failed"
+        ]
+
+    def test_convert_pdf_with_ocr_uses_pdfinfo_page_count(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF\x00image")
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
+            commands.append(args)
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stderr = ""
+            if args[0] == "pdfinfo":
+                completed.stdout = "Pages: 1\n"
+                return completed
+            if args[0] == "pdftoppm":
+                assert args[4] == "1"
+                Path(f"{args[-1]}-1.png").write_bytes(b"png")
+                completed.stdout = ""
+                return completed
+            completed.stdout = "OCR extracted theorem text."
+            return completed
+
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
+
+        text = _convert_pdf_with_ocr(pdf)
+
+        assert text == "OCR extracted theorem text."
+        assert [command[0] for command in commands] == ["pdfinfo", "pdftoppm", "tesseract"]
 
     def test_convert_pdf_with_ocr_skips_oversized_rendered_pages(
         self,
@@ -480,11 +545,29 @@ class TestDoclingIntegration:
             raise AssertionError("oversized OCR render should not invoke tesseract")
 
         monkeypatch.setattr("hephaion.rag.chunker._PDF_OCR_MAX_RENDERED_BYTES", 2)
-        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr(
+            "hephaion.rag.chunker.shutil.which",
+            lambda name: "/usr/bin/tool" if name in {"pdftoppm", "tesseract"} else None,
+        )
         monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         assert _convert_pdf_with_ocr(pdf) is None
         assert len(commands) == 1
+
+    def test_convert_pdf_with_ocr_skips_oversized_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF\x00image")
+        monkeypatch.setattr("hephaion.rag.chunker._PDF_OCR_MAX_SOURCE_BYTES", 2)
+        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        run = MagicMock()
+        monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", run)
+
+        assert _convert_pdf_with_ocr(pdf) is None
+        run.assert_not_called()
 
     def test_convert_pdf_with_ocr_honors_total_deadline(
         self,
@@ -507,11 +590,14 @@ class TestDoclingIntegration:
             raise AssertionError("expired OCR budget should not invoke tesseract")
 
         monkeypatch.setattr("hephaion.rag.chunker._PDF_OCR_TOTAL_TIMEOUT_SECONDS", 0)
-        monkeypatch.setattr("hephaion.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr(
+            "hephaion.rag.chunker.shutil.which",
+            lambda name: "/usr/bin/tool" if name in {"pdftoppm", "tesseract"} else None,
+        )
         monkeypatch.setattr("hephaion.rag.chunker.subprocess.run", fake_run)
 
         assert _convert_pdf_with_ocr(pdf) is None
-        assert len(commands) == 1
+        assert commands == []
 
     def test_chunk_pdf_falls_back_to_pdftotext_when_docling_fails(
         self,

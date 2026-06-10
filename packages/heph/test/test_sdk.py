@@ -17,6 +17,7 @@ from heph.sdk import (
     IndexSummary,
     MaterialOperation,
     Notice,
+    ReasoningDelta,
     ToolCall,
     ToolResult,
     TurnComplete,
@@ -32,6 +33,7 @@ from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
+    ReasoningDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -67,6 +69,14 @@ def _payload_list(value: object) -> list[object]:
 
 def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
     assert from_turn_event(AssistantDeltaEvent("hello")) == AssistantDelta("hello")
+
+    reasoning = from_turn_event(ReasoningDeltaEvent("checking", summary=True))
+    assert isinstance(reasoning, ReasoningDelta)
+    assert event_to_dict(reasoning) == {
+        "type": "reasoning_delta",
+        "delta": "checking",
+        "summary": True,
+    }
 
     tool_call = from_turn_event(
         ToolCallEvent("call-1", "search_materials", {"query": "notes"}, "search")
@@ -247,6 +257,7 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
         rag_context_budget=456,
         temperature=3.0,
         feature_flags=frozenset({"sdk"}),
+        thinking_visibility="all",
     )
     materials_path = Path(options.armory_path or "") / "materials" / "notes.md"
 
@@ -262,6 +273,7 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
     assert session_result.session.armory_path == runtime_result.runtime.armory_path
     assert config.temperature == 2.0
     assert config.feature_flags == frozenset({"sdk"})
+    assert config.thinking_visibility == "all"
 
 
 def test_plain_runtime_cannot_resume_saved_session() -> None:
@@ -503,7 +515,12 @@ def test_service_call_and_stream_dispatcher(
 
     config_payload = service.call(
         "update_config",
-        {"model": "updated-model", "max_tokens": 500, "temperature": 4.0},
+        {
+            "model": "updated-model",
+            "max_tokens": 500,
+            "temperature": 4.0,
+            "thinking_visibility": "all",
+        },
     )
     zero_config_payload = service.call(
         "update_config",
@@ -517,6 +534,7 @@ def test_service_call_and_stream_dispatcher(
     assert runtime_payload["model"] == "updated-model"
     assert runtime_payload["max_tokens"] == 500
     assert runtime_payload["temperature"] == 2.0
+    assert runtime_payload["thinking_visibility"] == "all"
     assert zero_runtime_payload["max_tokens"] == 0
     assert zero_runtime_payload["rag_context_budget"] == 0
     assert events[0] == {"type": "assistant_delta", "delta": "Dispatched."}

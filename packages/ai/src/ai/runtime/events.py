@@ -25,6 +25,16 @@ class AssistantDeltaEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class ReasoningDeltaEvent:
+    delta: str
+    summary: bool = False
+    kind: str = field(default="reasoning_delta", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "delta", strip_decorative_symbols(self.delta))
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCallEvent:
     call_id: str
     name: str
@@ -93,6 +103,7 @@ class GuardrailEvent:
 
 TurnEvent = (
     AssistantDeltaEvent
+    | ReasoningDeltaEvent
     | ToolCallEvent
     | ToolResultEvent
     | MaterialOperationEvent
@@ -109,6 +120,7 @@ __all__ = [
     "GuardrailEvent",
     "MaterialOperationEvent",
     "NoticeEvent",
+    "ReasoningDeltaEvent",
     "ToolCallEvent",
     "ToolResultEvent",
     "TurnCompleteEvent",

@@ -14,6 +14,7 @@ from urllib.parse import ParseResult, urljoin, urlparse
 
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
+_WEB_FETCH_MAX_BYTES = _WEB_FETCH_MAX_CHARS * 4
 _WEB_FETCH_MAX_REDIRECTS = 5
 _WEB_USER_AGENT = "Heph/0.1 (document workspace)"
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
@@ -37,7 +38,7 @@ class FetchSuccess:
 class FetchResponse(Protocol):
     headers: Message
 
-    def read(self) -> bytes: ...
+    def read(self, _amt: int = -1) -> bytes: ...
 
     def __enter__(self) -> Self: ...
 
@@ -73,12 +74,11 @@ def _open_without_redirect(
     return cast("FetchResponse", _NO_REDIRECT_OPENER.open(req, timeout=timeout))
 
 
-def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> str:
+def run_web_fetch(url: str, **_kwargs: object) -> str:
     """Fetch a URL and return the text content with source attribution."""
     original_url = url
     current_url = url
     redirects = 0
-    actual_timeout = timeout or _WEB_FETCH_TIMEOUT
 
     while True:
         target = _fetch_target(current_url)
@@ -86,7 +86,7 @@ def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> st
             return target
 
         try:
-            success = _fetch_once(target, current_url, timeout=actual_timeout)
+            success = _fetch_once(target, current_url, timeout=_WEB_FETCH_TIMEOUT)
         except urllib.error.HTTPError as exc:
             redirect = _redirect_result(current_url, original_url, redirects, exc)
             if redirect.startswith("Error:"):
@@ -115,7 +115,8 @@ def _fetch_once(
         content_type = response.headers.get("Content-Type", "")
         if not _is_text_content_type(content_type):
             return f"Error: non-text content type ({content_type}). URL: {current_url}"
-        raw = response.read().decode("utf-8", errors="replace")
+        raw_bytes = response.read(_WEB_FETCH_MAX_BYTES + 1)
+        raw = raw_bytes[:_WEB_FETCH_MAX_BYTES].decode("utf-8", errors="replace")
     return FetchSuccess(url=current_url, content=_normalize_fetched_text(raw))
 
 
@@ -201,7 +202,7 @@ def _fetch_target(url: str) -> FetchTargetResult:
     resolved_ips = _resolve_hostname_ips(hostname)
     if not resolved_ips:
         return f"Error: could not resolve host ({hostname})"
-    if _has_private_ip(resolved_ips):
+    if _has_blocked_ip(resolved_ips):
         return f"Error: blocked private/internal host ({hostname})"
     netloc = _netloc(resolved_ips[0], port)
     safe_url = parsed._replace(netloc=netloc).geturl()
@@ -222,10 +223,10 @@ def _target_validation_error(parsed: ParseResult) -> str:
     return ""
 
 
-def _has_private_ip(resolved_ips: list[str]) -> bool:
+def _has_blocked_ip(resolved_ips: list[str]) -> bool:
     for ip_str in resolved_ips:
         ip = ipaddress.ip_address(ip_str)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        if not ip.is_global:
             return True
     return False
 

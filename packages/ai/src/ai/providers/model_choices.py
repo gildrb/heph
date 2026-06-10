@@ -7,16 +7,18 @@ from collections.abc import Iterable
 from ai.providers.access import provider_is_accessible
 from ai.providers.catalog import hydrate_provider_models
 from ai.providers.config import Provider, ProviderConfig
-from ai.providers.endpoints import is_keyless_endpoint
+from ai.providers.endpoints import provider_uses_keyless_access
+from ai.providers.llama_cpp import LLAMA_CPP_PROVIDER_SLUG
 from ai.providers.registry import get_registry as get_provider_registry
 
 _MODEL_PROVIDER_ORDER = {
-    "openai": 0,
-    "openai-codex": 1,
-    "deepseek": 2,
-    "openrouter": 3,
-    "zai": 4,
-    "pollinations": 5,
+    "llama-cpp": 0,
+    "openai": 1,
+    "openai-codex": 2,
+    "deepseek": 3,
+    "openrouter": 4,
+    "zai": 5,
+    "pollinations": 6,
     "custom": 99,
 }
 
@@ -50,6 +52,7 @@ _SOURCE_LABELS = {
     "openrouter": "OpenRouter",
     "pollinations": "Pollinations",
     "zai": "Z.AI",
+    LLAMA_CPP_PROVIDER_SLUG: "Local",
 }
 
 _PROVIDER_LABELS = {
@@ -64,6 +67,11 @@ def configured_model_choices(
     refresh_live: bool = False,
 ) -> list[tuple[str, str, str, bool]]:
     pc = pc or ProviderConfig.load()
+    hydrate_provider_models(
+        pc,
+        allow_network=False,
+        provider_slugs={LLAMA_CPP_PROVIDER_SLUG},
+    )
     eligible_slugs = _eligible_provider_slugs(pc.providers.values(), refresh_live=refresh_live)
 
     hydrate_provider_models(
@@ -131,7 +139,9 @@ def model_picker_columns(
     tags = " ".join(
         tag
         for tag in (
-            _free_model_tag(endpoint) if is_free else "",
+            "local" if slug == LLAMA_CPP_PROVIDER_SLUG else "",
+            "tool-capable" if slug == LLAMA_CPP_PROVIDER_SLUG else "",
+            _free_model_tag(slug, endpoint) if is_free else "",
             "current" if is_current else "",
         )
         if tag
@@ -139,11 +149,17 @@ def model_picker_columns(
     return provider, model_label, source, tags
 
 
-def model_free_description(endpoint: str) -> str:
-    return "free, no API key" if is_keyless_endpoint(endpoint) else "free, API key required"
+def model_free_description(endpoint: str, *, provider_slug: str = "") -> str:
+    if provider_slug == LLAMA_CPP_PROVIDER_SLUG:
+        return "local, tool-capable"
+    if provider_uses_keyless_access(provider_slug, endpoint):
+        return "free, no API key"
+    return "free, API key required"
 
 
 def _model_provider_label(slug: str, model: str, display_name: str) -> str:
+    if slug == LLAMA_CPP_PROVIDER_SLUG:
+        return "Local"
     if "/" in model:
         owner, _model_name = model.split("/", 1)
         return _OWNER_LABELS.get(owner, owner.replace("-", " ").title())
@@ -155,5 +171,5 @@ def _model_provider_label(slug: str, model: str, display_name: str) -> str:
     return _PROVIDER_LABELS.get(slug, display_name.removesuffix(" (free)"))
 
 
-def _free_model_tag(endpoint: str) -> str:
-    return "free" if is_keyless_endpoint(endpoint) else "free+key"
+def _free_model_tag(slug: str, endpoint: str) -> str:
+    return "free" if provider_uses_keyless_access(slug, endpoint) else "free+key"

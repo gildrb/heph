@@ -117,9 +117,13 @@ _PDF_TEXT_TIMEOUT_SECONDS = 30
 _PDF_OCR_RENDER_TIMEOUT_SECONDS = 60
 _PDF_OCR_PAGE_TIMEOUT_SECONDS = 45
 _PDF_OCR_TOTAL_TIMEOUT_SECONDS = 120
+_PDF_INFO_TIMEOUT_SECONDS = 10
 _PDF_OCR_MAX_PAGES = 25
 _PDF_OCR_MAX_RENDERED_BYTES = 100 * 1024 * 1024
+_PDF_OCR_MAX_SOURCE_BYTES = 50 * 1024 * 1024
 _PDF_OCR_DPI = 200
+_MAX_INDEXABLE_TEXT_BYTES = 5 * 1024 * 1024
+_HASH_READ_BYTES = 1024 * 1024
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 _MISPLACED_DIAERESIS_RE = re.compile(r"¨\s*([AaOoUu])")
@@ -372,6 +376,13 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 def _read_indexable_text(path: Path) -> str:
+    if _file_exceeds_limit(path, _MAX_INDEXABLE_TEXT_BYTES):
+        _log_extraction_failure(
+            path,
+            "text file exceeded indexable size limit",
+            f"limit is {_MAX_INDEXABLE_TEXT_BYTES} byte(s)",
+        )
+        return ""
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() not in {".html", ".htm"}:
         return text
@@ -494,6 +505,13 @@ def _convert_pdf_to_text(path: Path) -> str | None:
 def _convert_pdf_with_ocr(path: Path) -> str | None:
     if not _is_pdf_file(path) or not _is_pdf_ocr_available():
         return None
+    if _file_exceeds_limit(path, _PDF_OCR_MAX_SOURCE_BYTES):
+        _log_extraction_failure(
+            path,
+            "pdf OCR source exceeded size limit",
+            f"limit is {_PDF_OCR_MAX_SOURCE_BYTES} byte(s)",
+        )
+        return None
 
     texts = _extract_pdf_ocr_pages(path)
     if texts is None:
@@ -506,53 +524,41 @@ def _convert_pdf_with_ocr(path: Path) -> str | None:
 def _extract_pdf_ocr_pages(path: Path) -> list[str] | None:
     try:
         with tempfile.TemporaryDirectory(prefix="heph-pdf-ocr-") as temp_dir:
-            page_paths = _render_pdf_pages(path, Path(temp_dir))
+            deadline = time.monotonic() + _PDF_OCR_TOTAL_TIMEOUT_SECONDS
+            page_paths = _render_pdf_pages(path, Path(temp_dir), deadline)
             if not page_paths:
                 return None
-            deadline = time.monotonic() + _PDF_OCR_TOTAL_TIMEOUT_SECONDS
             return _ocr_pdf_pages(path, page_paths, deadline)
     except (OSError, subprocess.SubprocessError) as exc:
         _log_extraction_warning(path, "pdf OCR extraction failed", exc)
         return None
 
 
-def _render_pdf_pages(path: Path, temp_dir: Path) -> list[Path]:
-    output_prefix = str(temp_dir / "page")
-    render = _run_extraction_command(
-        path,
-        [
-            "pdftoppm",
-            "-r",
-            str(_PDF_OCR_DPI),
-            "-f",
-            "1",
-            "-l",
-            str(_PDF_OCR_MAX_PAGES),
-            "-png",
-            str(path),
-            output_prefix,
-        ],
-        timeout=_PDF_OCR_RENDER_TIMEOUT_SECONDS,
-        warning="pdf OCR render failed",
-    )
-    if render is None:
-        return []
-    return _bounded_pdf_ocr_page_paths(path, temp_dir)
-
-
-def _bounded_pdf_ocr_page_paths(path: Path, temp_dir: Path) -> list[Path]:
-    page_paths = sorted(temp_dir.glob("page-*.png"))
-    if len(page_paths) > _PDF_OCR_MAX_PAGES:
-        _log_extraction_failure(
-            path,
-            "pdf OCR render exceeded page limit",
-            f"{len(page_paths)} page(s) rendered, limit is {_PDF_OCR_MAX_PAGES}",
-        )
-        return []
-
+def _render_pdf_pages(path: Path, temp_dir: Path, deadline: float) -> list[Path]:
+    page_paths: list[Path] = []
     total_bytes = 0
-    for page_path in page_paths:
-        total_bytes += page_path.stat().st_size
+    page_count = _pdf_page_count(path)
+    page_limit = min(page_count or _PDF_OCR_MAX_PAGES, _PDF_OCR_MAX_PAGES)
+    for page_number in range(1, page_limit + 1):
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            _log_extraction_failure(
+                path,
+                "pdf OCR total deadline exceeded during render",
+                f"limit is {_PDF_OCR_TOTAL_TIMEOUT_SECONDS} second(s)",
+            )
+            return []
+        rendered_pages = _render_pdf_page(
+            path,
+            temp_dir,
+            page_number,
+            timeout=min(_PDF_OCR_RENDER_TIMEOUT_SECONDS, remaining_seconds),
+            log_failure=page_count is not None or not page_paths,
+        )
+        if not rendered_pages:
+            break
+        page_paths.extend(rendered_pages)
+        total_bytes += sum(page_path.stat().st_size for page_path in rendered_pages)
         if total_bytes > _PDF_OCR_MAX_RENDERED_BYTES:
             _log_extraction_failure(
                 path,
@@ -561,6 +567,66 @@ def _bounded_pdf_ocr_page_paths(path: Path, temp_dir: Path) -> list[Path]:
             )
             return []
     return page_paths
+
+
+def _render_pdf_page(
+    path: Path,
+    temp_dir: Path,
+    page_number: int,
+    *,
+    timeout: float,
+    log_failure: bool,
+) -> list[Path]:
+    output_prefix = temp_dir / f"page-{page_number:03d}"
+    render = _run_extraction_command(
+        path,
+        [
+            "pdftoppm",
+            "-r",
+            str(_PDF_OCR_DPI),
+            "-f",
+            str(page_number),
+            "-l",
+            str(page_number),
+            "-png",
+            str(path),
+            str(output_prefix),
+        ],
+        timeout=timeout,
+        warning="pdf OCR render failed",
+        fields={"page": str(page_number)},
+        log_failure=log_failure,
+    )
+    if render is None:
+        return []
+    return sorted(temp_dir.glob(f"{output_prefix.name}*.png"))
+
+
+def _pdf_page_count(path: Path) -> int | None:
+    if shutil.which("pdfinfo") is None:
+        return None
+    completed = _run_extraction_command(
+        path,
+        ["pdfinfo", str(path)],
+        timeout=_PDF_INFO_TIMEOUT_SECONDS,
+        warning="pdf page count failed",
+        log_failure=False,
+    )
+    if completed is None:
+        return None
+    for line in completed.stdout.splitlines():
+        key, separator, raw_value = line.partition(":")
+        if separator and key.strip() == "Pages":
+            return _parse_positive_int(raw_value.strip())
+    return None
+
+
+def _parse_positive_int(value: str) -> int | None:
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _ocr_pdf_pages(path: Path, page_paths: Sequence[Path], deadline: float) -> list[str]:
@@ -600,6 +666,7 @@ def _run_extraction_command(
     timeout: float,
     warning: str,
     fields: Mapping[str, str] | None = None,
+    log_failure: bool = True,
 ) -> subprocess.CompletedProcess[str] | None:
     try:
         completed = subprocess.run(
@@ -616,6 +683,8 @@ def _run_extraction_command(
         return None
     if completed.returncode == 0:
         return completed
+    if not log_failure:
+        return None
 
     detail = completed.stderr.strip() or f"exit status {completed.returncode}"
     _log_extraction_failure(path, warning, detail, fields=fields)
@@ -644,6 +713,13 @@ def _log_extraction_failure(
         warning,
         extra={"fields": {"path": str(path), **dict(fields or {}), "error": detail}},
     )
+
+
+def _file_exceeds_limit(path: Path, limit: int) -> bool:
+    try:
+        return path.stat().st_size > limit
+    except OSError:
+        return True
 
 
 def _convert_binary_to_indexable_text(path: Path) -> str | None:
@@ -1088,7 +1164,7 @@ def _chunk_binary_file(
     return ChunkedDocument(
         source=rel,
         chunks=chunk_markdown(text, rel, chunk_size, overlap),
-        content_hash=hashlib.sha256(path.read_bytes()).hexdigest()[:16],
+        content_hash=_file_content_hash(path),
     )
 
 
@@ -1105,3 +1181,11 @@ def _read_normalized_text_file(path: Path) -> str | None:
 
 def _text_content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _file_content_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(_HASH_READ_BYTES), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]

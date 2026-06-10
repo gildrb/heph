@@ -66,6 +66,19 @@ def test_app_settings_default_vocab_strictness_is_strict() -> None:
     assert s.vocab_strictness == settings.DEFAULT_VOCAB_STRICTNESS
 
 
+def test_app_settings_default_live_usage_visibility_is_off() -> None:
+    s = settings.AppSettings()
+
+    assert s.live_tokens_visible is False
+    assert s.live_cost_visible is False
+
+
+def test_app_settings_default_thinking_visibility_is_off() -> None:
+    s = settings.AppSettings()
+
+    assert s.thinking_visibility == settings.DEFAULT_THINKING_VISIBILITY == "off"
+
+
 def test_load_app_settings_ignores_removed_interface_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -94,6 +107,37 @@ def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.Monke
     assert settings.load_app_settings().activity_trace_mode == (
         settings.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
     )
+
+
+def test_live_usage_visibility_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    settings.save_setting("live_tokens_visible", True)
+    settings.save_setting("live_cost_visible", "true")
+
+    app_settings = settings.load_app_settings()
+    assert app_settings.live_tokens_visible is True
+    assert app_settings.live_cost_visible is True
+
+
+def test_thinking_visibility_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    settings.save_setting("thinking_visibility", "all")
+
+    assert settings.load_app_settings().thinking_visibility == "all"
 
 
 @pytest.mark.parametrize("removed_theme", ["forge", "high_contrast"])
@@ -138,6 +182,11 @@ def test_save_setting_writes_private_config_permissions(
 def test_normalize_activity_trace_mode_rejects_invalid() -> None:
     with pytest.raises(ValueError, match="activity_trace_mode"):
         settings.normalize_setting_value("activity_trace_mode", "verbose")
+
+
+def test_normalize_thinking_visibility_rejects_invalid() -> None:
+    with pytest.raises(ValueError, match="thinking_visibility"):
+        settings.normalize_setting_value("thinking_visibility", "verbose")
 
 
 def test_vocab_strictness_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

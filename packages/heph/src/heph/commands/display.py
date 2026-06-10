@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ai.runtime import next_thinking_visibility
 from hephaion.chat.session import ChatSession
+from hephaion.parameters.settings import (
+    THINKING_VISIBILITY_LABELS,
+    THINKING_VISIBILITY_MODES,
+    save_setting,
+)
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.source_mapping import (
     SourceLineSpan,
@@ -20,9 +26,11 @@ from heph.commands._base import (
     CommandResult,
     ensure_session,
 )
+from heph.commands.terminal_text import terminal_safe_text as _terminal_safe_text
 
 _VISIBILITY_ON = ("show", "on", "yes", "true", "1")
 _VISIBILITY_OFF = ("hide", "off", "no", "false", "0")
+_THINKING_USAGE = "Usage: /thinking [off|minimal|all]"
 
 
 def _evidence_request(args: str) -> tuple[str | None, bool]:
@@ -62,7 +70,7 @@ def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, 
     previous_source: str | None = None
     for item in items:
         if item.source != previous_source:
-            lines.append(f"  {item.source}")
+            lines.append(f"  {_terminal_safe_text(item.source)}")
             previous_source = item.source
         lines.extend(_format_evidence_overview_item(session, item))
     lines += [
@@ -75,10 +83,10 @@ def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, 
 
 def _format_evidence_overview_item(session: ChatSession, item: EvidenceChunk) -> list[str]:
     _, span = _item_path_and_span(session, item)
-    location = evidence_location_label(item.source, item.chunk, span)
+    location = _terminal_safe_text(evidence_location_label(item.source, item.chunk, span))
     lines = [f"    {item.evidence_id}  {location}; score={item.score:.3f}"]
     if item.chunk.heading:
-        lines.append(f"      heading: {item.chunk.heading}")
+        lines.append(f"      heading: {_terminal_safe_text(item.chunk.heading)}")
     lines += [
         f"      expand: /evidence {item.evidence_id}",
         f"      open:   /evidence {item.evidence_id} open",
@@ -89,16 +97,16 @@ def _format_evidence_overview_item(session: ChatSession, item: EvidenceChunk) ->
 def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
     path, span = _item_path_and_span(session, item)
     source = item.source if path is None else str(path)
-    location = evidence_location_label(item.source, item.chunk, span)
+    location = _terminal_safe_text(evidence_location_label(item.source, item.chunk, span))
     lines = [
-        f"{item.evidence_id}  {source}",
+        f"{item.evidence_id}  {_terminal_safe_text(source)}",
         f"{location}; score={item.score:.3f}",
     ]
     if item.chunk.heading:
-        lines.append(f"heading: {item.chunk.heading}")
+        lines.append(f"heading: {_terminal_safe_text(item.chunk.heading)}")
     lines += ["", "Source text:"]
     excerpt = source_excerpt(path, item.chunk) if path is not None else ""
-    lines.append(excerpt or item.content)
+    lines.append(_terminal_safe_text(excerpt or item.content))
     lines += ["", f"Open source: /evidence {item.evidence_id} open"]
     return "\n".join(lines)
 
@@ -137,6 +145,7 @@ def _update_visibility(session: ChatSession, args: str, attr: str, label: str, u
     else:
         visible = not bool(getattr(session, attr))
     setattr(session, attr, visible)
+    save_setting(attr, visible)
     state = "shown" if visible else "hidden"
     print_success(f"{label} {state}.")
 
@@ -201,4 +210,26 @@ class CostCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
         _update_visibility(s, args, "live_cost_visible", "Live cost", "Usage: /cost [show|hide]")
+        return CommandResult()
+
+
+class ThinkingCommand(Command):
+    name = "thinking"
+    description = "Show provider-exposed model thinking"
+    aliases = ("reasoning",)
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = ensure_session(session)
+        requested = args.strip().lower()
+        if not requested:
+            mode = next_thinking_visibility(s.config.thinking_visibility)
+        elif requested in THINKING_VISIBILITY_MODES:
+            mode = requested
+        else:
+            print_error(_THINKING_USAGE)
+            return CommandResult()
+
+        s.config.thinking_visibility = mode
+        save_setting("thinking_visibility", mode)
+        print_success(f"Model thinking: {THINKING_VISIBILITY_LABELS[mode]}.")
         return CommandResult()

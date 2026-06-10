@@ -13,11 +13,13 @@ from typing import TypedDict
 from ai.logging import get_logger
 
 from hephaion._types import is_string_mapping
+from hephaion.armory.state_files import read_armory_state_text, write_armory_state_text
 from hephaion.vocab.parser import VocabCard, VocabDeck
 
 _log = get_logger("hephaion.vocab.state")
 
 _SCHEDULE_FILE = "vocab_schedule.json"
+_SCHEDULE_REL_PATH = f".hephaion/{_SCHEDULE_FILE}"
 
 _DEFAULT_EASINESS = 2.5
 
@@ -131,7 +133,7 @@ class VocabScheduleStore:
         if not self._path.is_file():
             return False
         try:
-            raw_data = json.loads(self._path.read_text(encoding="utf-8"))
+            raw_data = json.loads(read_armory_state_text(self.armory_path, _SCHEDULE_REL_PATH))
             if not is_string_mapping(raw_data):
                 return False
             raw_cards = raw_data.get("cards", {})
@@ -154,15 +156,15 @@ class VocabScheduleStore:
             return False
 
     def save(self) -> Path:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 1,
             "updated_at": datetime.now(UTC).isoformat(),
             "cards": {key: state.to_dict() for key, state in self.cards.items()},
         }
-        self._path.write_text(
+        path = write_armory_state_text(
+            self.armory_path,
+            _SCHEDULE_REL_PATH,
             json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
         )
         self._dirty = False
         _log.info(
@@ -174,7 +176,7 @@ class VocabScheduleStore:
                 }
             },
         )
-        return self._path
+        return path
 
     def sync_with_deck(self, deck: VocabDeck) -> int:
         """Reconcile the schedule with the latest deck contents.

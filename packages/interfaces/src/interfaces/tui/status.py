@@ -15,9 +15,12 @@ if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
 STATUS_FIELD_GAP = "  "
+_BASE_STATUS_LABELS = ("armory", "model", "reasoning")
 
 
-def status_lines(session: ChatSession) -> str:
+def status_lines(session: ChatSession, *, draft: str = "") -> str:
+    # Draft text is not usage until a provider records the turn.
+    _ = draft
     armory = "none"
     if session.armory_path is not None:
         try:
@@ -28,11 +31,71 @@ def status_lines(session: ChatSession) -> str:
         if len(armory) > 48:
             armory = f"...{armory[-45:]}"
     model = session.config.model or "none"
-    return (
-        f"Heph{STATUS_FIELD_GAP}armory {armory}"
-        f"{STATUS_FIELD_GAP}model {model}"
-        f"{STATUS_FIELD_GAP}reasoning {session.config.reasoning_level}"
-    )
+    fields = [
+        ("armory", armory),
+        ("model", model),
+        ("reasoning", session.config.reasoning_level),
+        *_live_usage_fields(session),
+    ]
+    return STATUS_FIELD_GAP.join(("Heph", *(f"{label} {value}" for label, value in fields)))
+
+
+def status_labels(session: ChatSession) -> tuple[str, ...]:
+    labels = [*_BASE_STATUS_LABELS]
+    if session.live_tokens_visible:
+        labels.append("tokens")
+    if session.live_cost_visible:
+        labels.append("cost")
+    return tuple(labels)
+
+
+def _live_usage_fields(session: ChatSession) -> list[tuple[str, str]]:
+    fields: list[tuple[str, str]] = []
+    if session.live_tokens_visible:
+        fields.append(("tokens", _token_status_value(session)))
+    if session.live_cost_visible:
+        fields.append(("cost", _cost_status_value(session)))
+    return fields
+
+
+def _token_status_value(session: ChatSession) -> str:
+    summary = session.usage.summary()
+    prompt_tokens = int(summary["prompt_tokens"])
+    completion_tokens = int(summary["completion_tokens"])
+    total_tokens = int(summary["total_tokens"])
+    if total_tokens <= 0:
+        return "0"
+
+    parts: list[str] = []
+    if prompt_tokens:
+        parts.append(f"↑{_format_tokens(prompt_tokens)}")
+    if completion_tokens:
+        parts.append(f"↓{_format_tokens(completion_tokens)}")
+    return " ".join(parts) or _format_tokens(total_tokens)
+
+
+def _cost_status_value(session: ChatSession) -> str:
+    summary = session.usage.summary()
+    value = f"${float(summary['cost_usd']):.3f}"
+    if _uses_subscription_billing(session):
+        return f"{value} (sub)"
+    return value
+
+
+def _uses_subscription_billing(session: ChatSession) -> bool:
+    return session.config.provider_slug == "openai-codex"
+
+
+def _format_tokens(count: int) -> str:
+    if count < 1_000:
+        return str(count)
+    if count < 10_000:
+        return f"{count / 1_000:.1f}k"
+    if count < 1_000_000:
+        return f"{round(count / 1_000)}k"
+    if count < 10_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    return f"{round(count / 1_000_000)}M"
 
 
 def config_error(session: ChatSession) -> str | None:

@@ -9,6 +9,9 @@ from dataclasses import dataclass
 
 from ai.logging import Timer
 from ai.runtime import (
+    THINKING_VISIBILITY_ALL,
+    THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_OFF,
     ApiMessage,
     ChatConfig,
     CompletionDelta,
@@ -17,7 +20,7 @@ from ai.runtime import (
     build_client,
     stream_completion,
 )
-from ai.runtime.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
+from ai.runtime.events import AssistantDeltaEvent, NoticeEvent, ReasoningDeltaEvent, TurnEvent
 
 from hephaion.agent.runtime_notes import acceptance_criteria_notice
 from hephaion.agent.tool_execution import ToolCall, merge_tool_call_deltas
@@ -36,6 +39,7 @@ class ModelStreamState:
     content_delta_count: int = 0
     content_char_count: int = 0
     tool_delta_count: int = 0
+    thinking_visibility: str = THINKING_VISIBILITY_OFF
     finish_reason: str = ""
     stream_usage: UsagePayload | None = None
 
@@ -96,6 +100,8 @@ def _apply_model_delta(
     collected_parts: list[str],
     collected_tool_calls: list[ToolCall],
 ) -> Generator[TurnEvent]:
+    if reasoning_event := _reasoning_delta_event(delta, state.thinking_visibility):
+        yield reasoning_event
     if delta.content:
         collected_parts.append(delta.content)
         state.content_delta_count += 1
@@ -112,6 +118,20 @@ def _apply_model_delta(
         state.finish_reason = delta.finish_reason
     if delta.usage:
         state.stream_usage = delta.usage
+
+
+def _reasoning_delta_event(
+    delta: CompletionDelta,
+    thinking_visibility: str,
+) -> ReasoningDeltaEvent | None:
+    if delta.reasoning and thinking_visibility == THINKING_VISIBILITY_ALL:
+        return ReasoningDeltaEvent(delta.reasoning)
+    if delta.reasoning_summary and thinking_visibility in {
+        THINKING_VISIBILITY_MINIMAL,
+        THINKING_VISIBILITY_ALL,
+    }:
+        return ReasoningDeltaEvent(delta.reasoning_summary, summary=True)
+    return None
 
 
 def _model_complete_event(state: ModelStreamState, tool_call_count: int) -> NoticeEvent:
@@ -176,12 +196,13 @@ def _requires_verification_tool(
     return turn_idx == 0 and bool(tool_schemas) and turn_evidence is None
 
 
-def _new_stream_state(model_name: str) -> ModelStreamState:
+def _new_stream_state(model_name: str, thinking_visibility: str) -> ModelStreamState:
     started_at = time.perf_counter()
     return ModelStreamState(
         model_name=model_name,
         started_at=started_at,
         last_progress_at=started_at,
+        thinking_visibility=thinking_visibility,
     )
 
 
@@ -222,7 +243,7 @@ def run_model_turn(
             message_count=len(llm_messages),
             schema_count=len(active_schemas),
         )
-        stream_state = _new_stream_state(model_name)
+        stream_state = _new_stream_state(model_name, config.thinking_visibility)
         for delta in stream_completion(
             config,
             llm_messages,

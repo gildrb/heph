@@ -127,13 +127,20 @@ def _write_state_file(
     open_flags = os.O_WRONLY | os.O_CREAT | flags | _no_follow_flag()
     fd = os.open(str(target), open_flags, mode)
     try:
-        os.fchmod(fd, mode)
+        _set_state_file_mode(fd, target, mode)
         file = os.fdopen(fd, text_mode, encoding=encoding)
     except Exception:
         os.close(fd)
         raise
     with file:
         file.write(content)
+
+
+def _set_state_file_mode(fd: int, target: Path, mode: int) -> None:
+    try:
+        os.fchmod(fd, mode)
+    except AttributeError:
+        target.chmod(mode)
 
 
 def _state_target(armory_path: Path, rel_path: str | Path, *, create_parent: bool) -> Path:

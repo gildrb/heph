@@ -21,6 +21,7 @@ from ai.runtime.errors import EngineError
 from ai.runtime.messages import message_content_text
 from ai.runtime.prompt_cache import PromptCacheRequest
 from ai.runtime.request_payload import model_reasoning_effort
+from ai.runtime.thinking import THINKING_VISIBILITY_OFF
 from ai.runtime.usage_payload import cached_prompt_tokens_from_usage
 from ai.types import is_string_mapping
 
@@ -165,8 +166,13 @@ def _codex_payload(
         "store": False,
         "stream": True,
     }
+    reasoning: dict[str, object] = {}
     if reasoning_effort := model_reasoning_effort(config):
-        payload["reasoning"] = {"effort": reasoning_effort}
+        reasoning["effort"] = reasoning_effort
+    if config.thinking_visibility != THINKING_VISIBILITY_OFF:
+        reasoning["summary"] = "auto"
+    if reasoning:
+        payload["reasoning"] = reasoning
     return payload
 
 
@@ -283,6 +289,17 @@ def _codex_output_text_delta(
     return CompletionDelta(content=delta) if isinstance(delta, str) and delta else None
 
 
+def _codex_reasoning_summary_delta(
+    event: dict[str, object],
+    _config: ChatConfig,
+    _span: _SpanProtocol,
+    _prompt_request: PromptCacheRequest | None,
+    _record_usage: _RecordUsageFn,
+) -> CompletionDelta | None:
+    delta = event.get("delta")
+    return CompletionDelta(reasoning_summary=delta) if isinstance(delta, str) and delta else None
+
+
 def _codex_completed_delta(
     event: dict[str, object],
     config: ChatConfig,
@@ -310,6 +327,8 @@ def _codex_failed_delta(
 _CODEX_EVENT_HANDLERS: dict[str, _CodexEventHandler] = {
     "response.done": _codex_done_delta,
     "response.output_text.delta": _codex_output_text_delta,
+    "response.reasoning_summary.delta": _codex_reasoning_summary_delta,
+    "response.reasoning_summary_text.delta": _codex_reasoning_summary_delta,
     "response.completed": _codex_completed_delta,
     "response.failed": _codex_failed_delta,
 }

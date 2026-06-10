@@ -7,7 +7,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai.runtime import ChatConfig
+from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.events import event_to_dict
 from heph.sdk.runtime import HephRuntime, HephSdkError, HephSession
@@ -173,6 +173,8 @@ class HephService:
                 self.runtime.config.rag_context_budget = rag_context_budget
         if "temperature" in params:
             self.runtime.config.temperature = _optional_float(params, "temperature")
+        if value := _optional_str(params, "thinking_visibility"):
+            self.runtime.config.thinking_visibility = normalize_thinking_visibility(value)
         return {"runtime": self._runtime_state()}
 
     def list_materials(self) -> dict[str, object]:
@@ -200,6 +202,7 @@ class HephService:
             "max_tokens": self.runtime.config.max_tokens,
             "rag_context_budget": self.runtime.config.rag_context_budget,
             "temperature": self.runtime.config.temperature,
+            "thinking_visibility": self.runtime.config.thinking_visibility,
             "feature_flags": sorted(self.runtime.config.feature_flags),
         }
 

@@ -10,6 +10,7 @@ import hephaion.agent.dispatch as dispatch_mod
 import hephaion.agent.model_stream as model_stream_mod
 import pytest
 from ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
+from hephaion.agent import web_tools
 from hephaion.agent.dispatch import summarize_result
 from hephaion.agent.tool_execution import (
     ToolCall,
@@ -19,6 +20,8 @@ from hephaion.agent.tool_execution import (
 )
 from hephaion.agent.tools import (
     TOOL_SCHEMAS,
+    ToolRegistry,
+    ToolSpec,
     get_handler,
     run_bash,
     run_edit_file,
@@ -112,6 +115,23 @@ class TestReadFile:
         result = run_read_file("../../../etc/passwd", workspace=workspace)
         assert "escapes" in result.lower()
 
+    def test_read_rejects_armory_state(self, workspace: Path) -> None:
+        state_dir = workspace / ".hephaion"
+        state_dir.mkdir()
+        (state_dir / "memory.json").write_text("secret", encoding="utf-8")
+
+        result = run_read_file(".hephaion/memory.json", workspace=workspace)
+
+        assert "Access denied" in result
+
+    def test_read_rejects_large_text_file(self, workspace: Path) -> None:
+        large_file = workspace / "large.txt"
+        large_file.write_bytes(b"a" * 1_000_001)
+
+        result = run_read_file("large.txt", workspace=workspace)
+
+        assert "File too large" in result
+
     def test_read_binary_pdf_gives_helpful_error(self, workspace: Path) -> None:
         pdf = workspace / "slides.pdf"
         pdf.write_bytes(b"%PDF-1.4\x80\x81\x82fake pdf")
@@ -145,6 +165,12 @@ class TestWriteFile:
         result = run_write_file("/tmp/evil.txt", "x", workspace=workspace)
         assert "escapes" in result.lower()
 
+    def test_write_rejects_armory_state(self, workspace: Path) -> None:
+        result = run_write_file(".hephaion/system_prompt.md", "override", workspace=workspace)
+
+        assert "Access denied" in result
+        assert not (workspace / ".hephaion" / "system_prompt.md").exists()
+
 
 class TestEditFile:
     def test_edit_existing(self, workspace: Path) -> None:
@@ -160,6 +186,16 @@ class TestEditFile:
         (workspace / "dup.txt").write_text("aaa\naaa\n")
         result = run_edit_file("dup.txt", "aaa", "bbb", workspace=workspace)
         assert "2 matches" in result
+
+    def test_edit_rejects_armory_state(self, workspace: Path) -> None:
+        state_dir = workspace / ".hephaion"
+        state_dir.mkdir()
+        (state_dir / "memory.json").write_text("old", encoding="utf-8")
+
+        result = run_edit_file(".hephaion/memory.json", "old", "new", workspace=workspace)
+
+        assert "Access denied" in result
+        assert (state_dir / "memory.json").read_text(encoding="utf-8") == "old"
 
 
 class TestListFiles:
@@ -195,6 +231,24 @@ class TestSearchFiles:
         hidden_dir.mkdir()
         (hidden_dir / "trace.txt").write_text("needle\n")
         (workspace / "slides.pdf").write_text("needle\n")
+
+        result = run_search_files("needle", workspace=workspace)
+
+        assert isinstance(result, str)
+        assert "No matches found" in result
+
+    def test_search_treats_pattern_as_literal_text(self, workspace: Path) -> None:
+        (workspace / "literal.txt").write_text("(a+)+$\n", encoding="utf-8")
+        (workspace / "regex-target.txt").write_text("aaaa\n", encoding="utf-8")
+
+        result = run_search_files("(a+)+$", workspace=workspace)
+
+        assert isinstance(result, str)
+        assert "literal.txt:1:" in result
+        assert "regex-target.txt" not in result
+
+    def test_search_skips_large_text_files(self, workspace: Path) -> None:
+        (workspace / "large.txt").write_bytes(b"needle" + b"a" * 1_000_001)
 
         result = run_search_files("needle", workspace=workspace)
 
@@ -244,6 +298,7 @@ class TestToolSchemas:
             assert "function" in schema
             assert "name" in schema["function"]
             assert "parameters" in schema["function"]
+            assert schema["function"]["parameters"]["additionalProperties"] is False
 
     def test_all_handlers_registered(self) -> None:
         names = {s["function"]["name"] for s in TOOL_SCHEMAS}
@@ -419,6 +474,75 @@ class TestExecuteToolCalls:
         ]
         results = execute_tool_calls(tool_calls, workspace)
         assert "hello" in message_text(results[0])
+
+    def test_execute_rejects_unexpected_arguments(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def fail_open(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("web_fetch should not run")
+
+        monkeypatch.setattr(web_tools, "_open_without_redirect", fail_open)
+        tool_calls: list[ToolCall] = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "web_fetch",
+                    "arguments": json.dumps({"url": "https://example.com", "timeout": 999}),
+                },
+            }
+        ]
+
+        results = execute_tool_calls(tool_calls, workspace)
+
+        assert "invalid arguments" in message_text(results[0])
+        assert "timeout" in message_text(results[0])
+        assert results[0].get("tool_success") is False
+
+    def test_execute_rejects_reserved_arguments_for_custom_tools(self, workspace: Path) -> None:
+        calls: list[str] = []
+
+        def custom_tool(*, workspace: Path, topic: str, **_kwargs: object) -> str:
+            calls.append(f"{workspace}:{topic}")
+            return "ok"
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "custom_tool",
+                        "description": "Custom test tool.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"topic": {"type": "string"}},
+                            "required": ["topic"],
+                        },
+                    },
+                },
+                handler=custom_tool,
+            )
+        )
+        tool_calls: list[ToolCall] = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "custom_tool",
+                    "arguments": json.dumps({"topic": "notes", "workspace": "/tmp/escape"}),
+                },
+            }
+        ]
+
+        results = execute_tool_calls(tool_calls, workspace, registry=registry)
+
+        assert "reserved argument" in message_text(results[0])
+        assert "workspace" in message_text(results[0])
+        assert results[0].get("tool_success") is False
+        assert calls == []
 
 
 class TestIterAgentEvents:

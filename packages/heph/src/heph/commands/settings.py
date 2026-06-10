@@ -11,6 +11,7 @@ from ai.providers.config import ProviderConfig
 from hephaion.parameters.settings import (
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_TOOL_CALLS,
+    THINKING_VISIBILITY_LABELS,
     VOCAB_STRICTNESS_LABELS,
     load_app_settings,
 )
@@ -37,12 +38,17 @@ class SettingsCommand(Command):
             ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS],
         )
         vocab = VOCAB_STRICTNESS_LABELS.get(settings.vocab_strictness, settings.vocab_strictness)
+        thinking = THINKING_VISIBILITY_LABELS.get(
+            settings.thinking_visibility,
+            settings.thinking_visibility,
+        )
         default_armory = settings.default_armory_path or "none"
         analytics = "enabled" if analytics_enabled() else "disabled"
         crash_reports = "enabled" if crash_reports_enabled() else "disabled"
         print(
             "Settings are managed in the TUI with /settings. "
             f"Theme: {settings.theme}; Activity trace: {activity}; "
+            f"Model thinking: {thinking}; "
             f"Vocabulary practice: {vocab}; Default armory: {default_armory}; "
             f"Usage analytics: {analytics}; Crash reports: {crash_reports}; "
             f"Provider: {provider}."

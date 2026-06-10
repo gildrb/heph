@@ -6,6 +6,7 @@ from hephaion.chat.events import (
     CompactRequestEvent,
     MaterialOperationEvent,
     NoticeEvent,
+    ReasoningDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -15,6 +16,7 @@ from hephaion.chat.events import (
 
 def test_event_defaults_expose_expected_kinds() -> None:
     assert AssistantDeltaEvent("hi").kind == "assistant_delta"
+    assert ReasoningDeltaEvent("maybe").kind == "reasoning_delta"
     assert ToolCallEvent("1", "bash", {}, "$ bash").kind == "tool_call"
     assert ToolResultEvent("1", "bash", "done", "summary").kind == "tool_result"
     assert MaterialOperationEvent("search_index", "Searching materials.").kind == (
@@ -29,6 +31,7 @@ def test_event_defaults_expose_expected_kinds() -> None:
 
 def test_render_turn_event_handles_each_supported_event_type() -> None:
     assert render_turn_event(AssistantDeltaEvent("hello")) == "hello"
+    assert render_turn_event(ReasoningDeltaEvent("thinking", summary=True)) == ""
     assert render_turn_event(ToolCallEvent("1", "bash", {}, "$ bash")) == "\n$ bash\n"
     assert render_turn_event(ToolResultEvent("1", "bash", "output", "summary")) == "summary\n"
     assert render_turn_event(MaterialOperationEvent("read_excerpt", "Opened source.")) == (
@@ -44,6 +47,11 @@ def test_event_to_json_object_uses_public_type_key() -> None:
     assert event_to_json_object(AssistantDeltaEvent("hello")) == {
         "type": "assistant_delta",
         "delta": "hello",
+    }
+    assert event_to_json_object(ReasoningDeltaEvent("thinking", summary=True)) == {
+        "type": "reasoning_delta",
+        "delta": "thinking",
+        "summary": True,
     }
     assert event_to_json_object(ToolCallEvent("1", "bash", {"command": "pwd"}, "$ bash")) == {
         "type": "tool_call",

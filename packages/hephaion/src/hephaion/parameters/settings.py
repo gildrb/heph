@@ -8,6 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from ai.runtime.thinking import (
+    DEFAULT_THINKING_VISIBILITY,
+    THINKING_VISIBILITY_ALL,
+    THINKING_VISIBILITY_MINIMAL,
+    THINKING_VISIBILITY_MODES,
+    THINKING_VISIBILITY_OFF,
+)
+
 from hephaion._types import is_string_mapping
 
 _DEFAULTS_FILE = Path(__file__).parent / "default.toml"
@@ -45,10 +53,17 @@ VOCAB_STRICTNESS_LABELS: Final[dict[str, str]] = {
     VOCAB_STRICTNESS_LENIENT: "Lenient punctuation",
 }
 DEFAULT_VOCAB_STRICTNESS: Final[str] = VOCAB_STRICTNESS_STRICT
+THINKING_VISIBILITY_LABELS: Final[dict[str, str]] = {
+    THINKING_VISIBILITY_OFF: "Off",
+    THINKING_VISIBILITY_MINIMAL: "Minimal",
+    THINKING_VISIBILITY_ALL: "All",
+}
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
         "analytics_enabled",
         "crash_reports_enabled",
+        "live_cost_visible",
+        "live_tokens_visible",
         "privacy_notice_seen",
     }
 )
@@ -62,6 +77,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "last_armory_path",
         "activity_trace_mode",
         "vocab_strictness",
+        "thinking_visibility",
     }
 )
 INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
@@ -77,6 +93,9 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "default_armory_path",
     "activity_trace_mode",
     "vocab_strictness",
+    "thinking_visibility",
+    "live_tokens_visible",
+    "live_cost_visible",
     "analytics_enabled",
     "crash_reports_enabled",
 )
@@ -122,6 +141,9 @@ class AppSettings:
     last_armory_path: str = ""
     activity_trace_mode: str = DEFAULT_ACTIVITY_TRACE_MODE
     vocab_strictness: str = DEFAULT_VOCAB_STRICTNESS
+    thinking_visibility: str = DEFAULT_THINKING_VISIBILITY
+    live_tokens_visible: bool = False
+    live_cost_visible: bool = False
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
     privacy_notice_seen: bool = False
@@ -211,6 +233,9 @@ def _setting_normalizers() -> dict[str, SettingNormalizer]:
         "vocab_strictness": lambda value: _normalize_choice(
             "vocab_strictness", value, VOCAB_STRICTNESS_MODES
         ),
+        "thinking_visibility": lambda value: _normalize_choice(
+            "thinking_visibility", value, THINKING_VISIBILITY_MODES
+        ),
         "default_armory_path": _normalize_path,
         "last_armory_path": _normalize_path,
         "feature_flags": _normalize_feature_flags,
@@ -275,6 +300,11 @@ def load_app_settings() -> AppSettings:
     vocab_strictness = str(raw.get("vocab_strictness", DEFAULT_VOCAB_STRICTNESS)).strip().lower()
     if vocab_strictness not in VOCAB_STRICTNESS_MODES:
         vocab_strictness = DEFAULT_VOCAB_STRICTNESS
+    thinking_visibility = (
+        str(raw.get("thinking_visibility", DEFAULT_THINKING_VISIBILITY)).strip().lower()
+    )
+    if thinking_visibility not in THINKING_VISIBILITY_MODES:
+        thinking_visibility = DEFAULT_THINKING_VISIBILITY
     raw_session_count = raw.get("session_count")
     session_count = 0
     if isinstance(raw_session_count, bool | int | float):
@@ -288,6 +318,9 @@ def load_app_settings() -> AppSettings:
         last_armory_path=last_armory,
         activity_trace_mode=activity_trace_mode,
         vocab_strictness=vocab_strictness,
+        thinking_visibility=thinking_visibility,
+        live_tokens_visible=_coerce_bool(raw.get("live_tokens_visible"), default=False),
+        live_cost_visible=_coerce_bool(raw.get("live_cost_visible"), default=False),
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
         privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),

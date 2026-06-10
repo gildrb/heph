@@ -34,7 +34,11 @@ from hephaion.chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
 from hephaion.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
-from hephaion.study import LearningTurnPlan, material_overview_plan
+from hephaion.study import (
+    LearningTurnPlan,
+    material_overview_plan,
+    material_topic_presentation_plan,
+)
 
 
 @pytest.mark.parametrize("intent", ["", "source_qa"])
@@ -316,3 +320,10 @@ def test_armory_heph_action_route_uses_narrow_setup_tools(tmp_path: Path) -> Non
     assert session.last_turn_contract.resolved_intent == "heph_action"
     assert session.last_turn_contract.retrieval_strategy == RETRIEVAL_STRATEGY_NONE
     assert session.last_turn_contract.evidence_refs == ()
+
+
+def test_material_topic_presentation_uses_material_read_tools_only() -> None:
+    plan = material_topic_presentation_plan("teach me enzymes", retrieval_query="enzymes")
+
+    assert plan.allow_tools is True
+    assert plan.allowed_tool_names == ("search_materials", "open_material")

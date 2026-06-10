@@ -11,6 +11,7 @@ from hephaion.chat.events import (
     GuardrailEvent,
     MaterialOperationEvent,
     NoticeEvent,
+    ReasoningDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -25,6 +26,16 @@ class AssistantDelta:
 
     def to_dict(self) -> dict[str, object]:
         return {"type": self.kind, "delta": self.delta}
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningDelta:
+    delta: str
+    summary: bool
+    kind: Literal["reasoning_delta"] = field(default="reasoning_delta", init=False)
+
+    def to_dict(self) -> dict[str, object]:
+        return {"type": self.kind, "delta": self.delta, "summary": self.summary}
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +177,7 @@ class Guardrail:
 
 HephEvent = (
     AssistantDelta
+    | ReasoningDelta
     | ToolCall
     | ToolResult
     | MaterialOperation
@@ -180,6 +192,8 @@ def from_turn_event(event: TurnEvent) -> HephEvent:
     """Convert the harness turn event into the public SDK DTO."""
     if isinstance(event, AssistantDeltaEvent):
         return AssistantDelta(delta=event.delta)
+    if isinstance(event, ReasoningDeltaEvent):
+        return ReasoningDelta(delta=event.delta, summary=event.summary)
     if isinstance(event, ToolCallEvent):
         return ToolCall(
             call_id=event.call_id,
@@ -240,6 +254,7 @@ __all__ = [
     "HephEvent",
     "MaterialOperation",
     "Notice",
+    "ReasoningDelta",
     "ToolCall",
     "ToolResult",
     "TurnComplete",

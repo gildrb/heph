@@ -27,7 +27,6 @@ class ClassableWidget(Protocol):
     def remove_class(self, *_class_names: str) -> object: ...
 
 
-_SIDEBAR_INDENT = "  "
 _SIDEBAR_CONTENT_WIDTH_FALLBACK = 36
 
 
@@ -42,19 +41,19 @@ def sidebar_text(content: str, *, width: int = 0) -> str:
 
 
 def sidebar_content_width(widget: ClassableWidget) -> int:
-    if widget.size.width > len(_SIDEBAR_INDENT):
-        return widget.size.width - len(_SIDEBAR_INDENT)
+    if widget.size.width > 0:
+        return widget.size.width
     return _SIDEBAR_CONTENT_WIDTH_FALLBACK
 
 
 def _sidebar_wrapped_line(line: str, *, width: int) -> list[str]:
-    if width <= len(_SIDEBAR_INDENT) + 1:
-        return [f"{_SIDEBAR_INDENT}{line}"]
+    if width <= 1:
+        return [line]
     wrapper = textwrap.TextWrapper(
         width=width,
-        initial_indent=_SIDEBAR_INDENT,
-        subsequent_indent=_SIDEBAR_INDENT,
+        initial_indent="",
+        subsequent_indent="",
         break_long_words=True,
         break_on_hyphens=False,
     )
-    return wrapper.wrap(line) or [f"{_SIDEBAR_INDENT}{line}"]
+    return wrapper.wrap(line) or [line]

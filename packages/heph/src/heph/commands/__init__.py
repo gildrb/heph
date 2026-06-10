@@ -19,9 +19,11 @@ from heph.commands.compact import CompactCommand
 from heph.commands.display import (
     CostCommand,
     EvidenceCommand,
+    ThinkingCommand,
     TokensCommand,
 )
 from heph.commands.help import ExitCommand, HelpCommand
+from heph.commands.local import LocalCommand
 from heph.commands.memory import MemoryCommand
 from heph.commands.model import ModelsCommand
 from heph.commands.session import (
@@ -73,6 +75,7 @@ def get_registry() -> CommandRegistry:
                 HelpCommand,
                 ExitCommand,
                 LoginCommand,
+                LocalCommand,
                 LogoutCommand,
                 StatusCommand,
                 NewCommand,
@@ -82,6 +85,7 @@ def get_registry() -> CommandRegistry:
                 EvidenceCommand,
                 TokensCommand,
                 CostCommand,
+                ThinkingCommand,
                 PriorityCommand,
                 ExamCommand,
                 ExportCommand,
@@ -121,6 +125,7 @@ __all__ = [
     "HelpCommand",
     "ImportCommand",
     "IndexCommand",
+    "LocalCommand",
     "LoginCommand",
     "LogoutCommand",
     "MemoryCommand",
@@ -132,6 +137,7 @@ __all__ = [
     "SettingsCommand",
     "StatsCommand",
     "StatusCommand",
+    "ThinkingCommand",
     "TokensCommand",
     "TurnCommand",
     "VocabCommand",

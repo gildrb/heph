@@ -118,3 +118,15 @@ class TestTraceWriter:
         writer.record_user_message("hello")
         writer.close()
         writer.close()
+
+    def test_trace_write_rejects_symlinked_trace_file(self, trace_dir: Path) -> None:
+        outside = trace_dir.parent / "outside.jsonl"
+        outside.write_text("unchanged", encoding="utf-8")
+        trace_path = trace_dir / ".hephaion" / "traces" / "sess-link.jsonl"
+        trace_path.parent.mkdir(parents=True)
+        trace_path.symlink_to(outside)
+
+        writer = TraceWriter("sess-link", armory_path=trace_dir)
+        writer.record_user_message("hello")
+
+        assert outside.read_text(encoding="utf-8") == "unchanged"

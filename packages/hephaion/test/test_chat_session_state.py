@@ -21,6 +21,7 @@ from hephaion.chat.turn_contract import (
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
+from hephaion.memory import MemoryStore
 from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaion.rag.health import ExtractionHealthIssue
 from hephaion.study import (
@@ -407,8 +408,8 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PLUGINS", "1")
     armory = _make_armory(tmp_path)
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PLUGINS", str(armory.resolve()))
     marker = armory / "plugin_executed"
     plugin = armory / ".hephaion" / "tools" / "probe.py"
     plugin.write_text(
@@ -426,6 +427,7 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
         "                    'type': 'object',\n"
         "                    'properties': {},\n"
         "                    'required': [],\n"
+        "                    'additionalProperties': False,\n"
         "                },\n"
         "            },\n"
         "        },\n"
@@ -443,3 +445,68 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
     handler = session.tool_registry.get_handler("probe")
     assert handler is not None
     assert handler() == "ok"
+
+
+def test_global_truthy_env_does_not_trust_armory_plugins(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_PLUGINS", "1")
+    marker = armory / "plugin_executed"
+    plugin = armory / ".hephaion" / "tools" / "probe.py"
+    plugin.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+        "def register(registry):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    assert not marker.exists()
+    assert session.tool_registry.get_handler("probe") is None
+
+
+def test_armory_memory_is_skipped_in_system_context_without_path_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAION_TRUST_ARMORY_MEMORY", raising=False)
+    armory = _make_armory(tmp_path)
+    memory = MemoryStore(armory)
+    memory.add("style", "Use compact answers.", confidence="verified")
+    memory.save()
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    system_prompt = session.conversation.messages[0].content
+    assert "Armory memory snapshot" not in system_prompt
+    assert "Use compact answers." not in system_prompt
+
+
+def test_armory_memory_enters_system_context_with_path_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+    monkeypatch.setenv("HEPHAION_TRUST_ARMORY_MEMORY", str(armory.resolve()))
+    memory = MemoryStore(armory)
+    memory.add("style", "Use compact answers.", confidence="verified")
+    memory.save()
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    system_prompt = session.conversation.messages[0].content
+    assert "Armory memory snapshot" in system_prompt
+    assert "Use compact answers." in system_prompt

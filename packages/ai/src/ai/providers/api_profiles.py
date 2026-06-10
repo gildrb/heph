@@ -6,6 +6,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ai.providers.llama_cpp import LLAMA_CPP_PROVIDER_SLUG
+
 ReasoningPayload = Literal["openai", "deepseek", "openrouter", "none"]
 
 _REASONING_ORDER = ("low", "medium", "high", "xhigh")
@@ -54,6 +56,8 @@ def request_profile_for_config(config: ProviderProfileConfig) -> ProviderRequest
     slug = config.provider_slug
     endpoint = _normalize_endpoint(config.base_url)
     model = config.model.strip().lower()
+    if slug == LLAMA_CPP_PROVIDER_SLUG:
+        return _NO_REASONING_PROFILE
     if slug == "deepseek" or endpoint in _DEEPSEEK_ENDPOINTS:
         return _DEEPSEEK_PROFILE
     if slug == "openrouter" or endpoint == _OPENROUTER_ENDPOINT:

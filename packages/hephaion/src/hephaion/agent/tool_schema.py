@@ -12,10 +12,11 @@ class ToolParameter(TypedDict, total=False):
     description: NotRequired[str]
 
 
-class ToolParameters(TypedDict):
-    type: Literal["object"]
-    properties: dict[str, ToolParameter]
-    required: list[str]
+class ToolParameters(TypedDict, total=False):
+    type: Required[Literal["object"]]
+    properties: Required[dict[str, ToolParameter]]
+    required: Required[list[str]]
+    additionalProperties: NotRequired[bool]
 
 
 class ToolFunction(TypedDict):

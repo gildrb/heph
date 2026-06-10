@@ -40,6 +40,24 @@ performance, privacy, and availability without binding an armory to one vendor.
 - **Models**: Various models
 - **Best for**: Alternative to OpenAI/OpenRouter
 
+### Local llama.cpp
+
+- **Cost**: Free after you download the model and have the hardware to run it
+- **Account**: No API key required
+- **Models**: Public non-gated GGUF text-generation models, plus local `.gguf`
+  files
+- **Best for**: Privacy-first work where the model must run on your machine
+
+Heph manages an official `llama-server` binary, downloads verified release
+assets into `~/.cache/hephaion/llama.cpp/bin/`, stores model cache under
+`~/.cache/hephaion/llama.cpp/models`, and binds the server to `127.0.0.1`.
+
+Local models are not automatically considered usable. After install, Heph runs a
+deterministic tool-call probe using the OpenAI-compatible `tool_calls` protocol.
+Only models that return a valid tool call with valid JSON arguments appear in
+`/models`, where they are labeled `local, tool-capable`. Failed models can remain
+downloaded and can be revalidated later.
+
 ### Custom Endpoints
 
 - **Cost**: Varies
@@ -59,8 +77,8 @@ General tradeoffs:
   synthesis, and citation-heavy work.
 - Faster or cheaper models are useful for exploration, setup checks, and
   low-risk questions.
-- Local or self-hosted OpenAI-compatible models can use the same armory harness
-  when they are strong enough for your task.
+- Local llama.cpp models keep prompts, retrieved chunks, and tool calls on your
+  machine after the model has passed the tool-call probe.
 
 ## Model Configuration
 
@@ -92,11 +110,17 @@ reasoning level into each API's native controls:
 - **DeepSeek API** enables `thinking`, maps reasoning to DeepSeek's `high`/`max`
   effort values, and omits temperature while thinking is active.
 - **OpenRouter** uses its nested `reasoning` payload for models that support it.
+- **Local llama.cpp** receives provider-neutral OpenAI-compatible fields and no
+  hosted fallback.
 - **Custom endpoints** receive only provider-neutral fields unless they match a
   known official API profile.
 
 Native Gemini APIs require their own runtime transports, so they are not exposed
 as direct providers until those adapters exist.
+
+The `thinking_visibility` setting controls only thinking text or summaries that a
+provider explicitly sends. It does not reveal hidden model chain-of-thought when
+the provider keeps that reasoning private.
 
 ### Context Window
 
@@ -141,12 +165,16 @@ If a model isn't showing up in `/models`:
 2. Verify the model name is correct
 3. Check if the model is available in your region
 4. Try `/login` to re-authenticate
+5. For local llama.cpp models, run `heph local status` and revalidate failed
+   models with `heph local revalidate <model-id>`
 
 ### Slow Responses
 
 1. Check your internet connection
 2. Try a different model or provider
-3. Consider using a model with larger context window
+3. For local models, check CPU/GPU memory pressure and consider a smaller GGUF
+   quantization
+4. Consider using a model with larger context window
 
 ### Poor Quality Answers
 

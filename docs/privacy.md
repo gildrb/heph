@@ -29,6 +29,8 @@ All your data is stored locally in your armory:
 - Retrieval indexes are built and stored locally
 - Session traces and usage snapshots stay local to the armory
 - Harness learning attempts and policy artifacts stay local to the armory
+- Local llama.cpp model validation state stays in your user config, and managed
+  llama.cpp binaries/models stay under `~/.cache/hephaion/llama.cpp/`
 
 ### Local Traces
 
@@ -80,6 +82,8 @@ Different providers have different data policies:
 - **OpenAI API and business products**: OpenAI says API Platform data is not used
   to train models by default unless the account explicitly opts in
 - **Pollinations AI**: Check their specific policy
+- **Local llama.cpp**: Prompts, retrieved chunks, and tool calls stay on your
+  machine after the model and server binary have been downloaded
 - **Custom endpoints**: Depends on your endpoint
 
 Check your provider's privacy policy for details.
@@ -157,19 +161,27 @@ Hephaion never writes API keys to:
 Hephaion makes network connections only to:
 
 1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
-2. **Package managers** (uv, pip) - for updates/dependencies
-3. **Optional diagnostics endpoints** - if you enable them
+2. **Hugging Face and llama.cpp release downloads** - only when you use
+   `heph local` or `/local` to search for, install, or update local GGUF models
+3. **Package managers** (uv, pip) - for updates/dependencies
+4. **Optional diagnostics endpoints** - if you enable them
 
 Optional local document extraction and priority-PDF generation can invoke local
 system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your
 machine against local files; Hephaion does not add network calls for them.
 
-### No Persistent Inbound Server
+### Localhost-Only Servers
 
 Hephaion does not:
-- Run a persistent listening service
 - Accept LAN or internet connections
-- Act as a server
+- Bind managed local model servers beyond localhost
+
+Hephaion may:
+
+- Temporarily bind a localhost-only OAuth callback during `/login`
+- Run managed `llama-server` on `127.0.0.1` while a local model is active
+
+It does not act as a public server.
 
 During `/login`, Hephaion may temporarily bind a localhost-only OAuth callback
 on `127.0.0.1:1455`. The callback validates the OAuth state parameter and is
@@ -198,7 +210,8 @@ export HTTPS_PROXY="http://proxy.example.com:8080"
 1. **Choose reputable providers**: review each provider before sending private material.
 2. **Review privacy policies**: Understand how your data is handled
 3. **Use API keys responsibly**: Don't share keys, rotate them periodically
-4. **Consider local models**: Use local LLMs for maximum privacy (future feature)
+4. **Consider local models**: Use tool-capable local llama.cpp models for
+   maximum prompt privacy when your hardware can run them well
 
 ### For Development
 

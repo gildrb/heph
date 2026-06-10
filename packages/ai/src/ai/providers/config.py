@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai.providers.keyring_store import resolve_key
+from ai.providers.llama_cpp import (
+    LLAMA_CPP_DEFAULT_BASE_URL,
+    LLAMA_CPP_DISPLAY_NAME,
+    LLAMA_CPP_PROVIDER_SLUG,
+)
 from ai.providers.model_support import filter_supported_models
 from ai.providers.registry import builtin_models
 from ai.types import is_object_list, is_string_mapping
@@ -72,7 +77,7 @@ def _merge_provider_default(
         default_provider.active = False
         config.providers[slug] = default_provider
         return True
-    if slug == "custom":
+    if slug in {"custom", LLAMA_CPP_PROVIDER_SLUG}:
         return False
     return _refresh_builtin_provider(config.providers[slug], default_provider)
 
@@ -334,6 +339,13 @@ def default_config() -> ProviderConfig:
                 endpoint="https://api.z.ai/api/paas/v4/",
                 api_key_env="ZAI_API_KEY",
                 models=_default_provider_models("zai"),
+            ),
+            LLAMA_CPP_PROVIDER_SLUG: Provider(
+                slug=LLAMA_CPP_PROVIDER_SLUG,
+                display_name=LLAMA_CPP_DISPLAY_NAME,
+                endpoint=LLAMA_CPP_DEFAULT_BASE_URL,
+                api_key_env="",
+                models=[],
             ),
             "custom": Provider(
                 slug="custom",
