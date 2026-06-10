@@ -55,6 +55,8 @@ Access settings via the `/settings` command in Heph:
   providers that keep it private
 - **Live tokens**: show or hide token estimates in the TUI status bar; press
   Enter to toggle
+- **Live cost**: show or hide cost estimates in the TUI status bar; press
+  Enter to toggle
 - **Vocabulary practice**: learning/practice preferences; press Enter to cycle
   modes
 - **Login / Logout**: provider authentication flow
@@ -73,14 +75,15 @@ heph config set temperature 0.2
 heph config set rag_context_budget 6000
 heph config set thinking_visibility minimal
 heph config set live_tokens_visible true
+heph config set live_cost_visible true
 ```
 
 These preferences are stored in the user config directory, not inside
 `.armories`. Provider credentials stay in the OS keyring, environment variables,
 or session memory fallback; they are never written into armory folders.
-The `/settings` TUI controls and the `/cost` toggle update the same config file,
-so model-thinking and status-bar usage visibility are remembered across TUI
-restarts.
+The `/settings` TUI controls and direct status-bar toggles such as `/cost`
+update the same config file, so model-thinking and status-bar usage visibility
+are remembered across TUI restarts.
 
 Use `heph local` or `/local` for private local llama.cpp models:
 

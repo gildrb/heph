@@ -117,9 +117,13 @@ class _AppActionsHost(Protocol):
 
     def _submit_live_tokens_route(self, value: str) -> None: ...
 
+    def _submit_live_cost_route(self, value: str) -> None: ...
+
     def _submit_thinking_visibility_route(self, value: str) -> None: ...
 
     def _submit_live_tokens_command(self, value: str) -> None: ...
+
+    def _submit_live_cost_command(self, value: str) -> None: ...
 
     def _submit_thinking_visibility_command(self, value: str) -> None: ...
 
@@ -330,6 +334,7 @@ class TuiAppActionsMixin:
             _TuiInputRoute.DETACH: self._submit_detach_route,
             _TuiInputRoute.ARMORY: self._submit_armory_route,
             _TuiInputRoute.LIVE_TOKENS: self._submit_live_tokens_route,
+            _TuiInputRoute.LIVE_COST: self._submit_live_cost_route,
             _TuiInputRoute.THINKING_VISIBILITY: self._submit_thinking_visibility_route,
         }
         if handler := route_handlers.get(route):
@@ -379,6 +384,9 @@ class TuiAppActionsMixin:
 
     def _submit_live_tokens_route(self: _AppActionsHost, value: str) -> None:
         self._submit_live_tokens_command(value)
+
+    def _submit_live_cost_route(self: _AppActionsHost, value: str) -> None:
+        self._submit_live_cost_command(value)
 
     def _submit_thinking_visibility_route(self: _AppActionsHost, value: str) -> None:
         self._submit_thinking_visibility_command(value)

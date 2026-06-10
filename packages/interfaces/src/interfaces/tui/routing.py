@@ -25,6 +25,7 @@ class TuiInputRoute(Enum):
     DETACH = "detach"
     ARMORY = "armory"
     LIVE_TOKENS = "live_tokens"
+    LIVE_COST = "live_cost"
     THINKING_VISIBILITY = "thinking_visibility"
     EXTERNAL = "external"
     CHAT = "chat"
@@ -37,6 +38,7 @@ _INLINE_ROUTES = {
     "local": TuiInputRoute.LOCAL,
     "armory": TuiInputRoute.ARMORY,
     "tokens": TuiInputRoute.LIVE_TOKENS,
+    "cost": TuiInputRoute.LIVE_COST,
     "thinking": TuiInputRoute.THINKING_VISIBILITY,
     "reasoning": TuiInputRoute.THINKING_VISIBILITY,
 }
@@ -51,7 +53,7 @@ def pending_input_requires_terminal(value: str) -> bool:
     command_name = command.lower()
     arg_text = args.strip()
 
-    if command_name in {"login", "logout", "settings", "tokens", "thinking", "reasoning"}:
+    if command_name in {"login", "logout", "settings", "tokens", "cost", "thinking", "reasoning"}:
         return False
     if command_name == "vocabulary":
         return arg_text.lower() != "status"

@@ -21,7 +21,7 @@ Core commands:
 - Materials: put files in `materials/`; use `/import`, `/index`, `heph index PATH`,
   `heph materials list PATH`, `heph materials count PATH`.
 - Check state: `/status`, `heph health PATH`, `/evidence`, `/cost`; use
-  `/settings` for live token visibility.
+  `/settings` for live token and cost visibility.
 - Models/auth: `/login`, `/logout`, `/models`, `/settings`; supports Codex
   subscription login, OpenAI API key, OpenRouter, Pollinations AI, Z.AI, and custom
   OpenAI-compatible endpoints.

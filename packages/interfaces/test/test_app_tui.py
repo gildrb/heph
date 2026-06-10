@@ -3030,6 +3030,8 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/armory open", tui._TuiInputRoute.ARMORY),
         ("/tokens", tui._TuiInputRoute.LIVE_TOKENS),
         ("/tokens show", tui._TuiInputRoute.LIVE_TOKENS),
+        ("/cost", tui._TuiInputRoute.LIVE_COST),
+        ("/cost show", tui._TuiInputRoute.LIVE_COST),
         ("/thinking", tui._TuiInputRoute.THINKING_VISIBILITY),
         ("/thinking all", tui._TuiInputRoute.THINKING_VISIBILITY),
         ("/reasoning", tui._TuiInputRoute.THINKING_VISIBILITY),
@@ -3061,6 +3063,7 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     }
 
     assert routes["/models"] is tui._TuiInputRoute.EXTERNAL
+    assert routes["/cost"] is tui._TuiInputRoute.LIVE_COST
     assert "/sources" not in routes
     assert "/history" not in routes
     assert "/tokens" not in routes
@@ -3077,7 +3080,16 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
         route is tui._TuiInputRoute.EXTERNAL
         for command, route in routes.items()
         if command
-        not in {"/materials", "/sessions", "/turn", "/local", "/new", "/detach", "/armory"}
+        not in {
+            "/materials",
+            "/sessions",
+            "/turn",
+            "/local",
+            "/new",
+            "/detach",
+            "/armory",
+            "/cost",
+        }
     )
 
 
@@ -3086,6 +3098,8 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     [
         ("/tokens", "Live tokens", "Live tokens shown.", "shown"),
         ("/tokens hidden", "Live tokens", "Live tokens hidden.", "hidden"),
+        ("/cost", "Live cost", "Live cost shown.", "shown"),
+        ("/cost hidden", "Live cost", "Live cost hidden.", "hidden"),
         ("/thinking", "Model thinking", "Model thinking: All.", "all"),
         ("/thinking hidden", "Model thinking", "Model thinking: Hidden.", "off"),
         ("/reasoning", "Model thinking", "Model thinking: All.", "all"),
@@ -3132,6 +3146,8 @@ def test_display_setting_input_cycles_settings_without_history(
             settings = settings_store.load_app_settings()
             if selected_label == "Live tokens":
                 assert settings.live_tokens_visible is (expected_value == "shown")
+            elif selected_label == "Live cost":
+                assert settings.live_cost_visible is (expected_value == "shown")
             else:
                 assert settings.thinking_visibility == expected_value
 
@@ -3239,6 +3255,7 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
             assert "Activity trace" in labels
             assert "Model thinking" in labels
             assert "Live tokens" in labels
+            assert "Live cost" in labels
             assert "Vocabulary practice" in labels
             assert "Login" in labels
             assert "Logout" in labels
@@ -3344,6 +3361,7 @@ def test_settings_inline_cycles_display_rows(
             assert descriptions["Activity trace"] == "Minimal tool calls"
             assert descriptions["Model thinking"] == "Minimal"
             assert descriptions["Live tokens"] == "hidden"
+            assert descriptions["Live cost"] == "hidden"
             assert descriptions["Vocabulary practice"] == "Strict"
 
             app._submit_inline_flow("Appearance")
@@ -3396,6 +3414,13 @@ def test_settings_inline_cycles_display_rows(
             assert "TOKENS 0" in str(app.query_one("#status", tui.Static).content)
             assert app.state.transcript[-1].content == "Live tokens shown."
 
+            app._submit_inline_flow("Live cost")
+
+            assert settings_store.load_app_settings().live_cost_visible is True
+            assert app.session.live_cost_visible is True
+            assert "COST $0.000" in str(app.query_one("#status", tui.Static).content)
+            assert app.state.transcript[-1].content == "Live cost shown."
+
             app._submit_inline_flow("Vocabulary practice")
 
             assert settings_store.load_app_settings().vocab_strictness == (
@@ -3413,9 +3438,33 @@ def test_settings_inline_cycles_display_rows(
         set_theme("dark")
 
 
-def test_settings_live_tokens_replaces_notice_and_marks_current(
+@pytest.mark.parametrize(
+    ("setting", "session_attr", "settings_attr", "status_label", "expected_notice"),
+    [
+        (
+            "Live tokens",
+            "live_tokens_visible",
+            "live_tokens_visible",
+            "TOKENS ",
+            "Live tokens hidden.",
+        ),
+        (
+            "Live cost",
+            "live_cost_visible",
+            "live_cost_visible",
+            "COST ",
+            "Live cost hidden.",
+        ),
+    ],
+)
+def test_settings_live_usage_replaces_notice_and_marks_current(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    setting: str,
+    session_attr: str,
+    settings_attr: str,
+    status_label: str,
+    expected_notice: str,
 ) -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
@@ -3432,22 +3481,22 @@ def test_settings_live_tokens_replaces_notice_and_marks_current(
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_live_tokens_notice() -> None:
+    async def check_live_usage_notice() -> None:
         async with typed_app.run_test(size=(120, 24)):
             app._open_settings_flow()
-            app._submit_inline_flow("Live tokens")
-            app._submit_inline_flow("Live tokens")
+            app._submit_inline_flow(setting)
+            app._submit_inline_flow(setting)
 
             notices = [entry.content for entry in app.state.transcript if entry.kind == "notice"]
             descriptions = dict(app._inline_flow.options)
 
-            assert notices == ["Live tokens hidden."]
-            assert app.session.live_tokens_visible is False
-            assert settings_store.load_app_settings().live_tokens_visible is False
-            assert descriptions["Live tokens"] == "hidden"
-            assert "TOKENS " not in str(app.query_one("#status", tui.Static).content)
+            assert notices == [expected_notice]
+            assert getattr(app.session, session_attr) is False
+            assert getattr(settings_store.load_app_settings(), settings_attr) is False
+            assert descriptions[setting] == "hidden"
+            assert status_label not in str(app.query_one("#status", tui.Static).content)
 
-    asyncio.run(check_live_tokens_notice())
+    asyncio.run(check_live_usage_notice())
 
 
 def test_login_inline_menu_aligns_descriptions_after_filter_reset() -> None:
@@ -3604,6 +3653,7 @@ def test_settings_inline_keeps_selected_row_after_changes(
                 "Activity trace",
                 "Model thinking",
                 "Live tokens",
+                "Live cost",
                 "Vocabulary practice",
             ]
             for setting in cases:

@@ -109,11 +109,15 @@ _LIVE_TOKENS_ALIASES = {
     "shown": True,
     "show": True,
     "on": True,
+    "yes": True,
     "true": True,
+    "1": True,
     "hidden": False,
     "hide": False,
     "off": False,
+    "no": False,
     "false": False,
+    "0": False,
 }
 
 
@@ -278,6 +282,8 @@ class _InlineFlowHost(Protocol):
 
     def _live_tokens_summary(self) -> str: ...
 
+    def _live_cost_summary(self) -> str: ...
+
     def _privacy_option_description(
         self,
         *,
@@ -296,9 +302,13 @@ class _InlineFlowHost(Protocol):
 
     def _cycle_live_tokens_setting(self) -> None: ...
 
+    def _cycle_live_cost_setting(self) -> None: ...
+
     def _cycle_vocabulary_setting(self) -> None: ...
 
     def _submit_live_tokens_command(self, value: str) -> None: ...
+
+    def _submit_live_cost_command(self, value: str) -> None: ...
 
     def _submit_thinking_visibility_command(self, value: str) -> None: ...
 
@@ -373,6 +383,7 @@ def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None
         "Activity trace": host._cycle_activity_trace_setting,
         "Model thinking": host._cycle_thinking_visibility_setting,
         "Live tokens": host._cycle_live_tokens_setting,
+        "Live cost": host._cycle_live_cost_setting,
         "Vocabulary practice": host._cycle_vocabulary_setting,
         "Login": host._open_login_flow,
         "Logout": host._open_logout_flow,
@@ -580,6 +591,7 @@ class TuiInlineFlowMixin(
                 ("Activity trace", self._activity_trace_summary()),
                 ("Model thinking", self._thinking_visibility_summary()),
                 ("Live tokens", self._live_tokens_summary()),
+                ("Live cost", self._live_cost_summary()),
                 (
                     "Vocabulary practice",
                     VOCAB_STRICTNESS_LABELS.get(
@@ -610,7 +622,10 @@ class TuiInlineFlowMixin(
         return THINKING_VISIBILITY_LABELS.get(thinking_visibility, thinking_visibility)
 
     def _live_tokens_summary(self: _InlineFlowHost) -> str:
-        return _live_tokens_state(load_app_settings().live_tokens_visible)
+        return _visibility_state(load_app_settings().live_tokens_visible)
+
+    def _live_cost_summary(self: _InlineFlowHost) -> str:
+        return _visibility_state(load_app_settings().live_cost_visible)
 
     def _privacy_option_description(
         self: _InlineFlowHost,
@@ -675,6 +690,12 @@ class TuiInlineFlowMixin(
             not load_app_settings().live_tokens_visible,
         )
 
+    def _cycle_live_cost_setting(self: _InlineFlowHost) -> None:
+        _apply_live_cost_setting(
+            self,
+            not load_app_settings().live_cost_visible,
+        )
+
     def _cycle_vocabulary_setting(self: _InlineFlowHost) -> None:
         strictness = _next_cycle_value(
             load_app_settings().vocab_strictness,
@@ -691,6 +712,16 @@ class TuiInlineFlowMixin(
             self._cycle_live_tokens_setting()
             return
         _apply_live_tokens_setting(self, visible)
+
+    def _submit_live_cost_command(self: _InlineFlowHost, value: str) -> None:
+        is_valid, visible = _live_cost_command_visibility(value)
+        if not is_valid:
+            self._append_error("Usage: /cost [shown|hidden]")
+            return
+        if visible is None:
+            self._cycle_live_cost_setting()
+            return
+        _apply_live_cost_setting(self, visible)
 
     def _submit_thinking_visibility_command(self: _InlineFlowHost, value: str) -> None:
         is_valid, visibility = _thinking_visibility_command_value(value)
@@ -882,6 +913,15 @@ def _live_tokens_command_visibility(value: str) -> tuple[bool, bool | None]:
     return False, None
 
 
+def _live_cost_command_visibility(value: str) -> tuple[bool, bool | None]:
+    arg = _command_arg(value)
+    if not arg:
+        return True, None
+    if arg in _LIVE_TOKENS_ALIASES:
+        return True, _LIVE_TOKENS_ALIASES[arg]
+    return False, None
+
+
 def _thinking_visibility_command_value(value: str) -> tuple[bool, str | None]:
     arg = _command_arg(value)
     if not arg:
@@ -923,8 +963,16 @@ def _apply_live_tokens_setting(host: _InlineFlowHost, visible: bool) -> None:
     save_setting("live_tokens_visible", visible)
     host.session.live_tokens_visible = visible
     host._refresh_status()
-    host._replace_last_notice(f"Live tokens {_live_tokens_state(visible)}.")
+    host._replace_last_notice(f"Live tokens {_visibility_state(visible)}.")
     host._open_settings_flow(selected_label="Live tokens")
+
+
+def _apply_live_cost_setting(host: _InlineFlowHost, visible: bool) -> None:
+    save_setting("live_cost_visible", visible)
+    host.session.live_cost_visible = visible
+    host._refresh_status()
+    host._replace_last_notice(f"Live cost {_visibility_state(visible)}.")
+    host._open_settings_flow(selected_label="Live cost")
 
 
 def _apply_vocabulary_setting(host: _InlineFlowHost, strictness: str) -> None:
@@ -933,5 +981,5 @@ def _apply_vocabulary_setting(host: _InlineFlowHost, strictness: str) -> None:
     host._open_settings_flow(selected_label="Vocabulary practice")
 
 
-def _live_tokens_state(visible: bool) -> str:
+def _visibility_state(visible: bool) -> str:
     return "shown" if visible else "hidden"

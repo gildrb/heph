@@ -128,6 +128,7 @@ def test_settings_command_prints_summary(capsys: pytest.CaptureFixture[str]) -> 
     assert "Theme:" in out
     assert "Activity trace:" in out
     assert "Model thinking:" in out
+    assert "Live cost:" in out
     assert "Provider:" in out
 
 
