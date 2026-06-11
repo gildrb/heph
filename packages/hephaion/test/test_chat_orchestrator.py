@@ -736,6 +736,42 @@ def test_source_qa_abstains_deterministically_when_direct_answer_is_missing() ->
     assert "current evidence does not contain a direct source answer" in deterministic.reply
 
 
+def test_source_qa_abstain_does_not_cite_unrelated_direct_evidence() -> None:
+    session = _session()
+    user_input = "what topics is the student supposed to learn from this class"
+    plan = _plan(
+        action=LearningAction.SOURCE_QA,
+        retrieval_query=user_input,
+        requires_direct_evidence=True,
+    )
+    evidence = _turn_evidence(
+        _evidence(source="lecture.md", content="The lecture mentions continuity."),
+        _evidence(
+            "E2",
+            "exercise.md",
+            content="Exercise answers must be justified and readable.",
+        ),
+    )
+    resolved = ResolvedTurnPlan(
+        learning_plan=plan,
+        turn_evidence=evidence,
+        evidence_assessment=assess_turn_evidence(plan, evidence),
+        turn_contract=TurnContract(
+            original_user_input=user_input,
+            resolved_intent="source_qa",
+            canonical_request=user_input,
+        ),
+    )
+
+    deterministic = _deterministic_learning_reply(session, plan, resolved)
+
+    assert deterministic is not None
+    assert deterministic.reply == (
+        "The current evidence does not contain a direct source answer for this request."
+    )
+    assert "[E" not in deterministic.reply
+
+
 def test_source_qa_abstain_overrides_prior_single_citation_quote() -> None:
     session = _session()
     session.conversation.add("user", "Explain the source point.")
@@ -6056,6 +6092,59 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
     assert resolved_plans[0].action is LearningAction.PRESENT
     assert resolved_plans[0].retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     assert "sample_overview" in operations
+
+
+def test_direct_source_question_does_not_fall_back_to_overview_sampling() -> None:
+    user_input = "what topics is the student supposed to learn from this class"
+    session = _session()
+    session.rag_index = _index(
+        _document(text="The lecture mentions continuity and exercise instructions.")
+    )
+    orchestrator = TurnOrchestrator(session)
+    resolved_plans: list[LearningTurnPlan] = []
+
+    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+        resolved_plans.append(plan)
+        evidence = _turn_evidence(
+            _evidence(source="lecture.md", content="The lecture mentions continuity."),
+            _evidence(
+                "E2",
+                "exercise.md",
+                content="Exercise answers must be justified and readable.",
+            ),
+            sampled=2,
+            total=2,
+        )
+        return ResolvedTurnPlan(
+            learning_plan=plan,
+            turn_evidence=evidence,
+            evidence_assessment=assess_turn_evidence(plan, evidence),
+        )
+
+    with (
+        patch(
+            "hephaion.chat.intent_resolution._resolved_user_intent",
+            return_value=TurnIntentResolution(
+                intent="source_qa",
+                canonical_request=user_input,
+                retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
+                retrieval_query="topics student learn class",
+                direct_evidence_required=True,
+                confidence=0.98,
+            ),
+        ),
+        patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", side_effect=resolve),
+        patch("hephaion.chat.turn_finalization.verify_response", return_value=""),
+        patch("hephaion.chat.turn_finalization.schedule_memory_extraction"),
+        patch("hephaion.chat.turn_finalization.save_usage"),
+    ):
+        events = list(orchestrator.iter_events(user_input))
+
+    operations = [event.operation for event in events if isinstance(event, MaterialOperationEvent)]
+    assert resolved_plans[0].action is LearningAction.SOURCE_QA
+    assert resolved_plans[0].retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
+    assert resolved_plans[0].requires_direct_evidence is True
+    assert "sample_overview" not in operations
 
 
 def test_initial_specific_question_keeps_source_route_when_query_preserves_user_terms() -> None:

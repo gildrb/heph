@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import re
 import socket
+import ssl
 import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from email.message import Message
-from typing import Protocol, Self, cast
-from urllib.parse import ParseResult, urljoin, urlparse
+from typing import Protocol, Self
+from urllib.parse import ParseResult, urljoin, urlparse, urlunparse
 
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
@@ -22,8 +23,13 @@ _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 @dataclass(frozen=True, slots=True)
 class FetchTarget:
-    safe_url: str
-    host_header: str | None
+    url: str
+    scheme: str
+    hostname: str
+    connect_host: str
+    port: int | None
+    path: str
+    host_header: str
 
 
 type FetchTargetResult = FetchTarget | str
@@ -33,6 +39,17 @@ type FetchTargetResult = FetchTarget | str
 class FetchSuccess:
     url: str
     content: str
+
+
+@dataclass(frozen=True, slots=True)
+class FetchRequest:
+    url: str
+    scheme: str
+    hostname: str
+    connect_host: str
+    port: int | None
+    path: str
+    headers: dict[str, str]
 
 
 class FetchResponse(Protocol):
@@ -50,28 +67,72 @@ class FetchResponse(Protocol):
     ) -> bool | None: ...
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(
+@dataclass(slots=True)
+class _ManagedFetchResponse:
+    response: http.client.HTTPResponse
+    connection: http.client.HTTPConnection
+
+    @property
+    def headers(self) -> Message:
+        return self.response.headers
+
+    def read(self, _amt: int = -1) -> bytes:
+        return self.response.read(_amt)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
         self,
-        req: urllib.request.Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
+        _exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object,
+    ) -> bool | None:
+        del _exc_type, exc, traceback
+        self.response.close()
+        self.connection.close()
+        return None
+
+
+class _PinnedHTTPSConnection(http.client.HTTPConnection):
+    def __init__(
+        self,
+        host: str,
+        *,
+        connect_host: str,
+        port: int,
+        timeout: int,
+        context: ssl.SSLContext,
     ) -> None:
-        del req, fp, code, msg, headers, newurl
+        super().__init__(host, port=port, timeout=timeout)
+        self._connect_host = connect_host
+        self._ssl_context = context
 
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+    def connect(self) -> None:
+        socket_connection = socket.create_connection(
+            (self._connect_host, self.port),
+            self.timeout,
+        )
+        self.sock = self._ssl_context.wrap_socket(socket_connection, server_hostname=self.host)
 
 
 def _open_without_redirect(
-    req: urllib.request.Request,
+    req: FetchRequest,
     *,
     timeout: int,
 ) -> FetchResponse:
-    return cast("FetchResponse", _NO_REDIRECT_OPENER.open(req, timeout=timeout))
+    connection = _fetch_connection(req, timeout=timeout)
+    connection.request("GET", req.path, headers=req.headers)
+    response = connection.getresponse()
+    if response.status < 200 or response.status >= 300:
+        raise urllib.error.HTTPError(
+            req.url,
+            response.status,
+            response.reason,
+            response.headers,
+            None,
+        )
+    return _ManagedFetchResponse(response=response, connection=connection)
 
 
 def run_web_fetch(url: str, **_kwargs: object) -> str:
@@ -120,14 +181,32 @@ def _fetch_once(
     return FetchSuccess(url=current_url, content=_normalize_fetched_text(raw))
 
 
-def _fetch_request(target: FetchTarget) -> urllib.request.Request:
-    request = urllib.request.Request(
-        target.safe_url,
-        headers={"User-Agent": _WEB_USER_AGENT},
+def _fetch_connection(req: FetchRequest, *, timeout: int) -> http.client.HTTPConnection:
+    port = req.port or _default_port(req.scheme)
+    if req.scheme == "https":
+        return _PinnedHTTPSConnection(
+            req.hostname,
+            connect_host=req.connect_host,
+            port=port,
+            timeout=timeout,
+            context=ssl.create_default_context(),
+        )
+    return http.client.HTTPConnection(req.connect_host, port=port, timeout=timeout)
+
+
+def _fetch_request(target: FetchTarget) -> FetchRequest:
+    return FetchRequest(
+        url=target.url,
+        scheme=target.scheme,
+        hostname=target.hostname,
+        connect_host=target.connect_host,
+        port=target.port,
+        path=target.path,
+        headers={
+            "User-Agent": _WEB_USER_AGENT,
+            "Host": target.host_header,
+        },
     )
-    if target.host_header:
-        request.add_header("Host", target.host_header)
-    return request
 
 
 def _is_text_content_type(content_type: str) -> bool:
@@ -204,10 +283,16 @@ def _fetch_target(url: str) -> FetchTargetResult:
         return f"Error: could not resolve host ({hostname})"
     if _has_blocked_ip(resolved_ips):
         return f"Error: blocked private/internal host ({hostname})"
-    netloc = _netloc(resolved_ips[0], port)
-    safe_url = parsed._replace(netloc=netloc).geturl()
     host_header = _netloc(hostname, port)
-    return FetchTarget(safe_url=safe_url, host_header=host_header)
+    return FetchTarget(
+        url=parsed.geturl(),
+        scheme=parsed.scheme,
+        hostname=hostname,
+        connect_host=resolved_ips[0],
+        port=port,
+        path=_request_path(parsed),
+        host_header=host_header,
+    )
 
 
 def _target_validation_error(parsed: ParseResult) -> str:
@@ -234,6 +319,15 @@ def _has_blocked_ip(resolved_ips: list[str]) -> bool:
 def _netloc(host: str, port: int | None) -> str:
     wrapped_host = f"[{host}]" if ":" in host else host
     return wrapped_host if port is None else f"{wrapped_host}:{port}"
+
+
+def _request_path(parsed: ParseResult) -> str:
+    path = parsed.path or "/"
+    return urlunparse(("", "", path, parsed.params, parsed.query, ""))
+
+
+def _default_port(scheme: str) -> int:
+    return 443 if scheme == "https" else 80
 
 
 def _resolve_hostname_ips(hostname: str) -> list[str]:

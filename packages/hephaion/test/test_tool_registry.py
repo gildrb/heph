@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+from hephaion.agent import tool_execution as tool_execution_mod
 from hephaion.agent.dispatch import ToolCall, execute_tool_calls
 from hephaion.agent.tools import (
     TOOL_SCHEMAS,
@@ -440,3 +442,107 @@ class TestDispatchWithRegistry:
         ]
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
         assert "Unknown tool" in message_text(results[0])
+
+
+# ---------------------------------------------------------------------------
+# Tool argument logging
+# ---------------------------------------------------------------------------
+
+
+class TestToolArgumentLogging:
+    def test_memory_summary_drops_private_text(self) -> None:
+        summary = tool_execution_mod._tool_args_summary(
+            "memory",
+            {
+                "action": "add",
+                "query": "private query",
+                "topic": "private topic",
+                "content": "private memory content",
+                "old_text": "private old text",
+                "source": "conversation",
+            },
+        )
+
+        assert summary == {
+            "action": "add",
+            "query_len": len("private query"),
+            "topic_len": len("private topic"),
+            "content_len": len("private memory content"),
+            "old_text_len": len("private old text"),
+            "source_len": len("conversation"),
+        }
+        assert "private" not in repr(summary)
+
+    def test_search_and_edit_summaries_drop_content(self) -> None:
+        search_summary = tool_execution_mod._tool_args_summary(
+            "search_files",
+            {
+                "pattern": "private search pattern",
+                "path": "notes",
+                "case_sensitive": True,
+            },
+        )
+        edit_summary = tool_execution_mod._tool_args_summary(
+            "edit_file",
+            {
+                "path": "notes/plan.md",
+                "old_text": "private old text",
+                "new_text": "private new text",
+            },
+        )
+
+        assert search_summary == {
+            "pattern_len": len("private search pattern"),
+            "path": "notes",
+            "case_sensitive": True,
+        }
+        assert edit_summary == {
+            "path": "notes/plan.md",
+            "old_text_len": len("private old text"),
+            "new_text_len": len("private new text"),
+        }
+        assert "private search pattern" not in repr(search_summary)
+        assert "private old text" not in repr(edit_summary)
+        assert "private new text" not in repr(edit_summary)
+
+    def test_web_fetch_summary_drops_url_query(self) -> None:
+        summary = tool_execution_mod._tool_args_summary(
+            "web_fetch",
+            {"url": "https://example.com/private/path?token=secret"},
+        )
+
+        assert summary == {
+            "scheme": "https",
+            "host": "example.com",
+            "path_len": len("/private/path"),
+            "query_len": len("token=secret"),
+        }
+        assert "token=secret" not in repr(summary)
+
+    def test_unknown_tool_summary_drops_argument_values(self) -> None:
+        summary = tool_execution_mod._tool_args_summary(
+            "plugin_tool",
+            {"secret": "private value", "count": 3},
+        )
+
+        assert summary == {"arg_count": 2, "arg_keys": ["count", "secret"]}
+        assert "private value" not in repr(summary)
+
+    def test_tool_error_log_uses_summarized_args_and_error_type(self) -> None:
+        with patch.object(tool_execution_mod._log, "error") as error_log:
+            tool_execution_mod._log_tool_error(
+                "memory",
+                {
+                    "action": "add",
+                    "content": "private memory content",
+                },
+                12.5,
+                RuntimeError("private failure text"),
+            )
+
+        fields = error_log.call_args.kwargs["extra"]["fields"]
+        assert fields["args"]["content_len"] == len("private memory content")
+        assert fields["error_type"] == "RuntimeError"
+        assert fields["error_len"] == len("private failure text")
+        assert "private memory content" not in repr(fields)
+        assert "private failure text" not in repr(fields)

@@ -85,6 +85,7 @@
 | `HEPHAION_MODEL` | Override the active model. |
 | `HEPHAION_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
 | `HEPHAION_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
+| `HEPHAION_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports. |
 | `HEPHAION_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
 | `HEPHAION_RERANK_MODEL` | Override the reranker model when available. |
 | `HEPHAION_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |

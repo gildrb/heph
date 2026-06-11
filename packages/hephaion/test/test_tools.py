@@ -25,7 +25,11 @@ from hephaion.agent.tools import (
     run_web_fetch,
     run_write_file,
 )
-from hephaion.agent.web_tools import _WEB_FETCH_MAX_BYTES
+from hephaion.agent.web_tools import (
+    _WEB_FETCH_MAX_BYTES,
+    FetchRequest,
+    _PinnedHTTPSConnection,
+)
 
 # ---------------------------------------------------------------------------
 # BashResult
@@ -596,6 +600,63 @@ class TestWebFetch:
         assert "Test content" in result
         assert "End of fetched content" in result
         mock_response.read.assert_called_once_with(_WEB_FETCH_MAX_BYTES + 1)
+
+    def test_fetch_https_request_preserves_original_host_identity(self):
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"Test content"
+        mock_response.headers.get.return_value = "text/plain"
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
+        captured_requests: list[FetchRequest] = []
+
+        def open_request(request: FetchRequest, *, timeout: int):
+            del timeout
+            captured_requests.append(request)
+            return mock_response
+
+        with (
+            patch(
+                "hephaion.agent.web_tools._resolve_hostname_ips",
+                return_value=["93.184.216.34"],
+            ),
+            patch(
+                "hephaion.agent.web_tools._open_without_redirect",
+                side_effect=open_request,
+            ),
+        ):
+            result = run_web_fetch("https://example.com/search?q=heph")
+
+        assert "Test content" in result
+        request = captured_requests[0]
+        assert request.url == "https://example.com/search?q=heph"
+        assert request.scheme == "https"
+        assert request.hostname == "example.com"
+        assert request.connect_host == "93.184.216.34"
+        assert request.path == "/search?q=heph"
+        assert request.headers["Host"] == "example.com"
+
+    def test_pinned_https_connection_uses_validated_ip_and_original_sni(self):
+        context = MagicMock()
+        socket = MagicMock()
+        wrapped_socket = MagicMock()
+        context.wrap_socket.return_value = wrapped_socket
+        connection = _PinnedHTTPSConnection(
+            "example.com",
+            connect_host="93.184.216.34",
+            port=443,
+            timeout=15,
+            context=context,
+        )
+
+        with patch(
+            "hephaion.agent.web_tools.socket.create_connection",
+            return_value=socket,
+        ) as create:
+            connection.connect()
+
+        create.assert_called_once_with(("93.184.216.34", 443), 15)
+        context.wrap_socket.assert_called_once_with(socket, server_hostname="example.com")
+        assert connection.sock is wrapped_socket
 
     def test_fetch_http_error(self):
         with patch(

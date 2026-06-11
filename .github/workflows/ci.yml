@@ -304,7 +304,7 @@ jobs:
         run: |
           mkdir -p .artifacts
           start=$(date +%s%N)
-          uv run pytest --no-cov --junitxml=.artifacts/pytest-junit.xml
+          uv run pytest --junitxml=.artifacts/pytest-junit.xml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"

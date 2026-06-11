@@ -45,6 +45,7 @@ from hephaion.chat.turn_query import (
     _corpus_named_material_query,
     _lacks_retrievable_content,
     _query_has_matching_term,
+    _query_reuses_surface,
     _source_lookup_preserves_user_terms,
 )
 
@@ -208,11 +209,11 @@ def _stabilized_intent_for_default_material_plan(
     prior_contract: TurnContract | None,
     index: ArmoryIndex | None,
 ) -> TurnIntentResolution:
-    if (
-        prior_contract is None
-        and _overview_turn(default_plan)
-        and _lacks_retrievable_content(user_input)
-        and (not resolution.intent or resolution.intent in _CONTINUABLE_MATERIAL_INTENTS)
+    if _should_default_to_material_overview(
+        resolution,
+        user_input=user_input,
+        default_plan=default_plan,
+        prior_contract=prior_contract,
     ):
         return TurnIntentResolution(
             intent="material_overview",
@@ -223,15 +224,13 @@ def _stabilized_intent_for_default_material_plan(
             retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
             retrieval_query="",
         )
-    if (
-        prior_contract is not None
-        or not _overview_turn(default_plan)
-        or resolution.intent != "source_qa"
+    if not _should_convert_source_route_to_overview(
+        resolution,
+        user_input=user_input,
+        default_plan=default_plan,
+        prior_contract=prior_contract,
+        index=index,
     ):
-        return resolution
-    if not resolution.direct_evidence_required:
-        return resolution
-    if index is not None and _source_lookup_preserves_user_terms(resolution, index):
         return resolution
     return TurnIntentResolution(
         intent="material_overview",
@@ -241,6 +240,61 @@ def _stabilized_intent_for_default_material_plan(
         answer_format=resolution.answer_format,
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
         retrieval_query=_overview_resolution_query(resolution, user_input, default_plan),
+    )
+
+
+def _should_default_to_material_overview(
+    resolution: TurnIntentResolution,
+    *,
+    user_input: str,
+    default_plan: LearningTurnPlan,
+    prior_contract: TurnContract | None,
+) -> bool:
+    return (
+        prior_contract is None
+        and _overview_turn(default_plan)
+        and _lacks_retrievable_content(user_input)
+        and (not resolution.intent or resolution.intent in _CONTINUABLE_MATERIAL_INTENTS)
+    )
+
+
+def _should_convert_source_route_to_overview(
+    resolution: TurnIntentResolution,
+    *,
+    user_input: str,
+    default_plan: LearningTurnPlan,
+    prior_contract: TurnContract | None,
+    index: ArmoryIndex | None,
+) -> bool:
+    if (
+        prior_contract is not None
+        or not _overview_turn(default_plan)
+        or resolution.intent != "source_qa"
+    ):
+        return False
+    if not resolution.direct_evidence_required:
+        return False
+    if _direct_source_resolution_should_keep_source_route(resolution, user_input=user_input):
+        return False
+    return index is None or not _source_lookup_preserves_user_terms(resolution, index)
+
+
+def _direct_source_resolution_should_keep_source_route(
+    resolution: TurnIntentResolution,
+    *,
+    user_input: str,
+) -> bool:
+    retrieval_query = resolution.retrieval_query.strip()
+    if retrieval_query and _query_reuses_surface(retrieval_query, user_input):
+        return True
+    canonical_request = resolution.canonical_request.strip()
+    return (
+        not retrieval_query
+        and bool(canonical_request)
+        and _query_reuses_surface(
+            canonical_request,
+            user_input,
+        )
     )
 
 

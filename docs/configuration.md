@@ -27,6 +27,7 @@ are machine-local user settings unless overridden by environment variables.
 | `HEPHAION_TEMPERATURE` | Model sampling temperature |
 | `HEPHAION_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
 | `HEPHAION_FEATURE_FLAGS` | Comma-separated feature flags |
+| `HEPHAION_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports |
 | `HEPHAION_EMBED_MODEL` | Embedding model override |
 | `HEPHAION_RERANK_MODEL` | Reranker model override |
 | `HEPHAION_EXTRACTION_MODEL` | Background memory extraction model override |

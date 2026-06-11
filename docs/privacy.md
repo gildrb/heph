@@ -164,7 +164,12 @@ Hephaion makes network connections only to:
 2. **Hugging Face and llama.cpp release downloads** - only when you use
    `heph local` or `/local` to search for, install, or update local GGUF models
 3. **Package managers** (uv, pip) - for updates/dependencies
-4. **Optional diagnostics endpoints** - if you enable them
+4. **Web pages requested through the `web_fetch` tool** - only when a model tool
+   call asks Heph to fetch a URL because armory material is insufficient
+5. **DuckDuckGo HTML search** - only when priority-report prerequisite hints are
+   explicitly enabled with `HEPHAION_PRIORITY_WEB_PREREQS` or the
+   `priority_web_prereqs` feature flag
+6. **Optional diagnostics endpoints** - if you enable them
 
 Optional local document extraction and priority-PDF generation can invoke local
 system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your

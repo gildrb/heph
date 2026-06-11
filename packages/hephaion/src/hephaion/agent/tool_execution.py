@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypedDict
+from urllib.parse import urlparse
 
 from ai.logging import Timer, get_logger
 from ai.runtime import ApiMessage, ToolCallDelta
@@ -29,6 +30,7 @@ _TOOL_DISPLAY_FIELDS = {
     "search_materials": ("Searching materials", "query"),
 }
 type _ToolArgFormatter = Callable[[dict[str, object]], str]
+type _ToolLogArgSummarizer = Callable[[dict[str, object]], dict[str, object]]
 
 
 class ToolCallFunction(TypedDict):
@@ -257,9 +259,10 @@ def _log_tool_error(
         extra={
             "fields": {
                 "tool": name,
-                "args": arguments,
+                "args": _tool_args_summary(name, arguments),
                 "latency_ms": latency_ms,
-                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "error_len": len(str(exc)),
             }
         },
     )
@@ -286,17 +289,125 @@ def _log_tool_result(
 
 
 def _tool_args_summary(name: str, arguments: dict[str, object]) -> dict[str, object]:
-    if name == "bash":
-        return {"command": _string_arg(arguments, "command")[:200]}
-    if name == "write_file":
-        return {
-            "path": _string_arg(arguments, "path"),
-            "content_len": len(_string_arg(arguments, "content")),
-        }
+    if summarizer := _TOOL_LOG_ARG_SUMMARIZERS.get(name):
+        return summarizer(arguments)
+    return {"arg_count": len(arguments), "arg_keys": sorted(arguments)}
+
+
+def _summarize_no_args(_arguments: dict[str, object]) -> dict[str, object]:
+    return {}
+
+
+def _summarize_bash_args(arguments: dict[str, object]) -> dict[str, object]:
     return {
-        key: (str(value)[:100] if isinstance(value, str) and len(value) > 100 else value)
-        for key, value in arguments.items()
+        "command_len": len(_string_arg(arguments, "command")),
+        "timeout": arguments.get("timeout"),
     }
+
+
+def _summarize_read_file_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "path": _string_arg(arguments, "path"),
+        "offset": arguments.get("offset"),
+        "limit": arguments.get("limit"),
+    }
+
+
+def _summarize_write_file_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "path": _string_arg(arguments, "path"),
+        "content_len": len(_string_arg(arguments, "content")),
+    }
+
+
+def _summarize_edit_file_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "path": _string_arg(arguments, "path"),
+        "old_text_len": len(_string_arg(arguments, "old_text")),
+        "new_text_len": len(_string_arg(arguments, "new_text")),
+    }
+
+
+def _summarize_list_files_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "path": _string_arg(arguments, "path"),
+        "pattern": _string_arg(arguments, "pattern"),
+    }
+
+
+def _summarize_named_armory_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {"name_len": len(_string_arg(arguments, "name"))}
+
+
+def _summarize_import_materials_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "source_path": _string_arg(arguments, "source_path"),
+        "target_armory_len": len(_string_arg(arguments, "target_armory")),
+        "create_if_missing": arguments.get("create_if_missing"),
+    }
+
+
+def _summarize_search_files_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "pattern_len": len(_string_arg(arguments, "pattern")),
+        "path": _string_arg(arguments, "path"),
+        "case_sensitive": arguments.get("case_sensitive"),
+    }
+
+
+def _summarize_search_materials_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "query_len": len(_string_arg(arguments, "query")),
+        "top_k": arguments.get("top_k"),
+    }
+
+
+def _summarize_open_material_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "source": _string_arg(arguments, "source"),
+        "chunk": arguments.get("chunk"),
+        "context": arguments.get("context"),
+    }
+
+
+def _summarize_memory_args(arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "action": _string_arg(arguments, "action"),
+        "query_len": len(_string_arg(arguments, "query")),
+        "topic_len": len(_string_arg(arguments, "topic")),
+        "content_len": len(_string_arg(arguments, "content")),
+        "old_text_len": len(_string_arg(arguments, "old_text")),
+        "source_len": len(_string_arg(arguments, "source")),
+    }
+
+
+def _summarize_web_fetch_args(arguments: dict[str, object]) -> dict[str, object]:
+    parsed = urlparse(_string_arg(arguments, "url"))
+    return {
+        "scheme": parsed.scheme,
+        "host": parsed.hostname or "",
+        "path_len": len(parsed.path),
+        "query_len": len(parsed.query),
+    }
+
+
+_TOOL_LOG_ARG_SUMMARIZERS: dict[str, _ToolLogArgSummarizer] = {
+    "compact": _summarize_no_args,
+    "bash": _summarize_bash_args,
+    "read_file": _summarize_read_file_args,
+    "write_file": _summarize_write_file_args,
+    "edit_file": _summarize_edit_file_args,
+    "list_files": _summarize_list_files_args,
+    "create_armory": _summarize_read_file_args,
+    "validate_armory": _summarize_read_file_args,
+    "create_named_armory": _summarize_named_armory_args,
+    "import_materials": _summarize_import_materials_args,
+    "search_files": _summarize_search_files_args,
+    "search_materials": _summarize_search_materials_args,
+    "open_material": _summarize_open_material_args,
+    "memory": _summarize_memory_args,
+    "web_fetch": _summarize_web_fetch_args,
+}
 
 
 def _timed_tool_message(

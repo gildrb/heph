@@ -73,6 +73,9 @@ Corpus-level synthesis, comparison, evaluation, ranking, prioritization, or judg
 materials uses material_overview with retrieval_strategy=overview, even when the answer should
 name one resulting topic or source. Do not turn a corpus-level operation into a literal keyword
 lookup unless the user asks about a specific named concept, source, citation, or quoted claim.
+If the user asks for a direct source-stated answer, use source_qa with
+direct_evidence_required=true even when the answer may be that the retrieved evidence does not
+state it. Do not convert direct answerability into a broad corpus overview.
 Set is_followup=false unless the current request explicitly depends on a prior answer, citation,
 source, listed item, table row, or continuing instruction. A fresh question about the materials is
 not a follow-up merely because previous turns exist.

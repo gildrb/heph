@@ -100,6 +100,9 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAION_MAX_TOKENS": "Set the max output tokens per response.",
     "HEPHAION_RAG_CONTEXT_BUDGET": "Set the token budget for retrieved context.",
     "HEPHAION_FEATURE_FLAGS": "Comma-separated feature flags.",
+    "HEPHAION_PRIORITY_WEB_PREREQS": (
+        "Enable optional web-backed prerequisite hints in priority reports."
+    ),
     "HEPHAION_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
     "HEPHAION_API_KEY": "Global API key override that applies to any provider.",
     "HEPHAION_ARMORY_HOME": (
@@ -401,6 +404,7 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             LOG_FORMAT_ENV,
             EMBED_MODEL_ENV,
             EXTRACTION_MODEL_ENV,
+            "HEPHAION_PRIORITY_WEB_PREREQS",
             RERANK_MODEL_ENV,
             "HEPHAION_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,

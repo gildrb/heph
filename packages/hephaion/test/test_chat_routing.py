@@ -65,6 +65,30 @@ def test_contentless_material_query_uses_overview_sampling(intent: str) -> None:
     assert stabilized.retrieval_query == ""
 
 
+def test_drifted_direct_source_request_uses_overview_sampling() -> None:
+    user_input = "what topics should I focus on for the exam"
+    resolution = TurnIntentResolution(
+        intent="source_qa",
+        canonical_request=user_input,
+        retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
+        retrieval_query="broad corpus contents and themes",
+        direct_evidence_required=True,
+        confidence=0.98,
+    )
+
+    stabilized = _stabilized_intent_for_default_material_plan(
+        resolution,
+        user_input=user_input,
+        default_plan=material_overview_plan(user_input, retrieval_query=user_input),
+        prior_contract=None,
+        index=None,
+    )
+
+    assert stabilized.intent == "material_overview"
+    assert stabilized.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+    assert stabilized.retrieval_query == "broad corpus contents and themes"
+
+
 def test_intent_context_includes_heph_extension_contract_domain() -> None:
     routing_context = heph_product_routing_context()
     context = _intent_normalization_context(
