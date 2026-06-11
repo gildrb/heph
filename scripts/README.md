@@ -17,6 +17,10 @@ runs do not belong here.
   and `validate_agents_md.py` enforce repository-specific quality rules.
 - `check_lockfile_change.py`, `check_dependency_pinning.py`, and
   `check_dependency_sdist_allowlist.py` guard dependency and lockfile changes.
+- `check_dependency_vulnerability_audit.py` runs `uv audit --frozen` with reviewed,
+  lockfile-scoped `--ignore-until-fixed` waivers. PyTorch is an intentional core
+  dependency for Docling and Pufferlib; while `GHSA-rrmf-rvhw-rf47` has no upstream
+  fix, repo policy forbids direct `torch.jit.script` usage in Heph source.
 - `check_feature_flags.py` catches stale feature-flag wiring.
 
 ## Release And Build Helpers

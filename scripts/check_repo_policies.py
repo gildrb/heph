@@ -329,6 +329,26 @@ PRIVATE_CORPUS_HARDCODING_MESSAGE: Final[str] = (
     "private corpus, university, course, lecturer, or local armory identifiers are "
     "forbidden outside tests; use generic fixtures, prompts, and semantic evidence handling"
 )
+PYTORCH_JIT_SCRIPT_SCAN_ROOTS: Final[tuple[str, ...]] = (
+    "ai/",
+    "extensions/",
+    "heph/",
+    "hephaion/",
+    "interfaces/",
+    "scripts/",
+)
+PYTORCH_JIT_SCRIPT_TEST_ROOTS: Final[tuple[str, ...]] = (
+    "ai/test/",
+    "extensions/test/",
+    "heph/test/",
+    "hephaion/test/",
+    "interfaces/test/",
+    "tests/",
+)
+PYTORCH_JIT_SCRIPT_POLICY_MESSAGE: Final[str] = (
+    "direct `torch.jit.script` usage is forbidden while GHSA-rrmf-rvhw-rf47 is accepted; "
+    "use eager PyTorch APIs or re-review the vulnerability waiver"
+)
 
 
 @dataclass(frozen=True)
@@ -402,6 +422,10 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
     if alias.name == "hephaion.chat.orchestrator" and alias.asname is not None:
         return alias.asname, alias.name
+    if alias.name == "torch":
+        return alias.asname or "torch", "torch"
+    if alias.name.startswith("torch.") and alias.asname is not None:
+        return alias.asname, alias.name
     if alias.name == "importlib":
         return alias.asname or "importlib", "importlib"
     if not alias.name.startswith("importlib."):
@@ -412,11 +436,11 @@ def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
 
 
 def _import_from_alias_binding(module: str | None, alias: ast.alias) -> tuple[str, str] | None:
-    if (
-        module is None
-        or alias.name == "*"
-        or not (module == "importlib" or module.startswith("importlib."))
-    ):
+    if module is None or alias.name == "*":
+        return None
+    if module == "torch" or module.startswith("torch."):
+        return alias.asname or alias.name, f"{module}.{alias.name}"
+    if not (module == "importlib" or module.startswith("importlib.")):
         return None
     local_name = alias.asname or alias.name
     return local_name, f"{module}.{alias.name}"
@@ -464,6 +488,14 @@ def _literal_dynamic_import_target(node: ast.Call, dotted: str | None) -> str | 
                 return f"{package}.{stripped_module}"
             return package
     return module
+
+
+def _should_scan_for_pytorch_jit_script(rel_path: str) -> bool:
+    return (
+        rel_path.startswith(PYTORCH_JIT_SCRIPT_SCAN_ROOTS)
+        and not rel_path.startswith(PYTORCH_JIT_SCRIPT_TEST_ROOTS)
+        and not Path(rel_path).name.startswith("test_")
+    )
 
 
 class PolicyVisitor(ast.NodeVisitor):
@@ -525,6 +557,22 @@ class PolicyVisitor(ast.NodeVisitor):
                     "`chat.orchestrator`; use stable chat modules"
                 ),
             )
+
+    def _check_pytorch_jit_script_reference(self, node: ast.AST, dotted: str | None) -> None:
+        if not _should_scan_for_pytorch_jit_script(self.rel_path):
+            return
+        if self._resolve_import_alias(dotted) == "torch.jit.script":
+            self._add(node, PYTORCH_JIT_SCRIPT_POLICY_MESSAGE)
+
+    def _check_pytorch_jit_script_getattr(self, node: ast.Call) -> None:
+        if not _should_scan_for_pytorch_jit_script(self.rel_path):
+            return
+        if self._resolve_import_alias(_dotted_name(node.func)) != "getattr" or len(node.args) < 2:
+            return
+        target = self._resolve_import_alias(_dotted_name(node.args[0]))
+        attr = node.args[1]
+        if target == "torch.jit" and isinstance(attr, ast.Constant) and attr.value == "script":
+            self._add(node, PYTORCH_JIT_SCRIPT_POLICY_MESSAGE)
 
     def _check_runtime_benchmark_import(self, node: ast.AST, module: str) -> None:
         if not self._is_product_runtime_file():
@@ -631,6 +679,7 @@ class PolicyVisitor(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         if node.id == "Any":
             self._add(node, "explicit Any is forbidden")
+        self._check_pytorch_jit_script_reference(node, node.id)
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -638,6 +687,7 @@ class PolicyVisitor(ast.NodeVisitor):
         if dotted in {"typing.Any", "typing_extensions.Any"}:
             self._add(node, "explicit Any is forbidden")
         self._check_private_orchestrator_attribute(node, dotted)
+        self._check_pytorch_jit_script_reference(node, dotted)
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
@@ -647,6 +697,7 @@ class PolicyVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         dotted = self._resolve_import_alias(_dotted_name(node.func))
+        self._check_pytorch_jit_script_getattr(node)
         if dotted in DYNAMIC_IMPORT_CALL_NAMES:
             allowed = ALLOWED_DYNAMIC_IMPORT_CALLS.get(self.rel_path, frozenset())
             if dotted not in allowed:
