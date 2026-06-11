@@ -35,8 +35,7 @@ jobs:
 
           TRACKING_MARKER="<!-- hephaion-ci-failure-main -->"
           TRACKING_LABEL="status/ci-failure"
-          SEARCH_TERM="$TRACKING_MARKER"
-          FIND_MANAGED_ISSUE='map(select(.title | startswith("CI failure on main")) | select(.body | contains("<!-- hephaion-ci-failure-main -->")) | select(.author.login == "github-actions[bot]") | select(any(.labels[]?; .name == "status/ci-failure"))) | .[0].number // ""'
+          FIND_MANAGED_ISSUES='map(select((.body // "") | contains("<!-- hephaion-ci-failure-main -->")) | select(.author.is_bot == true) | select(any(.labels[]?; .name == "status/ci-failure"))) | sort_by(.number) | reverse | map(.number) | @tsv'
           CURRENT_MAIN_SHA=$(gh api "repos/$REPO/git/ref/heads/main" --jq '.object.sha' 2>/dev/null || echo "")
 
           if [ -z "$CURRENT_MAIN_SHA" ]; then
@@ -53,7 +52,9 @@ jobs:
             echo "CI failed on main -- creating/updating issue"
             TITLE="CI failure on main (${SHA:0:7})"
 
-            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number,title,body,author,labels --jq "$FIND_MANAGED_ISSUE" 2>/dev/null || echo "")
+            MANAGED_ISSUES=$(gh issue list --repo "$REPO" --state open --label "$TRACKING_LABEL" --limit 200 --json number,body,author,labels --jq "$FIND_MANAGED_ISSUES" 2>/dev/null || echo "")
+            read -r -a MANAGED_NUMBERS <<< "$MANAGED_ISSUES"
+            EXISTING="${MANAGED_NUMBERS[0]:-}"
 
             FAILED_JOBS=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- **" + .name + "**: " + (.steps | map(select(.conclusion == "failure")) | map(.name) | join(", "))' 2>/dev/null || echo "Unable to fetch job details")
 
@@ -76,25 +77,43 @@ jobs:
 
             if [ -n "$EXISTING" ]; then
               echo "Updating existing issue #$EXISTING"
+              gh issue edit "$EXISTING" --repo "$REPO" --title "$TITLE" \
+                --add-label "type/bug" \
+                --add-label "area/infra" \
+                --add-label "$TRACKING_LABEL"
               gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
             else
               echo "Creating new issue"
-              gh issue create --repo "$REPO" \
+              ISSUE_URL=$(gh issue create --repo "$REPO" \
                 --title "$TITLE" \
                 --body "$BODY" \
                 --label "type/bug" \
                 --label "area/infra" \
-                --label "$TRACKING_LABEL"
+                --label "$TRACKING_LABEL")
+              EXISTING="${ISSUE_URL##*/}"
             fi
+
+            for DUPLICATE in "${MANAGED_NUMBERS[@]:1}"; do
+              if [ -n "$DUPLICATE" ] && [ "$DUPLICATE" != "$EXISTING" ]; then
+                echo "Closing duplicate managed issue #$DUPLICATE"
+                gh issue close "$DUPLICATE" --repo "$REPO" \
+                  --comment "Superseded by the current managed main-branch CI failure issue #$EXISTING. [Run](${RUN_URL})"
+              fi
+            done
 
           elif [ "$CONCLUSION" = "success" ]; then
             echo "CI passed on main -- closing any open failure issues"
-            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number,title,body,author,labels --jq "$FIND_MANAGED_ISSUE" 2>/dev/null || echo "")
+            MANAGED_ISSUES=$(gh issue list --repo "$REPO" --state open --label "$TRACKING_LABEL" --limit 200 --json number,body,author,labels --jq "$FIND_MANAGED_ISSUES" 2>/dev/null || echo "")
+            read -r -a MANAGED_NUMBERS <<< "$MANAGED_ISSUES"
 
-            if [ -n "$EXISTING" ]; then
-              echo "Closing issue #$EXISTING -- CI is now passing"
-              gh issue close "$EXISTING" --repo "$REPO" \
-                --comment "CI is now passing on main. Closing. [Run](${RUN_URL})"
+            if [ "${#MANAGED_NUMBERS[@]}" -gt 0 ]; then
+              for ISSUE in "${MANAGED_NUMBERS[@]}"; do
+                if [ -n "$ISSUE" ]; then
+                  echo "Closing issue #$ISSUE -- CI is now passing"
+                  gh issue close "$ISSUE" --repo "$REPO" \
+                    --comment "CI is now passing on main. Closing. [Run](${RUN_URL})"
+                fi
+              done
             else
               echo "No open failure issue to close"
             fi

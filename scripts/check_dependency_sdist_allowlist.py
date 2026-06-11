@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import sys
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TypeGuard
 
 _ALLOWED_SOURCE_ONLY_SDISTS = {
     (
@@ -34,6 +36,10 @@ _ALLOWED_SOURCE_ONLY_SDISTS = {
 }
 
 
+def allowed_source_only_package_names() -> tuple[str, ...]:
+    return tuple(sorted({name for name, _version in _ALLOWED_SOURCE_ONLY_SDISTS}))
+
+
 def main() -> int:
     lock_path = Path("uv.lock")
     data = tomllib.loads(lock_path.read_text(encoding="utf-8"))
@@ -57,7 +63,7 @@ def _source_only_sdist_violations(data: dict[str, object]) -> list[str]:
 
     violations: list[str] = []
     for package in packages:
-        if not isinstance(package, dict):
+        if not _is_string_key_mapping(package):
             continue
         name = package.get("name")
         version = package.get("version")
@@ -66,7 +72,7 @@ def _source_only_sdist_violations(data: dict[str, object]) -> list[str]:
         if (
             not isinstance(name, str)
             or not isinstance(version, str)
-            or not isinstance(sdist, dict)
+            or not _is_string_key_mapping(sdist)
         ):
             continue
         if isinstance(wheels, list) and wheels:
@@ -76,6 +82,10 @@ def _source_only_sdist_violations(data: dict[str, object]) -> list[str]:
         if observed_hash != allowed_hash:
             violations.append(f"{name}=={version} ({observed_hash})")
     return violations
+
+
+def _is_string_key_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping) and all(isinstance(key, str) for key in value)
 
 
 if __name__ == "__main__":

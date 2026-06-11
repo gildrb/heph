@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 import tempfile
+from collections.abc import Collection
 from pathlib import Path
+
+from scripts.check_dependency_sdist_allowlist import allowed_source_only_package_names
 
 EXPECTED_DISTRIBUTIONS = frozenset(
     {"heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"}
@@ -21,21 +24,7 @@ def main() -> int:
         venv = work_dir / "venv"
         _run(["uv", "venv", str(venv), "--python", args.python], cwd=work_dir)
         python = _venv_python(venv)
-        _run(
-            [
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                str(python),
-                "--only-binary",
-                ":all:",
-                "--no-binary",
-                "antlr4-python3-runtime,pylatexenc,unicodeit",
-                *(str(wheel) for wheel in wheels.values()),
-            ],
-            cwd=work_dir,
-        )
+        _run(_wheel_install_command(python, wheels.values()), cwd=work_dir)
         _run([str(_venv_executable(venv, "heph")), "--version"], cwd=work_dir)
         for name, sdist in sdists.items():
             _run(
@@ -61,6 +50,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--build-constraints", type=Path, default=Path("build-constraints.txt"))
     parser.add_argument("--python", default="3.13")
     return parser
+
+
+def _wheel_install_command(python: Path, wheels: Collection[Path]) -> list[str]:
+    no_binary = ",".join(allowed_source_only_package_names())
+    return [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(python),
+        "--only-binary",
+        ":all:",
+        "--no-binary",
+        no_binary,
+        *(str(wheel) for wheel in wheels),
+    ]
 
 
 def _release_artifacts(dist: Path, *, suffix: str) -> dict[str, Path]:
