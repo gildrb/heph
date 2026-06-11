@@ -150,10 +150,8 @@ def input_without_ctrl_a_class(base: type) -> type:
             return Offset(x + cursor_x - scroll_x, y + cursor_y - scroll_y)
 
         def on_key(self, event: events.Key) -> None:
-            if event.key == "ctrl+a":
-                self.app.action_open_armory_home()
-                event.prevent_default()
-                event.stop()
+            input_key_handler = getattr(self.app, "_handle_input_key", None)
+            if callable(input_key_handler) and input_key_handler(event):
                 return
 
             text = csi_u_key_text(event.key)

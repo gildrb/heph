@@ -16,11 +16,15 @@ if TYPE_CHECKING:
 
 STATUS_FIELD_GAP = "  "
 _BASE_STATUS_FIELDS = ("armory", "model", "reasoning")
+_DEFAULT_STATUS_TITLE = "Heph"
 
 
-def status_lines(session: ChatSession, *, draft: str = "") -> str:
+def status_lines(
+    session: ChatSession, *, draft: str = "", title: str = _DEFAULT_STATUS_TITLE
+) -> str:
     # Draft text is not usage until a provider records the turn.
     _ = draft
+    display_title = title.strip() or _DEFAULT_STATUS_TITLE
     armory = "none"
     if session.armory_path is not None:
         try:
@@ -38,7 +42,7 @@ def status_lines(session: ChatSession, *, draft: str = "") -> str:
         *_live_usage_fields(session),
     ]
     return STATUS_FIELD_GAP.join(
-        ("Heph", *(f"{label.upper()} {value.lower()}" for label, value in fields))
+        (display_title, *(f"{label.upper()} {value.lower()}" for label, value in fields))
     )
 
 

@@ -126,10 +126,14 @@ Heph will:
 
 Inside Heph:
 - `/login` - Configure model access
+- `/local` - Manage local llama.cpp models
 - `/models` - Choose an available model
-- `/armory` - View armory information
+- `/armory` - Open or create armories
+- `/materials` - Choose which materials are used for retrieval
+- `/keymap` - Edit active keyboard shortcuts
 - `/detach` - Leave the current armory and continue without one
 - `/evidence` - See retrieval evidence for the last answer
+- `/turn` - Inspect the current or last request
 - `/settings` - Configure privacy, diagnostics, and other options
 - `/exit` - Quit Heph
 

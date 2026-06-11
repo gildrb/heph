@@ -14,6 +14,14 @@
 
 [[SLASH_COMMANDS_TABLE]]
 
+## TUI keyboard shortcuts
+
+The `/keymap` slash command opens the editable shortcut map inside Heph. Some
+terminal and desktop shortcuts are reserved, so Heph rejects keys such as
+`ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
+
+[[KEYBOARD_SHORTCUTS_TABLE]]
+
 ## Environment variables
 
 [[ENV_VARS_TABLE]]

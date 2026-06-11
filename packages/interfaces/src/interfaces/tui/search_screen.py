@@ -10,6 +10,7 @@ from typing import ClassVar
 from hephaion.armory.search import CrossArmoryIndex, SearchResult
 
 from interfaces.terminal import Theme, current_palette
+from interfaces.tui.slash_completion import changed_highlight_indices
 from interfaces.tui.startup_discovery import discover_available_armories
 
 try:
@@ -72,12 +73,17 @@ def _search_screen_css(p: Theme) -> str:
     """
 
 
-def _format_result(result: SearchResult) -> str:
+_SEARCH_SELECTED_PREFIX = "→ "
+_SEARCH_UNSELECTED_PREFIX = "  "
+
+
+def _format_result(result: SearchResult, *, selected: bool = False) -> str:
     preview = result.chunk_text.replace("\n", " ").strip()
     if len(preview) > 80:
         preview = preview[:77] + "..."
     score_pct = f"{result.score:.0%}"
-    return f"  [{result.armory_name}]  {result.source_rel}  ({score_pct})\n    {preview}"
+    prefix = _SEARCH_SELECTED_PREFIX if selected else _SEARCH_UNSELECTED_PREFIX
+    return f"{prefix}[{result.armory_name}]  {result.source_rel}  ({score_pct})\n    {preview}"
 
 
 class SearchScreen(ModalScreen[SearchResult | None]):
@@ -89,6 +95,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):
     def __init__(self) -> None:
         super().__init__()
         self._results: list[SearchResult] = []
+        self._highlighted_result_index: int | None = None
         self._index = CrossArmoryIndex()
         self._built = False
         self.CSS = _search_screen_css(current_palette())  # ty:ignore[invalid-attribute-access]
@@ -128,6 +135,17 @@ class SearchScreen(ModalScreen[SearchResult | None]):
         if event.option_list.id == "search-results":
             self.action_select()
 
+    def on_option_list_option_highlighted(
+        self,
+        event: OptionList.OptionHighlighted,
+    ) -> None:
+        if event.option_list.id != "search-results":
+            return
+        previous = self._highlighted_result_index
+        self._highlighted_result_index = event.option_index
+        self._refresh_result_selection(previous, event.option_index)
+        self._update_preview()
+
     def _run_search(self, query: str) -> None:
         if not self._built:
             return
@@ -135,13 +153,26 @@ class SearchScreen(ModalScreen[SearchResult | None]):
         results_list = self.query_one("#search-results", OptionList)
         if not self._results:
             results_list.clear_options()
+            self._highlighted_result_index = None
             return
-        formatted = [_format_result(r) for r in self._results]
+        formatted = [
+            _format_result(result, selected=index == 0)
+            for index, result in enumerate(self._results)
+        ]
         results_list.clear_options()
         for f in formatted:
             results_list.add_option(f)
+        self._highlighted_result_index = 0
         results_list.highlighted = 0
         self._update_preview()
+
+    def _refresh_result_selection(self, previous: int | None, highlighted: int) -> None:
+        results_list = self.query_one("#search-results", OptionList)
+        for index in changed_highlight_indices(previous, highlighted, len(self._results)):
+            results_list.replace_option_prompt_at_index(
+                index,
+                _format_result(self._results[index], selected=index == highlighted),
+            )
 
     def _update_preview(self) -> None:
         p = current_palette()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -18,7 +17,8 @@ import pytest
 from ai.providers.config import ProviderConfig, default_config
 from ai.providers.registry import ModelInfo, get_registry
 from ai.runtime import ChatConfig, Conversation
-from hephaion.armory.search import ArmoryEntry, remember_armory
+from hephaion._types import is_string_mapping
+from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
 from hephaion.armory.storage import initialize
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.events import (
@@ -44,6 +44,8 @@ from interfaces.tui.armory_browser import armory_detail, build_entries, default_
 from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
+    _local_model_option_text,
+    local_model_option_description,
 )
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
 from interfaces.tui.model_flow import (
@@ -51,6 +53,7 @@ from interfaces.tui.model_flow import (
     _model_choice_from_label,
     _model_choice_label,
 )
+from interfaces.tui.search_screen import _format_result as _format_search_result
 from interfaces.tui.transparent import Region as _Region
 from interfaces.tui.transparent import style_without_black_background
 from rich.segment import Segment
@@ -173,7 +176,10 @@ def _plain_session() -> ChatSession:
     )
 
 
-def _turn_evidence_with_sources(*sources: str) -> TurnEvidence:
+def _turn_evidence_with_sources(
+    *sources: str,
+    total_source_count: int | None = None,
+) -> TurnEvidence:
     return TurnEvidence(
         tuple(
             EvidenceChunk(
@@ -191,7 +197,7 @@ def _turn_evidence_with_sources(*sources: str) -> TurnEvidence:
             for index, source in enumerate(sources)
         ),
         sampled_source_count=len(sources),
-        total_source_count=len(sources),
+        total_source_count=total_source_count or len(sources),
     )
 
 
@@ -202,8 +208,10 @@ def _mark_active_turn(
     active_session = session or app.session
     event = threading.Event()
     turn_key = app._turn_key_for_session(active_session)
+    app._next_turn_token += 1
     app._active_turns[turn_key] = event
     app._active_turn_sessions[turn_key] = active_session
+    app._active_turn_tokens[turn_key] = app._next_turn_token
     app._sync_busy_to_current_session()
     return event
 
@@ -268,6 +276,13 @@ def test_session_status_normalizes_label_and_value_casing() -> None:
 
     assert "MODEL test-model" in status
     assert "REASONING low" in status
+
+
+def test_session_status_supports_menu_title_replacement() -> None:
+    status = tui._status_lines(_plain_session(), title="Materials")
+
+    assert status.startswith("Materials  ARMORY none")
+    assert not status.startswith("Heph")
 
 
 def test_session_status_omits_api_badge_for_keyless_provider() -> None:
@@ -437,16 +452,19 @@ def test_resize_redraw_state_tracks_follow_up_frame_after_resize_spam() -> None:
 
 
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+a")
+    del monkeypatch
 
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
 
     assert "ctrl+a" in plain
     assert "ARMORY ctrl+a" in plain
+    assert "MATERIALS ctrl+o" in plain
     assert "COMMANDS ctrl+p" in plain
     assert "REASONING shift+tab" in plain
-    assert plain.startswith("ARMORY ctrl+a  COMMANDS ctrl+p  REASONING shift+tab")
+    assert plain.startswith(
+        "ARMORY ctrl+a  MATERIALS ctrl+o  COMMANDS ctrl+p  REASONING shift+tab"
+    )
     assert "enter" not in plain
     assert "tab complete" not in plain
     assert "ctrl+c" not in plain
@@ -457,16 +475,18 @@ def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> No
 def test_footer_hints_derive_labels_and_keys_from_keybind_specs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
+    del monkeypatch
 
     specs_by_action = {spec.action: spec for spec in keybinds.tui_keybinds()}
     hints = keybinds.footer_keybind_hints()
 
-    assert specs_by_action["open_armory_home"].keys == "ctrl+a,ctrl+o"
+    assert specs_by_action["open_armory_home"].keys == "ctrl+a"
+    assert specs_by_action["open_materials"].keys == "ctrl+o"
     assert specs_by_action["command_palette"].keys == "ctrl+p"
     assert specs_by_action["cycle_reasoning_level"].keys == "shift+tab"
     assert [(hint.label, hint.key) for hint in hints] == [
-        ("ARMORY", "ctrl+o"),
+        ("ARMORY", "ctrl+a"),
+        ("MATERIALS", "ctrl+o"),
         ("COMMANDS", "ctrl+p"),
         ("REASONING", "shift+tab"),
     ]
@@ -476,10 +496,10 @@ def test_footer_hints_show_escape_cancel_and_ctrl_c_exit_when_busy() -> None:
     hints = tui._footer_hints_text(_plain_session(), busy=True)
     plain = hints.plain
 
-    assert "esc" in plain
-    assert "stop" in plain
-    assert "ctrl+c" in plain
-    assert "exit" in plain
+    assert "STOP esc" in plain
+    assert "EXIT ctrl+c" in plain
+    assert "esc stop" not in plain
+    assert "ctrl+c exit" not in plain
     assert "cancel" not in plain
     assert "enter" not in plain
     assert "/help" not in plain
@@ -491,31 +511,55 @@ def test_ctrl_c_binding_exits_tui() -> None:
     assert binding_actions["ctrl+c"] == "quit"
 
 
-def test_armory_shortcut_uses_tmux_fallback_for_ctrl_a_prefix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_run(
-        args: tuple[str, ...],
-        *,
-        capture_output: bool,
-        check: bool,
-        text: bool,
-        timeout: float,
-    ) -> subprocess.CompletedProcess[str]:
-        assert args == ("tmux", "show-options", "-gqv", "prefix")
-        assert capture_output is True
-        assert check is False
-        assert text is True
-        assert timeout > 0
-        return subprocess.CompletedProcess(args, 0, stdout="C-a\n", stderr="")
+def test_keymap_text_lists_materials_shortcut() -> None:
+    text = keybinds.keymap_text()
 
-    monkeypatch.setenv("TMUX", "/tmp/tmux-session")
-    monkeypatch.setattr(keymap.subprocess, "run", fake_run)
-    keymap.tmux_uses_ctrl_a_prefix.cache_clear()
-    try:
-        assert keymap.armory_shortcut_key() == "ctrl+o"
-    finally:
-        keymap.tmux_uses_ctrl_a_prefix.cache_clear()
+    assert text.startswith("Keyboard shortcuts")
+    assert "ctrl+a" in text
+    assert "ctrl+o" in text
+    assert "Materials" in text
+    assert "Choose which materials are used for retrieval." in text
+    assert "alt+m" not in text
+    assert "f4" not in text
+    assert "ctrl+t" not in text
+
+
+def test_keymap_rejects_terminal_reserved_ctrl_m() -> None:
+    result = keymap.save_keymap_binding("open_materials", "ctrl+m")
+
+    assert result.saved is False
+    assert "terminals as Enter" in result.message
+
+
+@pytest.mark.parametrize(
+    ("raw_key", "expected_message"),
+    [
+        ("ctrl+c", "reserved for quitting"),
+        ("ctrl+d", "reserved for quitting"),
+    ],
+)
+def test_keymap_rejects_quit_shortcuts(raw_key: str, expected_message: str) -> None:
+    result = keymap.save_keymap_binding("open_materials", raw_key)
+
+    assert result.saved is False
+    assert expected_message in result.message
+
+
+def test_keymap_ignores_reserved_manual_config_binding() -> None:
+    settings_store.save_raw_settings(
+        {
+            "tui_keymap": {
+                "app": {
+                    "open_materials": "alt+m",
+                },
+            },
+        }
+    )
+
+    runtime = keymap.load_runtime_keymap()
+
+    assert runtime.keys_for_action("open_materials") == ("ctrl+o",)
+    assert any("alt+m is reserved by macOS" in error for error in runtime.errors)
 
 
 def test_footer_hints_show_api_missing_when_unconfigured() -> None:
@@ -530,13 +574,13 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
 def test_footer_action_labels_share_neutral_label_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+a")
+    del monkeypatch
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
     footer_label_style = palette.text_muted
     shortcut_style = palette.text_secondary
-    labels = ("ARMORY", "COMMANDS", "REASONING")
+    labels = ("ARMORY", "MATERIALS", "COMMANDS", "REASONING")
     label_styles: dict[str, list[str]] = {}
     for label in labels:
         start = hints.plain.index(label)
@@ -556,7 +600,7 @@ def test_footer_action_labels_share_neutral_label_token(
 def test_status_sidebar_and_footer_chrome_labels_share_one_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
+    del monkeypatch
     session = _plain_session()
     session.source_files = ("materials/calculus.md",)
     palette = tui.current_palette()
@@ -566,7 +610,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
         (tui._info_panel_default_text(session), ("SCOPE", "EVIDENCE")),
         (
             tui._footer_hints_text(session),
-            ("ARMORY", "COMMANDS", "REASONING"),
+            ("ARMORY", "MATERIALS", "COMMANDS", "REASONING"),
         ),
     )
 
@@ -583,7 +627,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
 def test_secondary_chrome_details_share_darker_tint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("interfaces.tui.keybinds.armory_shortcut_key", lambda: "ctrl+o")
+    del monkeypatch
     session = _plain_session()
     session.armory_path = Path.home() / ".armories" / "sample-course"
     session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
@@ -600,7 +644,7 @@ def test_secondary_chrome_details_share_darker_tint(
         return str(text.style)
 
     footer = tui._footer_hints_text(session)
-    for keybind in ("ctrl+o", "ctrl+p", "shift+tab"):
+    for keybind in ("ctrl+a", "ctrl+o", "ctrl+p", "shift+tab"):
         assert effective_style(footer, keybind) == palette.text_muted
 
     status = tui._status_text(session)
@@ -746,6 +790,9 @@ def test_tui_css_keeps_surface_transparent() -> None:
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
+    armory_start = css.index("#armory-current-inline {")
+    armory_end = css.index("}", armory_start)
+    armory_block = css[armory_start:armory_end]
 
     option_start = css.index("OptionList > .option-list--option {")
     option_end = css.index("}", option_start)
@@ -768,6 +815,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert f"background: {tui.current_palette().bg_raised};" in composer_block
     assert "scrollbar-size: 0 0;" in suggestions_block
     assert "scrollbar-size-vertical" not in suggestions_block
+    assert "padding: 0 1;" in armory_block
     assert "padding: 0 2;" in option_block
     assert "border-bottom: tall" not in css
     assert "App {\n    background: #FFFFFF;" not in css
@@ -869,9 +917,10 @@ def test_resize_invalidates_transient_surfaces_without_duplicate_composer(
             assert app._transcript_render_width == app.query_one("#transcript").size.width
             assert tui._TERMINAL_CLEAR_SCREEN in clear_writes
             screen_text = _composited_screen_text(app)
-            assert screen_text.count("→") == 1
+            assert screen_text.count("→") == 2
             assert "Ask anything" not in screen_text
             assert screen_text.count(_footer_armory_hint()) == 1
+            assert "→ /help" in screen_text
             assert screen_text.count("/help") <= 1
 
     asyncio.run(check_resize_sequence())
@@ -974,8 +1023,9 @@ def test_resize_reflows_active_inline_menu_without_duplicate_composer() -> None:
             assert list(app.query("#composer")) == [app.query_one("#composer")]
 
             screen_text = _composited_screen_text(app)
-            assert screen_text.count("→") == 1
-            assert screen_text.count("Settings") <= 1
+            assert screen_text.count("→") == 2
+            assert "→ Privacy & Diagnostics" in screen_text
+            assert screen_text.count("Settings") <= 2
 
     asyncio.run(check_inline_resize())
 
@@ -1152,7 +1202,7 @@ def test_busy_thinking_indicator_resize_has_no_duplicate_surface() -> None:
             screen_text = _composited_screen_text(app)
             assert screen_text.count("→") == 1
             assert screen_text.count("thinking...") == 1
-            assert screen_text.count("esc stop") == 1
+            assert screen_text.count("STOP esc") == 1
             assert _footer_armory_hint() not in screen_text
 
             app.busy = False
@@ -1350,7 +1400,7 @@ def test_runtime_theme_switch_repaints_cached_status_text() -> None:
     def status_brand_style() -> str:
         status = app.query_one("#status")
         for segment in status.render_line(0):
-            if "Heph" in segment.text:
+            if segment.text.strip():
                 return str(segment.style).lower()
         raise AssertionError("status brand segment was not rendered")
 
@@ -1511,14 +1561,14 @@ def test_info_panel_default_text_starts_at_sidebar_edge() -> None:
         pytest.skip("Textual is not installed")
 
     session = _plain_session()
-    session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(9))
+    session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(21))
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
 
-    assert panel_lines[0] == "SCOPE"
+    assert panel_lines[0] == "SCOPE 21/21"
     assert "Grounding" not in panel_lines
-    assert "EVIDENCE" in panel_lines
-    assert next(line for line in panel_lines if "+1 more" in line) == "+1 more"
+    assert "EVIDENCE none yet" in panel_lines
+    assert next(line for line in panel_lines if "+13 more" in line) == "+13 more"
 
 
 def test_tui_css_has_info_panel_layout() -> None:
@@ -1750,7 +1800,7 @@ def test_tui_css_suggestion_scrollbar_is_hidden() -> None:
     assert "scrollbar-background: #1C1C1C;" not in suggestions_block
 
 
-def test_tui_css_materials_highlight_uses_state_colours() -> None:
+def test_tui_css_materials_highlight_uses_neutral_selection_colour() -> None:
     css = tui._tui_css()
     palette = tui.current_palette()
 
@@ -1773,8 +1823,8 @@ def test_tui_css_materials_highlight_uses_state_colours() -> None:
     assert "background: transparent;" in disabled_block
     assert f"color: {palette.brand_primary};" in enabled_block
     assert f"color: {palette.brand_primary};" in disabled_block
-    assert "text-style: bold;" in enabled_block
-    assert "text-style: bold;" in disabled_block
+    assert "text-style: not bold;" in enabled_block
+    assert "text-style: not bold;" in disabled_block
     assert f"background: {palette.action_primary_bg};" not in enabled_block
     assert f"background: {palette.status_error_text};" not in disabled_block
 
@@ -1796,7 +1846,7 @@ def test_tui_css_materials_header_and_gaps_are_status_weight() -> None:
     assert "height: 1;" in gap_block
 
 
-def test_materials_selected_label_uses_sparse_white_highlight() -> None:
+def test_materials_selected_label_uses_quiet_brand_highlight() -> None:
     if tui._RichText is None:
         pytest.skip("Rich is not installed")
 
@@ -1817,8 +1867,10 @@ def test_materials_selected_label_uses_sparse_white_highlight() -> None:
     assert unselected.plain == "  @biology.pdf"
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
-    assert palette.status_success_text in unselected_styles
+    assert all(palette.brand_primary in style for style in selected_styles)
+    assert not any("bold" in style.lower() for style in selected_styles)
+    assert palette.text_primary in unselected_styles
+    assert palette.status_success_text not in unselected_styles
     assert not any(" on " in style for style in selected_styles)
 
 
@@ -1840,14 +1892,52 @@ def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
 
     assert not isinstance(selected, str)
     assert not isinstance(unselected, str)
+    assert selected.plain == "→ @biology.pdf"
+    assert unselected.plain == "  @biology.pdf"
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
-    assert palette.status_error_text in unselected_styles
+    assert all(palette.brand_primary in style for style in selected_styles)
+    assert not any("bold" in style.lower() for style in selected_styles)
+    assert palette.text_muted in unselected_styles
+    assert palette.status_error_text not in unselected_styles
     assert palette.action_primary_bg not in selected_styles
 
 
-def test_materials_highlight_uses_sparse_white_without_state_stripe() -> None:
+def test_materials_header_and_sidebar_use_label_value_layout() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/enabled.pdf", "materials/disabled.pdf")
+    session.disabled_source_files.add("materials/disabled.pdf")
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_material_layout() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_materials_inline()
+            await pilot.pause()
+
+            header = app.query_one("#materials-header", tui.Static)
+            sidebar = app.query_one("#info-panel", tui.Static)
+            header_text = str(header.render())
+            sidebar_text = str(sidebar.render())
+
+            assert "SCOPE materials" in header_text
+            assert "ACTIVE 1/2" in header_text
+            assert "MATERIAL @enabled.pdf" in sidebar_text
+            assert "STATE active" in sidebar_text
+            assert "PATH materials/enabled.pdf" in sidebar_text
+            assert "\n\n" not in sidebar_text
+
+    asyncio.run(check_material_layout())
+
+
+def test_materials_highlight_uses_neutral_selection_without_state_stripe() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -1883,7 +1973,8 @@ def test_materials_highlight_uses_sparse_white_without_state_stripe() -> None:
             ]
 
             assert len(first_line_styles) == 1
-            assert palette.status_success_text.lower() in first_line_styles[0].lower()
+            assert palette.text_primary.lower() in first_line_styles[0].lower()
+            assert palette.status_success_text.lower() not in first_line_styles[0].lower()
             assert palette.brand_primary.lower() not in first_line_styles[0].lower()
             assert len(second_line_styles) == 1
             assert palette.brand_primary.lower() in second_line_styles[0].lower()
@@ -1892,7 +1983,7 @@ def test_materials_highlight_uses_sparse_white_without_state_stripe() -> None:
     asyncio.run(check_material_selection())
 
 
-def test_tui_css_completion_highlight_has_sparse_white_selection_contrast() -> None:
+def test_tui_css_completion_highlight_has_quiet_selection_contrast() -> None:
     css = tui._tui_css()
     palette = tui.current_palette()
     highlight_start = css.index("#suggestions > .option-list--option-highlighted")
@@ -1904,11 +1995,11 @@ def test_tui_css_completion_highlight_has_sparse_white_selection_contrast() -> N
 
     assert "background: transparent;" in highlight_block
     assert f"color: {palette.brand_primary};" in highlight_block
-    assert "text-style: bold;" in highlight_block
+    assert "text-style: not bold;" in highlight_block
     assert "#suggestions > .option-list--option-hover" in hover_block
     assert "background: transparent;" in hover_block
     assert f"color: {palette.brand_primary};" in hover_block
-    assert "text-style: bold;" in hover_block
+    assert "text-style: not bold;" in hover_block
     assert f"color: {palette.action_primary_text};" not in hover_block
 
 
@@ -1918,7 +2009,7 @@ def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
     assert "#suggestions.inline-menu > .option-list--option-highlighted" not in css
 
 
-def test_inline_menu_selected_label_uses_white_for_whole_active_row() -> None:
+def test_inline_menu_selected_label_uses_brand_without_bold_row() -> None:
     selected = _inline_menu_option_text(
         "Signal Entropy",
         "uncertainty in signals",
@@ -1935,7 +2026,9 @@ def test_inline_menu_selected_label_uses_white_for_whole_active_row() -> None:
     assert not isinstance(unselected, str)
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert all(palette.brand_primary in style and "bold" in style for style in selected_styles)
+    assert any(palette.brand_primary in style for style in selected_styles)
+    assert any(palette.text_muted in style for style in selected_styles)
+    assert not any("bold" in style.lower() for style in selected_styles)
     assert any(palette.text_secondary in style for style in unselected_styles)
     assert any(palette.text_muted in style for style in unselected_styles)
     assert not any("bold" in style.lower() for style in unselected_styles)
@@ -1949,7 +2042,70 @@ def test_inline_menu_option_text_collapses_newline_spam() -> None:
     )
 
     plain = prompt if isinstance(prompt, str) else prompt.plain
-    assert plain == "a470954cc5be    hey fwafawf wwafw 2026-06-02T14:44:18.165289+00:00"
+    assert plain == "→ a470954cc5be    hey fwafawf wwafw 2026-06-02T14:44:18.165289+00:00"
+
+
+def test_search_result_text_reserves_selection_prefix() -> None:
+    result = SearchResult(
+        armory_path=Path("/tmp/demo-armory"),
+        source_rel="materials/notes.pdf",
+        chunk_index=0,
+        chunk_text="first line\nsecond line",
+        score=0.82,
+    )
+
+    selected = _format_search_result(result, selected=True)
+    unselected = _format_search_result(result, selected=False)
+
+    assert selected.startswith("→ [demo-armory]  materials/notes.pdf  (82%)")
+    assert unselected.startswith("  [demo-armory]  materials/notes.pdf  (82%)")
+    assert "\n    first line second line" in selected
+
+
+def test_local_model_option_text_uses_structured_columns() -> None:
+    prompt = _local_model_option_text(
+        "llama-cpp/unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M",
+        local_model_option_description(
+            "search",
+            "install",
+            "Q4_K_M",
+            "3.7 GB",
+            "2,656,128 downloads, 700 likes",
+        ),
+        selected=True,
+        prompt_width=82,
+    )
+
+    plain = prompt if isinstance(prompt, str) else prompt.plain
+    assert len(plain) == 82
+    assert not plain.startswith("llama-cpp/")
+    assert plain.startswith("→ unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M")
+    assert "search" in plain
+    assert "install" in plain
+    assert "Q4_K_M" in plain
+    assert "3.7 GB" in plain
+
+
+def test_local_model_option_text_drops_detail_when_narrow() -> None:
+    prompt = _local_model_option_text(
+        "llama-cpp/Andyvurrent/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_GGUF",
+        local_model_option_description(
+            "search",
+            "install",
+            "Q4_K_M",
+            "721 MB",
+            "2,433,843 downloads, 54 likes",
+        ),
+        selected=False,
+        prompt_width=54,
+    )
+
+    plain = prompt if isinstance(prompt, str) else prompt.plain
+    assert len(plain) == 54
+    assert plain.startswith("  Andyvurren...")
+    assert "search" in plain
+    assert "Q4_K_M" in plain
+    assert "downloads" not in plain
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -1999,12 +2155,12 @@ def test_info_panel_material_colours_match_materials_picker() -> None:
     assert (
         enabled_start,
         enabled_start + len("@enabled.pdf"),
-        palette.status_success_text,
+        palette.text_primary,
     ) in spans
     assert (
         disabled_start,
         disabled_start + len("@disabled.pdf"),
-        palette.status_error_text,
+        palette.text_muted,
     ) in spans
 
 
@@ -2516,12 +2672,11 @@ def test_info_panel_shows_scope_and_material_names_without_session_duration() ->
     panel = tui._info_panel_default_text(session)
 
     lines = panel.plain.splitlines()
-    assert lines[0] == "SCOPE"
+    assert lines[0] == "SCOPE 2/2"
     assert "\u2500" not in panel.plain
     assert "time" not in panel.plain
-    assert "2/2 materials active" in panel.plain
-    assert "EVIDENCE" in panel.plain
-    assert "no evidence used yet" in panel.plain
+    assert "materials active" not in panel.plain
+    assert "EVIDENCE none yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
     assert "☑" not in panel.plain
@@ -2541,13 +2696,12 @@ def test_info_panel_ignores_generated_session_title() -> None:
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert lines[0] == "SCOPE"
+    assert lines[0] == "SCOPE 0/0"
     assert len(lines[0]) <= 38
     assert "Build a careful comparison" not in panel.plain
     assert "that should never wrap" not in panel.plain
     assert "Grounding" not in panel.plain
-    assert lines[1] == "0/0 materials active"
-    assert lines[2] == "no materials attached"
+    assert lines[1] == "no materials attached"
 
 
 def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
@@ -2556,15 +2710,18 @@ def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
         "materials/week-01-foundations.pdf",
         "materials/week-02-methods.pdf",
         "materials/week-03-results.pdf",
+        total_source_count=21,
     )
 
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert "3 evidence excerpts" in lines
-    assert "3 sources sampled" in lines
-    assert any(line.startswith("top @week-01-foundations.pdf") for line in lines)
-    assert "f8 /evidence details" in lines
+    assert "EVIDENCE E1 E2 E3" in lines
+    assert "3 excerpts, 3/21 sources" in lines
+    assert any(line.startswith("E1 @week-01-foundations.pdf") for line in lines)
+    assert any(line.startswith("E2 @week-02-methods.pdf") for line in lines)
+    assert any(line.startswith("E3 @week-03-results.pdf") for line in lines)
+    assert "f8 /evidence" in lines
     assert "tool" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
 
@@ -2590,7 +2747,7 @@ def test_info_panel_busy_progress_is_clipped_inside_sidebar_width() -> None:
 
     lines = panel.plain.splitlines()
 
-    assert "checking answer" in lines
+    assert "EVIDENCE checking answer" in lines
     assert "tool call" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
 
@@ -3018,6 +3175,8 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/sources notes", tui._TuiInputRoute.EXTERNAL),
         ("/materials", tui._TuiInputRoute.MATERIALS),
         ("/materials notes", tui._TuiInputRoute.MATERIALS),
+        ("/keymap", tui._TuiInputRoute.KEYMAP),
+        ("/keymap all", tui._TuiInputRoute.KEYMAP),
         ("/sessions", tui._TuiInputRoute.SESSIONS),
         ("/sessions list", tui._TuiInputRoute.SESSIONS),
         ("/turn", tui._TuiInputRoute.TURN),
@@ -3070,6 +3229,7 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     assert "/thinking" not in routes
     assert "/reasoning" not in routes
     assert routes["/materials"] is tui._TuiInputRoute.MATERIALS
+    assert routes["/keymap"] is tui._TuiInputRoute.KEYMAP
     assert routes["/sessions"] is tui._TuiInputRoute.SESSIONS
     assert routes["/turn"] is tui._TuiInputRoute.TURN
     assert routes["/local"] is tui._TuiInputRoute.LOCAL
@@ -3082,6 +3242,7 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
         if command
         not in {
             "/materials",
+            "/keymap",
             "/sessions",
             "/turn",
             "/local",
@@ -3197,10 +3358,10 @@ def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None
 
     detail = armory_detail(armory)
 
-    assert "valid armory" in detail
-    assert "1 material file" in detail
-    assert "User files: materials/" in detail
-    assert "Internal state: .hephaion/" in detail
+    assert "STATE valid" in detail
+    assert "FILES 1" in detail
+    assert "MATERIALS materials/" in detail
+    assert "STATE DIR .hephaion/" in detail
 
 
 def test_ctrl_p_opens_command_palette() -> None:
@@ -3230,6 +3391,32 @@ def test_ctrl_p_opens_command_palette() -> None:
             assert app.completion_candidates
 
     asyncio.run(check_command_palette())
+
+
+def test_ctrl_o_opens_materials_inline() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/calculus.md",)
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_materials_shortcut() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            composer = app.query_one("#composer", tui.Input)
+
+            assert app._materials_inline_active is True
+            assert composer.placeholder == "Filter materials..."
+            assert getattr(app.focused, "id", None) == "materials-list"
+
+    asyncio.run(check_materials_shortcut())
 
 
 def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
@@ -3531,7 +3718,7 @@ def test_login_inline_menu_aligns_descriptions_after_filter_reset() -> None:
 
             columns = _inline_description_columns(app)
             assert len(set(columns)) == 1
-            assert columns[0] == len("Custom endpoint") + 4
+            assert columns[0] == len("→ Custom endpoint") + 4
 
     asyncio.run(check_login_columns())
 
@@ -3576,7 +3763,7 @@ def test_models_inline_menu_aligns_descriptions(
             columns = _inline_description_columns(app)
             assert columns
             assert len(set(columns)) == 1
-            assert columns[0] == len("qwen/qwen3.6-plus:free") + 4
+            assert columns[0] == len("→ qwen/qwen3.6-plus:free") + 4
 
     asyncio.run(check_model_columns())
 
@@ -3613,7 +3800,7 @@ def test_inline_menu_description_column_tracks_visible_rows_while_scrolling() ->
 
             columns = _inline_description_columns(app)
             assert len(set(columns[:7])) == 1
-            assert columns[0] == len("extra-wide-visible-first") + 4
+            assert columns[0] == len("→ extra-wide-visible-first") + 4
 
             app._move_completion(7)
             await pilot.pause()
@@ -3622,7 +3809,7 @@ def test_inline_menu_description_column_tracks_visible_rows_while_scrolling() ->
             assert suggestions.scroll_y == 1
             columns = _inline_description_columns(app)
             assert len(set(columns[1:])) == 1
-            assert columns[1] == len("aa") + 4
+            assert columns[1] == len("  aa") + 4
 
     asyncio.run(check_scrolled_columns())
 
@@ -3856,6 +4043,16 @@ def test_armory_home_text_omits_available_armory_list(
     assert "algorithms" not in text
     assert "/linear-algebra" not in text
     assert max(len(line) for line in text.splitlines()) <= 40
+
+
+def test_armory_home_text_uses_runtime_keymap() -> None:
+    runtime = keymap.default_runtime_keymap()
+    runtime.bindings["open_armory_home"] = ("ctrl+g",)
+
+    text = tui_display_text.armory_home_text(runtime)
+
+    assert "ctrl+g" in text
+    assert "ctrl+a" not in text
 
 
 def test_startup_copy_stays_readable_in_narrow_panes() -> None:
@@ -4613,7 +4810,7 @@ def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
     assert [(event.key, event.character) for event in key_events] == [("shift+enter", None)]
 
 
-def test_ctrl_o_opens_armory_as_tmux_safe_fallback() -> None:
+def test_ctrl_a_opens_armory_home() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -4624,14 +4821,72 @@ def test_ctrl_o_opens_armory_as_tmux_safe_fallback() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_ctrl_o() -> None:
+    async def check_ctrl_a() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("ctrl+o")
+            await pilot.press("ctrl+a")
             await pilot.pause()
 
             assert app._armory_inline_active is True
 
-    asyncio.run(check_ctrl_o())
+    asyncio.run(check_ctrl_a())
+
+
+def test_keymap_flow_rebinds_materials_shortcut() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/calculus.md",)
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_keymap_rebind() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/keymap"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.active is True
+            assert app._inline_flow.name == "keymap"
+            assert app._inline_flow.step == "menu"
+            descriptions = dict(app._inline_flow.options)
+            assert descriptions["Materials"].startswith("KEY ctrl+o")
+
+            app._submit_inline_flow("Materials")
+            await pilot.pause()
+            assert app._inline_flow.step == "capture"
+
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+
+            raw_keymap = settings_store.load_raw_settings().get("tui_keymap")
+            assert is_string_mapping(raw_keymap)
+            app_keymap = raw_keymap.get("app")
+            assert is_string_mapping(app_keymap)
+            assert app_keymap.get("open_materials") == "ctrl+g"
+            assert app._keymap.keys_for_action("open_materials") == ("ctrl+g",)
+            assert (
+                "MATERIALS ctrl+g"
+                in tui._footer_hints_text(
+                    app.session,
+                    keymap=app._keymap,
+                ).plain
+            )
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._inline_flow.active is False
+
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+            assert app._materials_inline_active is True
+
+    asyncio.run(check_keymap_rebind())
 
 
 def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
@@ -4693,6 +4948,15 @@ def test_command_input_executes_without_user_transcript(
                 assert app._armory_inline_active is True
             elif command_input == "/materials":
                 assert app._materials_inline_active is True
+            elif command_input == "/keymap":
+                assert app._inline_flow.active is True
+                assert app._inline_flow.name == "keymap"
+                assert app._inline_flow.step == "menu"
+                descriptions = dict(app._inline_flow.options)
+                assert descriptions["Materials"].startswith("KEY ctrl+o")
+                assert not any(
+                    "Keyboard shortcuts" in entry.content for entry in app.state.transcript
+                )
             elif command_input == "/new":
                 assert any("New chat started" in entry.content for entry in app.state.transcript)
             elif command_input == "/detach":
@@ -4824,9 +5088,14 @@ def test_busy_materials_and_settings_remain_interactive() -> None:
 
             await pilot.press("escape")
             await pilot.pause()
-            assert app._materials_inline_active is False
-            assert app.busy is True
+            assert app._materials_inline_active is True
+            assert app.busy is False
 
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._materials_inline_active is False
+
+            _mark_active_turn(app)
             composer.value = "/settings"
             await pilot.press("enter")
             await pilot.pause()
@@ -5602,9 +5871,174 @@ def test_armory_footer_hints_follow_mode() -> None:
     filtering = tui._armory_footer_hints_text(filtering=True)
     creating = tui._armory_footer_hints_text(creating=True)
 
-    assert "type filter" in normal.plain
-    assert "esc clear" in filtering.plain
-    assert "enter create" in creating.plain
+    assert normal.plain == "OPEN enter  CLOSE esc"
+    assert filtering.plain == "OPEN enter  CLEAR esc  MOVE arrows"
+    assert creating.plain == "CREATE enter  CANCEL esc"
+
+
+def test_materials_footer_hints_follow_action_then_key_order() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+
+    app._materials_flow = "toggle"
+    assert app._materials_footer_text() == "TOGGLE space/enter  CLOSE esc"
+
+    app._materials_flow = "open"
+    assert app._materials_footer_text() == "OPEN enter  CLOSE esc"
+
+
+def test_inline_menu_placeholder_hints_follow_action_then_key_order() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_placeholder() -> None:
+        async with typed_app.run_test(size=(100, 24)):
+            app._open_inline_menu(
+                name="test",
+                step="menu",
+                title="Test menu",
+                options=[("Open", "Current item")],
+            )
+            composer = app.query_one("#composer", tui.Input)
+            assert composer.placeholder == (
+                "Test menu  FILTER type  MOVE ↑/↓  SELECT enter  CLOSE esc"
+            )
+            assert "type to filter" not in composer.placeholder
+
+    asyncio.run(check_placeholder())
+
+
+def test_active_armory_menu_title_moves_to_status_bar(tmp_path: Path) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_title() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")
+            await pilot.pause()
+
+            status = app.query_one("#status", tui.Static)
+            hints = app.query_one("#footer-hints", tui.Static)
+            assert str(status.render()).startswith("Armory  ")
+            assert str(hints.render()) == "OPEN enter  CLOSE esc"
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert str(status.render()).startswith("Heph  ")
+            assert str(hints.render()).startswith(_footer_armory_hint())
+
+    asyncio.run(check_title())
+
+
+def test_active_materials_menu_title_moves_to_status_bar() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/enabled.pdf",)
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_title() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_materials_inline("/materials")
+            await pilot.pause()
+
+            status = app.query_one("#status", tui.Static)
+            materials_footer = app.query_one("#materials-footer", tui.Static)
+            assert str(status.render()).startswith("Materials  ")
+            assert str(materials_footer.render()) == "TOGGLE space/enter  CLOSE esc"
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert str(status.render()).startswith("Heph  ")
+
+    asyncio.run(check_title())
+
+
+def test_active_inline_menu_title_moves_to_status_bar() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_title() -> None:
+        async with typed_app.run_test(size=(100, 24)):
+            app._open_inline_menu(
+                name="models",
+                step="menu",
+                title="Models",
+                options=[("test-model", "current")],
+            )
+            status = app.query_one("#status", tui.Static)
+            assert str(status.render()).startswith("Models  ")
+
+            app._close_inline_flow()
+            assert str(status.render()).startswith("Heph  ")
+
+    asyncio.run(check_title())
+
+
+def test_command_completion_keeps_current_status_title() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_title() -> None:
+        async with typed_app.run_test(size=(100, 24)):
+            app.action_command_palette()
+            status = app.query_one("#status", tui.Static)
+            assert str(status.render()).startswith("Heph  ")
+
+            app._hide_completions()
+            assert str(status.render()).startswith("Heph  ")
+
+            app._open_inline_menu(
+                name="models",
+                step="menu",
+                title="Models",
+                options=[("test-model", "current")],
+            )
+            app.action_command_palette()
+            assert str(status.render()).startswith("Models  ")
+
+    asyncio.run(check_title())
 
 
 def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
@@ -5623,7 +6057,7 @@ def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._open_armory_inline("manage")
             hints = app.query_one("#footer-hints", tui.Static)
-            assert "ARMORY" in str(hints.render())
+            assert str(hints.render()) == "OPEN enter  CLOSE esc"
             await pilot.press("escape")
             await pilot.pause()
             assert _footer_armory_hint() in str(hints.render())
@@ -5735,7 +6169,7 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
             assert str(flow_hint.render()) == ""
             # pane hint is now cleared (empty)
             assert focus_hint is not None
-            assert "No matches" in str(preview.render())
+            assert "STATE no matches" in str(preview.render())
 
     asyncio.run(check_empty_filter())
 
@@ -5803,14 +6237,14 @@ def test_armory_inline_description_column_tracks_visible_rows(tmp_path: Path) ->
 
             columns = _armory_description_columns(app)
             assert len(set(columns[:6])) == 1
-            assert columns[0] == len("extra-wide-visible-first") + 4
+            assert columns[0] == len("→ extra-wide-visible-first") + 4
 
             app._render_armory_options(7)
             await pilot.pause()
 
             columns = _armory_description_columns(app)
             assert len(set(columns[2:])) == 1
-            assert columns[2] == len("8 item(s)") + 2
+            assert columns[2] == len("  ITEMS 8") + 2
 
     asyncio.run(check_armory_columns())
 
@@ -5846,14 +6280,15 @@ def test_armory_inline_rows_show_file_columns_without_duplicate_paths(
             header = app.query_one("#armory-header", tui.Static)
             sidebar = app.query_one("#info-panel", tui.Static)
 
-            assert "files" in str(header.render())
+            assert "ITEMS" in str(header.render())
             assert "Armories" not in str(header.render())
-            assert "  1" in prompt
+            assert "FILES 1" in prompt
             assert "ready" not in prompt
             assert "material file" not in prompt
             assert str(tmp_path) not in prompt
             assert str(tmp_path) not in str(header.render())
-            assert "Ready" in str(sidebar.render())
+            assert "STATE ready" in str(sidebar.render())
+            assert "MATERIALS available" in str(sidebar.render())
             assert "1 file(s)" not in str(sidebar.render())
             assert "Enter opens" not in str(sidebar.render())
             assert "biology" not in str(sidebar.render())
@@ -5871,7 +6306,7 @@ def test_armory_inline_sidebar_avoids_repeating_row_and_footer_details(
 
     sidebar = tui_armory._armory_sidebar_text(entry)
 
-    assert sidebar == "Ready\n\nMaterials available.\n\nMemory stays scoped here."
+    assert sidebar == "STATE ready\nMATERIALS available\nMEMORY armory scoped"
     assert "biology" not in sidebar
     assert "1 file(s)" not in sidebar
     assert "Enter opens" not in sidebar
@@ -5909,7 +6344,7 @@ def test_armory_inline_filter_selects_separator_insensitive_match(
     asyncio.run(check_filter_match())
 
 
-def test_armory_inline_open_mode_disables_new_shortcut() -> None:
+def test_armory_inline_n_filters_instead_of_starting_create() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -5920,14 +6355,16 @@ def test_armory_inline_open_mode_disables_new_shortcut() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_open_mode() -> None:
+    async def check_filter_key() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            app._open_armory_inline("open")
+            app._open_armory_inline("manage")
             await pilot.press("n")
             await pilot.pause()
+            composer = app.query_one("#composer", tui.Input)
             assert app._armory_creating is False
+            assert composer.value == "n"
 
-    asyncio.run(check_open_mode())
+    asyncio.run(check_filter_key())
 
 
 def test_armory_inline_create_entry_uses_composer(tmp_path: Path) -> None:
@@ -6222,7 +6659,7 @@ def test_armory_inline_marks_armories_with_running_turns(
             prompt_text = prompt.plain if isinstance(prompt, Text) else str(prompt)
             preview = app.query_one("#armory-preview-inline", tui.Static)
             assert "working" in prompt_text
-            assert "Assistant working" in str(preview.render())
+            assert "STATE working" in str(preview.render())
             assert str(preview.render()).count("working") == 1
 
     asyncio.run(check_running_badge())
@@ -6398,6 +6835,9 @@ def test_tab_applies_highlighted_completion_in_composer() -> None:
             await pilot.pause()
             assert composer.value == "/"
             assert app.completion_candidates
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            prompt = _option_prompt_plain(suggestions, 0)
+            assert prompt.startswith("→ /help")
 
             await pilot.press("tab")
             await pilot.pause()
@@ -6620,7 +7060,7 @@ def test_models_completion_menu_uses_readable_columns() -> None:
             )
 
             assert isinstance(first, str)
-            assert first.startswith("OpenAI         openai")
+            assert first.startswith("  OpenAI         openai")
             assert "Pollinations" in first
             assert "free current" in first
             assert "/models" not in first
@@ -6662,7 +7102,7 @@ def test_models_command_shows_plain_suggestion() -> None:
     asyncio.run(check_models_suggestion())
 
 
-def test_command_completion_selected_text_uses_white_for_whole_active_row() -> None:
+def test_command_completion_selected_text_uses_brand_without_bold_row() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -6690,14 +7130,15 @@ def test_command_completion_selected_text_uses_white_for_whole_active_row() -> N
 
             assert not isinstance(selected, str)
             assert not isinstance(unselected, str)
-            assert selected.plain.startswith("/help")
+            assert selected.plain.startswith("→ /help")
+            assert unselected.plain.startswith("  /help")
             assert "Show available commands" in selected.plain
 
             selected_styles = [str(span.style) for span in selected.spans]
             unselected_styles = [str(span.style) for span in unselected.spans]
-            assert all(
-                palette.brand_primary in style and "bold" in style for style in selected_styles
-            )
+            assert any(palette.brand_primary in style for style in selected_styles)
+            assert any(palette.text_muted in style for style in selected_styles)
+            assert not any("bold" in style.lower() for style in selected_styles)
             assert any(palette.text_secondary in style for style in unselected_styles)
             assert any(palette.text_muted in style for style in unselected_styles)
             assert not any("bold" in style.lower() for style in unselected_styles)
@@ -6738,12 +7179,12 @@ def test_command_completion_column_tracks_visible_commands() -> None:
             suggestions = app.query_one("#suggestions", tui.OptionList)
             app._set_completion_options(highlighted=0)
             first_visible = suggestions.get_option_at_index(0).prompt
-            assert str(first_visible).startswith("/help      Show available commands")
+            assert str(first_visible).startswith("→ /help      Show available commands")
 
             app._set_completion_options(highlighted=7)
             scrolled_visible = suggestions.get_option_at_index(0).prompt
             assert str(scrolled_visible).startswith(
-                "/help                   Show available commands"
+                "  /help                   Show available commands"
             )
 
     asyncio.run(check_completion_width())
@@ -6813,7 +7254,7 @@ def test_command_completion_columns_restore_after_filter_reset() -> None:
             columns = _completion_description_columns(app)[:7]
             assert columns
             assert len(set(columns)) == 1
-            assert columns[0] == len("/armory") + 4
+            assert columns[0] == len("→ /armory") + 4
 
     asyncio.run(check_filter_reset_columns())
 
@@ -6841,7 +7282,7 @@ def test_busy_footer_keeps_exit_hint_with_completion_menu_visible() -> None:
 
             footer = app.query_one("#footer-hints", tui.Static)
             position = app.query_one("#completion-position", tui.Static)
-            assert str(footer.render()) == "esc stop  ctrl+c exit"
+            assert str(footer.render()) == "STOP esc  EXIT ctrl+c"
             assert str(position.render()) == f"  (1/{len(app.completion_candidates)})"
 
     asyncio.run(check_busy_footer())
@@ -6862,12 +7303,73 @@ def test_escape_cancels_busy_turn() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app.busy = True
             await pilot.press("escape")
+            await pilot.press("escape")
             await pilot.pause()
 
             assert app.abort_event.is_set()
-            assert any("Interrupt requested." in entry.content for entry in app.state.transcript)
+            interrupt_notices = [
+                entry
+                for entry in app.state.transcript
+                if entry.kind == "notice" and entry.content == "Interrupt requested."
+            ]
+            assert len(interrupt_notices) == 1
 
     asyncio.run(check_escape_cancel())
+
+
+def test_escape_clears_active_turn_immediately_and_ignores_late_callbacks() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_active_cancel() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            abort_event = _mark_active_turn(app)
+            turn_key = app._current_turn_key()
+            turn_token = app._active_turn_tokens[turn_key]
+            app._side_panel_progress = "reading"
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert abort_event.is_set()
+            assert app.busy is False
+            assert app._side_panel_progress == ""
+            assert turn_key not in app._active_turns
+            assert turn_key not in app._active_turn_sessions
+            assert turn_key not in app._active_turn_tokens
+            assert turn_token in app._cancelled_turn_tokens
+            footer = app.query_one("#footer-hints", tui.Static)
+            assert "STOP" not in str(footer.render())
+
+            app._handle_turn_reply(turn_key, turn_token, "late answer")
+            app._handle_turn_notice(turn_key, turn_token, "late notice")
+            app._handle_turn_error(turn_key, turn_token, "late error")
+
+            assert not any("late" in entry.content for entry in app.state.transcript)
+
+            replacement_event = threading.Event()
+            app._next_turn_token += 1
+            replacement_token = app._next_turn_token
+            app._active_turns[turn_key] = replacement_event
+            app._active_turn_sessions[turn_key] = app.session
+            app._active_turn_tokens[turn_key] = replacement_token
+            app._sync_busy_to_current_session()
+
+            app._finish_background_turn(turn_key, app.session, turn_token)
+
+            assert turn_token not in app._cancelled_turn_tokens
+            assert app._active_turns[turn_key] is replacement_event
+            assert app._active_turn_tokens[turn_key] == replacement_token
+            assert app.busy is True
+
+    asyncio.run(check_active_cancel())
 
 
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:

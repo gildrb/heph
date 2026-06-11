@@ -10,9 +10,10 @@ from hephaion.materials import material_display_name
 from interfaces.terminal import current_palette
 from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
 from interfaces.tui.keybinds import footer_keybind_hints
-from interfaces.tui.keymap import armory_shortcut_key
+from interfaces.tui.keymap import RuntimeKeymap, armory_shortcut_key
 from interfaces.tui.rich_transcript import evidence_summary_text
 from interfaces.tui.session_state import TuiTranscriptEntry
+from interfaces.tui.shortcut_hints import ShortcutHint, shortcut_hint_part
 from interfaces.tui.status import STATUS_FIELD_GAP, status_labels, status_lines
 
 try:
@@ -36,6 +37,7 @@ COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
 class _InfoPanelLine:
     content: str
     is_heading: bool = False
+    label: str = ""
 
 
 def require_rich_text() -> type[Text]:
@@ -44,13 +46,22 @@ def require_rich_text() -> type[Text]:
     return _RichText
 
 
-def status_text(session: ChatSession, *, draft: str = "") -> Text:
-    plain = status_lines(session, draft=draft)
+def label_value_line(label: str, value: object) -> str:
+    label_text = label.strip().upper()
+    value_text = str(value).strip()
+    if not value_text:
+        return label_text
+    return f"{label_text} {value_text}"
+
+
+def status_text(session: ChatSession, *, draft: str = "", title: str = "Heph") -> Text:
+    display_title = title.strip() or "Heph"
+    plain = status_lines(session, draft=draft, title=display_title)
     palette = current_palette()
 
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.text_muted)
-    text.stylize(f"bold {palette.brand_primary}", 0, len("Heph"))
+    text.stylize(f"bold {palette.brand_primary}", 0, len(display_title))
     _stylize_status_labels(text, plain, status_labels(session))
     _stylize_status_values(text, plain, status_labels(session))
     return text
@@ -86,19 +97,26 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
     palette = current_palette()
     footer_style = palette.text_muted
     shortcut_style = palette.text_secondary
-    section = "armory".upper()
     if creating:
-        parts = [section, "enter create", "esc cancel"]
+        hints = (
+            ShortcutHint("Create", "enter"),
+            ShortcutHint("Cancel", "esc"),
+        )
     elif filtering:
-        parts = [section, "enter open", "esc clear", "arrows move", "n new"]
+        hints = (
+            ShortcutHint("Open", "enter"),
+            ShortcutHint("Clear", "esc"),
+            ShortcutHint("Move", "arrows"),
+        )
     else:
-        parts = [section, "type filter", "enter open", "n new", "esc close"]
+        hints = (
+            ShortcutHint("Open", "enter"),
+            ShortcutHint("Close", "esc"),
+        )
     return _shortcut_hints_text(
-        parts,
-        (section, "enter", "esc", "arrows", "type", "n"),
+        hints,
         footer_style=footer_style,
         shortcut_style=shortcut_style,
-        every_match=True,
     )
 
 
@@ -106,27 +124,28 @@ def footer_hints_text(
     session: ChatSession,
     *,
     busy: bool = False,
+    keymap: RuntimeKeymap | None = None,
 ) -> Text:
     palette = current_palette()
     footer_style = palette.text_muted
     shortcut_style = palette.text_secondary
 
     if busy:
+        stop_key = keymap.primary_key("cancel_turn") if keymap is not None else "esc"
         return _shortcut_hints_text(
-            ("esc stop", "ctrl+c exit"),
-            ("esc", "ctrl+c"),
+            (
+                ShortcutHint("Stop", stop_key),
+                ShortcutHint("Exit", "ctrl+c"),
+            ),
             footer_style=footer_style,
             shortcut_style=shortcut_style,
         )
 
     key_ok = has_configured_access(session.config, refresh_oauth=False)
-    keybind_hints = footer_keybind_hints()
-    parts = [f"{hint.label} {hint.key}" for hint in keybind_hints]
-    if not key_ok:
-        parts.append("api missing")
+    hints = tuple(ShortcutHint(hint.label, hint.key) for hint in footer_keybind_hints(keymap))
     text = _shortcut_hints_text(
-        parts,
-        tuple(hint.label for hint in keybind_hints),
+        hints,
+        extra_parts=("api missing",) if not key_ok else (),
         footer_style=footer_style,
         shortcut_style=shortcut_style,
     )
@@ -138,20 +157,27 @@ def footer_hints_text(
 
 
 def _shortcut_hints_text(
-    parts: Sequence[str],
-    labels: Sequence[str],
+    hints: Sequence[ShortcutHint],
     *,
     footer_style: str,
     shortcut_style: str,
-    every_match: bool = False,
+    section: str = "",
+    extra_parts: Sequence[str] = (),
 ) -> Text:
+    labels: list[str] = []
+    parts: list[str] = []
+    if section:
+        section_label = section.strip().upper()
+        labels.append(section_label)
+        parts.append(section_label)
+    for hint in hints:
+        labels.append(hint.label.strip().upper())
+        parts.append(shortcut_hint_part(hint))
+    parts.extend(extra_parts)
     plain = STATUS_FIELD_GAP.join(parts)
     text = require_rich_text()(plain, style=footer_style)
     for label in labels:
-        if every_match:
-            _stylize_all(text, plain, label, shortcut_style)
-        else:
-            _stylize_first(text, plain, label, shortcut_style)
+        _stylize_first(text, plain, label, shortcut_style)
     return text
 
 
@@ -171,12 +197,18 @@ def _count_label(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {word}"
 
 
+def _info_panel_label_line(label: str, value: str) -> _InfoPanelLine:
+    return _InfoPanelLine(label_value_line(label, value), label=label)
+
+
 def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
     visible_materials = list(session.source_files[:8])
     active_count = _active_material_count(session)
     material_lines = [
-        _InfoPanelLine(_INFO_PANEL_SCOPE.upper(), is_heading=True),
-        _InfoPanelLine(f"{active_count}/{len(session.source_files)} materials active"),
+        _info_panel_label_line(
+            _INFO_PANEL_SCOPE.upper(),
+            f"{active_count}/{len(session.source_files)}",
+        ),
     ]
     if not visible_materials:
         material_lines.append(_InfoPanelLine("no materials attached"))
@@ -201,14 +233,12 @@ def _info_panel_evidence_lines(
     if busy:
         detail = progress or "working"
         return [
-            _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
-            _InfoPanelLine(detail),
+            _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), detail),
         ]
     evidence = session.last_turn_evidence
     if evidence is None or not evidence.items:
         return [
-            _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
-            _InfoPanelLine("no evidence used yet"),
+            _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), "none yet"),
         ]
     return _info_panel_evidence_used_lines(evidence)
 
@@ -218,28 +248,49 @@ def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLi
     sampled_sources = evidence.sampled_source_count or len(sources)
     total_sources = evidence.total_source_count or sampled_sources
     lines = [
-        _InfoPanelLine(_INFO_PANEL_EVIDENCE.upper(), is_heading=True),
-        _InfoPanelLine(_count_label(len(evidence.items), "evidence excerpt")),
-        _InfoPanelLine(_info_panel_source_scope(sampled_sources, total_sources)),
+        _info_panel_label_line(
+            _INFO_PANEL_EVIDENCE.upper(),
+            _info_panel_evidence_id_summary(evidence),
+        ),
+        _InfoPanelLine(
+            f"{_count_label(len(evidence.items), 'excerpt')}, "
+            f"{_info_panel_source_scope(sampled_sources, total_sources)}"
+        ),
     ]
-    if source_line := _info_panel_source_line(sources):
-        lines.append(_InfoPanelLine(source_line))
-    lines.append(_InfoPanelLine("f8 /evidence details"))
+    lines.extend(_info_panel_evidence_item_lines(evidence))
+    lines.append(_InfoPanelLine("f8 /evidence"))
     return lines
+
+
+def _info_panel_evidence_id_summary(evidence: TurnEvidence) -> str:
+    visible_ids = [item.evidence_id for item in evidence.items[:4]]
+    remaining = len(evidence.items) - len(visible_ids)
+    suffix = f" +{remaining}" if remaining > 0 else ""
+    return f"{' '.join(visible_ids)}{suffix}"
 
 
 def _info_panel_source_scope(sampled_sources: int, total_sources: int) -> str:
     if total_sources > sampled_sources:
-        return f"{sampled_sources}/{total_sources} sources sampled"
-    return _count_label(sampled_sources, "source") + " sampled"
+        return f"{sampled_sources}/{total_sources} sources"
+    return _count_label(sampled_sources, "source")
 
 
-def _info_panel_source_line(sources: Sequence[str]) -> str:
-    if not sources:
-        return ""
-    visible_names = [_material_panel_display_name(source) for source in sources[:2]]
-    suffix = f", +{len(sources) - len(visible_names)}" if len(sources) > len(visible_names) else ""
-    return f"top @{', @'.join(visible_names)}{suffix}"
+def _info_panel_evidence_item_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
+    visible_items = evidence.items[:4]
+    lines = [
+        _InfoPanelLine(f"{item.evidence_id} @{_material_panel_display_name(item.source)}")
+        for item in visible_items
+    ]
+    remaining = len(evidence.items) - len(visible_items)
+    if remaining > 0:
+        lines.append(_InfoPanelLine(f"+{remaining} more"))
+    return lines
+
+
+def _visible_info_panel_line(line: _InfoPanelLine) -> _InfoPanelLine:
+    content = _info_panel_line(line.content)
+    label = line.label if line.label and content.startswith(line.label) else ""
+    return _InfoPanelLine(content, is_heading=line.is_heading, label=label)
 
 
 def _info_panel_lines(
@@ -270,10 +321,7 @@ def _info_panel_line(line: str) -> str:
 
 
 def _visible_info_panel_lines(lines: Sequence[_InfoPanelLine]) -> list[_InfoPanelLine]:
-    return [
-        _InfoPanelLine(_info_panel_line(line.content), is_heading=line.is_heading)
-        for line in lines
-    ]
+    return [_visible_info_panel_line(line) for line in lines]
 
 
 def _info_panel_text(lines: Sequence[_InfoPanelLine]) -> str:
@@ -300,9 +348,10 @@ def _stylize_info_panel_labels(text: Text, lines: Sequence[_InfoPanelLine]) -> N
     palette = current_palette()
     offset = 0
     for index, line in enumerate(lines):
-        if line.is_heading and line.content:
-            label_start = offset + line.content.index(line.content.strip())
-            text.stylize(palette.text_secondary, label_start, label_start + len(line.content))
+        label = line.label or (line.content if line.is_heading else "")
+        if label:
+            label_start = offset + line.content.index(label)
+            text.stylize(palette.text_secondary, label_start, label_start + len(label))
         offset += len(line.content)
         if index + 1 < len(lines):
             offset += 1
@@ -319,9 +368,7 @@ def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) 
             continue
         search_from = idx + len(token)
         style = (
-            palette.status_error_text
-            if name in session.disabled_source_files
-            else palette.status_success_text
+            palette.text_muted if name in session.disabled_source_files else palette.text_primary
         )
         text.stylize(style, idx, idx + len(token))
 
@@ -373,9 +420,12 @@ def new_chat_card_text() -> str:
     return "Tip: use @file for focused document analysis; inspect citations with /evidence."
 
 
-def armory_home_text() -> str:
+def armory_home_text(keymap: RuntimeKeymap | None = None) -> str:
+    open_key = keymap.primary_key("open_armory_home") if keymap is not None else ""
+    if not open_key:
+        open_key = armory_shortcut_key()
     hints = [
-        f"Open: {armory_shortcut_key()}, or type exact armory name",
+        f"Open: {open_key}, or type exact armory name",
         "Saved in ~/.armories; docs in materials/",
     ]
     return "\n".join(hints)

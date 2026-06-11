@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from interfaces.terminal import current_palette
 from interfaces.tui.flow_state import InlineFlow
+from interfaces.tui.keymap import RuntimeKeymap
 from interfaces.tui.render_state import DirtyRegion
 from interfaces.tui.rich_transcript import (
     enrich_reply,
@@ -66,6 +67,7 @@ class _TranscriptHost(Protocol):
     _materials_inline_active: bool
     _focused_msg_index: int | None
     _inline_flow: InlineFlow
+    _keymap: RuntimeKeymap
     _transcript_reflow_pending: bool
     _transcript_reflow_requested_while_pending: bool
     _transcript_render_width: int | None
@@ -139,6 +141,8 @@ class _TranscriptHost(Protocol):
     def _stop_thinking_animation(self) -> None: ...
 
     def _refresh_status(self) -> None: ...
+
+    def _status_title(self) -> str: ...
 
     def _refresh_footer_hints(self) -> None: ...
 
@@ -698,7 +702,7 @@ class TuiTranscriptMixin:
             "#status",
             Static,
             DirtyRegion.STATUS,
-            tui_module._status_text(self.session),
+            tui_module._status_text(self.session, title=self._status_title()),
         )
 
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
@@ -722,7 +726,7 @@ class TuiTranscriptMixin:
             "#footer-hints",
             Static,
             DirtyRegion.FOOTER,
-            tui_module._footer_hints_text(self.session, busy=self.busy),
+            tui_module._footer_hints_text(self.session, busy=self.busy, keymap=self._keymap),
         )
 
     def _focus_message(self: _TranscriptHost, direction: int) -> None:

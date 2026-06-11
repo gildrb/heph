@@ -20,6 +20,7 @@ from interfaces.tui.ids import (
     SUGGESTIONS_ID,
     SUGGESTIONS_SELECTOR,
 )
+from interfaces.tui.keymap import RuntimeKeymap
 from interfaces.tui.slash_command import tui_command_suggestions as _tui_command_suggestions
 from interfaces.tui.slash_completion import (
     CompletionCandidate,
@@ -58,6 +59,8 @@ _WidgetT = TypeVar("_WidgetT")
 
 _COMPLETION_DESCRIPTION_GAP = 4
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
+_COMPLETION_SELECTED_PREFIX = "→ "
+_COMPLETION_UNSELECTED_PREFIX = "  "
 
 
 class _ComposerControlsHost(Protocol):
@@ -74,6 +77,7 @@ class _ComposerControlsHost(Protocol):
     _materials_filter: str
     _suggestions_mouse_hovering: bool
     _completion_command_column_width: int
+    _keymap: RuntimeKeymap
 
     def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
 
@@ -86,7 +90,13 @@ class _ComposerControlsHost(Protocol):
 
     def _handle_active_overlay_key(self, event: events.Key) -> bool: ...
 
+    def _handle_input_key(self, event: events.Key) -> bool: ...
+
     def _handle_composer_shortcut(self, event: events.Key) -> bool: ...
+
+    def _handle_keymap_shortcut(self, event: events.Key) -> bool: ...
+
+    def _keymap_action_handler(self, action_id: str) -> Callable[[], None] | None: ...
 
     def _composer_shortcut_handler(self, key: str) -> Callable[[], bool] | None: ...
 
@@ -137,6 +147,18 @@ class _ComposerControlsHost(Protocol):
 
     def action_cycle_reasoning_level(self) -> None: ...
 
+    def action_command_palette(self) -> None: ...
+
+    def action_open_armory_home(self) -> None: ...
+
+    def action_open_materials(self) -> None: ...
+
+    def action_open_search(self) -> None: ...
+
+    def action_evidence(self) -> None: ...
+
+    def action_clear_transcript(self) -> None: ...
+
     def _apply_highlighted_completion(self) -> None: ...
 
     def _refresh_live_token_status(self, draft: str) -> None: ...
@@ -186,6 +208,10 @@ class _ComposerControlsHost(Protocol):
     def _refresh_armory_inline(self) -> None: ...
 
     def _refresh_footer_hints(self) -> None: ...
+
+    def _refresh_status(self) -> None: ...
+
+    def _status_title(self) -> str: ...
 
     def _refresh_materials_inline(self) -> None: ...
 
@@ -244,7 +270,7 @@ class TuiComposerControlsMixin:
 
     def on_key(self: _ComposerControlsHost, event: events.Key) -> None:
         composer = self.query_one(COMPOSER_SELECTOR, Input)
-        if self._handle_active_overlay_key(event):
+        if self._handle_input_key(event):
             return
         if self._handle_composer_shortcut(event):
             return
@@ -256,6 +282,11 @@ class TuiComposerControlsMixin:
             or (self._armory_inline_active and self._handle_armory_key(event))
             or (self._materials_inline_active and self._handle_materials_key(event))
         )
+
+    def _handle_input_key(self: _ComposerControlsHost, event: events.Key) -> bool:
+        if self.busy and self._handle_keymap_shortcut(event):
+            return True
+        return self._handle_active_overlay_key(event) or self._handle_keymap_shortcut(event)
 
     def _handle_composer_shortcut(self: _ComposerControlsHost, event: events.Key) -> bool:
         shortcut = self._composer_shortcut_handler(event.key)
@@ -277,13 +308,6 @@ class TuiComposerControlsMixin:
         }
         actions = {
             "escape": self._handle_escape_shortcut,
-            "alt+enter": self._insert_composer_newline_shortcut,
-            "ctrl+enter": self._insert_composer_newline_shortcut,
-            "ctrl+j": self._insert_composer_newline_shortcut,
-            "newline": self._insert_composer_newline_shortcut,
-            "shift+enter": self._insert_composer_newline_shortcut,
-            "shift+tab": self._cycle_reasoning_shortcut,
-            "tab": self._complete_shortcut,
         }
         if key in movement_offsets:
             return lambda: self._run_shortcut(movement_offsets[key])
@@ -307,13 +331,41 @@ class TuiComposerControlsMixin:
         return True
 
     def _handle_escape_shortcut(self: _ComposerControlsHost) -> bool:
-        if self.busy:
-            self.action_cancel_turn()
-            return True
         if self._completion_menu_visible():
             self._hide_completions()
             return True
         return False
+
+    def _handle_keymap_shortcut(self: _ComposerControlsHost, event: events.Key) -> bool:
+        action_id = self._keymap.action_for_key(event.key)
+        if action_id is None:
+            return False
+        if action_id == "cancel_turn" and not self.busy:
+            return False
+        handler = self._keymap_action_handler(action_id)
+        if handler is None:
+            return False
+        handler()
+        self._consume_key(event)
+        return True
+
+    def _keymap_action_handler(
+        self: _ComposerControlsHost,
+        action_id: str,
+    ) -> Callable[[], None] | None:
+        actions: dict[str, Callable[[], None]] = {
+            "cancel_turn": self.action_cancel_turn,
+            "clear_transcript": self.action_clear_transcript,
+            "command_palette": self.action_command_palette,
+            "complete": self.action_complete,
+            "cycle_reasoning_level": self.action_cycle_reasoning_level,
+            "evidence": self.action_evidence,
+            "insert_composer_newline": self.action_insert_composer_newline,
+            "open_armory_home": self.action_open_armory_home,
+            "open_materials": self.action_open_materials,
+            "open_search": self.action_open_search,
+        }
+        return actions.get(action_id)
 
     def _move_completion_or_history(self: _ComposerControlsHost, offset: int) -> None:
         if self._completion_menu_visible():
@@ -533,8 +585,12 @@ class TuiComposerControlsMixin:
             levels=levels,
         )
         self.session.dirty = True
-        self.query_one("#status", Static).update(_status_text(self.session))
-        self.query_one(FOOTER_HINTS_SELECTOR, Static).update(_footer_hints_text(self.session))
+        self.query_one("#status", Static).update(
+            _status_text(self.session, title=self._status_title())
+        )
+        self.query_one(FOOTER_HINTS_SELECTOR, Static).update(
+            _footer_hints_text(self.session, keymap=self._keymap)
+        )
         self._replace_last_notice(f"Reasoning {self.session.config.reasoning_level}.")
 
     def _apply_highlighted_completion(self: _ComposerControlsHost) -> None:
@@ -546,7 +602,9 @@ class TuiComposerControlsMixin:
         if not self.session.live_tokens_visible:
             return
         chat_draft = "" if draft.lstrip().startswith("/") else draft
-        self.query_one("#status", Static).update(_status_text(self.session, draft=chat_draft))
+        self.query_one("#status", Static).update(
+            _status_text(self.session, draft=chat_draft, title=self._status_title())
+        )
 
     def _completion_menu_visible(self: _ComposerControlsHost) -> bool:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
@@ -566,6 +624,7 @@ class TuiComposerControlsMixin:
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
+            self._refresh_status()
             self._refresh_footer_hints()
             return
         self._set_completion_options(highlighted=0)
@@ -573,6 +632,7 @@ class TuiComposerControlsMixin:
         self._clear_suggestions_mouse_hovering(suggestions)
         suggestions.highlighted = 0
         suggestions.scroll_y = 0
+        self._refresh_status()
         self._refresh_footer_hints()
         composer.focus()
 
@@ -583,6 +643,7 @@ class TuiComposerControlsMixin:
         suggestions.remove_class("inline-menu")
         suggestions.remove_class("visible")
         self._clear_suggestions_mouse_hovering(suggestions)
+        self._refresh_status()
         self._refresh_footer_hints()
 
     def _move_completion(self: _ComposerControlsHost, offset: int) -> None:
@@ -666,9 +727,10 @@ class TuiComposerControlsMixin:
         selected: bool = False,
         command_width: int = 22,
     ) -> str | Text:
+        prefix = _COMPLETION_SELECTED_PREFIX if selected else _COMPLETION_UNSELECTED_PREFIX
         if candidate.display_provider:
             return (
-                f"{candidate.display_provider:<14} "
+                f"{prefix}{candidate.display_provider:<14} "
                 f"{candidate.display_model:<34} "
                 f"{candidate.display_source:<16} "
                 f"{candidate.display_tags}  "
@@ -677,14 +739,16 @@ class TuiComposerControlsMixin:
         if _RichText is None:
             if candidate.description:
                 return (
-                    f"{value:<{command_width}}"
+                    f"{prefix}{value:<{command_width}}"
                     f"{' ' * _COMPLETION_DESCRIPTION_GAP}{candidate.description}  "
                 )
-            return f"{value}  "
+            return f"{prefix}{value}  "
         palette = current_palette()
-        command_style = f"bold {palette.brand_primary}" if selected else palette.text_secondary
-        description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
+        command_style = palette.brand_primary if selected else palette.text_secondary
+        description_style = palette.text_muted
+        prefix_style = palette.brand_primary if selected else palette.text_muted
         text = _RichText()
+        text.append(prefix, style=prefix_style)
         if candidate.description:
             text.append(
                 f"{value:<{command_width}}{' ' * _COMPLETION_DESCRIPTION_GAP}",

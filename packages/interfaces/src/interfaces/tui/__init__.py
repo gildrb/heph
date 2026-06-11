@@ -63,8 +63,8 @@ from interfaces.tui.ids import (
     TRANSCRIPT_SPACER_ID,
 )
 from interfaces.tui.inline_flows import TuiInlineFlowMixin
-from interfaces.tui.keybinds import tui_keybinds
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
+from interfaces.tui.keymap import RuntimeKeymap, load_runtime_keymap
 from interfaces.tui.materials import TuiMaterialsMixin
 from interfaces.tui.render_state import DirtyRegion, TuiRenderCache
 from interfaces.tui.resize import (
@@ -219,6 +219,13 @@ _INLINE_COMMANDS = {"/login", "/local", "/logout", "/settings", "/models"}
 _InlineFlow = InlineFlow
 
 
+def _menu_status_title(name: str) -> str:
+    cleaned = " ".join(name.replace("_", " ").replace("-", " ").split())
+    if not cleaned:
+        return "Heph"
+    return f"{cleaned[:1].upper()}{cleaned[1:].lower()}"
+
+
 class HephTui(
     TuiComposerControlsMixin,
     TuiAppActionsMixin,
@@ -233,14 +240,8 @@ class HephTui(
     App[None],
 ):
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding(
-            spec.keys,
-            spec.action,
-            spec.label,
-            show=spec.show,
-            priority=spec.priority,
-        )
-        for spec in tui_keybinds()
+        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+d", "quit", "Quit", show=False, priority=True),
     ]
 
     def __init__(
@@ -251,6 +252,7 @@ class HephTui(
     ) -> None:
         install_textual_modified_key_compat()
         super().__init__()
+        self._keymap: RuntimeKeymap = load_runtime_keymap()
         self.CSS = _tui_css(palette)  # ty:ignore[invalid-attribute-access]
         self._widgets = _WidgetClasses.from_palette(palette)
         self.session = active_session
@@ -258,6 +260,9 @@ class HephTui(
         self.abort_event = threading.Event()
         self._active_turns: dict[str, threading.Event] = {}
         self._active_turn_sessions: dict[str, ChatSession] = {}
+        self._active_turn_tokens: dict[str, int] = {}
+        self._cancelled_turn_tokens: set[int] = set()
+        self._next_turn_token = 0
         self._turn_sessions: dict[str, ChatSession] = {}
         self.busy = False
         self.completion_engine = SlashCompletionEngine()
@@ -290,6 +295,16 @@ class HephTui(
         self._inline_flow = _InlineFlow()
         self._resize_redraw = _ResizeRedrawState()
         self._resize_redraw_timer: object | None = None
+
+    def _status_title(self) -> str:
+        if self._armory_inline_active:
+            return _menu_status_title("armory")
+        if self._materials_inline_active:
+            flow_name = "materials" if self._materials_flow == "toggle" else "sources"
+            return _menu_status_title(flow_name)
+        if self._inline_flow.active:
+            return _menu_status_title(self._inline_flow.slug or self._inline_flow.name)
+        return "Heph"
 
     def get_default_screen(self) -> Screen:
         return self._widgets.screen(id="_default")
@@ -332,7 +347,10 @@ class HephTui(
                 with w.vertical(id=COMPLETION_STACK_ID):
                     yield w.option_list(id=SUGGESTIONS_ID, markup=False)
                     yield w.static("", id=COMPLETION_POSITION_ID)
-                    yield w.static(_footer_hints_text(self.session), id=FOOTER_HINTS_ID)
+                    yield w.static(
+                        _footer_hints_text(self.session, keymap=self._keymap),
+                        id=FOOTER_HINTS_ID,
+                    )
             yield w.static(
                 _info_panel_default_text(
                     self.session,

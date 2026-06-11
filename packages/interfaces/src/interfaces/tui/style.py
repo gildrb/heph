@@ -148,7 +148,7 @@ RichLog {{
 #armory-current-inline {{
     width: 1fr;
     height: 100%;
-    padding: 0;
+    padding: 0 1;
     background: {bg};
     color: {p.text_primary};
     scrollbar-size: 0 0;
@@ -156,7 +156,7 @@ RichLog {{
 #armory-current-inline > .option-list--option-highlighted {{
     background: {bg};
     color: {p.brand_primary};
-    text-style: bold;
+    text-style: not bold;
 }}
 #armory-preview-inline {{
     display: none;
@@ -219,7 +219,7 @@ RichLog {{
 #materials-list-right.material-enabled:focus > .option-list--option-highlighted {{
     background: {bg};
     color: {p.brand_primary};
-    text-style: bold;
+    text-style: not bold;
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
 #materials-list.material-disabled:focus > .option-list--option-highlighted,
@@ -227,7 +227,7 @@ RichLog {{
 #materials-list-right.material-disabled:focus > .option-list--option-highlighted {{
     background: {bg};
     color: {p.brand_primary};
-    text-style: bold;
+    text-style: not bold;
 }}
 #materials-footer {{
     height: 1;
@@ -318,7 +318,7 @@ RichLog {{
 #suggestions:focus > .option-list--option-highlighted {{
     background: {bg};
     color: {p.brand_primary};
-    text-style: bold;
+    text-style: not bold;
 }}
 #suggestions.mouse-hovering > .option-list--option-highlighted,
 #suggestions.mouse-hovering:focus > .option-list--option-highlighted,
@@ -326,7 +326,7 @@ RichLog {{
 #suggestions:focus > .option-list--option-hover {{
     background: {bg};
     color: {p.brand_primary};
-    text-style: bold;
+    text-style: not bold;
 }}
 .hidden {{
     visibility: hidden;

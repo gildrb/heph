@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from textual.widget import Widget
 
     from interfaces.tui.flow_state import InlineFlow
+    from interfaces.tui.keymap import RuntimeKeymap
     from interfaces.tui.session_state import TuiRuntimeState
 
 _WidgetT = TypeVar("_WidgetT")
@@ -56,6 +57,9 @@ class _AppActionsHost(Protocol):
 
     _active_turns: dict[str, threading.Event]
     _active_turn_sessions: dict[str, ChatSession]
+    _active_turn_tokens: dict[str, int]
+    _cancelled_turn_tokens: set[int]
+    _next_turn_token: int
     _turn_sessions: dict[str, ChatSession]
     _inline_flow: InlineFlow
     _armory_inline_active: bool
@@ -66,6 +70,7 @@ class _AppActionsHost(Protocol):
     _thinking_start: float
     _thinking_label: str
     _focused_msg_index: int | None
+    _keymap: RuntimeKeymap
 
     def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
 
@@ -103,6 +108,8 @@ class _AppActionsHost(Protocol):
 
     def _submit_materials_route(self, value: str) -> None: ...
 
+    def _submit_keymap_route(self, value: str) -> None: ...
+
     def _submit_sessions_route(self, value: str) -> None: ...
 
     def _submit_turn_route(self, value: str) -> None: ...
@@ -134,6 +141,8 @@ class _AppActionsHost(Protocol):
     def _detach_current_armory_from_input(self, value: str) -> bool: ...
 
     def _start_chat_turn(self, value: str) -> None: ...
+
+    def _finish_turn(self) -> None: ...
 
     def _handle_new(self) -> None: ...
 
@@ -175,6 +184,8 @@ class _AppActionsHost(Protocol):
 
     def _open_local_flow(self, query: str = "") -> None: ...
 
+    def _open_keymap_flow(self, selected_label: str | None = None) -> None: ...
+
     def _open_materials_inline(self, value: str) -> None: ...
 
     def _handle_sessions_command(self, value: str) -> None: ...
@@ -195,6 +206,7 @@ class _AppActionsHost(Protocol):
         self,
         turn_session: ChatSession,
         turn_key: str,
+        turn_token: int,
         abort_event: threading.Event,
         user_input: str,
     ) -> None: ...
@@ -219,6 +231,9 @@ class TuiAppActionsMixin:
     busy: bool
     _active_turns: dict[str, threading.Event]
     _active_turn_sessions: dict[str, ChatSession]
+    _active_turn_tokens: dict[str, int]
+    _cancelled_turn_tokens: set[int]
+    _next_turn_token: int
     _turn_sessions: dict[str, ChatSession]
     _inline_flow: InlineFlow
     _armory_inline_active: bool
@@ -327,6 +342,7 @@ class TuiAppActionsMixin:
     ) -> bool:
         route_handlers = {
             _TuiInputRoute.MATERIALS: self._submit_materials_route,
+            _TuiInputRoute.KEYMAP: self._submit_keymap_route,
             _TuiInputRoute.SESSIONS: self._submit_sessions_route,
             _TuiInputRoute.TURN: self._submit_turn_route,
             _TuiInputRoute.LOCAL: self._submit_local_route,
@@ -348,6 +364,10 @@ class TuiAppActionsMixin:
     def _submit_materials_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
         self._open_materials_inline(value)
+
+    def _submit_keymap_route(self: _AppActionsHost, value: str) -> None:
+        self._record_history(value)
+        self._open_keymap_flow()
 
     def _submit_sessions_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
@@ -411,23 +431,43 @@ class TuiAppActionsMixin:
         turn_session = self.session
         turn_key = self._turn_key_for_session(turn_session)
         turn_abort_event = threading.Event()
+        self._next_turn_token += 1
+        turn_token = self._next_turn_token
         self._active_turns[turn_key] = turn_abort_event
         self._active_turn_sessions[turn_key] = turn_session
+        self._active_turn_tokens[turn_key] = turn_token
         self._turn_sessions[turn_key] = turn_session
         self.abort_event = turn_abort_event
         self.busy = True
         self._refresh_status()
         self._refresh_footer_hints()
         self.run_worker(
-            lambda: self._run_turn(turn_session, turn_key, turn_abort_event, value),
+            lambda: self._run_turn(turn_session, turn_key, turn_token, turn_abort_event, value),
             thread=True,
         )
 
     def action_cancel_turn(self: _AppActionsHost) -> None:
-        abort_event = self._active_turns.get(self._current_turn_key())
+        turn_key = self._current_turn_key()
+        abort_event = self._active_turns.get(turn_key)
+        if abort_event is not None:
+            if abort_event.is_set():
+                return
+            abort_event.set()
+            turn_token = self._active_turn_tokens.pop(turn_key, None)
+            if turn_token is not None:
+                self._cancelled_turn_tokens.add(turn_token)
+            self._active_turns.pop(turn_key, None)
+            self._active_turn_sessions.pop(turn_key, None)
+            self.abort_event = threading.Event()
+            self._finish_turn()
+            self._append_notice("Interrupt requested.")
+            return
+
         if abort_event is None and self.busy:
             abort_event = self.abort_event
         if abort_event is None:
+            return
+        if abort_event.is_set():
             return
         abort_event.set()
         self._stop_thinking_animation()
@@ -462,8 +502,13 @@ class TuiAppActionsMixin:
     def action_open_armory_home(self: _AppActionsHost) -> None:
         self._handle_armory_browser("/armory")
 
+    def action_open_materials(self: _AppActionsHost) -> None:
+        if self._inline_flow.active or self._armory_inline_active or self._materials_inline_active:
+            return
+        self._open_materials_inline("/materials")
+
     def _append_armory_home(self: _AppActionsHost) -> None:
-        self._append_plain(_armory_home_text())
+        self._append_plain(_armory_home_text(self._keymap))
 
     def _handle_new(self: _AppActionsHost) -> None:
         command = get_registry().find("new")

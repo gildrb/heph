@@ -6,10 +6,23 @@ names/help text, while adapters decide how to render or apply them.
 
 from __future__ import annotations
 
+from typing import Final
+
 from interfaces.tui.command_access import CommandSuggestion, get_registry
 from interfaces.tui.slash_completion import SlashCompletionEngine
 
 _COMMAND_HELP_GAP = 4
+
+TUI_ONLY_COMMAND_SUGGESTIONS: Final[tuple[CommandSuggestion, ...]] = (
+    CommandSuggestion(
+        name="materials",
+        description="Choose which materials are used for retrieval",
+    ),
+    CommandSuggestion(
+        name="keymap",
+        description="Edit keyboard shortcuts",
+    ),
+)
 
 
 def tui_command_suggestions() -> list[CommandSuggestion]:
@@ -21,12 +34,7 @@ def tui_command_suggestions() -> list[CommandSuggestion]:
         )
         for suggestion in get_registry().suggestions()
     ]
-    suggestions.append(
-        CommandSuggestion(
-            name="materials",
-            description="Choose which materials are used for retrieval",
-        )
-    )
+    suggestions.extend(TUI_ONLY_COMMAND_SUGGESTIONS)
     return suggestions
 
 

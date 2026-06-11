@@ -18,6 +18,7 @@ _LOCAL_COMMAND_ACTIONS = {"search", "install", "status", "revalidate", "stop"}
 class TuiInputRoute(Enum):
     EMPTY = "empty"
     MATERIALS = "materials"
+    KEYMAP = "keymap"
     SESSIONS = "sessions"
     TURN = "turn"
     LOCAL = "local"
@@ -33,6 +34,7 @@ class TuiInputRoute(Enum):
 
 _INLINE_ROUTES = {
     "materials": TuiInputRoute.MATERIALS,
+    "keymap": TuiInputRoute.KEYMAP,
     "sessions": TuiInputRoute.SESSIONS,
     "turn": TuiInputRoute.TURN,
     "local": TuiInputRoute.LOCAL,

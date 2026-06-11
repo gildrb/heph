@@ -67,6 +67,7 @@ BOOL_KEYS: Final[frozenset[str]] = frozenset(
         "privacy_notice_seen",
     }
 )
+OBJECT_KEYS: Final[frozenset[str]] = frozenset({"tui_keymap"})
 STRING_KEYS: Final[frozenset[str]] = frozenset(
     {
         "base_url",
@@ -105,6 +106,7 @@ INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "last_armory_path",
     "privacy_notice_seen",
     "session_count",
+    "tui_keymap",
 )
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
     (*PUBLIC_CONFIG_KEYS, *INTERNAL_CONFIG_KEYS)
@@ -224,6 +226,12 @@ def _normalize_string_list(value: object) -> list[str]:
     return []
 
 
+def _normalize_object(value: object) -> dict[str, object]:
+    if is_string_mapping(value):
+        return dict(value)
+    return {}
+
+
 def _setting_normalizers() -> dict[str, SettingNormalizer]:
     normalizers: dict[str, SettingNormalizer] = {
         "theme": lambda value: _normalize_choice("theme", value, THEME_PRESETS),
@@ -245,6 +253,7 @@ def _setting_normalizers() -> dict[str, SettingNormalizer]:
     normalizers.update(dict.fromkeys(BOOL_KEYS, _coerce_bool))
     normalizers.update(dict.fromkeys(INT_KEYS, _normalize_int))
     normalizers.update(dict.fromkeys(FLOAT_KEYS, _normalize_float))
+    normalizers.update(dict.fromkeys(OBJECT_KEYS, _normalize_object))
     normalizers.update(dict.fromkeys(STRING_KEYS - normalizers.keys(), str))
     return normalizers
 
