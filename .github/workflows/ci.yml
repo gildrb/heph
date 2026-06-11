@@ -203,7 +203,7 @@ jobs:
       - name: Dependency vulnerability audit
         run: |
           start=$(date +%s%N)
-          uv audit --frozen
+          uv run python -m scripts.check_dependency_vulnerability_audit
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| dependency-supply-chain uv-audit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
