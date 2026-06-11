@@ -64,6 +64,29 @@
 | /turn | Branch from an earlier completed turn |
 | /index | Refresh the current armory materials index |
 | /vocabulary | Practice vocabulary translations from your materials |
+| /materials | Choose which materials are used for retrieval |
+| /keymap | Edit keyboard shortcuts |
+
+## TUI keyboard shortcuts
+
+The `/keymap` slash command opens the editable shortcut map inside Heph. Some
+terminal and desktop shortcuts are reserved, so Heph rejects keys such as
+`ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
+
+| Shortcut | Action |
+|---|---|
+| `ctrl+p` | Commands: Open the command palette. |
+| `ctrl+a` | Armory: Open the armory home. |
+| `ctrl+o` | Materials: Choose which materials are used for retrieval. |
+| `ctrl+s` | Search: Search across armories. |
+| `f8` | Evidence: Show evidence details. |
+| `ctrl+l` | Screen: Clear the screen. |
+| `tab` | Complete: Complete the current input. |
+| `shift+tab` | Reasoning: Cycle the reasoning level. |
+| `shift+enter/ctrl+enter/alt+enter/ctrl+j` | Newline: Insert a composer newline. |
+| `escape` | Stop: Interrupt the active request. |
+| `ctrl+c` | Quit: Quit Heph. |
+| `ctrl+d` | Quit: Quit Heph. |
 
 ## Environment variables
 

@@ -24,6 +24,12 @@ def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
     assert [(event.key, event.character) for event in key_events] == [("shift+enter", None)]
 
 
+def test_plain_ctrl_m_sequence_decodes_as_enter() -> None:
+    key_events = [event for event in XTermParser().feed("\r") if isinstance(event, events.Key)]
+
+    assert [(event.key, event.character) for event in key_events] == [("enter", "\r")]
+
+
 def test_report_all_csi_u_key_names_restore_printable_text() -> None:
     assert csi_u_key_text("shift+a") == "A"
     assert csi_u_key_text("slash") == "/"

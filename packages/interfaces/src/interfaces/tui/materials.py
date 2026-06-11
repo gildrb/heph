@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Protocol, overload
 from hephaion.materials import material_display_name
 
 from interfaces.terminal import current_palette
-from interfaces.tui.display_text import COMPOSER_PLACEHOLDER
+from interfaces.tui.display_text import COMPOSER_PLACEHOLDER, label_value_line
+from interfaces.tui.shortcut_hints import ShortcutHint, shortcut_hint_line
 from interfaces.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
 )
@@ -155,10 +156,12 @@ def _materials_header_text(
     query: str,
     shown: int,
 ) -> str:
-    noun = "materials" if flow == "toggle" else "sources"
-    header = f"{noun}  {enabled}/{total} active"
+    scope = "materials" if flow == "toggle" else "sources"
+    header = (
+        f"{label_value_line('scope', scope)}  {label_value_line('active', f'{enabled}/{total}')}"
+    )
     if query:
-        return f"{header}  {shown} shown"
+        return f"{header}  {label_value_line('shown', shown)}"
     return header
 
 
@@ -194,6 +197,7 @@ class TuiMaterialsMixin:
         composer.placeholder = "Filter materials..."
         self._hide_completions()
         self._refresh_materials_inline()
+        self._refresh_status()
         self._refresh_footer_hints()
         material_list = self.query_one("#materials-list", OptionList)
         material_list.focus()
@@ -214,6 +218,8 @@ class TuiMaterialsMixin:
         composer.placeholder = COMPOSER_PLACEHOLDER
         self._sync_busy_to_current_session()
         self._update_info_panel()
+        self._refresh_status()
+        self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
 
@@ -300,30 +306,55 @@ class TuiMaterialsMixin:
 
     def _materials_footer_text(self: _MaterialsHost) -> str:
         if self._materials_flow == "toggle":
-            return "type to filter  space or enter toggle  esc close"
-        return "type to filter  enter or esc close"
+            return shortcut_hint_line(
+                (
+                    ShortcutHint("Toggle", "space/enter"),
+                    ShortcutHint("Close", "esc"),
+                )
+            )
+        return shortcut_hint_line(
+            (
+                ShortcutHint("Open", "enter"),
+                ShortcutHint("Close", "esc"),
+            )
+        )
 
     def _update_materials_sidebar(self: _MaterialsHost) -> None:
         sidebar = self.query_one("#info-panel", Static)
         idx = self._materials_highlighted_index
         total = len(self.session.source_files)
         enabled = _active_material_count(self)
-        title = "Materials" if self._materials_flow == "toggle" else "Sources"
+        scope = "materials" if self._materials_flow == "toggle" else "sources"
         if idx is None or idx < 0 or idx >= len(self._materials_entries):
             if self._materials_filter:
-                content = (
-                    f"{title}\n\n"
-                    f"{enabled}/{total} active\n"
-                    f"No matches\n\n"
-                    f"Filter: {self._materials_filter}"
+                content = "\n".join(
+                    (
+                        label_value_line("scope", scope),
+                        label_value_line("active", f"{enabled}/{total}"),
+                        label_value_line("state", "no matches"),
+                        label_value_line("filter", self._materials_filter),
+                    )
                 )
             else:
-                content = f"{title}\n\n{enabled}/{total} active\nNo material selected"
+                content = "\n".join(
+                    (
+                        label_value_line("scope", scope),
+                        label_value_line("active", f"{enabled}/{total}"),
+                        label_value_line("state", "none"),
+                    )
+                )
         else:
             file = self._materials_entries[idx]
             label = material_display_name(file)
             state = "active" if file not in self.session.disabled_source_files else "disabled"
-            content = f"{title}\n\n@{label}\n{state}\n\n{file}"
+            content = "\n".join(
+                (
+                    label_value_line("scope", scope),
+                    label_value_line("material", f"@{label}"),
+                    label_value_line("state", state),
+                    label_value_line("path", file),
+                )
+            )
         sidebar.update(sidebar_text(content, width=sidebar_content_width(sidebar)))
 
     def _format_material_option(
@@ -337,15 +368,15 @@ class TuiMaterialsMixin:
         label = material_display_name(file)
         prefix = "→ " if selected else "  "
         if selected:
-            state_color = f"bold {palette.brand_primary}"
-            marker_color = f"bold {palette.brand_primary}"
-            prefix_color = f"bold {palette.brand_primary}"
+            state_color = palette.brand_primary
+            marker_color = palette.brand_primary
+            prefix_color = palette.brand_primary
         elif enabled_file:
-            state_color = palette.status_success_text
+            state_color = palette.text_primary
             marker_color = palette.text_muted
             prefix_color = palette.text_muted
         else:
-            state_color = palette.status_error_text
+            state_color = palette.text_muted
             marker_color = palette.text_muted
             prefix_color = palette.text_muted
         if _RichText is None:

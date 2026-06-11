@@ -94,7 +94,7 @@ heph update             Show the update command.
 ```
 
 Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`,
-`/detach`, `/evidence`, `/turn`, `/settings`, and `/exit`.
+`/materials`, `/keymap`, `/detach`, `/evidence`, `/turn`, `/settings`, and `/exit`.
 
 ## Docs
 

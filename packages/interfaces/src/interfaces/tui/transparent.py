@@ -1,8 +1,8 @@
 """Shared transparent rendering helpers for Textual screens.
 
-Centralises the strip-manipulation logic needed by all modal screens
-(ArmoryBrowserScreen, SearchScreen, …) and the main TUI so they
-respect the active theme's transparency setting consistently.
+Centralises the strip-manipulation logic needed by modal screens such as
+SearchScreen and the main TUI so they respect the active theme's transparency
+setting consistently.
 """
 
 from __future__ import annotations

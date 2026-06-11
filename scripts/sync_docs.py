@@ -26,6 +26,8 @@ from hephaion.privacy.consent import (
     SENTRY_DSN_ENV,
 )
 from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
+from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -74,6 +76,13 @@ class EnvVarDoc:
 
 
 @dataclass(frozen=True)
+class KeyboardShortcutDoc:
+    keys: str
+    action: str
+    description: str
+
+
+@dataclass(frozen=True)
 class DocsModel:
     short_command: str
     long_command: str
@@ -82,6 +91,7 @@ class DocsModel:
     common_commands: tuple[CommandLine, ...]
     cli_reference_commands: tuple[CommandLine, ...]
     slash_commands: tuple[CommandLine, ...]
+    keyboard_shortcuts: tuple[KeyboardShortcutDoc, ...]
     env_vars: tuple[EnvVarDoc, ...]
     privacy_diagnostics_contract: str
     agents_contract: str
@@ -374,12 +384,31 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
 
 def collect_slash_commands() -> tuple[CommandLine, ...]:
     registry = get_registry()
-    return tuple(
+    registry_commands = tuple(
         CommandLine(
             f"/{suggestion.name}",
             suggestion.description,
         )
         for suggestion in registry.suggestions()
+    )
+    tui_only_commands = tuple(
+        CommandLine(
+            f"/{suggestion.name}",
+            suggestion.description,
+        )
+        for suggestion in TUI_ONLY_COMMAND_SUGGESTIONS
+    )
+    return (*registry_commands, *tui_only_commands)
+
+
+def collect_keyboard_shortcuts() -> tuple[KeyboardShortcutDoc, ...]:
+    return tuple(
+        KeyboardShortcutDoc(
+            keys=keybind_keys_text(shortcut),
+            action=shortcut.label,
+            description=shortcut.description,
+        )
+        for shortcut in tui_keybinds()
     )
 
 
@@ -442,6 +471,7 @@ def collect_docs_model(root: Path) -> DocsModel:
         common_commands=collect_common_commands(short_command, long_command),
         cli_reference_commands=collect_cli_commands(short_command, long_command),
         slash_commands=collect_slash_commands(),
+        keyboard_shortcuts=collect_keyboard_shortcuts(),
         env_vars=collect_env_vars(),
         privacy_diagnostics_contract=load_fragment("privacy-diagnostics-contract.md"),
         agents_contract=load_fragment("agents-privacy-diagnostics-contract.md"),
@@ -514,6 +544,14 @@ def render_create_armory_block(model: DocsModel) -> str:
 def render_slash_commands_table(commands: tuple[CommandLine, ...]) -> str:
     rows = tuple((command.command, command.description) for command in commands)
     return render_markdown_table(("Command", "Description"), rows)
+
+
+def render_keyboard_shortcuts_table(shortcuts: tuple[KeyboardShortcutDoc, ...]) -> str:
+    rows = tuple(
+        (f"`{shortcut.keys}`", f"{shortcut.action}: {shortcut.description}")
+        for shortcut in shortcuts
+    )
+    return render_markdown_table(("Shortcut", "Action"), rows)
 
 
 def render_env_vars_table(env_vars: tuple[EnvVarDoc, ...]) -> str:
@@ -611,6 +649,7 @@ def render_cli_reference(model: DocsModel) -> str:
         "GENERATED_NOTICE": GENERATED_NOTICE,
         "CLI_COMMANDS_TABLE": render_markdown_table(("Command", "Description"), rows),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
+        "KEYBOARD_SHORTCUTS_TABLE": render_keyboard_shortcuts_table(model.keyboard_shortcuts),
         "ENV_VARS_TABLE": render_env_vars_table(model.env_vars),
         "SHORT_COMMAND": model.short_command,
         "LONG_COMMAND": model.long_command,

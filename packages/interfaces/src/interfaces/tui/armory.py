@@ -19,7 +19,7 @@ from interfaces.tui.armory_browser import (
     default_armory_home,
     new_armory_path,
 )
-from interfaces.tui.display_text import COMPOSER_PLACEHOLDER
+from interfaces.tui.display_text import COMPOSER_PLACEHOLDER, label_value_line
 from interfaces.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
 )
@@ -141,8 +141,6 @@ _ARMORY_USAGE_MESSAGE = (
     "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
 )
 _ARMORY_ROW_LEFT_PADDING = 2
-_ARMORY_FILE_COLUMN_WIDTH = len("files")
-_ARMORY_STATE_GAP = 2
 _ARMORY_TRUNCATION_MARKER = "..."
 
 
@@ -210,14 +208,9 @@ def _armory_header_text(
     label_width: int = 0,
 ) -> str:
     del current_path, filter_query
-    count_label = f"{_armory_selectable_count(entries)} item(s)"
+    count_label = label_value_line("items", _armory_selectable_count(entries))
     label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
-    return (
-        f"{' ' * _ARMORY_ROW_LEFT_PADDING}"
-        f"{count_label:<{label_width}}"
-        f"{' ' * _ARMORY_DESCRIPTION_GAP}"
-        "files  state"
-    )
+    return f"{' ' * _ARMORY_ROW_LEFT_PADDING}{count_label:<{label_width}}"
 
 
 def _armory_flow_hint(*, creating: bool) -> str:
@@ -237,8 +230,8 @@ def _armory_entry_description(entry: _DirEntry, *, active: bool = False) -> str:
     state = _armory_entry_state(entry.path, active=active)
     file_count = _armory_entry_file_column(entry.path)
     if not state:
-        return f"{file_count:<{_ARMORY_FILE_COLUMN_WIDTH}}"
-    return f"{file_count:<{_ARMORY_FILE_COLUMN_WIDTH}}{' ' * _ARMORY_STATE_GAP}{state}"
+        return label_value_line("files", file_count)
+    return f"{label_value_line('files', file_count)}  {label_value_line('state', state)}"
 
 
 def _armory_entry_file_column(path: Path | None) -> str:
@@ -263,33 +256,67 @@ def _armory_entry_state(path: Path | None, *, active: bool = False) -> str:
 
 def _armory_sidebar_text(entry: _DirEntry | None, *, active: bool = False) -> str:
     if entry is None:
-        return "No armory selected."
+        return label_value_line("state", "none")
     label = _armory_entry_label(entry).strip()
     if entry.is_create:
-        return (
-            "New armory\n\n"
-            "Create a local workspace for one document set.\n\n"
-            "Name it after the topic, project, or module. Add source files in materials/."
+        return "\n".join(
+            (
+                label_value_line("action", "create"),
+                label_value_line("scope", "local armory"),
+                label_value_line("materials", "add files in materials/"),
+            )
         )
     if entry.path is None:
-        return label
+        return label_value_line("section", label)
     state = _armory_entry_state(entry.path, active=active)
     if state == "missing":
-        return "Missing armory\n\nThis recent entry no longer exists."
+        return "\n".join(
+            (
+                label_value_line("state", "missing"),
+                label_value_line("detail", "recent entry no longer exists"),
+            )
+        )
     if state == "folder":
-        return "Folder only\n\nInitialize it before using it as an armory."
+        return "\n".join(
+            (
+                label_value_line("state", "folder"),
+                label_value_line("action", "initialize before using"),
+            )
+        )
     if state == "empty":
-        return "Empty armory\n\nAdd documents to materials/ before asking cited questions."
+        return "\n".join(
+            (
+                label_value_line("state", "empty"),
+                label_value_line("materials", "add files in materials/"),
+            )
+        )
     if state == "working":
-        return "Assistant working\n\nYou can switch back when the turn finishes."
-    return "Ready\n\nMaterials available.\n\nMemory stays scoped here."
+        return "\n".join(
+            (
+                label_value_line("state", "working"),
+                label_value_line("detail", "turn running"),
+            )
+        )
+    return "\n".join(
+        (
+            label_value_line("state", "ready"),
+            label_value_line("materials", "available"),
+            label_value_line("memory", "armory scoped"),
+        )
+    )
 
 
 def _armory_preview_text(entry: _DirEntry | None, *, filter_query: str, active: bool) -> str:
     if entry is None:
         if filter_query:
-            return f"No matches\n\nFilter: {filter_query}\n\nEsc clears the filter."
-        return "No selection"
+            return "\n".join(
+                (
+                    label_value_line("state", "no matches"),
+                    label_value_line("filter", filter_query),
+                    label_value_line("action", "esc clears"),
+                )
+            )
+        return label_value_line("state", "none")
     content = _armory_sidebar_text(entry, active=active)
     if active:
         return content
@@ -354,7 +381,10 @@ def _armory_layout_label_width(
     label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
     if row_width <= 0:
         return label_width
-    description_width = max(_armory_description_width(entries), len("files  state"))
+    description_width = max(
+        _armory_description_width(entries),
+        len(label_value_line("files", "-")),
+    )
     available = row_width - _ARMORY_ROW_LEFT_PADDING - _ARMORY_DESCRIPTION_GAP
     available -= description_width
     if available <= 0:
@@ -380,20 +410,24 @@ def _armory_entry_text(
     label = _armory_entry_label(entry)
     description = _armory_entry_description(entry, active=active)
     if _RichText is None:
+        prefix = "→ " if selected else "  "
         if description:
             label = _clip_armory_label(label, label_width)
-            return f"{label:<{label_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
-        return label
+            return f"{prefix}{label:<{label_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
+        return f"{prefix}{label}"
     if not label:
         return ""
 
     palette = current_palette()
     text = _RichText()
+    prefix = "→ " if selected else "  "
+    prefix_style = palette.brand_primary if selected else palette.text_muted
+    text.append(prefix, style=prefix_style)
     if entry.is_section:
         text.append(label, style=f"dim {palette.text_muted}")
         return text
-    label_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
-    description_style = f"bold {palette.brand_primary}" if selected else palette.text_muted
+    label_style = palette.brand_primary if selected else palette.text_primary
+    description_style = palette.text_muted
     padded_width = max(label_width, len(label))
     if description:
         label = _clip_armory_label(label, label_width)
@@ -442,6 +476,7 @@ class TuiArmoryMixin:
         )
         self._hide_completions()
         self._refresh_armory_inline()
+        self._refresh_status()
         self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
@@ -460,6 +495,7 @@ class TuiArmoryMixin:
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = COMPOSER_PLACEHOLDER
+        self._refresh_status()
         self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
@@ -487,7 +523,7 @@ class TuiArmoryMixin:
         )
         label_width = _armory_layout_label_width(
             label_width,
-            f"{_armory_selectable_count(self._armory_entries)} item(s)",
+            label_value_line("items", _armory_selectable_count(self._armory_entries)),
             entries=self._armory_entries,
             row_width=_armory_row_width(current, self),
         )
@@ -533,7 +569,7 @@ class TuiArmoryMixin:
             highlighted=highlighted,
             rendered_height=current.size.height,
         )
-        count_label = f"{_armory_selectable_count(self._armory_entries)} item(s)"
+        count_label = label_value_line("items", _armory_selectable_count(self._armory_entries))
         label_width = _armory_layout_label_width(
             label_width,
             count_label,
@@ -766,11 +802,6 @@ class TuiArmoryMixin:
             return True
         if event.key in ("down", "j"):
             self._move_armory_highlight(1)
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key == "n" and self._armory_flow != "open":
-            self._start_inline_create()
             event.prevent_default()
             event.stop()
             return True

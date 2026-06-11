@@ -211,10 +211,10 @@ heph index ~/.armories/my-armory
 **Problem**: Keyboard shortcuts don't respond
 
 **Solutions**:
-1. Check if your terminal is intercepting keys
-2. Try different key combinations
-3. Check accessibility settings
-4. Use mouse if available
+1. Run `/keymap` to confirm or edit the active shortcut list
+2. Rebind intercepted shortcuts from `/keymap`
+3. Check if your terminal or desktop is intercepting keys
+4. Use slash commands such as `/armory`, `/materials`, and `/keymap`
 
 ### TUI Crashes
 

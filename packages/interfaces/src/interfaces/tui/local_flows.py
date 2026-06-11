@@ -14,6 +14,7 @@ from ai.providers.llama_cpp import (
 from hephaion.chat.model_selection import switch_model
 
 from interfaces.tui.flow_state import InlineFlow
+from interfaces.tui.inline_menu import local_model_option_description
 
 try:
     from textual.widgets import Input
@@ -244,25 +245,29 @@ def _local_record_option(
     *,
     current_model: str,
 ) -> tuple[str, str]:
-    status = "tool-capable" if record.tool_capable else "revalidate needed"
-    parts = ["downloaded", status, _local_record_source(record)]
     if record.model_id == current_model:
-        parts.append("current")
-    return record.model_id, _description_parts(parts)
+        status = "current"
+    elif record.tool_capable:
+        status = "ready"
+    else:
+        status = "needs probe"
+    return record.model_id, local_model_option_description(
+        "local",
+        status,
+        record.quant,
+        "",
+        _local_record_source(record),
+    )
 
 
 def _local_candidate_option(candidate: LlamaCppCandidate) -> tuple[str, str]:
-    parts = [
-        "not downloaded",
+    return candidate.model_id, local_model_option_description(
+        "search",
+        "install",
         candidate.quant,
         _format_bytes(candidate.size_bytes),
         _popularity_text(candidate),
-    ]
-    return candidate.model_id, _description_parts(parts)
-
-
-def _description_parts(parts: Sequence[str]) -> str:
-    return ", ".join(part for part in parts if part)
+    )
 
 
 def _local_record_source(record: LlamaCppModelRecord) -> str:
