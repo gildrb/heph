@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 9
+SDK_CAPABILITIES_VERSION = 10
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
+
+
+@dataclass(frozen=True, slots=True)
+class SdkFieldSpec:
+    """A JSON-ready SDK state-field contract."""
+
+    name: str
+    value_type: str
+    nullable: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {"type": self.value_type, "nullable": self.nullable}
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,34 +160,41 @@ SDK_EVENT_TYPES = (
     "index_progress",
     "index_complete",
 )
-SERVICE_STATE_FIELDS = ("prompt_active", "active_operation", "is_busy")
-RUNTIME_STATE_FIELDS = (
-    "armory_path",
-    "provider_slug",
-    "model",
-    "base_url",
-    "max_tokens",
-    "rag_context_budget",
-    "temperature",
-    "reasoning_level",
-    "thinking_visibility",
-    "feature_flags",
+SERVICE_STATE_FIELD_SPECS = (
+    SdkFieldSpec("prompt_active", "boolean"),
+    SdkFieldSpec("active_operation", "string", nullable=True),
+    SdkFieldSpec("is_busy", "boolean"),
 )
-SESSION_STATE_FIELDS = (
-    "session_id",
-    "title",
-    "armory_path",
-    "provider_slug",
-    "model",
-    "is_streaming",
-    "is_disposed",
-    "source_file_count",
-    "source_files",
-    "disabled_source_files",
-    "enabled_source_files",
-    "has_unsaved_changes",
-    "messages",
+RUNTIME_STATE_FIELD_SPECS = (
+    SdkFieldSpec("armory_path", "string", nullable=True),
+    SdkFieldSpec("provider_slug", "string"),
+    SdkFieldSpec("model", "string"),
+    SdkFieldSpec("base_url", "string"),
+    SdkFieldSpec("max_tokens", "integer"),
+    SdkFieldSpec("rag_context_budget", "integer"),
+    SdkFieldSpec("temperature", "number", nullable=True),
+    SdkFieldSpec("reasoning_level", "string"),
+    SdkFieldSpec("thinking_visibility", "string"),
+    SdkFieldSpec("feature_flags", "array<string>"),
 )
+SESSION_STATE_FIELD_SPECS = (
+    SdkFieldSpec("session_id", "string"),
+    SdkFieldSpec("title", "string"),
+    SdkFieldSpec("armory_path", "string", nullable=True),
+    SdkFieldSpec("provider_slug", "string"),
+    SdkFieldSpec("model", "string"),
+    SdkFieldSpec("is_streaming", "boolean"),
+    SdkFieldSpec("is_disposed", "boolean"),
+    SdkFieldSpec("source_file_count", "integer"),
+    SdkFieldSpec("source_files", "array<string>"),
+    SdkFieldSpec("disabled_source_files", "array<string>"),
+    SdkFieldSpec("enabled_source_files", "array<string>"),
+    SdkFieldSpec("has_unsaved_changes", "boolean"),
+    SdkFieldSpec("messages", "array<message>"),
+)
+SERVICE_STATE_FIELDS = tuple(spec.name for spec in SERVICE_STATE_FIELD_SPECS)
+RUNTIME_STATE_FIELDS = tuple(spec.name for spec in RUNTIME_STATE_FIELD_SPECS)
+SESSION_STATE_FIELDS = tuple(spec.name for spec in SESSION_STATE_FIELD_SPECS)
 
 
 def service_stream_method_for_jsonl(method: str) -> str | None:
@@ -193,6 +212,10 @@ def error_specs_to_dict(specs: tuple[SdkErrorSpec, ...]) -> dict[str, object]:
     return {spec.code: spec.to_dict() for spec in specs}
 
 
+def field_specs_to_dict(specs: tuple[SdkFieldSpec, ...]) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
@@ -204,6 +227,7 @@ __all__ = [
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",
     "RUNTIME_STATE_FIELDS",
+    "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES_VERSION",
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
@@ -211,13 +235,17 @@ __all__ = [
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_STATE_FIELDS",
+    "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
     "SERVICE_STREAM_METHOD_SPECS",
     "SESSION_STATE_FIELDS",
+    "SESSION_STATE_FIELD_SPECS",
     "SdkErrorSpec",
+    "SdkFieldSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
     "error_specs_to_dict",
+    "field_specs_to_dict",
     "method_specs_to_dict",
     "service_stream_method_for_jsonl",
 ]

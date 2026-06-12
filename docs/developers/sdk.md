@@ -209,6 +209,9 @@ clients can use those specs to build request validation, disable incomplete
 forms, and keep transport wrappers aligned with the advertised SDK contract.
 The `errors.jsonl` section describes each JSONL error code so native clients can
 present stable recovery copy without hard-coding the Python docs.
+The `fields` section describes service, runtime, and session state field types
+and nullability for clients that generate typed wrappers around the JSON-ready
+state payload.
 The capability payload has its own `version`, separate from the JSONL
 `protocol` and wire `version`.
 

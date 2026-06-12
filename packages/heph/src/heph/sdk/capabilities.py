@@ -13,6 +13,7 @@ from heph.sdk.methods import (
     JSONL_MESSAGE_TYPES,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
+    RUNTIME_STATE_FIELD_SPECS,
     RUNTIME_STATE_FIELDS,
     SDK_CAPABILITIES_VERSION,
     SDK_EVENT_TYPES,
@@ -20,13 +21,17 @@ from heph.sdk.methods import (
     SDK_JSONL_VERSION,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
+    SERVICE_STATE_FIELD_SPECS,
     SERVICE_STATE_FIELDS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
+    SESSION_STATE_FIELD_SPECS,
     SESSION_STATE_FIELDS,
     SdkErrorSpec,
+    SdkFieldSpec,
     SdkMethodSpec,
     error_specs_to_dict,
+    field_specs_to_dict,
     method_specs_to_dict,
 )
 
@@ -54,6 +59,9 @@ class HephSdkCapabilities:
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_stream_method_specs: tuple[SdkMethodSpec, ...]
+    service_state_field_specs: tuple[SdkFieldSpec, ...]
+    runtime_state_field_specs: tuple[SdkFieldSpec, ...]
+    session_state_field_specs: tuple[SdkFieldSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -84,6 +92,11 @@ class HephSdkCapabilities:
                 "jsonl_stream": method_specs_to_dict(self.jsonl_stream_method_specs),
             },
             "errors": {"jsonl": error_specs_to_dict(self.jsonl_error_specs)},
+            "fields": {
+                "service_state": field_specs_to_dict(self.service_state_field_specs),
+                "runtime_state": field_specs_to_dict(self.runtime_state_field_specs),
+                "session_state": field_specs_to_dict(self.session_state_field_specs),
+            },
         }
 
 
@@ -107,6 +120,9 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
     jsonl_stream_method_specs=JSONL_STREAM_METHOD_SPECS,
+    service_state_field_specs=SERVICE_STATE_FIELD_SPECS,
+    runtime_state_field_specs=RUNTIME_STATE_FIELD_SPECS,
+    session_state_field_specs=SESSION_STATE_FIELD_SPECS,
 )
 
 
@@ -124,6 +140,7 @@ __all__ = [
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",
     "RUNTIME_STATE_FIELDS",
+    "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES",
     "SDK_CAPABILITIES_VERSION",
     "SDK_EVENT_TYPES",
@@ -132,9 +149,11 @@ __all__ = [
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_STATE_FIELDS",
+    "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
     "SERVICE_STREAM_METHOD_SPECS",
     "SESSION_STATE_FIELDS",
+    "SESSION_STATE_FIELD_SPECS",
     "HephSdkCapabilities",
     "get_sdk_capabilities",
 ]

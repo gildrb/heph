@@ -179,6 +179,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     state = _payload_mapping(payload["state"])
     methods = _payload_mapping(payload["methods"])
     errors = _payload_mapping(payload["errors"])
+    fields = _payload_mapping(payload["fields"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
@@ -195,6 +196,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_fields = _payload_list(state["service_fields"])
     runtime_fields = _payload_list(state["runtime_fields"])
     session_fields = _payload_list(state["session_fields"])
+    service_field_specs = _payload_mapping(fields["service_state"])
+    runtime_field_specs = _payload_mapping(fields["runtime_state"])
+    session_field_specs = _payload_mapping(fields["session_state"])
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
@@ -259,6 +263,17 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "provider_slug" in session_fields
     assert "enabled_source_files" in session_fields
     assert "is_disposed" in session_fields
+    assert list(service_field_specs) == service_fields
+    assert list(runtime_field_specs) == runtime_fields
+    assert list(session_field_specs) == session_fields
+    service_operation_spec = _payload_mapping(service_field_specs["active_operation"])
+    runtime_armory_spec = _payload_mapping(runtime_field_specs["armory_path"])
+    runtime_flags_spec = _payload_mapping(runtime_field_specs["feature_flags"])
+    session_messages_spec = _payload_mapping(session_field_specs["messages"])
+    assert service_operation_spec == {"type": "string", "nullable": True}
+    assert runtime_armory_spec == {"type": "string", "nullable": True}
+    assert runtime_flags_spec == {"type": "array<string>", "nullable": False}
+    assert session_messages_spec == {"type": "array<message>", "nullable": False}
 
 
 def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:
