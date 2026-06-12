@@ -505,6 +505,126 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     assert payloads[-1] == {"type": "stream_end", "id": "index-1", "ok": True}
 
 
+def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "fail prompt"
+        yield AssistantDeltaEvent("before failure")
+        raise RuntimeError("prompt failed")
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request(
+        {"id": "prompt-error", "method": "prompt", "params": {"text": "fail prompt"}}
+    )
+    server._wait_for_streams()
+    server.handle_request({"id": "state-after-error", "method": "state"})
+
+    payloads = _payloads(output.getvalue())
+    stream_events = [payload for payload in payloads if payload["type"] == "stream_event"]
+    stream_end = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "prompt-error" and payload["type"] == "stream_end"
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-error"
+    )
+    stream_error = _payload_mapping(stream_end["error"])
+    service_state = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+
+    assert stream_events == [
+        {
+            "type": "stream_event",
+            "id": "prompt-error",
+            "event": {"type": "assistant_delta", "delta": "before failure"},
+        }
+    ]
+    assert stream_end["type"] == "stream_end"
+    assert stream_end["ok"] is False
+    assert stream_error["code"] == "internal_error"
+    assert "prompt failed" in str(stream_error["message"])
+    assert service_state == {"prompt_active": False, "active_operation": None}
+
+
+def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_path = tmp_path / ".armories" / "jsonl-index-error"
+    service = HephService.create_armory(armory_path, config=_config())
+
+    def failing_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        raise RuntimeError("index failed")
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", failing_build_index)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "index-error", "method": "build_index_stream"})
+    server._wait_for_streams()
+    server.handle_request({"id": "state-after-error", "method": "state"})
+
+    payloads = _payloads(output.getvalue())
+    stream_events = [payload for payload in payloads if payload["type"] == "stream_event"]
+    stream_end = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "index-error" and payload["type"] == "stream_end"
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-error"
+    )
+    stream_error = _payload_mapping(stream_end["error"])
+    service_state = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+
+    assert stream_events == [
+        {
+            "type": "stream_event",
+            "id": "index-error",
+            "event": {
+                "type": "index_progress",
+                "action": "reading",
+                "detail": "materials/notes.md",
+            },
+        }
+    ]
+    assert stream_end["type"] == "stream_end"
+    assert stream_end["ok"] is False
+    assert stream_error["code"] == "internal_error"
+    assert "index failed" in str(stream_error["message"])
+    assert service_state == {"prompt_active": False, "active_operation": None}
+
+
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     service = HephService.plain(config=_config())
     output = io.StringIO()

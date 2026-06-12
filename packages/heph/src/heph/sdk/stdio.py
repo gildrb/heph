@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TextIO
 
@@ -17,6 +18,8 @@ from heph.sdk.runtime import HephSdkBusyError, HephSdkError
 from heph.sdk.service import HephService, ServicePayload
 
 type RequestId = str | int | None
+type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
+type JsonlStreamCleanup = Callable[[], None]
 
 
 class SdkProtocolError(Exception):
@@ -127,49 +130,22 @@ class JsonlSdkServer:
             if self._active_prompt is not None or self._active_operation is not None:
                 raise HephSdkBusyError()
             self._active_prompt = active_prompt
-        self._write({"type": "stream_start", "id": request_id, "method": "prompt"})
-        thread = threading.Thread(
-            target=self._run_prompt_stream,
-            args=(active_prompt, text),
-            name="heph-sdk-prompt",
-        )
-        self._stream_threads.append(thread)
-        thread.start()
 
-    def _run_prompt_stream(self, active_prompt: ActivePrompt, text: str) -> None:
-        try:
-            for event in self.service.prompt(text, abort=active_prompt.abort):
-                self._write(
-                    {
-                        "type": "stream_event",
-                        "id": active_prompt.request_id,
-                        "event": event,
-                    }
-                )
-        except HephSdkBusyError as exc:
-            self._write_stream_end(
-                active_prompt.request_id,
-                ok=False,
-                error=_error("busy", str(exc)),
-            )
-        except HephSdkError as exc:
-            self._write_stream_end(
-                active_prompt.request_id,
-                ok=False,
-                error=_error("sdk_error", str(exc)),
-            )
-        except Exception as exc:
-            self._write_stream_end(
-                active_prompt.request_id,
-                ok=False,
-                error=_error("internal_error", str(exc)),
-            )
-        else:
-            self._write_stream_end(active_prompt.request_id, ok=True, error=None)
-        finally:
+        def events() -> Iterator[ServicePayload]:
+            yield from self.service.prompt(text, abort=active_prompt.abort)
+
+        def cleanup() -> None:
             with self._state_lock:
                 if self._active_prompt is active_prompt:
                     self._active_prompt = None
+
+        self._start_stream_thread(
+            request_id=request_id,
+            method="prompt",
+            thread_name="heph-sdk-prompt",
+            events=events,
+            cleanup=cleanup,
+        )
 
     def _start_operation_stream(
         self,
@@ -186,54 +162,75 @@ class JsonlSdkServer:
             if self._active_prompt is not None or self._active_operation is not None:
                 raise HephSdkBusyError()
             self._active_operation = active_operation
+
+        def events() -> Iterator[ServicePayload]:
+            yield from self.service.stream(service_method, params)
+
+        def cleanup() -> None:
+            with self._state_lock:
+                if self._active_operation is active_operation:
+                    self._active_operation = None
+
+        self._start_stream_thread(
+            request_id=request_id,
+            method=method,
+            thread_name=f"heph-sdk-{method}",
+            events=events,
+            cleanup=cleanup,
+        )
+
+    def _start_stream_thread(
+        self,
+        *,
+        request_id: RequestId,
+        method: str,
+        thread_name: str,
+        events: JsonlStreamEvents,
+        cleanup: JsonlStreamCleanup,
+    ) -> None:
         self._write({"type": "stream_start", "id": request_id, "method": method})
         thread = threading.Thread(
-            target=self._run_operation_stream,
-            args=(active_operation, service_method, params),
-            name=f"heph-sdk-{method}",
+            target=self._run_stream,
+            args=(request_id, events, cleanup),
+            name=thread_name,
         )
         self._stream_threads.append(thread)
-        thread.start()
+        try:
+            thread.start()
+        except BaseException:
+            self._stream_threads.remove(thread)
+            cleanup()
+            raise
 
-    def _run_operation_stream(
+    def _run_stream(
         self,
-        active_operation: ActiveOperation,
-        service_method: str,
-        params: dict[str, object],
+        request_id: RequestId,
+        events: JsonlStreamEvents,
+        cleanup: JsonlStreamCleanup,
     ) -> None:
         try:
-            for event in self.service.stream(service_method, params):
+            for event in events():
                 self._write(
                     {
                         "type": "stream_event",
-                        "id": active_operation.request_id,
+                        "id": request_id,
                         "event": event,
                     }
                 )
         except HephSdkBusyError as exc:
-            self._write_stream_end(
-                active_operation.request_id,
-                ok=False,
-                error=_error("busy", str(exc)),
-            )
+            self._write_stream_end(request_id, ok=False, error=_error("busy", str(exc)))
         except HephSdkError as exc:
-            self._write_stream_end(
-                active_operation.request_id,
-                ok=False,
-                error=_error("sdk_error", str(exc)),
-            )
+            self._write_stream_end(request_id, ok=False, error=_error("sdk_error", str(exc)))
         except Exception as exc:
             self._write_stream_end(
-                active_operation.request_id,
+                request_id,
                 ok=False,
                 error=_error("internal_error", str(exc)),
             )
         else:
-            self._write_stream_end(active_operation.request_id, ok=True, error=None)
+            self._write_stream_end(request_id, ok=True, error=None)
         finally:
-            with self._state_lock:
-                if self._active_operation is active_operation:
-                    self._active_operation = None
+            cleanup()
 
     def _abort_active_prompt(self) -> ServicePayload:
         with self._state_lock:
