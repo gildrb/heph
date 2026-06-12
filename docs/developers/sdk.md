@@ -22,6 +22,7 @@ SwiftUI / GUI / automation client
 - `HephRuntime` for armory attachment and session replacement.
 - `HephSession` for one active chat session.
 - `HephService` for stateful, dictionary-returning transport adapters.
+- `HephSdkCapabilities` and `get_sdk_capabilities()` for feature discovery.
 - `HephEvent` DTOs for structured turn streams.
 - Session source-file snapshots and enable/disable controls for material scope.
 - Material, index, and extraction-health DTOs for armory management.
@@ -90,6 +91,7 @@ single JSON object with an `id`, `method`, and optional `params` object:
 
 ```json
 {"id":"state-1","method":"state"}
+{"id":"caps-1","method":"capabilities"}
 {"id":"turn-1","method":"prompt","params":{"text":"Explain these notes."}}
 {"id":"cancel-1","method":"abort"}
 ```
@@ -97,7 +99,7 @@ single JSON object with an `id`, `method`, and optional `params` object:
 Responses are JSON objects with explicit transport types:
 
 ```json
-{"type":"ready","protocol":"heph-sdk-jsonl","version":1,"state":{...}}
+{"type":"ready","protocol":"heph-sdk-jsonl","version":1,"capabilities":{...},"state":{...}}
 {"type":"response","id":"state-1","ok":true,"result":{...}}
 {"type":"stream_start","id":"turn-1","method":"prompt"}
 {"type":"stream_event","id":"turn-1","event":{"type":"assistant_delta","delta":"..."}}
@@ -156,9 +158,16 @@ true for both service-owned prompt streams and direct streams on the active
 `HephSession`; `active_operation` names non-prompt operation streams such as
 `build_index`.
 
+Clients can discover the supported contract with `get_sdk_capabilities()`,
+`HephService.capabilities()`, or the transport `capabilities` method. The JSONL
+server also includes the same capability payload in its initial `ready` message.
+Capabilities list service methods, JSONL method names, stream event types, state
+fields, and calls that remain available while a stream is active.
+
 `heph sdk serve` is the first concrete transport. It supports:
 
 - `state`
+- `capabilities`
 - `use_plain_runtime`
 - `open_armory`
 - `create_armory`
@@ -181,14 +190,15 @@ true for both service-owned prompt streams and direct streams on the active
 - `update_config`
 
 `prompt` and `build_index_stream` are streaming methods. While a prompt or
-operation stream is active, clients can still call `state`; `abort` cancels
-prompt streams but returns a no-op state payload for non-prompt operation streams
-such as `build_index_stream`. Other service methods are rejected until the stream
-ends. Clients should gate state-changing UI with `service.prompt_active` and
-`service.active_operation`. This lifecycle rule is enforced by `HephService`
-itself, so it applies to both direct Python embeddings and JSONL transport
-clients. In Python, this raises `HephSdkBusyError`, a subclass of `HephSdkError`.
-In JSONL, the same condition is reported with error code `"busy"`.
+operation stream is active, clients can still call `state` and `capabilities`;
+`abort` cancels prompt streams but returns a no-op state payload for non-prompt
+operation streams such as `build_index_stream`. Other service methods are
+rejected until the stream ends. Clients should gate state-changing UI with
+`service.prompt_active` and `service.active_operation`. This lifecycle rule is
+enforced by `HephService` itself, so it applies to both direct Python embeddings
+and JSONL transport clients. In Python, this raises `HephSdkBusyError`, a
+subclass of `HephSdkError`. In JSONL, the same condition is reported with error
+code `"busy"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a
@@ -207,6 +217,7 @@ event.to_dict()
 The current event families are:
 
 - `assistant_delta`
+- `reasoning_delta`
 - `tool_call`
 - `tool_result`
 - `material_operation`
@@ -214,6 +225,8 @@ The current event families are:
 - `turn_complete`
 - `notice`
 - `guardrail`
+- `index_progress`
+- `index_complete`
 
 UI clients should render these structurally. Do not parse assistant text or
 notice wording to infer state.

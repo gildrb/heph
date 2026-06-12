@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from heph.sdk.capabilities import (
+    SDK_CAPABILITIES,
+    SDK_CAPABILITIES_VERSION,
+    HephSdkCapabilities,
+    get_sdk_capabilities,
+)
 from heph.sdk.events import (
     AssistantDelta,
     CompactRequest,
@@ -60,6 +66,8 @@ from heph.sdk.stdio import (
 )
 
 __all__ = [
+    "SDK_CAPABILITIES",
+    "SDK_CAPABILITIES_VERSION",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "ArmorySummary",
@@ -76,6 +84,7 @@ __all__ = [
     "HephMessage",
     "HephRuntime",
     "HephSdkBusyError",
+    "HephSdkCapabilities",
     "HephSdkError",
     "HephSdkOptions",
     "HephSdkRuntimeState",
@@ -105,5 +114,6 @@ __all__ = [
     "create_heph_session",
     "event_to_dict",
     "from_turn_event",
+    "get_sdk_capabilities",
     "serve_stdio",
 ]

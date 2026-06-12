@@ -52,11 +52,13 @@ class HephSdkError(Exception):
 
 
 class HephSdkBusyError(HephSdkError):
-    """Raised when the SDK service is busy with an active prompt stream."""
+    """Raised when the SDK service is busy with an active stream."""
 
     def __init__(
         self,
-        message: str = "An SDK prompt stream is active; only state and abort are available.",
+        message: str = (
+            "An SDK stream is active; only state, abort, and capabilities are available."
+        ),
     ) -> None:
         super().__init__(message)
 

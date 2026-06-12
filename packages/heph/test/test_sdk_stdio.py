@@ -12,6 +12,7 @@ from ai.runtime import ChatConfig
 from heph.cli.main import build_parser, run_argv
 from heph.sdk import (
     SDK_JSONL_PROTOCOL,
+    SDK_JSONL_VERSION,
     HephSdkOptions,
     HephService,
     JsonlSdkServer,
@@ -49,6 +50,12 @@ def _payload_mapping(value: object) -> dict[str, object]:
     return {str(key): item for key, item in value.items()}
 
 
+def _payload_list(value: object) -> list[object]:
+    assert isinstance(value, list)
+    result: list[object] = list(value)
+    return result
+
+
 def test_jsonl_sdk_server_handles_state_and_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -77,6 +84,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
         input_stream=io.StringIO(
             _jsonl(
                 {"id": "state-1", "method": "state"},
+                {"id": "caps-1", "method": "capabilities"},
                 {"id": "turn-1", "method": "prompt", "params": {"text": "hello sdk"}},
             )
         ),
@@ -86,12 +94,24 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     server.serve()
 
     payloads = _payloads(output.getvalue())
+    ready_capabilities = _payload_mapping(payloads[0]["capabilities"])
+    ready_jsonl = _payload_mapping(ready_capabilities["jsonl"])
+    ready_stream_methods = _payload_list(ready_jsonl["stream_methods"])
+    capabilities_response = _payload_mapping(payloads[2]["result"])
+    capabilities = _payload_mapping(capabilities_response["capabilities"])
+    capabilities_jsonl = _payload_mapping(capabilities["jsonl"])
     assert payloads[0]["type"] == "ready"
     assert payloads[0]["protocol"] == SDK_JSONL_PROTOCOL
+    assert payloads[0]["version"] == SDK_JSONL_VERSION
+    assert ready_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert "build_index_stream" in ready_stream_methods
     assert payloads[1]["type"] == "response"
     assert payloads[1]["id"] == "state-1"
-    assert payloads[2] == {"type": "stream_start", "id": "turn-1", "method": "prompt"}
-    assert payloads[3] == {
+    assert payloads[2]["type"] == "response"
+    assert payloads[2]["id"] == "caps-1"
+    assert capabilities_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert payloads[3] == {"type": "stream_start", "id": "turn-1", "method": "prompt"}
+    assert payloads[4] == {
         "type": "stream_event",
         "id": "turn-1",
         "event": {"type": "assistant_delta", "delta": "hello native app"},
@@ -402,6 +422,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     assert "index_progress" in output.getvalue()
 
     server.handle_request({"id": "state-during-index", "method": "state"})
+    server.handle_request({"id": "caps-during-index", "method": "capabilities"})
     server.handle_request({"id": "abort-during-index", "method": "abort"})
     server.handle_request(
         {
@@ -426,6 +447,9 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     state_response = next(
         payload for payload in payloads if payload.get("id") == "state-during-index"
     )
+    capabilities_response = next(
+        payload for payload in payloads if payload.get("id") == "caps-during-index"
+    )
     abort_response = next(
         payload for payload in payloads if payload.get("id") == "abort-during-index"
     )
@@ -436,6 +460,10 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         _payload_mapping(immediate_state_response["result"])["service"]
     )
     state_service = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+    capabilities = _payload_mapping(
+        _payload_mapping(capabilities_response["result"])["capabilities"]
+    )
+    capability_service = _payload_mapping(capabilities["service"])
     abort_result = _payload_mapping(abort_response["result"])
     abort_state_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
     prompt_error_payload = _payload_mapping(prompt_error["error"])
@@ -446,6 +474,8 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     ]
     assert immediate_service == {"prompt_active": False, "active_operation": "build_index"}
     assert state_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert capabilities_response["type"] == "response"
+    assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert abort_result["aborted"] is False
     assert abort_state_service == {"prompt_active": False, "active_operation": "build_index"}
     assert prompt_error_payload["code"] == "busy"

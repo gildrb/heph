@@ -11,12 +11,10 @@ from typing import TextIO
 from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
+from heph.sdk.capabilities import SDK_JSONL_PROTOCOL, SDK_JSONL_VERSION
 from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.runtime import HephSdkBusyError, HephSdkError
 from heph.sdk.service import HephService, ServicePayload
-
-SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
-SDK_JSONL_VERSION = 1
 
 type RequestId = str | int | None
 
@@ -60,6 +58,7 @@ class JsonlSdkServer:
                 "type": "ready",
                 "protocol": SDK_JSONL_PROTOCOL,
                 "version": SDK_JSONL_VERSION,
+                "capabilities": self._capabilities_payload(),
                 "state": self.service.state(),
             }
         )
@@ -110,9 +109,16 @@ class JsonlSdkServer:
         if method == "state":
             self._write_response(request_id, self._state_with_transport_operation())
             return
-        if self._stream_is_pending() and method != "state":
+        if method == "capabilities":
+            self._write_response(request_id, self.service.capabilities())
+            return
+        if self._stream_is_pending():
             raise HephSdkBusyError()
         self._write_response(request_id, self.service.call(method, params))
+
+    def _capabilities_payload(self) -> ServicePayload:
+        capabilities = self.service.capabilities().get("capabilities")
+        return capabilities if is_string_mapping(capabilities) else {}
 
     def _start_prompt_stream(self, request_id: RequestId, params: dict[str, object]) -> None:
         text = _required_string(params, "text")

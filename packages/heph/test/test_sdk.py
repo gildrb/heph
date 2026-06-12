@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 from ai.runtime import ChatConfig
 from heph.sdk import (
+    SDK_CAPABILITIES,
     AssistantDelta,
     HephRuntime,
     HephSdkBusyError,
+    HephSdkCapabilities,
     HephSdkError,
     HephSdkOptions,
     HephSdkRuntimeState,
@@ -33,6 +35,7 @@ from heph.sdk import (
     create_heph_session,
     event_to_dict,
     from_turn_event,
+    get_sdk_capabilities,
 )
 from heph.sdk import runtime as sdk_runtime
 from hephaion.chat.events import (
@@ -135,6 +138,38 @@ def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
     complete = from_turn_event(TurnCompleteEvent("done", 2, 4.5, "stop", 123))
     assert isinstance(complete, TurnComplete)
     assert complete.to_dict()["full_text"] == "done"
+
+
+def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
+    capabilities = get_sdk_capabilities()
+    payload = capabilities.to_dict()
+    service = _payload_mapping(payload["service"])
+    jsonl = _payload_mapping(payload["jsonl"])
+    events = _payload_mapping(payload["events"])
+    state = _payload_mapping(payload["state"])
+    service_call_methods = _payload_list(service["call_methods"])
+    service_stream_methods = _payload_list(service["stream_methods"])
+    busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
+    jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
+    event_types = _payload_list(events["types"])
+    service_fields = _payload_list(state["service_fields"])
+    runtime_fields = _payload_list(state["runtime_fields"])
+    session_fields = _payload_list(state["session_fields"])
+
+    assert isinstance(capabilities, HephSdkCapabilities)
+    assert capabilities is SDK_CAPABILITIES
+    assert payload["version"] == 1
+    assert "capabilities" in service_call_methods
+    assert "build_index" in service_stream_methods
+    assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
+    assert jsonl["protocol"] == "heph-sdk-jsonl"
+    assert "build_index_stream" in jsonl_stream_methods
+    assert "reasoning_delta" in event_types
+    assert "index_progress" in event_types
+    assert "index_complete" in event_types
+    assert "active_operation" in service_fields
+    assert "reasoning_level" in runtime_fields
+    assert "enabled_source_files" in session_fields
 
 
 def test_session_prompt_streams_sdk_events_and_autosaves(
@@ -674,31 +709,34 @@ def test_service_blocks_state_changes_while_prompt_streams(
     active_state = _payload_mapping(service.state()["service"])
     assert active_state["prompt_active"] is True
     assert active_state["active_operation"] is None
+    active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
+    active_capability_service = _payload_mapping(active_capabilities["service"])
+    assert "capabilities" in _payload_list(active_capability_service["busy_allowed_call_methods"])
     source = tmp_path / "late-material.md"
     source.write_text("# Late\n\nShould not import during streaming.\n", encoding="utf-8")
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.call("new_session")
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.ask("Nested prompt.")
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.update_config({"model": "mutated-during-stream"})
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.import_materials(source)
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.build_index()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.save_session()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.messages()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_sessions()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_materials()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.scan_extraction_health()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_armories()
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.set_source_enabled("materials/notes.md", enabled=False)
 
     abort_payload = service.call("abort")
@@ -761,7 +799,10 @@ def test_service_treats_direct_session_stream_as_busy(
     assert active_state.service.prompt_active
     assert active_state.session is not None
     assert active_state.session.is_streaming
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    direct_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
+    direct_capability_service = _payload_mapping(direct_capabilities["service"])
+    assert "capabilities" in _payload_list(direct_capability_service["busy_allowed_call_methods"])
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.call("new_session")
     with pytest.raises(HephSdkBusyError, match="already streaming"):
         list(service.prompt("Nested service prompt."))
@@ -1003,11 +1044,14 @@ def test_service_streams_build_index_progress(
     active_service = _payload_mapping(service.state()["service"])
     assert active_service["prompt_active"] is False
     assert active_service["active_operation"] == "build_index"
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
+    active_capability_service = _payload_mapping(active_capabilities["service"])
+    assert "build_index" in _payload_list(active_capability_service["stream_methods"])
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.new_session()
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         list(service.prompt("Prompt during index."))
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         list(session.prompt("Direct prompt during index."))
     abort_payload = service.call("abort")
     abort_result = _payload_mapping(abort_payload)
@@ -1019,7 +1063,7 @@ def test_service_streams_build_index_progress(
     assert finished.wait(timeout=2.0)
     finished_but_unconsumed_service = _payload_mapping(service.state()["service"])
     assert finished_but_unconsumed_service["active_operation"] == "build_index"
-    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.list_materials()
     remaining_events = list(stream)
     idle_service = _payload_mapping(service.state()["service"])
@@ -1162,12 +1206,15 @@ def test_service_call_and_stream_dispatcher(
         {"max_tokens": 0, "rag_context_budget": 0},
     )
     default_reasoning_payload = service.call("update_config", {"reasoning_level": ""})
+    capabilities_payload = service.call("capabilities")
     events = list(service.stream("prompt", {"text": "Dispatch this."}))
     ask = service.call("ask", {"text": "Return final text."})
 
     runtime_payload = _payload_mapping(config_payload["runtime"])
     zero_runtime_payload = _payload_mapping(zero_config_payload["runtime"])
     default_reasoning_runtime = _payload_mapping(default_reasoning_payload["runtime"])
+    capabilities = _payload_mapping(capabilities_payload["capabilities"])
+    capability_service = _payload_mapping(capabilities["service"])
     assert runtime_payload["model"] == "updated-model"
     assert runtime_payload["max_tokens"] == 500
     assert runtime_payload["temperature"] == 2.0
@@ -1176,6 +1223,8 @@ def test_service_call_and_stream_dispatcher(
     assert zero_runtime_payload["max_tokens"] == 0
     assert zero_runtime_payload["rag_context_budget"] == 0
     assert default_reasoning_runtime["reasoning_level"] == "low"
+    assert capabilities_payload == service.capabilities()
+    assert "capabilities" in _payload_list(capability_service["call_methods"])
     assert events[0] == {"type": "assistant_delta", "delta": "Dispatched."}
     assert _payload_mapping(ask)["text"] == "Dispatched."
 

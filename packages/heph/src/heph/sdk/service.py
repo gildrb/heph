@@ -12,6 +12,7 @@ from queue import Queue
 from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
+from heph.sdk.capabilities import BUSY_ALLOWED_CALL_METHODS, get_sdk_capabilities
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
@@ -88,10 +89,12 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServicePayload:
         parameters = params or {}
-        if self._is_busy() and method not in {"state", "abort"}:
+        if self._is_busy() and method not in BUSY_ALLOWED_CALL_METHODS:
             raise HephSdkBusyError()
         if method == "state":
             return self.state()
+        if method == "capabilities":
+            return self.capabilities()
         if method == "use_plain_runtime":
             return self.use_plain_runtime()
         if method == "open_armory":
@@ -132,6 +135,9 @@ class HephService:
         if method == "update_config":
             return self.update_config(parameters)
         raise HephSdkError(f"Unknown SDK service method: {method}")
+
+    def capabilities(self) -> ServicePayload:
+        return {"capabilities": get_sdk_capabilities().to_dict()}
 
     def stream(
         self,
