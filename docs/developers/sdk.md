@@ -143,6 +143,9 @@ serialization boundary for non-Python clients.
 active runtime and optional active session, and it returns JSON-ready
 dictionaries so a thin stdio, JSON-RPC, WebSocket, or embedded-host adapter can
 serialize responses without learning harness internals.
+Its `state()` payload includes a top-level `service` object with
+`prompt_active`, so clients can disable state-changing controls without
+inspecting internal `ChatSession` objects.
 
 `heph sdk serve` is the first concrete transport. It supports:
 
@@ -167,8 +170,9 @@ serialize responses without learning harness internals.
 - `update_config`
 
 `prompt` is the streaming method. While a prompt stream is active, clients can
-still call `state` and `abort`; other state-changing calls are rejected until
-the stream ends.
+still call `state` and `abort`; other service methods are rejected until the
+stream ends. This lifecycle rule is enforced by `HephService` itself, so it
+applies to both direct Python embeddings and JSONL transport clients.
 
 ## Event Contract
 

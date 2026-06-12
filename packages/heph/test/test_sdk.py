@@ -390,9 +390,11 @@ def test_service_manages_runtime_session_and_streams_json_events(
     events = list(service.prompt("Use the service."))
     messages = service.messages()
 
+    service_state = _payload_mapping(service.state()["service"])
     runtime_payload = _payload_mapping(session_payload["runtime"])
     message_payloads = _payload_list(messages["messages"])
 
+    assert service_state["prompt_active"] is False
     assert runtime_payload["model"] == "gpt-4o-mini"
     assert events == [
         {"type": "assistant_delta", "delta": "Service reply."},
@@ -409,6 +411,86 @@ def test_service_manages_runtime_session_and_streams_json_events(
         {"role": "user", "content": "Use the service."},
         {"role": "assistant", "content": "Service reply."},
     ]
+
+
+def test_service_blocks_state_changes_while_prompt_streams(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    abort_seen = threading.Event()
+    streamed_events: list[dict[str, object]] = []
+    stream_errors: list[BaseException] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        raw_session.conversation.add("user", prompt)
+        raw_session.conversation.add("assistant", "Delayed reply.")
+        raw_session.dirty = True
+        started.set()
+        yield NoticeEvent("Waiting.", code="sdk_test")
+        assert release.wait(timeout=2.0)
+        if abort is not None and abort.is_set():
+            abort_seen.set()
+        yield TurnCompleteEvent("Delayed reply.", 0, 1.0, "stop", 100)
+
+    def collect_events() -> None:
+        try:
+            streamed_events.extend(service.prompt("Wait for abort."))
+        except BaseException as exc:
+            stream_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_events, name="test-sdk-service-prompt")
+
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    active_state = _payload_mapping(service.state()["service"])
+    assert active_state["prompt_active"] is True
+    source = tmp_path / "late-material.md"
+    source.write_text("# Late\n\nShould not import during streaming.\n", encoding="utf-8")
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.call("new_session")
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.ask("Nested prompt.")
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.update_config({"model": "mutated-during-stream"})
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.import_materials(source)
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.build_index()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.save_session()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.messages()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.list_sessions()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.list_materials()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.scan_extraction_health()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.list_armories()
+
+    abort_payload = service.call("abort")
+    release.set()
+    thread.join(timeout=2.0)
+
+    idle_state = _payload_mapping(service.state()["service"])
+    assert abort_payload["aborted"] is True
+    assert abort_seen.is_set()
+    assert idle_state["prompt_active"] is False
+    assert not thread.is_alive()
+    assert stream_errors == []
+    assert streamed_events[0] == {"type": "notice", "message": "Waiting.", "code": "sdk_test"}
 
 
 def test_service_disposes_replaced_sessions(
