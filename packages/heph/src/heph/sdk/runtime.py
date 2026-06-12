@@ -51,6 +51,12 @@ from heph.sdk.models import (
 from heph.sdk.models import (
     switch_model as switch_config_model,
 )
+from heph.sdk.providers import (
+    ProviderSummary,
+)
+from heph.sdk.providers import (
+    list_providers as list_config_providers,
+)
 from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
@@ -252,6 +258,12 @@ class HephSession:
             self._ensure_not_disposed_locked()
             config = self._session.config
         return list_config_model_choices(config, refresh_live=refresh_live)
+
+    def list_providers(self) -> tuple[ProviderSummary, ...]:
+        with self._stream_lock:
+            self._ensure_not_disposed_locked()
+            config = self._session.config
+        return list_config_providers(config)
 
     def switch_model(self, provider_slug: str, model: str) -> bool:
         with self._idle_mutation():
@@ -483,6 +495,9 @@ class HephRuntime:
     def list_model_choices(self, *, refresh_live: bool = False) -> tuple[ModelChoiceSummary, ...]:
         return list_config_model_choices(self.config, refresh_live=refresh_live)
 
+    def list_providers(self) -> tuple[ProviderSummary, ...]:
+        return list_config_providers(self.config)
+
     def switch_model(self, provider_slug: str, model: str) -> bool:
         return switch_config_model(self.config, provider_slug, model)
 
@@ -580,5 +595,6 @@ __all__ = [
     "IndexSummary",
     "MaterialSummary",
     "ModelChoiceSummary",
+    "ProviderSummary",
     "SessionSummary",
 ]

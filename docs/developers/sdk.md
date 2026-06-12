@@ -27,10 +27,11 @@ SwiftUI / GUI / automation client
 - Session source-file snapshots and enable/disable controls for material scope.
 - Explicit session disposal state for stale handles after replacement.
 - Material, index, and extraction-health DTOs for armory management.
+- Structured provider summaries for credential-source and active-provider status.
 - Structured model choice and model switching helpers for provider-aware clients.
 - JSON-ready `to_dict()` helpers for transport clients.
-- `ArmorySummary`, `SessionSummary`, `ModelChoiceSummary`, and `HephMessage`
-  value objects.
+- `ArmorySummary`, `SessionSummary`, `ProviderSummary`, `ModelChoiceSummary`,
+  and `HephMessage` value objects.
 
 ```python
 from heph.sdk import AssistantDelta, HephRuntime
@@ -77,6 +78,9 @@ For model selection:
 from heph.sdk import HephRuntime
 
 runtime = HephRuntime.plain()
+
+for provider in runtime.list_providers():
+    print(provider.display_name, provider.credential_source)
 
 for choice in runtime.list_model_choices():
     print(choice.provider_display_name, choice.model, choice.is_current)
@@ -204,6 +208,7 @@ The capability payload has its own `version`, separate from the JSONL
 - `ask`
 - `prompt`
 - `abort`
+- `list_providers`
 - `list_model_choices`
 - `switch_model`
 - `set_source_enabled`

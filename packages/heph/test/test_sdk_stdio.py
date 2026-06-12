@@ -111,6 +111,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert payloads[0]["protocol"] == SDK_JSONL_PROTOCOL
     assert payloads[0]["version"] == SDK_JSONL_VERSION
     assert ready_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert "list_providers" in ready_call_methods
     assert "list_model_choices" in ready_call_methods
     assert "switch_model" in ready_call_methods
     assert "build_index_stream" in ready_stream_methods

@@ -43,6 +43,7 @@ from heph.sdk.materials import (
     MaterialSummary,
 )
 from heph.sdk.models import ModelChoiceSummary
+from heph.sdk.providers import ProviderSummary
 from heph.sdk.runtime import (
     ArmorySummary,
     HephEventListener,
@@ -106,6 +107,7 @@ __all__ = [
     "MaterialSummary",
     "ModelChoiceSummary",
     "Notice",
+    "ProviderSummary",
     "ReasoningDelta",
     "SdkProtocolError",
     "ServicePayload",

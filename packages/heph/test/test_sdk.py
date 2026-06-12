@@ -29,6 +29,7 @@ from heph.sdk import (
     MaterialOperation,
     ModelChoiceSummary,
     Notice,
+    ProviderSummary,
     ReasoningDelta,
     ToolCall,
     ToolResult,
@@ -42,6 +43,7 @@ from heph.sdk import (
     get_sdk_capabilities,
 )
 from heph.sdk import models as sdk_models
+from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from hephaion.chat.events import (
     AssistantDeltaEvent,
@@ -97,6 +99,14 @@ def _payload_list(value: object) -> list[object]:
     assert isinstance(value, list)
     result: list[object] = list(value)
     return result
+
+
+def _payloads_by_slug(items: object) -> dict[str, dict[str, object]]:
+    providers: dict[str, dict[str, object]] = {}
+    for item in _payload_list(items):
+        provider = _payload_mapping(item)
+        providers[str(provider["provider_slug"])] = provider
+    return providers
 
 
 def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
@@ -178,8 +188,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 5
+    assert payload["version"] == 6
     assert "capabilities" in service_call_methods
+    assert "list_providers" in service_call_methods
     assert "list_model_choices" in service_call_methods
     assert "switch_model" in service_call_methods
     assert "build_index" in service_stream_methods
@@ -882,6 +893,74 @@ def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
     }
 
 
+def test_sdk_provider_summaries_are_structured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _pollinations_config(monkeypatch)
+    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+    monkeypatch.setattr(
+        sdk_providers,
+        "retrieve_key",
+        lambda slug: "keychain-key" if slug == "openrouter" else None,
+    )
+    monkeypatch.setattr(
+        sdk_providers,
+        "get_volatile",
+        lambda slug: "session-key" if slug == "zai" else None,
+    )
+    monkeypatch.setattr(sdk_providers.oauth, "list_providers", lambda: ["openai-codex"])
+    service = HephService.plain(config=config)
+
+    provider_summaries = service.runtime.list_providers()
+    assert provider_summaries
+    pollinations = next(
+        provider for provider in provider_summaries if provider.provider_slug == "pollinations"
+    )
+    assert isinstance(pollinations, ProviderSummary)
+    assert pollinations.display_name == "Pollinations AI (free)"
+    assert pollinations.current_model == "openai"
+    assert pollinations.model_count == 2
+    assert pollinations.is_active is True
+    assert pollinations.is_current is True
+    assert pollinations.credential_kind == "keyless"
+    assert pollinations.credential_source == "keyless"
+    assert pollinations.credential_required is False
+    assert pollinations.credential_configured is True
+
+    payload = service.call("list_providers")
+    providers = _payloads_by_slug(payload["providers"])
+    assert providers["openai"]["credential_kind"] == "api_key"
+    assert providers["openai"]["credential_source"] == "provider_env"
+    assert providers["openai"]["credential_configured"] is True
+    assert providers["openai"]["api_key_env"] == "OPENAI_API_KEY"
+    assert providers["openrouter"]["credential_source"] == "keychain"
+    assert providers["zai"]["credential_source"] == "session"
+    assert providers["openai-codex"]["credential_kind"] == "oauth"
+    assert providers["openai-codex"]["credential_source"] == "oauth"
+    assert providers["deepseek"]["credential_source"] == "missing"
+    assert providers["deepseek"]["credential_configured"] is False
+
+    monkeypatch.setenv("HEPHAION_API_KEY", "global-key")
+    global_payload = service.call("list_providers")
+    global_providers = _payloads_by_slug(global_payload["providers"])
+    assert global_providers["deepseek"]["credential_source"] == "global_env"
+    assert global_providers["pollinations"]["credential_source"] == "keyless"
+
+    service.new_session()
+    session_payload = service.call("list_providers")
+    session_providers = _payload_list(session_payload["providers"])
+    assert any(
+        _payload_mapping(provider)["is_current"] is True
+        and _payload_mapping(provider)["provider_slug"] == "pollinations"
+        for provider in session_providers
+    )
+
+
 def test_sdk_model_choices_and_switching_are_structured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1019,6 +1098,8 @@ def test_service_blocks_state_changes_while_prompt_streams(
         service.scan_extraction_health()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_armories()
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+        service.list_providers()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_model_choices()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
@@ -1349,6 +1430,8 @@ def test_service_streams_build_index_progress(
         list(service.prompt("Prompt during index."))
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         list(session.prompt("Direct prompt during index."))
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+        service.list_providers()
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.list_model_choices()
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):

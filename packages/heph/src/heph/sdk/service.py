@@ -110,6 +110,8 @@ class HephService:
             return self.ask(_required_str(parameters, "text"))
         if method == "abort":
             return self.abort()
+        if method == "list_providers":
+            return self.list_providers()
         if method == "list_model_choices":
             return self.list_model_choices(
                 refresh_live=_optional_bool(parameters, "refresh_live") or False
@@ -242,6 +244,14 @@ class HephService:
             session = self._require_session()
         session.abort()
         return {"aborted": True, "session": session.to_dict()}
+
+    def list_providers(self) -> dict[str, object]:
+        with self._idle_service_call():
+            if self.session is None:
+                providers = self.runtime.list_providers()
+            else:
+                providers = self.session.list_providers()
+        return {"providers": [provider.to_dict() for provider in providers]}
 
     def list_model_choices(self, *, refresh_live: bool = False) -> dict[str, object]:
         with self._idle_service_call():
