@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from hephaion.chat import storage as chat_storage
 from hephaion.chat.titles import sanitize_title_text
 from hephaion.chat.turn_history import TurnSnapshot
-from hephaion.matching import ranked_matches
 
+from hephaion.chat import storage as chat_storage
+from hephaion.matching import ranked_matches
 from interfaces.terminal import current_palette
 from interfaces.tui.flow_state import InlineFlow
 from interfaces.tui.slash_completion import completion_menu_visible_slice
@@ -29,18 +29,15 @@ _WidgetT = TypeVar("_WidgetT")
 _INLINE_MENU_DESCRIPTION_GAP = 4
 _INLINE_MENU_FALLBACK_VISIBLE_ROWS = 7
 _LOCAL_OPTION_SEPARATOR = "\t"
-_LOCAL_COLUMN_GAP = 2
-_LOCAL_MIN_DETAIL_WIDTH = 10
-_LOCAL_PROMPT_FALLBACK_WIDTH = 96
-_LOCAL_SOURCE_WIDTH = 8
-_LOCAL_STATUS_WIDTH = 13
-_LOCAL_QUANT_WIDTH = 8
-_LOCAL_SIZE_WIDTH = 8
+_LOCAL_ACTION_GAP = 1
+_LOCAL_METADATA_GAP = 2
+_LOCAL_MIN_LABEL_WIDTH = 7
+_LOCAL_MIN_DETAIL_WIDTH = 4
 _LOCAL_PROVIDER_PREFIX = "llama-cpp/"
 _SESSION_OPTION_SEPARATOR = "\t"
 _SESSION_TITLE_GAP = 2
 _SESSION_METADATA_GAP = 2
-_OPTION_HORIZONTAL_PADDING = 4
+_OPTION_HORIZONTAL_PADDING = 0
 _INLINE_SELECTED_PREFIX = "→ "
 _INLINE_UNSELECTED_PREFIX = "  "
 _SESSION_PROMPT_FALLBACK_WIDTH = 80
@@ -231,20 +228,17 @@ def _local_model_option_text(
         return f"{prefix}{''.join(parts)}"
     palette = current_palette()
     label_style = palette.brand_primary if selected else palette.text_secondary
-    metadata_style = palette.text_muted
-    quant_style = palette.text_primary if selected else palette.text_secondary
+    action_style = palette.text_muted
+    metadata_style = palette.text_primary if selected else palette.text_muted
     prefix_style = palette.brand_primary if selected else palette.text_muted
     text = _RichText()
-    label_text, gap, source, status, quant, size, detail_gap, detail = parts
+    label_text, action_gap, action, metadata_gap, metadata = parts
     text.append(prefix, style=prefix_style)
     text.append(label_text, style=label_style)
-    text.append(gap, style=metadata_style)
-    text.append(source, style=metadata_style)
-    text.append(status, style=metadata_style)
-    text.append(quant, style=quant_style)
-    text.append(size, style=metadata_style)
-    text.append(detail_gap, style=metadata_style)
-    text.append(detail, style=metadata_style)
+    text.append(action_gap, style=action_style)
+    text.append(action, style=action_style)
+    text.append(metadata_gap, style=metadata_style)
+    text.append(metadata, style=metadata_style)
     return text
 
 
@@ -253,45 +247,79 @@ def _local_model_option_parts(
     description: str,
     *,
     prompt_width: int,
-) -> tuple[str, str, str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     label = _local_model_visible_label(label)
     source, status, quant, size, detail = _split_local_model_description(description)
-    metadata = _local_model_metadata(source, status, quant, size)
-    metadata_width = sum(len(part) for part in metadata)
-    gap = " " * _LOCAL_COLUMN_GAP
-    label_width = prompt_width - len(gap) - metadata_width
+    action = " ".join(field for field in (source, status) if field)
+    metadata = _local_model_metadata_text(quant, size, detail)
+    if not metadata:
+        return (*_local_model_left_parts(label, action, prompt_width), "", "")
+
+    metadata_gap = " " * _LOCAL_METADATA_GAP
+    full_left = _local_model_left_text(label, action)
+    if len(full_left) + len(metadata_gap) + len(metadata) <= prompt_width:
+        gap = " " * (prompt_width - len(full_left) - len(metadata))
+        return (*_local_model_left_parts(label, action, len(full_left)), gap, metadata)
+
+    min_left_width = min(len(full_left), _local_model_min_left_width(action))
+    metadata_width = min(
+        len(metadata),
+        max(0, prompt_width - len(metadata_gap) - min_left_width),
+    )
+    metadata = _local_model_metadata_text(quant, size, detail, width=metadata_width)
+    if not metadata:
+        return (*_local_model_left_parts(label, action, prompt_width), "", "")
+    left_width = max(0, prompt_width - len(metadata_gap) - len(metadata))
+    return (*_local_model_left_parts(label, action, left_width), metadata_gap, metadata)
+
+
+def _local_model_left_text(label: str, action: str) -> str:
+    label_text, action_gap, action_text = _local_model_left_parts(
+        label,
+        action,
+        len(label) + len(action) + (0 if not action else _LOCAL_ACTION_GAP),
+    )
+    return f"{label_text}{action_gap}{action_text}"
+
+
+def _local_model_left_parts(label: str, action: str, width: int) -> tuple[str, str, str]:
+    if width <= 0:
+        return "", "", ""
+    if not action:
+        return _truncate_with_ellipsis(label, width), "", ""
+
+    action_gap = " " * _LOCAL_ACTION_GAP
+    label_width = width - len(action_gap) - len(action)
     if label_width <= 0:
-        return (_truncate_with_ellipsis(label, prompt_width), "", "", "", "", "", "", "")
-
-    detail_gap = ""
-    if detail and label_width > len(label) + len(gap) + _LOCAL_MIN_DETAIL_WIDTH:
-        detail_gap = gap
-        detail_width = label_width - len(label) - len(detail_gap)
-        detail = _truncate_with_ellipsis(detail, detail_width)
-        label_width = len(label)
-    else:
-        detail = ""
-
-    label_text = _truncate_with_ellipsis(label, label_width)
-    return (label_text.ljust(label_width), gap, *metadata, detail_gap, detail)
+        return _truncate_with_ellipsis(label, width), "", ""
+    return _truncate_with_ellipsis(label, label_width), action_gap, action
 
 
-def _local_model_metadata(
-    source: str,
-    status: str,
+def _local_model_min_left_width(action: str) -> int:
+    if not action:
+        return _LOCAL_MIN_LABEL_WIDTH
+    return _LOCAL_MIN_LABEL_WIDTH + _LOCAL_ACTION_GAP + len(action)
+
+
+def _local_model_metadata_text(
     quant: str,
     size: str,
-) -> tuple[str, str, str, str]:
-    return (
-        _local_model_column(source, _LOCAL_SOURCE_WIDTH),
-        _local_model_column(status, _LOCAL_STATUS_WIDTH),
-        _local_model_column(quant, _LOCAL_QUANT_WIDTH),
-        _local_model_column(size, _LOCAL_SIZE_WIDTH),
-    )
-
-
-def _local_model_column(value: str, width: int) -> str:
-    return _truncate_with_ellipsis(value, width).ljust(width)
+    detail: str,
+    *,
+    width: int | None = None,
+) -> str:
+    fixed = "  ".join(field for field in (quant, size) if field)
+    metadata = "  ".join(field for field in (fixed, detail) if field)
+    if width is None or len(metadata) <= width:
+        return metadata
+    if width <= 0:
+        return ""
+    if not fixed:
+        return _truncate_with_ellipsis(detail, width)
+    if detail and width >= len(fixed) + _LOCAL_METADATA_GAP + _LOCAL_MIN_DETAIL_WIDTH:
+        detail_width = width - len(fixed) - _LOCAL_METADATA_GAP
+        return f"{fixed}{' ' * _LOCAL_METADATA_GAP}{_truncate_with_ellipsis(detail, detail_width)}"
+    return _truncate_with_ellipsis(fixed, width)
 
 
 def _local_model_visible_label(label: str) -> str:

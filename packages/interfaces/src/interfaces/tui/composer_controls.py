@@ -14,6 +14,7 @@ from interfaces.terminal.theme_state import current_palette
 from interfaces.tui.display_text import footer_hints_text as _footer_hints_text
 from interfaces.tui.display_text import status_text as _status_text
 from interfaces.tui.ids import (
+    COMPLETION_MENU_CLASS,
     COMPOSER_ID,
     COMPOSER_SELECTOR,
     FOOTER_HINTS_SELECTOR,
@@ -623,6 +624,7 @@ class TuiComposerControlsMixin:
         suggestions.remove_class("inline-menu")
         if not self.completion_candidates:
             suggestions.set_options([])
+            suggestions.remove_class(COMPLETION_MENU_CLASS)
             suggestions.remove_class("visible")
             self._refresh_status()
             self._refresh_footer_hints()
@@ -641,6 +643,7 @@ class TuiComposerControlsMixin:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         suggestions.set_options([])
         suggestions.remove_class("inline-menu")
+        suggestions.remove_class(COMPLETION_MENU_CLASS)
         suggestions.remove_class("visible")
         self._clear_suggestions_mouse_hovering(suggestions)
         self._refresh_status()
@@ -688,6 +691,7 @@ class TuiComposerControlsMixin:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
         command_width = self._completion_command_width(highlighted, suggestions.size.height)
         self._completion_command_column_width = command_width
+        suggestions.add_class(COMPLETION_MENU_CLASS)
         suggestions.set_options(
             [
                 self._format_completion_candidate(

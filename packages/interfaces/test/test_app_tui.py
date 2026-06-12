@@ -20,7 +20,6 @@ from ai.runtime import ChatConfig, Conversation
 from hephaion._types import is_string_mapping
 from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
 from hephaion.armory.storage import initialize
-from hephaion.chat import storage as chat_storage
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     NoticeEvent,
@@ -30,7 +29,6 @@ from hephaion.chat.events import (
 )
 from hephaion.chat.session import ChatSession, record_turn_snapshot, save_session
 from hephaion.chat.usage import TokenUsage
-from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from interfaces import tui
@@ -61,6 +59,9 @@ from rich.text import Text
 from textual import events
 from textual._xterm_parser import XTermParser
 from textual.strip import Strip
+
+from hephaion.chat import storage as chat_storage
+from hephaion.parameters import settings as settings_store
 
 tui.set_command_registry_fn(heph_commands.get_registry)
 
@@ -122,6 +123,10 @@ def _strip_plain_text(strip: Strip) -> str:
 def _option_prompt_plain(option_list: object, index: int) -> str:
     typed_list = cast("TextualOptionList", option_list)
     return str(typed_list.get_option_at_index(index).prompt)
+
+
+def _screen_line_with(app: tui.HephTui, text: str) -> str:
+    return next(line for line in _composited_screen_text(app).splitlines() if text in line)
 
 
 def _completion_description_columns(app: tui.HephTui) -> list[int]:
@@ -2005,8 +2010,14 @@ def test_tui_css_completion_highlight_has_quiet_selection_contrast() -> None:
 
 def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
     css = tui._tui_css()
+    selector = "#suggestions.inline-menu > .option-list--option-highlighted"
+    block_start = css.index(selector)
+    block_end = css.index("}", block_start)
+    block = css[block_start:block_end]
 
-    assert "#suggestions.inline-menu > .option-list--option-highlighted" not in css
+    assert "padding: 0 0;" in block
+    assert "background:" not in block
+    assert "color:" not in block
 
 
 def test_inline_menu_selected_label_uses_brand_without_bold_row() -> None:
@@ -2073,39 +2084,113 @@ def test_local_model_option_text_uses_structured_columns() -> None:
             "2,656,128 downloads, 700 likes",
         ),
         selected=True,
-        prompt_width=82,
+        prompt_width=120,
     )
 
     plain = prompt if isinstance(prompt, str) else prompt.plain
-    assert len(plain) == 82
+    assert len(plain) == 120
     assert not plain.startswith("llama-cpp/")
-    assert plain.startswith("→ unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M")
+    assert plain.startswith("→ unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M search install")
+    assert plain.index("search install") == len("→ unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M ")
     assert "search" in plain
     assert "install" in plain
     assert "Q4_K_M" in plain
     assert "3.7 GB" in plain
+    assert plain.endswith("2,656,128 downloads, 700 likes")
 
 
 def test_local_model_option_text_drops_detail_when_narrow() -> None:
+    label = "llama-cpp/Andyvurrent/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_GGUF"
+    description = local_model_option_description(
+        "search",
+        "install",
+        "Q4_K_M",
+        "721 MB",
+        "2,433,843 downloads, 54 likes",
+    )
     prompt = _local_model_option_text(
-        "llama-cpp/Andyvurrent/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_GGUF",
-        local_model_option_description(
-            "search",
-            "install",
-            "Q4_K_M",
-            "721 MB",
-            "2,433,843 downloads, 54 likes",
-        ),
+        label,
+        description,
         selected=False,
         prompt_width=54,
     )
 
     plain = prompt if isinstance(prompt, str) else prompt.plain
     assert len(plain) == 54
-    assert plain.startswith("  Andyvurren...")
+    assert plain.startswith("  Andy... search install")
     assert "search" in plain
     assert "Q4_K_M" in plain
-    assert "downloads" not in plain
+    assert "721 MB" in plain
+    assert plain.endswith("2,433,843...")
+
+    tight_prompt = _local_model_option_text(
+        label,
+        description,
+        selected=False,
+        prompt_width=46,
+    )
+    tight_plain = tight_prompt if isinstance(tight_prompt, str) else tight_prompt.plain
+    assert len(tight_plain) == 46
+    assert "Q4_K_M" in tight_plain
+    assert "721 MB" in tight_plain
+    assert tight_plain.endswith("2...")
+
+
+def test_local_inline_menu_entries_align_with_counter() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_local_menu_alignment() -> None:
+        async with typed_app.run_test(size=(200, 24)) as pilot:
+            app._open_inline_menu(
+                name="local",
+                step="menu",
+                title="Local models",
+                options=[
+                    (
+                        "llama-cpp/unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M",
+                        local_model_option_description(
+                            "search",
+                            "install",
+                            "Q4_K_M",
+                            "3.7 GB",
+                            "2,656,128 downloads, 700 likes",
+                        ),
+                    ),
+                    (
+                        "llama-cpp/hugging-quants/Llama-3.2-1B-Instruct-Q8_0-GGUF:Q8_0",
+                        local_model_option_description(
+                            "search",
+                            "install",
+                            "Q8_0",
+                            "1.1 GB",
+                            "656,450 downloads, 46 likes",
+                        ),
+                    ),
+                ],
+            )
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            entry_line = _screen_line_with(app, "unsloth/Qwen3-Coder-Next-GGUF")
+            position_line = _screen_line_with(app, f"(1/{suggestions.option_count})")
+            label = "unsloth/Qwen3-Coder-Next-GGUF:Q4_K_M"
+            action = "search install"
+            metadata = "2,656,128 downloads, 700 likes"
+
+            assert entry_line.index("unsloth/") == position_line.index("(")
+            assert entry_line.index(action) == entry_line.index(label) + len(label) + 1
+            assert entry_line.rstrip().endswith(metadata)
+            assert entry_line.index(metadata) > entry_line.index(action) + len(action)
+
+    asyncio.run(check_local_menu_alignment())
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -2325,6 +2410,12 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert suggestions.size.height <= 7
             assert position.region.y == suggestions.region.y + suggestions.size.height
             assert footer.region.y == position.region.y + 1
+            screen_text = _composited_screen_text(app)
+            screen_lines = screen_text.splitlines()
+            command_line = next(line for line in screen_lines if "/help" in line)
+            position_label = f"(1/{suggestions.option_count})"
+            position_line = next(line for line in screen_lines if position_label in line)
+            assert command_line.index("/help") == position_line.index("(")
 
     asyncio.run(check_inline_menu_layout())
 
@@ -4555,6 +4646,9 @@ def test_sessions_menu_legacy_newline_titles_do_not_wrap_or_trap_highlight(
             assert suggestions.option_count == 6
             assert suggestions.virtual_size.height == suggestions.option_count
             assert suggestions.highlighted == 0
+            entry_line = _screen_line_with(app, "legacy0")
+            position_line = _screen_line_with(app, f"(1/{suggestions.option_count})")
+            assert entry_line.index("legacy0") == position_line.index("(")
 
             for expected in range(1, 6):
                 await pilot.press("down")

@@ -355,6 +355,18 @@ OptionList:focus > .option-list--option-highlighted {{
     text-style: not bold;
     padding: 0 2;
 }}
+#suggestions.completion-menu > .option-list--option,
+#suggestions.completion-menu > .option-list--option-hover,
+#suggestions.completion-menu > .option-list--option-highlighted,
+#suggestions.completion-menu:focus > .option-list--option-highlighted,
+#suggestions.completion-menu:focus > .option-list--option-hover,
+#suggestions.inline-menu > .option-list--option,
+#suggestions.inline-menu > .option-list--option-hover,
+#suggestions.inline-menu > .option-list--option-highlighted,
+#suggestions.inline-menu:focus > .option-list--option-highlighted,
+#suggestions.inline-menu:focus > .option-list--option-hover {{
+    padding: 0 0;
+}}
 #composer {{
     height: auto;
     min-height: 1;

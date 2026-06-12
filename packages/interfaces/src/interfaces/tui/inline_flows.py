@@ -35,6 +35,7 @@ from interfaces.terminal import current_palette, set_theme
 from interfaces.tui.auth_flows import TuiAuthFlowMixin
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER
 from interfaces.tui.flow_state import InlineFlow
+from interfaces.tui.ids import COMPLETION_MENU_CLASS
 from interfaces.tui.inline_menu import (
     _consume_inline_key,
     _dedupe_inline_options,
@@ -87,20 +88,24 @@ __all__ = [
 try:
     from rich.text import Text as _RichText
     from textual import events
+    from textual.css.query import NoMatches
+    from textual.widget import Widget
     from textual.widgets import Input, OptionList, RichLog
 except ImportError:
     _RichText = None  # ty:ignore[invalid-assignment]
     events = None  # ty:ignore[invalid-assignment]
     Input = None  # ty:ignore[invalid-assignment]
+    NoMatches = LookupError  # ty:ignore[invalid-assignment]
     OptionList = None  # ty:ignore[invalid-assignment]
     RichLog = None  # ty:ignore[invalid-assignment]
+    Widget = object  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat import storage as chat_storage
     from hephaion.chat.session import ChatSession
     from hephaion.chat.turn_history import TurnSnapshot
     from textual import events
-    from textual.widget import Widget
+
+    from hephaion.chat import storage as chat_storage
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")
@@ -126,6 +131,7 @@ _KEYMAP_CAPTURE_PLACEHOLDER_HINTS = shortcut_hint_line(
         ShortcutHint("Cancel", "esc"),
     )
 )
+_INLINE_MENU_WIDTH_REFRESH_DELAY_SECONDS = 0.01
 
 _ACTIVITY_TRACE_CYCLE = (
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
@@ -208,6 +214,8 @@ class _InlineFlowHost(Protocol):
         *args: _P.args,
         **kwargs: _P.kwargs,
     ) -> object: ...
+
+    def set_timer(self, delay: float, callback: Callable[[], object]) -> object: ...
 
     def refresh_css(self, *, animate: bool = True) -> None: ...
 
@@ -318,6 +326,8 @@ class _InlineFlowHost(Protocol):
         *,
         highlighted: int | None = 0,
     ) -> None: ...
+
+    def _refresh_inline_menu_width(self) -> None: ...
 
     def _filter_inline_menu_options(self, query: str) -> None: ...
 
@@ -509,6 +519,19 @@ class TuiInlineFlowMixin(
         composer.focus()
         self.set_focus(composer)
         self._refresh_status()
+        self.set_timer(_INLINE_MENU_WIDTH_REFRESH_DELAY_SECONDS, self._refresh_inline_menu_width)
+
+    def _refresh_inline_menu_width(self: _InlineFlowHost) -> None:
+        if not self._inline_flow.active:
+            return
+        try:
+            suggestions = self.query_one("#suggestions", OptionList)
+        except NoMatches:
+            return
+        self._render_inline_menu_options(
+            self._inline_flow.options,
+            highlighted=suggestions.highlighted,
+        )
 
     def _render_inline_menu_options(
         self: _InlineFlowHost,
@@ -523,7 +546,7 @@ class TuiInlineFlowMixin(
             rendered_height = suggestions.size.height
             if self._inline_flow.name == "sessions":
                 label_width = _inline_menu_label_width(options)
-                prompt_width = _prompt_width(suggestions.size.width, self._transcript_render_width)
+                prompt_width = _inline_menu_prompt_width(self, suggestions)
                 prompts = [
                     _session_menu_option_text(
                         label,
@@ -535,10 +558,7 @@ class TuiInlineFlowMixin(
                     for index, (label, description) in enumerate(options)
                 ]
             elif self._inline_flow.name == "local":
-                prompt_width = _prompt_width(
-                    suggestions.size.width,
-                    self._transcript_render_width,
-                )
+                prompt_width = _inline_menu_prompt_width(self, suggestions)
                 prompts = [
                     _local_model_option_text(
                         label,
@@ -576,6 +596,7 @@ class TuiInlineFlowMixin(
             suggestions.highlighted = None
             suggestions.scroll_y = 0
         suggestions.add_class("inline-menu")
+        suggestions.remove_class(COMPLETION_MENU_CLASS)
         suggestions.add_class("visible")
         self._refresh_footer_hints()
 
@@ -592,10 +613,10 @@ class TuiInlineFlowMixin(
         options = self._inline_flow.options
         if self._inline_flow.name == "sessions":
             label_width = _inline_menu_label_width(options)
-            prompt_width = _prompt_width(suggestions.size.width, self._transcript_render_width)
+            prompt_width = _inline_menu_prompt_width(self, suggestions)
         elif self._inline_flow.name == "local":
             label_width = 0
-            prompt_width = _prompt_width(suggestions.size.width, self._transcript_render_width)
+            prompt_width = _inline_menu_prompt_width(self, suggestions)
         else:
             label_width = _inline_menu_scrolled_label_width(
                 options,
@@ -1051,6 +1072,14 @@ def _highlighted_inline_label(host: _InlineFlowHost) -> str | None:
     if highlighted is None or not 0 <= highlighted < len(host._inline_flow.options):
         return None
     return host._inline_flow.options[highlighted][0]
+
+
+def _inline_menu_prompt_width(host: _InlineFlowHost, suggestions: OptionList) -> int:
+    width = suggestions.size.width
+    if width <= 0:
+        stack = host.query_one("#completion-stack", Widget)
+        width = stack.size.width
+    return _prompt_width(width, host._transcript_render_width)
 
 
 def _keymap_options(keymap: RuntimeKeymap) -> list[tuple[str, str]]:
