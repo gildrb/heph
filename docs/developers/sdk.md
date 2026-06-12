@@ -275,6 +275,9 @@ for event in session.prompt("Summarize chapter 2."):
 unsubscribe()
 ```
 
+Listener exceptions are logged and isolated. A failed listener does not stop the
+prompt stream or prevent later listeners from receiving the same event.
+
 `session.abort()` sets the active turn's abort signal. A transport adapter can
 wire this to a cancel button or JSON-RPC `abort` method. `session.is_streaming`
 is true while a turn is active. While streaming, direct session clients can

@@ -8,6 +8,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ai.logging import get_logger
 from ai.runtime import ChatConfig
 from hephaion.armory.search import (
     load_available_armory_entries,
@@ -45,6 +46,8 @@ from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
 type HephSessionStreamGuard = Callable[[threading.Event], AbstractContextManager[None]]
+
+_log = get_logger("heph.sdk.runtime")
 
 
 class HephSdkError(Exception):
@@ -274,7 +277,14 @@ class HephSession:
         with self._listeners_lock:
             listeners = tuple(self._listeners)
         for listener in listeners:
-            listener(event)
+            try:
+                listener(event)
+            except Exception:
+                _log.warning(
+                    "SDK event listener failed",
+                    extra={"fields": {"event": event.kind}},
+                    exc_info=True,
+                )
 
     def _set_stream_start_guard(self, guard: HephSessionStreamGuard) -> None:
         with self._stream_lock:

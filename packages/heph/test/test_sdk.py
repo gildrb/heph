@@ -384,6 +384,56 @@ def test_session_subscriber_can_unsubscribe_while_events_emit(
     unsubscribe_second()
 
 
+def test_session_listener_failure_does_not_stop_stream_or_other_listeners(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ListenerFailureError(Exception):
+        pass
+
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    failing_listener_events: list[str] = []
+    healthy_listener_events: list[str] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, prompt, abort
+        yield AssistantDeltaEvent("first")
+        yield AssistantDeltaEvent("second")
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def failing_listener(event: object) -> None:
+        if isinstance(event, AssistantDelta):
+            failing_listener_events.append(event.delta)
+            raise ListenerFailureError("listener failed")
+
+    def healthy_listener(event: object) -> None:
+        if isinstance(event, AssistantDelta):
+            healthy_listener_events.append(event.delta)
+        elif isinstance(event, TurnComplete):
+            healthy_listener_events.append("complete")
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    session.subscribe(failing_listener)
+    session.subscribe(healthy_listener)
+
+    events = list(session.prompt("Keep streaming after listener failure."))
+
+    assert [event.kind for event in events] == [
+        "assistant_delta",
+        "assistant_delta",
+        "turn_complete",
+    ]
+    assert failing_listener_events == ["first", "second"]
+    assert healthy_listener_events == ["first", "second", "complete"]
+    assert not session.is_streaming
+
+
 def test_session_rejects_concurrent_prompt_streams(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
