@@ -11,9 +11,10 @@ from pathlib import Path
 from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
-from heph.sdk.capabilities import BUSY_ALLOWED_CALL_METHODS, get_sdk_capabilities
+from heph.sdk.capabilities import get_sdk_capabilities
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
+from heph.sdk.methods import BUSY_ALLOWED_CALL_METHODS
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
 from heph.sdk.state import (

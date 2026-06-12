@@ -43,6 +43,7 @@ from heph.sdk import (
     from_turn_event,
     get_sdk_capabilities,
 )
+from heph.sdk import methods as sdk_methods
 from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
@@ -179,6 +180,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
+    jsonl_call_methods = _payload_list(jsonl["call_methods"])
     jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
@@ -190,15 +192,22 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
     assert payload["version"] == 7
+    assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
+    assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
+    assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert jsonl_call_methods == list(sdk_methods.JSONL_CALL_METHODS)
+    assert jsonl_stream_methods == list(sdk_methods.JSONL_STREAM_METHODS)
     assert "capabilities" in service_call_methods
     assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
     assert "list_model_choices" in service_call_methods
     assert "switch_model" in service_call_methods
     assert "build_index" in service_stream_methods
-    assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
     assert jsonl["protocol"] == "heph-sdk-jsonl"
     assert "build_index_stream" in jsonl_stream_methods
+    assert sdk_methods.service_stream_method_for_jsonl("build_index_stream") == "build_index"
+    assert sdk_methods.service_stream_method_for_jsonl("prompt") is None
+    assert sdk_methods.service_stream_method_for_jsonl("unknown") is None
     assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert "reasoning_delta" in event_types

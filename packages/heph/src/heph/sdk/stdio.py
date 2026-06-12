@@ -12,8 +12,12 @@ from typing import TextIO
 from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
-from heph.sdk.capabilities import SDK_JSONL_PROTOCOL, SDK_JSONL_VERSION
 from heph.sdk.factory import HephSdkOptions, create_heph_service
+from heph.sdk.methods import (
+    SDK_JSONL_PROTOCOL,
+    SDK_JSONL_VERSION,
+    service_stream_method_for_jsonl,
+)
 from heph.sdk.runtime import HephSdkBusyError, HephSdkError
 from heph.sdk.service import HephService, ServicePayload
 
@@ -92,8 +96,9 @@ class JsonlSdkServer:
             if method == "prompt":
                 self._start_prompt_stream(request_id, params)
                 return
-            if method == "build_index_stream":
-                self._start_operation_stream(request_id, method, "build_index", params)
+            service_method = service_stream_method_for_jsonl(method)
+            if service_method is not None:
+                self._start_operation_stream(request_id, method, service_method, params)
                 return
             self._handle_call(request_id, method, params)
         except SdkProtocolError as exc:
