@@ -56,6 +56,7 @@ from heph.sdk.providers import (
 from heph.sdk.providers import (
     list_providers as list_config_providers,
 )
+from heph.sdk.state import HephMessage, HephSdkSessionState
 from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
@@ -78,15 +79,6 @@ class HephSdkBusyError(HephSdkError):
         ),
     ) -> None:
         super().__init__(message)
-
-
-@dataclass(frozen=True, slots=True)
-class HephMessage:
-    role: str
-    content: str
-
-    def to_dict(self) -> dict[str, object]:
-        return {"role": self.role, "content": self.content}
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,58 +382,6 @@ class HephSession:
         self._ensure_not_disposed_locked()
         if self._streaming:
             raise HephSdkBusyError("Session is already streaming.")
-
-
-@dataclass(frozen=True, slots=True)
-class HephSdkSessionState:
-    session_id: str
-    title: str
-    armory_path: Path | None
-    model: str
-    is_streaming: bool
-    messages: tuple[HephMessage, ...]
-    provider_slug: str = ""
-    source_file_count: int = 0
-    source_files: tuple[str, ...] = ()
-    disabled_source_files: frozenset[str] = frozenset()
-    enabled_source_files: tuple[str, ...] = ()
-    has_unsaved_changes: bool = False
-    is_disposed: bool = False
-
-    @classmethod
-    def from_session(cls, session: HephSession) -> HephSdkSessionState:
-        return cls(
-            session_id=session.session_id,
-            title=session.title,
-            armory_path=session.armory_path,
-            provider_slug=session.provider_slug,
-            model=session.model,
-            is_streaming=session.is_streaming,
-            messages=session.messages,
-            source_file_count=session.source_file_count,
-            source_files=session.source_files,
-            disabled_source_files=session.disabled_source_files,
-            enabled_source_files=session.enabled_source_files,
-            has_unsaved_changes=session.has_unsaved_changes,
-            is_disposed=session.is_disposed,
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "session_id": self.session_id,
-            "title": self.title,
-            "armory_path": str(self.armory_path) if self.armory_path is not None else None,
-            "provider_slug": self.provider_slug,
-            "model": self.model,
-            "is_streaming": self.is_streaming,
-            "is_disposed": self.is_disposed,
-            "source_file_count": self.source_file_count,
-            "source_files": list(self.source_files),
-            "disabled_source_files": sorted(self.disabled_source_files),
-            "enabled_source_files": list(self.enabled_source_files),
-            "has_unsaved_changes": self.has_unsaved_changes,
-            "messages": [message.to_dict() for message in self.messages],
-        }
 
 
 @dataclass(slots=True)

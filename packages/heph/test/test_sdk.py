@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
 from ai.providers.config import default_config
@@ -17,6 +18,7 @@ from heph.sdk import (
     SDK_CAPABILITIES,
     ArmoryValidationSummary,
     AssistantDelta,
+    HephMessage,
     HephRuntime,
     HephSdkBusyError,
     HephSdkCapabilities,
@@ -1292,6 +1294,12 @@ def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
 
 
 def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
+    assert sdk_runtime.HephMessage is HephMessage
+    assert sdk_runtime.HephSdkSessionState is HephSdkSessionState
+    assert get_type_hints(HephSdkSessionState)["messages"] == tuple[HephMessage, ...]
+    assert get_type_hints(HephSdkRuntimeState.from_runtime)["return"] is HephSdkRuntimeState
+    assert get_type_hints(HephSdkSessionState.from_session)["return"] is HephSdkSessionState
+
     session_state = HephSdkSessionState("session-1", "Title", None, "sdk-model", False, ())
 
     assert session_state.source_file_count == 0
