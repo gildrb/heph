@@ -490,6 +490,55 @@ def test_session_rejects_mutations_while_streaming(
     assert session.save().is_file()
 
 
+def test_runtime_rejects_fork_from_streaming_or_disposed_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    stream_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, prompt, abort
+        started.set()
+        yield AssistantDeltaEvent("first")
+        assert release.wait(timeout=2.0)
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def collect_events() -> None:
+        try:
+            list(session.prompt("Prompt before fork."))
+        except Exception as exc:
+            stream_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_events, name="test-sdk-runtime-fork-source")
+
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    with pytest.raises(HephSdkBusyError, match="already streaming"):
+        runtime.fork_session(session, "T1")
+
+    release.set()
+    thread.join(timeout=2.0)
+
+    assert stream_errors == []
+    assert not thread.is_alive()
+    assert not session.is_streaming
+
+    session.dispose()
+    with pytest.raises(HephSdkError, match="disposed"):
+        runtime.fork_session(session, "T1")
+
+
 def test_runtime_lists_saves_and_resumes_sessions(tmp_path: Path) -> None:
     runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
     session = runtime.new_session()

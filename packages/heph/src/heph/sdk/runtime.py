@@ -292,10 +292,14 @@ class HephSession:
     @contextmanager
     def _idle_mutation(self) -> Iterator[None]:
         with self._stream_lock:
-            self._ensure_not_disposed_locked()
-            if self._streaming:
-                raise HephSdkBusyError("Session is already streaming.")
+            self._ensure_idle_locked()
             yield
+
+    @contextmanager
+    def _idle_raw_session(self) -> Iterator[ChatSession]:
+        with self._stream_lock:
+            self._ensure_idle_locked()
+            yield self._session
 
     def _begin_stream(self, abort: threading.Event) -> None:
         with self._stream_lock:
@@ -314,6 +318,11 @@ class HephSession:
     def _ensure_not_disposed_locked(self) -> None:
         if self._disposed:
             raise HephSdkError("SDK session is disposed.")
+
+    def _ensure_idle_locked(self) -> None:
+        self._ensure_not_disposed_locked()
+        if self._streaming:
+            raise HephSdkBusyError("Session is already streaming.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,7 +428,8 @@ class HephRuntime:
         return HephSession(resume_session(self.config, self.armory_path, session_id))
 
     def fork_session(self, session: HephSession, turn_id: str) -> HephSession:
-        return HephSession(fork_session_at_turn(session._session, turn_id))
+        with session._idle_raw_session() as raw_session:
+            return HephSession(fork_session_at_turn(raw_session, turn_id))
 
     def list_sessions(self) -> tuple[SessionSummary, ...]:
         if self.armory_path is None:
