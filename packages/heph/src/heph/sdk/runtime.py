@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -219,25 +219,28 @@ class HephSession:
         return full_text or "".join(chunks)
 
     def refresh_materials(self) -> None:
-        self._session.refresh_armory_sources()
+        with self._idle_mutation():
+            self._session.refresh_armory_sources()
 
     def set_source_enabled(self, source: str, enabled: bool) -> bool:
-        if source not in self.source_files:
-            raise HephSdkError(f"SDK session source file is not attached: {source}")
-        disabled_sources = self._session.disabled_source_files
-        if enabled:
-            if source not in disabled_sources:
-                return False
-            disabled_sources.remove(source)
-        else:
-            if source in disabled_sources:
-                return False
-            disabled_sources.add(source)
-        self._session.dirty = True
-        return True
+        with self._idle_mutation():
+            if source not in self.source_files:
+                raise HephSdkError(f"SDK session source file is not attached: {source}")
+            disabled_sources = self._session.disabled_source_files
+            if enabled:
+                if source not in disabled_sources:
+                    return False
+                disabled_sources.remove(source)
+            else:
+                if source in disabled_sources:
+                    return False
+                disabled_sources.add(source)
+            self._session.dirty = True
+            return True
 
     def save(self) -> Path:
-        return save_session(self._session)
+        with self._idle_mutation():
+            return save_session(self._session)
 
     def dispose(self) -> None:
         self._listeners.clear()
@@ -261,6 +264,13 @@ class HephSession:
         if guard is None:
             return nullcontext()
         return guard(abort)
+
+    @contextmanager
+    def _idle_mutation(self) -> Iterator[None]:
+        with self._stream_lock:
+            if self._streaming:
+                raise HephSdkBusyError("Session is already streaming.")
+            yield
 
     def _begin_stream(self, abort: threading.Event) -> None:
         with self._stream_lock:

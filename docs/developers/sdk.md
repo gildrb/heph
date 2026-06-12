@@ -247,7 +247,10 @@ unsubscribe()
 
 `session.abort()` sets the active turn's abort signal. A transport adapter can
 wire this to a cancel button or JSON-RPC `abort` method. `session.is_streaming`
-is true while a turn is active.
+is true while a turn is active. While streaming, direct session clients can
+observe state, receive events, and abort the turn; mutation methods such as
+`set_source_enabled()`, `refresh_materials()`, and `save()` raise
+`HephSdkBusyError` until the stream ends.
 
 ## Service Dispatch
 
