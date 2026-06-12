@@ -33,6 +33,7 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+      learning/    Local harness attempts, replay data, rewards, and policies
       matching/    Fuzzy matching helpers for human-facing selectors
       materials/   Study-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage
@@ -40,7 +41,7 @@ packages/
       privacy/     Consent, anonymous install ID, release-time diagnostics config
       rag/         RAG chunking, indexing, retrieval, source mapping
       safety/      Local safety contracts
-      study/       Prompt plans, learning controller, priority analysis
+      study/       Prompt plans, recall controller, priority analysis
       version/     Package version helpers
       vocab/       Vocabulary drill, scheduler, state
     test/
@@ -66,6 +67,7 @@ graph TD
     Harness --> Materials["materials"]
     Harness --> RAG["rag"]
     Harness --> Study["study"]
+    Harness --> Learning["learning"]
     Harness --> Memory["memory"]
     Harness --> AgentLoop["agent helpers"]
     RAG --> Materials
@@ -78,7 +80,7 @@ Core invariants:
 - `ai.*` is provider and model API substrate. It should almost never change for
   Heph-specific behavior.
 - Hephaion is the correctness harness: guardrails, armories, retrieval,
-  citations, memory, diagnostics, and session state.
+  citations, memory, local learning, diagnostics, and session state.
 - Heph is the agent and composition surface: identity, conversational strategy,
   research orchestration, and user-facing commands.
 - Interfaces and Extensions compose the core through public contracts instead

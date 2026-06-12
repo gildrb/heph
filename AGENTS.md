@@ -111,7 +111,8 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
   `ai.diagnostics`, `ai.types`.
 - Harness reusable packages: `hephaion.matching`, `hephaion._types`,
   `hephaion.materials`, `hephaion.rag`, `hephaion.memory`, `hephaion.armory`,
-  `hephaion.vocab`, `hephaion.study`, `hephaion.chat`, and focused workflow modules.
+  `hephaion.vocab`, `hephaion.learning`, `hephaion.study`, `hephaion.chat`,
+  and focused workflow modules.
 - Reusable packages, including `hephaion.privacy` and `hephaion.diagnostics`, must not
   import adapters (`heph.cli`, `heph.commands`, `interfaces.tui`,
   `interfaces.terminal.history`, `interfaces.terminal.input`).
@@ -214,7 +215,7 @@ Testing rules:
 - Mark flaky tests with `@pytest.mark.flaky(reruns=2, reruns_delay=1)`.
 - Focus coverage on citation parsing/verification, armory-scoped memory, retrieval
   and stale indexes, provider/model switching, and learning-loop state transitions
-  implemented by the `study` controller.
+  implemented by `hephaion.learning` and the `study` controller.
 
 ## Security and Repository Policy
 

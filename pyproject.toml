@@ -196,6 +196,7 @@ source_modules = [
     "hephaion.armory",
     "hephaion.chat",
     "hephaion.diagnostics",
+    "hephaion.learning",
     "hephaion.matching",
     "hephaion.materials",
     "hephaion.memory",

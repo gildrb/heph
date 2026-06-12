@@ -23,9 +23,9 @@ dependency flow, not another architecture narrative.
   coordination, and composition of the lower packages. Lower packages must not
   import Heph.
 - **Hephaion** is the validation and correctness harness. It owns turns,
-  guardrails, grounding, citations, retrieval, armory state, memory, study
-  workflows, diagnostics, and session persistence. It must not import Heph or
-  interface adapters.
+  guardrails, grounding, citations, retrieval, armory state, memory, local
+  learning attempts and policies, study workflows, diagnostics, and session
+  persistence. It must not import Heph or interface adapters.
 - **AI** owns provider configuration, auth, model catalogs, runtime streaming,
   retry, usage, prompt-cache request shaping, logging, diagnostics, and narrow
   payload type helpers. It lives under the `ai.*` Python namespace.
@@ -48,9 +48,9 @@ The core should be hard to change accidentally and easy to extend deliberately.
   behavior.
 - **Hephaion is the correctness harness.** It guarantees local-document
   correctness through armory validation, retrieval, evidence selection,
-  citation verification, guardrails, memory persistence, and diagnostics. It
-  should expose stable harness services instead of accumulating agent persona or
-  interface behavior.
+  citation verification, guardrails, memory persistence, local learning
+  policy artifacts, and diagnostics. It should expose stable harness services
+  instead of accumulating agent persona or interface behavior.
 - **Heph is the brain.** Conversational strategy, research orchestration, Heph
   identity, and user-facing command composition belong here. The current
   `hephaion/agent` and `hephaion/chat` modules are migration-era harness
@@ -79,6 +79,7 @@ graph TD
     Harness --> Materials["materials"]
     Harness --> RAG["rag"]
     Harness --> Study["study"]
+    Harness --> Learning["learning"]
     Harness --> Memory["memory"]
     Harness --> AgentLoop["agent helpers"]
     RAG --> Materials
@@ -155,6 +156,7 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
+      learning/    Local harness attempts, replay data, rewards, and policies
       matching/    Fuzzy matching helpers for human-facing selectors
       materials/   Study-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage
@@ -162,7 +164,7 @@ packages/
       privacy/     Consent, anonymous install ID, release-time diagnostics config
       rag/         RAG chunking, indexing, retrieval, source mapping
       safety/      Local safety contracts
-      study/       Prompt plans, learning controller, priority analysis
+      study/       Prompt plans, recall controller, priority analysis
       version/     Package version helpers
       vocab/       Vocabulary drill, scheduler, state
     test/
@@ -187,6 +189,7 @@ The following packages cannot import anything from adapter packages:
 - `ai.providers`
 - `hephaion.rag`
 - `hephaion.armory`
+- `hephaion.learning`
 - `hephaion.study`
 - `hephaion.memory`
 - `hephaion.parameters`
