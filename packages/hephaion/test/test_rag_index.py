@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import stat
+import threading
 import time
 from pathlib import Path
 
@@ -16,7 +17,6 @@ from heph import commands
 from heph.commands import model as _commands_model
 from hephaion.armory.storage import initialize
 from hephaion.chat.session import ChatSession, create_plain_session
-from hephaion.rag import index as rag_index
 from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.index import (
@@ -28,6 +28,8 @@ from hephaion.rag.index import (
 )
 from interfaces.terminal.history import InputHistory
 from interfaces.terminal.input import handle_input
+
+from hephaion.rag import index as rag_index
 
 
 @pytest.fixture
@@ -152,6 +154,44 @@ class TestArmoryIndexBuild:
 
         index.build()
 
+        assert index.chunk_count == 0
+        assert index.unindexable_files == {
+            "materials/slow.pdf": "document conversion timed out after 1 second(s)"
+        }
+
+    def test_build_marks_slow_binary_conversion_unindexable_from_worker_thread(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaion").mkdir()
+        pdf = arm / "materials" / "slow.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n\x00")
+
+        def slow_chunk_file(*_args: object, **_kwargs: object) -> ChunkedDocument | None:
+            time.sleep(3)
+            return None
+
+        monkeypatch.setenv("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", "1")
+        monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaion.rag.index.chunk_file", slow_chunk_file)
+        index = ArmoryIndex(arm)
+        errors: list[Exception] = []
+
+        def build() -> None:
+            try:
+                index.build()
+            except Exception as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=build, name="test-rag-index-worker-timeout")
+        thread.start()
+        thread.join(timeout=2.0)
+
+        assert not thread.is_alive()
+        assert errors == []
         assert index.chunk_count == 0
         assert index.unindexable_files == {
             "materials/slow.pdf": "document conversion timed out after 1 second(s)"

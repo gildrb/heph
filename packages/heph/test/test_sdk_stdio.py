@@ -4,7 +4,7 @@ import io
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -20,6 +20,11 @@ from heph.sdk import runtime as sdk_runtime
 from heph.sdk import stdio as sdk_stdio
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
 from hephaion.chat.session import ChatSession
+
+
+class _FakeIndex:
+    documents = ("doc-1",)
+    chunk_count = 7
 
 
 def _config() -> ChatConfig:
@@ -311,7 +316,10 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
     result = _payload_mapping(payloads[0]["result"])
 
     assert result["aborted"] is False
-    assert _payload_mapping(result["state"])["service"] == {"prompt_active": True}
+    assert _payload_mapping(result["state"])["service"] == {
+        "prompt_active": True,
+        "active_operation": None,
+    }
     assert not direct_abort_seen.is_set()
     assert prompt_errors == []
     assert not thread.is_alive()
@@ -354,6 +362,117 @@ def test_jsonl_sdk_server_handles_source_scope_toggle(tmp_path: Path) -> None:
     assert toggle_session["disabled_source_files"] == ["materials/notes.md"]
     assert toggle_session["enabled_source_files"] == []
     assert state_session["disabled_source_files"] == ["materials/notes.md"]
+
+
+def test_jsonl_sdk_server_streams_build_index_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_path = tmp_path / ".armories" / "jsonl-index"
+    service = HephService.create_armory(armory_path, config=_config())
+    release = threading.Event()
+
+    def fake_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        assert release.wait(timeout=2.0)
+        progress("writing", ".hephaion/rag_index.json")
+        return _FakeIndex()
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", fake_build_index)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "index-1", "method": "build_index_stream"})
+    server.handle_request({"id": "state-immediate-index", "method": "state"})
+    deadline = time.monotonic() + 2.0
+    while "index_progress" not in output.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert "index_progress" in output.getvalue()
+
+    server.handle_request({"id": "state-during-index", "method": "state"})
+    server.handle_request({"id": "abort-during-index", "method": "abort"})
+    server.handle_request(
+        {
+            "id": "prompt-during-index",
+            "method": "prompt",
+            "params": {"text": "Prompt during index."},
+        }
+    )
+
+    release.set()
+    server._wait_for_streams()
+
+    payloads = _payloads(output.getvalue())
+    assert payloads[0] == {
+        "type": "stream_start",
+        "id": "index-1",
+        "method": "build_index_stream",
+    }
+    immediate_state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-immediate-index"
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-during-index"
+    )
+    abort_response = next(
+        payload for payload in payloads if payload.get("id") == "abort-during-index"
+    )
+    prompt_error = next(
+        payload for payload in payloads if payload.get("id") == "prompt-during-index"
+    )
+    immediate_service = _payload_mapping(
+        _payload_mapping(immediate_state_response["result"])["service"]
+    )
+    state_service = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+    abort_result = _payload_mapping(abort_response["result"])
+    abort_state_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
+    prompt_error_payload = _payload_mapping(prompt_error["error"])
+    events = [
+        _payload_mapping(payload["event"])
+        for payload in payloads
+        if payload["type"] == "stream_event"
+    ]
+    assert immediate_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert state_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert abort_result["aborted"] is False
+    assert abort_state_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert prompt_error_payload["code"] == "busy"
+    assert events == [
+        {
+            "type": "index_progress",
+            "action": "reading",
+            "detail": "materials/notes.md",
+        },
+        {
+            "type": "index_progress",
+            "action": "writing",
+            "detail": ".hephaion/rag_index.json",
+        },
+        {
+            "type": "index_complete",
+            "index": {
+                "documents": 1,
+                "chunks": 7,
+                "progress": [
+                    {"action": "reading", "detail": "materials/notes.md"},
+                    {"action": "writing", "detail": ".hephaion/rag_index.json"},
+                ],
+            },
+        },
+    ]
+    assert payloads[-1] == {"type": "stream_end", "id": "index-1", "ok": True}
 
 
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:

@@ -64,6 +64,9 @@ index = runtime.build_index()
 health = runtime.scan_extraction_health()
 ```
 
+`HephRuntime.build_index(progress=...)` can also report live
+`IndexProgressEvent` values while still returning the final `IndexSummary`.
+
 For transport-style integration, use the service facade:
 
 ```python
@@ -147,9 +150,11 @@ active runtime and optional active session. Direct Python clients should use
 `state_snapshot()` for typed `HephSdkState` values, while transports can keep
 calling `state()` for the same JSON-ready dictionary shape.
 The snapshot and payload include a top-level `service` object with
-`prompt_active`, so clients can disable state-changing controls without
-inspecting internal `ChatSession` objects. `prompt_active` is true for both
-service-owned prompt streams and direct streams on the active `HephSession`.
+`prompt_active` and `active_operation`, so clients can disable state-changing
+controls without inspecting internal `ChatSession` objects. `prompt_active` is
+true for both service-owned prompt streams and direct streams on the active
+`HephSession`; `active_operation` names non-prompt operation streams such as
+`build_index`.
 
 `heph sdk serve` is the first concrete transport. It supports:
 
@@ -171,17 +176,21 @@ service-owned prompt streams and direct streams on the active `HephSession`.
 - `list_materials`
 - `import_materials`
 - `build_index`
+- `build_index_stream`
 - `scan_extraction_health`
 - `update_config`
 
-`prompt` is the streaming method. While a prompt stream is active, clients can
-still call `state` and `abort`; other service methods are rejected until the
-stream ends. This lifecycle rule is enforced by `HephService` itself, so it
-applies to both direct Python embeddings and JSONL transport clients.
-In Python, this raises `HephSdkBusyError`, a subclass of `HephSdkError`. In
-JSONL, the same condition is reported with error code `"busy"`.
+`prompt` and `build_index_stream` are streaming methods. While a prompt or
+operation stream is active, clients can still call `state`; `abort` cancels
+prompt streams but returns a no-op state payload for non-prompt operation streams
+such as `build_index_stream`. Other service methods are rejected until the stream
+ends. Clients should gate state-changing UI with `service.prompt_active` and
+`service.active_operation`. This lifecycle rule is enforced by `HephService`
+itself, so it applies to both direct Python embeddings and JSONL transport
+clients. In Python, this raises `HephSdkBusyError`, a subclass of `HephSdkError`.
+In JSONL, the same condition is reported with error code `"busy"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
-when no JSONL stream is active it returns a no-op state payload.
+when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a
 second prompt on a session that is already streaming.
 
@@ -259,12 +268,15 @@ observe state, receive events, and abort the turn; mutation methods such as
 `update_config`.
 
 `HephService.stream("prompt", {"text": "..."})` yields JSON-ready event
-dictionaries for streaming turns. Keeping streaming separate from regular calls
-lets WebSocket, JSONL, and JSON-RPC adapters choose their own framing.
+dictionaries for streaming turns. `HephService.stream("build_index")` yields
+`index_progress` events and a final `index_complete` event while preserving the
+regular `build_index` response method. Keeping streaming separate from regular
+calls lets WebSocket, JSONL, and JSON-RPC adapters choose their own framing.
 
 The stdio transport maps the same concept onto request IDs. A `prompt` request
 emits `stream_start`, zero or more `stream_event` objects, and one
-`stream_end`. Non-streaming requests emit one `response` or `error`.
+`stream_end`. A `build_index_stream` request uses the same stream framing for
+index progress. Non-streaming requests emit one `response` or `error`.
 
 ## Boundary Rules
 

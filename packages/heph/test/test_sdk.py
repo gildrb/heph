@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,11 @@ from hephaion.chat.events import (
 )
 from hephaion.chat.session import ChatSession
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
+
+
+class _FakeIndex:
+    documents = ("doc-1",)
+    chunk_count = 7
 
 
 def _config() -> ChatConfig:
@@ -532,6 +538,7 @@ def test_service_manages_runtime_session_and_streams_json_events(
     message_payloads = _payload_list(messages["messages"])
 
     assert service_state["prompt_active"] is False
+    assert service_state["active_operation"] is None
     assert runtime_payload["model"] == "gpt-4o-mini"
     assert events == [
         {"type": "assistant_delta", "delta": "Service reply."},
@@ -569,6 +576,7 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert isinstance(empty_snapshot.runtime, HephSdkRuntimeState)
     assert empty_snapshot.session is None
     assert snapshot.service.prompt_active is False
+    assert snapshot.service.active_operation is None
     assert snapshot.runtime.armory_path == armory_path.resolve()
     assert snapshot.runtime.model == "typed-state-model"
     assert snapshot.runtime.temperature is None
@@ -665,6 +673,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
 
     active_state = _payload_mapping(service.state()["service"])
     assert active_state["prompt_active"] is True
+    assert active_state["active_operation"] is None
     source = tmp_path / "late-material.md"
     source.write_text("# Late\n\nShould not import during streaming.\n", encoding="utf-8")
     with pytest.raises(HephSdkBusyError, match="only state and abort"):
@@ -700,6 +709,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert abort_payload["aborted"] is True
     assert abort_seen.is_set()
     assert idle_state["prompt_active"] is False
+    assert idle_state["active_operation"] is None
     assert not thread.is_alive()
     assert stream_errors == []
     assert streamed_events[0] == {"type": "notice", "message": "Waiting.", "code": "sdk_test"}
@@ -958,6 +968,126 @@ def test_service_material_methods_return_transport_ready_payloads(tmp_path: Path
     assert first_material["display_name"] == "week-1.md"
     assert index_payload["documents"] == 1
     assert health_payload["passed"] is True
+
+
+def test_service_streams_build_index_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    service.new_session()
+    session = service.session
+    assert session is not None
+    release = threading.Event()
+    finished = threading.Event()
+
+    def fake_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        assert release.wait(timeout=2.0)
+        progress("writing", ".hephaion/rag_index.json")
+        finished.set()
+        return _FakeIndex()
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", fake_build_index)
+    stream = service.stream("build_index")
+
+    first_event = next(stream)
+    active_service = _payload_mapping(service.state()["service"])
+    assert active_service["prompt_active"] is False
+    assert active_service["active_operation"] == "build_index"
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+        service.new_session()
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+        list(service.prompt("Prompt during index."))
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+        list(session.prompt("Direct prompt during index."))
+    abort_payload = service.call("abort")
+    abort_result = _payload_mapping(abort_payload)
+    abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
+    assert abort_result["aborted"] is False
+    assert abort_service["active_operation"] == "build_index"
+
+    release.set()
+    assert finished.wait(timeout=2.0)
+    finished_but_unconsumed_service = _payload_mapping(service.state()["service"])
+    assert finished_but_unconsumed_service["active_operation"] == "build_index"
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+        service.list_materials()
+    remaining_events = list(stream)
+    idle_service = _payload_mapping(service.state()["service"])
+
+    assert first_event == {
+        "type": "index_progress",
+        "action": "reading",
+        "detail": "materials/notes.md",
+    }
+    assert remaining_events == [
+        {
+            "type": "index_progress",
+            "action": "writing",
+            "detail": ".hephaion/rag_index.json",
+        },
+        {
+            "type": "index_complete",
+            "index": {
+                "documents": 1,
+                "chunks": 7,
+                "progress": [
+                    {"action": "reading", "detail": "materials/notes.md"},
+                    {"action": "writing", "detail": ".hephaion/rag_index.json"},
+                ],
+            },
+        },
+    ]
+    assert idle_service["active_operation"] is None
+
+
+def test_service_streams_build_index_with_file_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.create_armory(tmp_path / ".armories" / "service", config=_config())
+    armory_path = service.runtime.armory_path
+    assert armory_path is not None
+    pdf = armory_path / "materials" / "slow.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n\x00")
+
+    def slow_chunk_file(*_args: object, **_kwargs: object) -> object:
+        time.sleep(3)
+        return None
+
+    monkeypatch.setenv("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
+    monkeypatch.setattr("hephaion.rag.index.chunk_file", slow_chunk_file)
+
+    events = list(service.stream("build_index"))
+    skipped = [
+        event
+        for event in events
+        if event.get("type") == "index_progress" and event.get("action") == "skipped"
+    ]
+    complete = _payload_mapping(events[-1])
+    index = _payload_mapping(complete["index"])
+
+    assert skipped == [
+        {
+            "type": "index_progress",
+            "action": "skipped",
+            "detail": "materials/slow.pdf: document conversion timed out after 1 second(s)",
+        }
+    ]
+    assert complete["type"] == "index_complete"
+    assert index["documents"] == 0
+    assert index["chunks"] == 0
+    assert _payload_mapping(service.state()["service"])["active_operation"] is None
 
 
 def test_service_import_materials_refreshes_active_session_sources(tmp_path: Path) -> None:

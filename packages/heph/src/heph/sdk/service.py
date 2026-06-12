@@ -7,11 +7,13 @@ from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Queue
 
 from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.events import event_to_dict
+from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
 from heph.sdk.state import (
     HephSdkRuntimeState,
@@ -24,6 +26,15 @@ type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
 
 
+@dataclass(frozen=True, slots=True)
+class _IndexStreamDone:
+    payload: ServicePayload | None = None
+    error: BaseException | None = None
+
+
+type _IndexStreamItem = ServicePayload | _IndexStreamDone
+
+
 @dataclass(slots=True)
 class HephService:
     """JSON-ready state facade for native clients and future RPC adapters."""
@@ -32,6 +43,7 @@ class HephService:
     session: HephSession | None = None
     _prompt_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_prompt_abort: threading.Event | None = field(default=None, init=False, repr=False)
+    _active_operation: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.session is not None:
@@ -76,7 +88,7 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServicePayload:
         parameters = params or {}
-        if self.prompt_is_active() and method not in {"state", "abort"}:
+        if self._is_busy() and method not in {"state", "abort"}:
             raise HephSdkBusyError()
         if method == "state":
             return self.state()
@@ -127,9 +139,13 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServiceStream:
         parameters = params or {}
-        if method != "prompt":
-            raise HephSdkError(f"Unknown SDK service stream method: {method}")
-        yield from self.prompt(_required_str(parameters, "text"))
+        if method == "prompt":
+            yield from self.prompt(_required_str(parameters, "text"))
+            return
+        if method == "build_index":
+            yield from self.build_index_stream()
+            return
+        raise HephSdkError(f"Unknown SDK service stream method: {method}")
 
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -215,6 +231,8 @@ class HephService:
             active_abort.set()
             return {"aborted": True, "state": self.state()}
         with self._prompt_lock:
+            if self._active_operation is not None:
+                return {"aborted": False, "state": self.state()}
             session = self._require_session()
         session.abort()
         return {"aborted": True, "session": session.to_dict()}
@@ -264,6 +282,48 @@ class HephService:
         with self._idle_service_call():
             return {"index": self.runtime.build_index().to_dict()}
 
+    def build_index_stream(self) -> Iterator[dict[str, object]]:
+        items: Queue[_IndexStreamItem] = Queue()
+
+        def record_progress(event: IndexProgressEvent) -> None:
+            items.put({"type": "index_progress", **event.to_dict()})
+
+        self._begin_operation("build_index")
+
+        def build() -> None:
+            try:
+                summary = self.runtime.build_index(progress=record_progress)
+            except BaseException as exc:
+                items.put(_IndexStreamDone(error=exc))
+            else:
+                items.put(
+                    _IndexStreamDone(
+                        payload={"type": "index_complete", "index": summary.to_dict()}
+                    )
+                )
+
+        thread = threading.Thread(target=build, name="heph-sdk-build-index")
+        try:
+            thread.start()
+        except BaseException:
+            self._end_operation("build_index")
+            raise
+        try:
+            while True:
+                item = items.get()
+                if isinstance(item, _IndexStreamDone):
+                    if item.error is not None:
+                        raise item.error
+                    if item.payload is not None:
+                        yield item.payload
+                    return
+                yield item
+        finally:
+            try:
+                thread.join()
+            finally:
+                self._end_operation("build_index")
+
     def scan_extraction_health(self) -> dict[str, object]:
         with self._idle_service_call():
             return {"health": self.runtime.scan_extraction_health().to_dict()}
@@ -273,7 +333,10 @@ class HephService:
             return self._prompt_is_active_locked()
 
     def _service_state(self) -> HephSdkServiceState:
-        return HephSdkServiceState(prompt_active=self._prompt_is_active_locked())
+        return HephSdkServiceState(
+            prompt_active=self._prompt_is_active_locked(),
+            active_operation=self._active_operation,
+        )
 
     def _runtime_state(self) -> HephSdkRuntimeState:
         return HephSdkRuntimeState.from_runtime(self.runtime)
@@ -316,6 +379,8 @@ class HephService:
 
     def _begin_prompt(self, abort: threading.Event) -> HephSession:
         with self._prompt_lock:
+            if self._active_operation is not None:
+                raise HephSdkBusyError()
             if self._active_prompt_abort is not None:
                 raise HephSdkBusyError()
             session = self._require_session()
@@ -333,6 +398,20 @@ class HephService:
         with self._prompt_lock:
             return self._active_prompt_abort
 
+    def _is_busy(self) -> bool:
+        with self._prompt_lock:
+            return self._is_busy_locked()
+
+    def _begin_operation(self, name: str) -> None:
+        with self._prompt_lock:
+            self._ensure_idle_for_service_call()
+            self._active_operation = name
+
+    def _end_operation(self, name: str) -> None:
+        with self._prompt_lock:
+            if self._active_operation == name:
+                self._active_operation = None
+
     @contextmanager
     def _direct_stream_guard(
         self,
@@ -342,6 +421,8 @@ class HephService:
         with self._prompt_lock:
             if self.session is not session:
                 raise HephSdkBusyError("SDK session is no longer active.")
+            if self._active_operation is not None:
+                raise HephSdkBusyError()
             active_abort = self._active_prompt_abort
             if active_abort is not None and active_abort is not abort:
                 raise HephSdkBusyError()
@@ -354,8 +435,11 @@ class HephService:
             yield
 
     def _ensure_idle_for_service_call(self) -> None:
-        if self._prompt_is_active_locked():
+        if self._is_busy_locked():
             raise HephSdkBusyError()
+
+    def _is_busy_locked(self) -> bool:
+        return self._active_operation is not None or self._prompt_is_active_locked()
 
     def _prompt_is_active_locked(self) -> bool:
         if self._active_prompt_abort is not None:

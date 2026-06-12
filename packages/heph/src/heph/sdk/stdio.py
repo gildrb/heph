@@ -35,6 +35,12 @@ class ActivePrompt:
     abort: threading.Event
 
 
+@dataclass(frozen=True, slots=True)
+class ActiveOperation:
+    request_id: RequestId
+    active_operation: str
+
+
 @dataclass(slots=True)
 class JsonlSdkServer:
     """Run a stateful SDK service over newline-delimited JSON."""
@@ -45,6 +51,7 @@ class JsonlSdkServer:
     _write_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _state_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _active_prompt: ActivePrompt | None = field(default=None, init=False, repr=False)
+    _active_operation: ActiveOperation | None = field(default=None, init=False, repr=False)
     _stream_threads: list[threading.Thread] = field(default_factory=list, init=False, repr=False)
 
     def serve(self) -> None:
@@ -78,6 +85,9 @@ class JsonlSdkServer:
             if method == "prompt":
                 self._start_prompt_stream(request_id, params)
                 return
+            if method == "build_index_stream":
+                self._start_operation_stream(request_id, method, "build_index", params)
+                return
             self._handle_call(request_id, method, params)
         except SdkProtocolError as exc:
             self._write_error(request_id, exc.code, str(exc))
@@ -97,6 +107,9 @@ class JsonlSdkServer:
         if method == "abort":
             self._write_response(request_id, self._abort_active_prompt())
             return
+        if method == "state":
+            self._write_response(request_id, self._state_with_transport_operation())
+            return
         if self._stream_is_pending() and method != "state":
             raise HephSdkBusyError()
         self._write_response(request_id, self.service.call(method, params))
@@ -105,7 +118,7 @@ class JsonlSdkServer:
         text = _required_string(params, "text")
         active_prompt = ActivePrompt(request_id=request_id, abort=threading.Event())
         with self._state_lock:
-            if self._active_prompt is not None:
+            if self._active_prompt is not None or self._active_operation is not None:
                 raise HephSdkBusyError()
             self._active_prompt = active_prompt
         self._write({"type": "stream_start", "id": request_id, "method": "prompt"})
@@ -152,17 +165,102 @@ class JsonlSdkServer:
                 if self._active_prompt is active_prompt:
                     self._active_prompt = None
 
+    def _start_operation_stream(
+        self,
+        request_id: RequestId,
+        method: str,
+        service_method: str,
+        params: dict[str, object],
+    ) -> None:
+        active_operation = ActiveOperation(
+            request_id=request_id,
+            active_operation=service_method,
+        )
+        with self._state_lock:
+            if self._active_prompt is not None or self._active_operation is not None:
+                raise HephSdkBusyError()
+            self._active_operation = active_operation
+        self._write({"type": "stream_start", "id": request_id, "method": method})
+        thread = threading.Thread(
+            target=self._run_operation_stream,
+            args=(active_operation, service_method, params),
+            name=f"heph-sdk-{method}",
+        )
+        self._stream_threads.append(thread)
+        thread.start()
+
+    def _run_operation_stream(
+        self,
+        active_operation: ActiveOperation,
+        service_method: str,
+        params: dict[str, object],
+    ) -> None:
+        try:
+            for event in self.service.stream(service_method, params):
+                self._write(
+                    {
+                        "type": "stream_event",
+                        "id": active_operation.request_id,
+                        "event": event,
+                    }
+                )
+        except HephSdkBusyError as exc:
+            self._write_stream_end(
+                active_operation.request_id,
+                ok=False,
+                error=_error("busy", str(exc)),
+            )
+        except HephSdkError as exc:
+            self._write_stream_end(
+                active_operation.request_id,
+                ok=False,
+                error=_error("sdk_error", str(exc)),
+            )
+        except Exception as exc:
+            self._write_stream_end(
+                active_operation.request_id,
+                ok=False,
+                error=_error("internal_error", str(exc)),
+            )
+        else:
+            self._write_stream_end(active_operation.request_id, ok=True, error=None)
+        finally:
+            with self._state_lock:
+                if self._active_operation is active_operation:
+                    self._active_operation = None
+
     def _abort_active_prompt(self) -> ServicePayload:
         with self._state_lock:
             active_prompt = self._active_prompt
         if active_prompt is None:
-            return {"aborted": False, "state": self.service.state()}
+            return {"aborted": False, "state": self._state_with_transport_operation()}
         active_prompt.abort.set()
-        return {"aborted": True, "state": self.service.state()}
+        return {"aborted": True, "state": self._state_with_transport_operation()}
+
+    def _state_with_transport_operation(self) -> ServicePayload:
+        state = self.service.state()
+        with self._state_lock:
+            active_operation = (
+                self._active_operation.active_operation
+                if self._active_operation is not None
+                else None
+            )
+        if active_operation is None:
+            return state
+        service_state = state.get("service")
+        if not is_string_mapping(service_state):
+            return state
+        if service_state.get("active_operation") is not None:
+            return state
+        merged_service = dict(service_state)
+        merged_service["active_operation"] = active_operation
+        merged_state = dict(state)
+        merged_state["service"] = merged_service
+        return merged_state
 
     def _stream_is_pending(self) -> bool:
         with self._state_lock:
-            return self._active_prompt is not None
+            return self._active_prompt is not None or self._active_operation is not None
 
     def _wait_for_streams(self) -> None:
         for thread in self._stream_threads:

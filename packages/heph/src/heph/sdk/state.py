@@ -13,9 +13,13 @@ from heph.sdk.runtime import HephRuntime, HephSdkSessionState
 @dataclass(frozen=True, slots=True)
 class HephSdkServiceState:
     prompt_active: bool
+    active_operation: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {"prompt_active": self.prompt_active}
+        return {
+            "prompt_active": self.prompt_active,
+            "active_operation": self.active_operation,
+        }
 
 
 @dataclass(frozen=True, slots=True)

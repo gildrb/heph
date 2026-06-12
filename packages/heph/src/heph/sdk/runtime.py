@@ -428,12 +428,19 @@ class HephRuntime:
             skipped_unsupported=result.skipped_unsupported,
         )
 
-    def build_index(self) -> IndexSummary:
+    def build_index(
+        self,
+        *,
+        progress: Callable[[IndexProgressEvent], None] | None = None,
+    ) -> IndexSummary:
         armory_path = self._require_armory_path("build an index")
         progress_events: list[IndexProgressEvent] = []
 
         def record_progress(action: str, detail: str) -> None:
-            progress_events.append(IndexProgressEvent(action=action, detail=detail))
+            event = IndexProgressEvent(action=action, detail=detail)
+            progress_events.append(event)
+            if progress is not None:
+                progress(event)
 
         index = build_rag_index(armory_path, progress=record_progress)
         return IndexSummary(

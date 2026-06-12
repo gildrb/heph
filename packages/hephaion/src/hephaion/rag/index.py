@@ -13,7 +13,6 @@ import json
 import math
 import os
 import secrets
-import signal
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +40,7 @@ from hephaion.rag.index_state import (
 from hephaion.rag.index_state import (
     write_armory_index_json as _write_armory_index_json,
 )
+from hephaion.rag.index_timeout import chunk_file_with_timeout as _run_chunk_file_with_timeout
 from hephaion.rag.retrieval_types import RetrieverCacheKey
 
 _log = get_logger("hephaion.rag.index")
@@ -56,10 +56,6 @@ _SUPPORTED_INDEX_VERSIONS = frozenset({1, 2, 3, 5, 6, 7, 8})
 IndexProgress = Callable[[str, str], None]
 _CACHE_SIGNING_KEY_FILE = "rag_cache.key"
 _CACHE_SIGNING_KEY_PATH_ENV = "HEPHAION_RAG_CACHE_KEY_FILE"
-
-
-class _IndexFileTimeoutError(TimeoutError):
-    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,43 +120,15 @@ def _chunk_file_with_timeout(
     strategy: ChunkStrategy,
     timeout_seconds: int,
 ) -> tuple[ChunkedDocument | None, bool]:
-    if timeout_seconds <= 0:
-        return (
-            chunk_file(
-                file_path,
-                armory_path,
-                _CHUNK_SIZE,
-                _OVERLAP,
-                strategy=strategy,
-            ),
-            False,
-        )
-    timed_out = False
-    previous_handler = signal.getsignal(signal.SIGALRM)
-
-    def _handle_timeout(_signum: int, _frame: object) -> None:
-        nonlocal timed_out
-        timed_out = True
-        raise _IndexFileTimeoutError(
-            f"document conversion timed out after {timeout_seconds} second(s)"
-        )
-
-    signal.signal(signal.SIGALRM, _handle_timeout)
-    signal.alarm(timeout_seconds)
-    try:
-        document = chunk_file(
-            file_path,
-            armory_path,
-            _CHUNK_SIZE,
-            _OVERLAP,
-            strategy=strategy,
-        )
-    except _IndexFileTimeoutError:
-        document = None
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous_handler)
-    return document, timed_out
+    return _run_chunk_file_with_timeout(
+        file_path,
+        armory_path,
+        strategy=strategy,
+        timeout_seconds=timeout_seconds,
+        chunk_size=_CHUNK_SIZE,
+        overlap=_OVERLAP,
+        chunk_file_fn=chunk_file,
+    )
 
 
 def _can_reuse_previous_document(
