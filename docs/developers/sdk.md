@@ -212,6 +212,8 @@ present stable recovery copy without hard-coding the Python docs.
 The `fields` section describes service, runtime, and session state field types
 and nullability for clients that generate typed wrappers around the JSON-ready
 state payload.
+The `events.specs` section describes each SDK stream event payload so clients
+can generate discriminated event unions without scraping examples or Python DTOs.
 The capability payload has its own `version`, separate from the JSONL
 `protocol` and wire `version`.
 

@@ -16,6 +16,7 @@ from heph.sdk.methods import (
     RUNTIME_STATE_FIELD_SPECS,
     RUNTIME_STATE_FIELDS,
     SDK_CAPABILITIES_VERSION,
+    SDK_EVENT_SPECS,
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
@@ -28,9 +29,11 @@ from heph.sdk.methods import (
     SESSION_STATE_FIELD_SPECS,
     SESSION_STATE_FIELDS,
     SdkErrorSpec,
+    SdkEventSpec,
     SdkFieldSpec,
     SdkMethodSpec,
     error_specs_to_dict,
+    event_specs_to_dict,
     field_specs_to_dict,
     method_specs_to_dict,
 )
@@ -54,6 +57,7 @@ class HephSdkCapabilities:
     jsonl_version: int
     jsonl_message_types: tuple[str, ...]
     jsonl_error_codes: tuple[str, ...]
+    event_specs: tuple[SdkEventSpec, ...]
     jsonl_error_specs: tuple[SdkErrorSpec, ...]
     service_call_method_specs: tuple[SdkMethodSpec, ...]
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
@@ -79,7 +83,10 @@ class HephSdkCapabilities:
                 "message_types": list(self.jsonl_message_types),
                 "error_codes": list(self.jsonl_error_codes),
             },
-            "events": {"types": list(self.event_types)},
+            "events": {
+                "types": list(self.event_types),
+                "specs": event_specs_to_dict(self.event_specs),
+            },
             "state": {
                 "service_fields": list(self.service_state_fields),
                 "runtime_fields": list(self.runtime_state_fields),
@@ -115,6 +122,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_version=SDK_JSONL_VERSION,
     jsonl_message_types=JSONL_MESSAGE_TYPES,
     jsonl_error_codes=JSONL_ERROR_CODES,
+    event_specs=SDK_EVENT_SPECS,
     jsonl_error_specs=JSONL_ERROR_SPECS,
     service_call_method_specs=SERVICE_CALL_METHOD_SPECS,
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
@@ -143,6 +151,7 @@ __all__ = [
     "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES",
     "SDK_CAPABILITIES_VERSION",
+    "SDK_EVENT_SPECS",
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",

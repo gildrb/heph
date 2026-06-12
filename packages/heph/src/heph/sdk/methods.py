@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 10
+SDK_CAPABILITIES_VERSION = 11
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -19,6 +19,34 @@ class SdkFieldSpec:
 
     def to_dict(self) -> dict[str, object]:
         return {"type": self.value_type, "nullable": self.nullable}
+
+
+@dataclass(frozen=True, slots=True)
+class SdkEventFieldSpec:
+    """A JSON-ready SDK event payload field contract."""
+
+    name: str
+    value_type: str
+    required: bool = True
+    nullable: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": self.value_type,
+            "required": self.required,
+            "nullable": self.nullable,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkEventSpec:
+    """A JSON-ready SDK stream event payload contract."""
+
+    event_type: str
+    fields: tuple[SdkEventFieldSpec, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"fields": event_field_specs_to_dict(self.fields)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,19 +175,110 @@ JSONL_ERROR_SPECS = (
 )
 JSONL_ERROR_CODES = tuple(spec.code for spec in JSONL_ERROR_SPECS)
 BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities")
-SDK_EVENT_TYPES = (
-    "assistant_delta",
-    "reasoning_delta",
-    "tool_call",
-    "tool_result",
-    "material_operation",
-    "compact_request",
-    "turn_complete",
-    "notice",
-    "guardrail",
-    "index_progress",
-    "index_complete",
+SDK_EVENT_SPECS = (
+    SdkEventSpec(
+        "assistant_delta",
+        (
+            SdkEventFieldSpec("type", "literal<assistant_delta>"),
+            SdkEventFieldSpec("delta", "string"),
+        ),
+    ),
+    SdkEventSpec(
+        "reasoning_delta",
+        (
+            SdkEventFieldSpec("type", "literal<reasoning_delta>"),
+            SdkEventFieldSpec("delta", "string"),
+            SdkEventFieldSpec("summary", "boolean"),
+        ),
+    ),
+    SdkEventSpec(
+        "tool_call",
+        (
+            SdkEventFieldSpec("type", "literal<tool_call>"),
+            SdkEventFieldSpec("call_id", "string"),
+            SdkEventFieldSpec("name", "string"),
+            SdkEventFieldSpec("arguments", "object"),
+            SdkEventFieldSpec("display", "string"),
+        ),
+    ),
+    SdkEventSpec(
+        "tool_result",
+        (
+            SdkEventFieldSpec("type", "literal<tool_result>"),
+            SdkEventFieldSpec("call_id", "string"),
+            SdkEventFieldSpec("name", "string"),
+            SdkEventFieldSpec("content", "string"),
+            SdkEventFieldSpec("summary", "string"),
+            SdkEventFieldSpec("success", "boolean"),
+            SdkEventFieldSpec("metadata", "object", required=False),
+            SdkEventFieldSpec("error", "string", required=False),
+        ),
+    ),
+    SdkEventSpec(
+        "material_operation",
+        (
+            SdkEventFieldSpec("type", "literal<material_operation>"),
+            SdkEventFieldSpec("operation", "string"),
+            SdkEventFieldSpec("message", "string"),
+            SdkEventFieldSpec("metadata", "object", required=False),
+        ),
+    ),
+    SdkEventSpec(
+        "compact_request",
+        (
+            SdkEventFieldSpec("type", "literal<compact_request>"),
+            SdkEventFieldSpec("call_id", "string"),
+            SdkEventFieldSpec("name", "string"),
+            SdkEventFieldSpec("arguments", "object"),
+        ),
+    ),
+    SdkEventSpec(
+        "turn_complete",
+        (
+            SdkEventFieldSpec("type", "literal<turn_complete>"),
+            SdkEventFieldSpec("full_text", "string"),
+            SdkEventFieldSpec("turn_index", "integer"),
+            SdkEventFieldSpec("latency_ms", "number"),
+            SdkEventFieldSpec("finish_reason", "string"),
+            SdkEventFieldSpec("tokens_remaining", "integer"),
+        ),
+    ),
+    SdkEventSpec(
+        "notice",
+        (
+            SdkEventFieldSpec("type", "literal<notice>"),
+            SdkEventFieldSpec("message", "string"),
+            SdkEventFieldSpec("code", "string"),
+            SdkEventFieldSpec("metadata", "object", required=False),
+        ),
+    ),
+    SdkEventSpec(
+        "guardrail",
+        (
+            SdkEventFieldSpec("type", "literal<guardrail>"),
+            SdkEventFieldSpec("stage", "string"),
+            SdkEventFieldSpec("action", "string"),
+            SdkEventFieldSpec("message", "string"),
+            SdkEventFieldSpec("metadata", "object", required=False),
+        ),
+    ),
+    SdkEventSpec(
+        "index_progress",
+        (
+            SdkEventFieldSpec("type", "literal<index_progress>"),
+            SdkEventFieldSpec("action", "string"),
+            SdkEventFieldSpec("detail", "string"),
+        ),
+    ),
+    SdkEventSpec(
+        "index_complete",
+        (
+            SdkEventFieldSpec("type", "literal<index_complete>"),
+            SdkEventFieldSpec("index", "index_summary"),
+        ),
+    ),
 )
+SDK_EVENT_TYPES = tuple(spec.event_type for spec in SDK_EVENT_SPECS)
 SERVICE_STATE_FIELD_SPECS = (
     SdkFieldSpec("prompt_active", "boolean"),
     SdkFieldSpec("active_operation", "string", nullable=True),
@@ -216,6 +335,14 @@ def field_specs_to_dict(specs: tuple[SdkFieldSpec, ...]) -> dict[str, object]:
     return {spec.name: spec.to_dict() for spec in specs}
 
 
+def event_field_specs_to_dict(specs: tuple[SdkEventFieldSpec, ...]) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
+def event_specs_to_dict(specs: tuple[SdkEventSpec, ...]) -> dict[str, object]:
+    return {spec.event_type: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
@@ -229,6 +356,7 @@ __all__ = [
     "RUNTIME_STATE_FIELDS",
     "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES_VERSION",
+    "SDK_EVENT_SPECS",
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
@@ -241,10 +369,14 @@ __all__ = [
     "SESSION_STATE_FIELDS",
     "SESSION_STATE_FIELD_SPECS",
     "SdkErrorSpec",
+    "SdkEventFieldSpec",
+    "SdkEventSpec",
     "SdkFieldSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
     "error_specs_to_dict",
+    "event_field_specs_to_dict",
+    "event_specs_to_dict",
     "field_specs_to_dict",
     "method_specs_to_dict",
     "service_stream_method_for_jsonl",

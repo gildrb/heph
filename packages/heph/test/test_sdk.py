@@ -193,6 +193,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
     event_types = _payload_list(events["types"])
+    event_specs = _payload_mapping(events["specs"])
     service_fields = _payload_list(state["service_fields"])
     runtime_fields = _payload_list(state["runtime_fields"])
     session_fields = _payload_list(state["session_fields"])
@@ -256,6 +257,33 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "reasoning_delta" in event_types
     assert "index_progress" in event_types
     assert "index_complete" in event_types
+    assert list(event_specs) == event_types
+    assistant_event_fields = _payload_mapping(
+        _payload_mapping(event_specs["assistant_delta"])["fields"]
+    )
+    turn_complete_fields = _payload_mapping(
+        _payload_mapping(event_specs["turn_complete"])["fields"]
+    )
+    tool_result_fields = _payload_mapping(_payload_mapping(event_specs["tool_result"])["fields"])
+    index_complete_fields = _payload_mapping(
+        _payload_mapping(event_specs["index_complete"])["fields"]
+    )
+    assistant_type_spec = _payload_mapping(assistant_event_fields["type"])
+    assistant_delta_spec = _payload_mapping(assistant_event_fields["delta"])
+    turn_latency_spec = _payload_mapping(turn_complete_fields["latency_ms"])
+    tool_metadata_spec = _payload_mapping(tool_result_fields["metadata"])
+    tool_error_spec = _payload_mapping(tool_result_fields["error"])
+    index_summary_spec = _payload_mapping(index_complete_fields["index"])
+    assert assistant_type_spec == {
+        "type": "literal<assistant_delta>",
+        "required": True,
+        "nullable": False,
+    }
+    assert assistant_delta_spec == {"type": "string", "required": True, "nullable": False}
+    assert turn_latency_spec == {"type": "number", "required": True, "nullable": False}
+    assert tool_metadata_spec == {"type": "object", "required": False, "nullable": False}
+    assert tool_error_spec == {"type": "string", "required": False, "nullable": False}
+    assert index_summary_spec == {"type": "index_summary", "required": True, "nullable": False}
     assert "active_operation" in service_fields
     assert "is_busy" in service_fields
     assert "provider_slug" in runtime_fields
