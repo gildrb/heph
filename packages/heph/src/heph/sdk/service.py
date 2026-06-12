@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,6 +32,10 @@ class HephService:
     session: HephSession | None = None
     _prompt_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_prompt_abort: threading.Event | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.session is not None:
+            self._attach_session_stream_guard(self.session)
 
     @classmethod
     def plain(cls, *, config: ChatConfig | None = None) -> HephService:
@@ -210,9 +214,10 @@ class HephService:
         if active_abort := self._active_prompt_abort_event():
             active_abort.set()
             return {"aborted": True, "state": self.state()}
-        with self._idle_service_call():
-            self._require_session().abort()
-            return {"aborted": True, "session": self._session_dict()}
+        with self._prompt_lock:
+            session = self._require_session()
+        session.abort()
+        return {"aborted": True, "session": session.to_dict()}
 
     def set_source_enabled(self, source: str, enabled: bool) -> dict[str, object]:
         with self._idle_service_call():
@@ -265,10 +270,10 @@ class HephService:
 
     def prompt_is_active(self) -> bool:
         with self._prompt_lock:
-            return self._active_prompt_abort is not None
+            return self._prompt_is_active_locked()
 
     def _service_state(self) -> HephSdkServiceState:
-        return HephSdkServiceState(prompt_active=self._active_prompt_abort is not None)
+        return HephSdkServiceState(prompt_active=self._prompt_is_active_locked())
 
     def _runtime_state(self) -> HephSdkRuntimeState:
         return HephSdkRuntimeState.from_runtime(self.runtime)
@@ -298,15 +303,24 @@ class HephService:
 
     def _replace_session(self, session: HephSession) -> None:
         old_session = self.session
+        self._attach_session_stream_guard(session)
         self.session = session
         if old_session is not None and old_session is not session:
             old_session.dispose()
+
+    def _attach_session_stream_guard(self, session: HephSession) -> None:
+        def stream_guard(abort: threading.Event) -> AbstractContextManager[None]:
+            return self._direct_stream_guard(session, abort)
+
+        session._set_stream_start_guard(stream_guard)
 
     def _begin_prompt(self, abort: threading.Event) -> HephSession:
         with self._prompt_lock:
             if self._active_prompt_abort is not None:
                 raise HephSdkBusyError()
             session = self._require_session()
+            if session.is_streaming:
+                raise HephSdkBusyError("Session is already streaming.")
             self._active_prompt_abort = abort
             return session
 
@@ -320,14 +334,33 @@ class HephService:
             return self._active_prompt_abort
 
     @contextmanager
+    def _direct_stream_guard(
+        self,
+        session: HephSession,
+        abort: threading.Event,
+    ) -> Iterator[None]:
+        with self._prompt_lock:
+            if self.session is not session:
+                raise HephSdkBusyError("SDK session is no longer active.")
+            active_abort = self._active_prompt_abort
+            if active_abort is not None and active_abort is not abort:
+                raise HephSdkBusyError()
+            yield
+
+    @contextmanager
     def _idle_service_call(self) -> Iterator[None]:
         with self._prompt_lock:
             self._ensure_idle_for_service_call()
             yield
 
     def _ensure_idle_for_service_call(self) -> None:
-        if self._active_prompt_abort is not None:
+        if self._prompt_is_active_locked():
             raise HephSdkBusyError()
+
+    def _prompt_is_active_locked(self) -> bool:
+        if self._active_prompt_abort is not None:
+            return True
+        return self.session is not None and self.session.is_streaming
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:

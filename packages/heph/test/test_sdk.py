@@ -654,6 +654,203 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert streamed_events[0] == {"type": "notice", "message": "Waiting.", "code": "sdk_test"}
 
 
+def test_service_treats_direct_session_stream_as_busy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    service.new_session()
+    session = service.session
+    assert session is not None
+    started = threading.Event()
+    release = threading.Event()
+    abort_seen = threading.Event()
+    streamed_events: list[object] = []
+    stream_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        assert prompt == "Direct session prompt."
+        assert abort is not None
+        started.set()
+        yield NoticeEvent("Waiting.", code="sdk_test")
+        assert release.wait(timeout=2.0)
+        if abort.is_set():
+            abort_seen.set()
+        yield TurnCompleteEvent("Stopped.", 0, 1.0, "abort", 100)
+
+    def collect_events() -> None:
+        try:
+            streamed_events.extend(session.prompt("Direct session prompt."))
+        except Exception as exc:
+            stream_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_events, name="test-sdk-direct-session-stream")
+
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    active_state = service.state_snapshot()
+    assert active_state.service.prompt_active
+    assert active_state.session is not None
+    assert active_state.session.is_streaming
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
+        service.call("new_session")
+    with pytest.raises(HephSdkBusyError, match="already streaming"):
+        list(service.prompt("Nested service prompt."))
+
+    abort_payload = service.call("abort")
+    release.set()
+    thread.join(timeout=2.0)
+
+    assert _payload_mapping(abort_payload["session"])["is_streaming"] is True
+    assert abort_seen.is_set()
+    assert stream_errors == []
+    assert len(streamed_events) == 2
+    assert not thread.is_alive()
+    assert not service.state_snapshot().service.prompt_active
+
+
+def test_service_direct_session_stream_start_blocks_replacement_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    service.new_session()
+    session = service.session
+    assert session is not None
+    _assert_direct_stream_start_blocks_service_replacement(service, session, monkeypatch)
+
+
+def test_service_constructor_session_gets_direct_stream_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    service = HephService(runtime=runtime, session=session)
+
+    _assert_direct_stream_start_blocks_service_replacement(service, session, monkeypatch)
+
+
+def _assert_direct_stream_start_blocks_service_replacement(
+    service: HephService,
+    session: HephSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mutation_started = threading.Event()
+    mutation_done = threading.Event()
+    stream_started = threading.Event()
+    release = threading.Event()
+    streamed_events: list[object] = []
+    stream_errors: list[Exception] = []
+    mutation_errors: list[Exception] = []
+    mutation_payloads: list[dict[str, object]] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "Direct session prompt."
+        stream_started.set()
+        yield NoticeEvent("Waiting.", code="sdk_test")
+        assert release.wait(timeout=2.0)
+        yield TurnCompleteEvent("Stopped.", 0, 1.0, "abort", 100)
+
+    def replace_session_during_stream_start() -> None:
+        mutation_started.set()
+        try:
+            mutation_payloads.append(service.new_session())
+        except Exception as exc:
+            mutation_errors.append(exc)
+        finally:
+            mutation_done.set()
+
+    mutation_thread = threading.Thread(
+        target=replace_session_during_stream_start,
+        name="test-sdk-direct-session-replacement-race",
+    )
+    original_begin_stream = HephSession._begin_stream
+
+    def delayed_begin_stream(active_session: HephSession, abort: threading.Event) -> None:
+        if active_session is session:
+            mutation_thread.start()
+            assert mutation_started.wait(timeout=2.0)
+        original_begin_stream(active_session, abort)
+
+    def collect_events() -> None:
+        try:
+            streamed_events.extend(session.prompt("Direct session prompt."))
+        except Exception as exc:
+            stream_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    monkeypatch.setattr(HephSession, "_begin_stream", delayed_begin_stream)
+    stream_thread = threading.Thread(target=collect_events, name="test-sdk-direct-session-stream")
+
+    stream_thread.start()
+    assert stream_started.wait(timeout=2.0)
+    assert mutation_done.wait(timeout=2.0)
+
+    assert mutation_payloads == []
+    assert len(mutation_errors) == 1
+    assert isinstance(mutation_errors[0], HephSdkBusyError)
+    assert service.session is session
+    assert service.state_snapshot().service.prompt_active
+
+    release.set()
+    stream_thread.join(timeout=2.0)
+    mutation_thread.join(timeout=2.0)
+
+    assert stream_errors == []
+    assert len(streamed_events) == 2
+    assert not stream_thread.is_alive()
+    assert not mutation_thread.is_alive()
+    assert not service.state_snapshot().service.prompt_active
+
+
+def test_session_clears_streaming_when_autosave_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    service.new_session()
+    session = service.session
+    assert session is not None
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, prompt, abort
+        yield TurnCompleteEvent("Stopped.", 0, 1.0, "abort", 100)
+
+    def fail_autosave(raw_session: ChatSession) -> None:
+        _ = raw_session
+        raise RuntimeError("save failed")
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    monkeypatch.setattr(sdk_runtime, "save_dirty_session_if_needed", fail_autosave)
+
+    with pytest.raises(RuntimeError, match="save failed"):
+        list(session.prompt("Prompt that fails autosave."))
+
+    assert not session.is_streaming
+    assert not service.state_snapshot().service.prompt_active
+    service.new_session()
+
+
 def test_service_disposes_replaced_sessions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

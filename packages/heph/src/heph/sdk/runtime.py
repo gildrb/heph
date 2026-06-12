@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from heph.sdk.materials import (
 from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
+type HephSessionStreamGuard = Callable[[threading.Event], AbstractContextManager[None]]
 
 
 class HephSdkError(Exception):
@@ -111,6 +113,11 @@ class HephSession:
     _listeners: list[HephEventListener] = field(default_factory=list, init=False, repr=False)
     _stream_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_abort: threading.Event | None = field(default=None, init=False, repr=False)
+    _stream_start_guard: HephSessionStreamGuard | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _streaming: bool = field(default=False, init=False, repr=False)
 
     @property
@@ -187,15 +194,18 @@ class HephSession:
     ) -> Iterator[HephEvent]:
         """Run a user turn and stream stable SDK events."""
         active_abort = abort or threading.Event()
-        self._begin_stream(active_abort)
+        with self._stream_guard(active_abort):
+            self._begin_stream(active_abort)
         try:
             for event in iter_chat_events(self._session, text, abort=active_abort):
                 sdk_event = from_turn_event(event)
                 self._emit(sdk_event)
                 yield sdk_event
         finally:
-            save_dirty_session_if_needed(self._session)
-            self._end_stream(active_abort)
+            try:
+                save_dirty_session_if_needed(self._session)
+            finally:
+                self._end_stream(active_abort)
 
     def ask(self, text: str, *, abort: threading.Event | None = None) -> str:
         """Run a user turn and return the final assistant text."""
@@ -240,6 +250,17 @@ class HephSession:
     def _emit(self, event: HephEvent) -> None:
         for listener in tuple(self._listeners):
             listener(event)
+
+    def _set_stream_start_guard(self, guard: HephSessionStreamGuard) -> None:
+        with self._stream_lock:
+            self._stream_start_guard = guard
+
+    def _stream_guard(self, abort: threading.Event) -> AbstractContextManager[None]:
+        with self._stream_lock:
+            guard = self._stream_start_guard
+        if guard is None:
+            return nullcontext()
+        return guard(abort)
 
     def _begin_stream(self, abort: threading.Event) -> None:
         with self._stream_lock:

@@ -148,7 +148,8 @@ active runtime and optional active session. Direct Python clients should use
 calling `state()` for the same JSON-ready dictionary shape.
 The snapshot and payload include a top-level `service` object with
 `prompt_active`, so clients can disable state-changing controls without
-inspecting internal `ChatSession` objects.
+inspecting internal `ChatSession` objects. `prompt_active` is true for both
+service-owned prompt streams and direct streams on the active `HephSession`.
 
 `heph sdk serve` is the first concrete transport. It supports:
 
