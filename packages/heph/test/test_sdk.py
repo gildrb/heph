@@ -179,6 +179,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     state = _payload_mapping(payload["state"])
     methods = _payload_mapping(payload["methods"])
     errors = _payload_mapping(payload["errors"])
+    results = _payload_mapping(payload["results"])
     fields = _payload_mapping(payload["fields"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
@@ -189,6 +190,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_stream_specs = _payload_mapping(methods["service_stream"])
     jsonl_call_specs = _payload_mapping(methods["jsonl_call"])
     jsonl_stream_specs = _payload_mapping(methods["jsonl_stream"])
+    service_call_results = _payload_mapping(results["service_call"])
+    jsonl_call_results = _payload_mapping(results["jsonl_call"])
     jsonl_error_specs = _payload_mapping(errors["jsonl"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
@@ -213,6 +216,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(service_stream_specs) == service_stream_methods
     assert list(jsonl_call_specs) == jsonl_call_methods
     assert list(jsonl_stream_specs) == jsonl_stream_methods
+    assert list(service_call_results) == service_call_methods
+    assert list(jsonl_call_results) == jsonl_call_methods
     assert "capabilities" in service_call_methods
     assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
@@ -247,6 +252,48 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert {"name": "temperature", "type": "number_or_null", "required": False} in (
         update_config_params
     )
+    state_result = _payload_mapping(service_call_results["state"])
+    capabilities_result = _payload_mapping(service_call_results["capabilities"])
+    capabilities_result_fields = _payload_mapping(capabilities_result["fields"])
+    list_providers_result = _payload_mapping(service_call_results["list_providers"])
+    list_providers_result_fields = _payload_mapping(list_providers_result["fields"])
+    switch_model_result = _payload_mapping(service_call_results["switch_model"])
+    switch_model_result_fields = _payload_mapping(switch_model_result["fields"])
+    abort_result = _payload_mapping(service_call_results["abort"])
+    abort_result_fields = _payload_mapping(abort_result["fields"])
+    messages_result = _payload_mapping(service_call_results["messages"])
+    messages_result_fields = _payload_mapping(messages_result["fields"])
+    assert state_result == {"type": "sdk_state", "fields": {}}
+    assert _payload_mapping(capabilities_result_fields["capabilities"]) == {
+        "type": "sdk_capabilities",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(list_providers_result_fields["providers"]) == {
+        "type": "array<provider_summary>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(switch_model_result_fields["session"]) == {
+        "type": "sdk_session_state",
+        "required": True,
+        "nullable": True,
+    }
+    assert _payload_mapping(abort_result_fields["state"]) == {
+        "type": "sdk_state",
+        "required": False,
+        "nullable": False,
+    }
+    assert _payload_mapping(abort_result_fields["session"]) == {
+        "type": "sdk_session_state",
+        "required": False,
+        "nullable": False,
+    }
+    assert _payload_mapping(messages_result_fields["messages"]) == {
+        "type": "array<message>",
+        "required": True,
+        "nullable": False,
+    }
     assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert list(jsonl_error_specs) == jsonl_error_codes

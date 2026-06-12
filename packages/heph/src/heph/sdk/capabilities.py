@@ -8,6 +8,7 @@ from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     JSONL_CALL_METHOD_SPECS,
     JSONL_CALL_METHODS,
+    JSONL_CALL_RESULT_SPECS,
     JSONL_ERROR_CODES,
     JSONL_ERROR_SPECS,
     JSONL_MESSAGE_TYPES,
@@ -22,6 +23,7 @@ from heph.sdk.methods import (
     SDK_JSONL_VERSION,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
+    SERVICE_CALL_RESULT_SPECS,
     SERVICE_STATE_FIELD_SPECS,
     SERVICE_STATE_FIELDS,
     SERVICE_STREAM_METHOD_SPECS,
@@ -32,10 +34,12 @@ from heph.sdk.methods import (
     SdkEventSpec,
     SdkFieldSpec,
     SdkMethodSpec,
+    SdkResultSpec,
     error_specs_to_dict,
     event_specs_to_dict,
     field_specs_to_dict,
     method_specs_to_dict,
+    result_specs_to_dict,
 )
 
 
@@ -63,6 +67,8 @@ class HephSdkCapabilities:
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_stream_method_specs: tuple[SdkMethodSpec, ...]
+    service_call_result_specs: tuple[SdkResultSpec, ...]
+    jsonl_call_result_specs: tuple[SdkResultSpec, ...]
     service_state_field_specs: tuple[SdkFieldSpec, ...]
     runtime_state_field_specs: tuple[SdkFieldSpec, ...]
     session_state_field_specs: tuple[SdkFieldSpec, ...]
@@ -99,6 +105,10 @@ class HephSdkCapabilities:
                 "jsonl_stream": method_specs_to_dict(self.jsonl_stream_method_specs),
             },
             "errors": {"jsonl": error_specs_to_dict(self.jsonl_error_specs)},
+            "results": {
+                "service_call": result_specs_to_dict(self.service_call_result_specs),
+                "jsonl_call": result_specs_to_dict(self.jsonl_call_result_specs),
+            },
             "fields": {
                 "service_state": field_specs_to_dict(self.service_state_field_specs),
                 "runtime_state": field_specs_to_dict(self.runtime_state_field_specs),
@@ -128,6 +138,8 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
     jsonl_stream_method_specs=JSONL_STREAM_METHOD_SPECS,
+    service_call_result_specs=SERVICE_CALL_RESULT_SPECS,
+    jsonl_call_result_specs=JSONL_CALL_RESULT_SPECS,
     service_state_field_specs=SERVICE_STATE_FIELD_SPECS,
     runtime_state_field_specs=RUNTIME_STATE_FIELD_SPECS,
     session_state_field_specs=SESSION_STATE_FIELD_SPECS,
@@ -142,6 +154,7 @@ __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
     "JSONL_CALL_METHOD_SPECS",
+    "JSONL_CALL_RESULT_SPECS",
     "JSONL_ERROR_CODES",
     "JSONL_ERROR_SPECS",
     "JSONL_MESSAGE_TYPES",
@@ -157,6 +170,7 @@ __all__ = [
     "SDK_JSONL_VERSION",
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
+    "SERVICE_CALL_RESULT_SPECS",
     "SERVICE_STATE_FIELDS",
     "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",

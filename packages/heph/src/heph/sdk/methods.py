@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 11
+SDK_CAPABILITIES_VERSION = 12
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -47,6 +47,38 @@ class SdkEventSpec:
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": event_field_specs_to_dict(self.fields)}
+
+
+@dataclass(frozen=True, slots=True)
+class SdkResultFieldSpec:
+    """A JSON-ready SDK call result field contract."""
+
+    name: str
+    value_type: str
+    required: bool = True
+    nullable: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": self.value_type,
+            "required": self.required,
+            "nullable": self.nullable,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkResultSpec:
+    """A JSON-ready SDK call result contract."""
+
+    method: str
+    value_type: str = "object"
+    fields: tuple[SdkResultFieldSpec, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": self.value_type,
+            "fields": result_field_specs_to_dict(self.fields),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +207,119 @@ JSONL_ERROR_SPECS = (
 )
 JSONL_ERROR_CODES = tuple(spec.code for spec in JSONL_ERROR_SPECS)
 BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities")
+SERVICE_CALL_RESULT_SPECS = (
+    SdkResultSpec("state", value_type="sdk_state"),
+    SdkResultSpec(
+        "capabilities",
+        fields=(SdkResultFieldSpec("capabilities", "sdk_capabilities"),),
+    ),
+    SdkResultSpec("use_plain_runtime", value_type="sdk_state"),
+    SdkResultSpec("open_armory", value_type="sdk_state"),
+    SdkResultSpec("create_armory", value_type="sdk_state"),
+    SdkResultSpec(
+        "list_armories",
+        fields=(SdkResultFieldSpec("armories", "array<armory_summary>"),),
+    ),
+    SdkResultSpec(
+        "validate_armory",
+        fields=(SdkResultFieldSpec("armory", "armory_validation_summary"),),
+    ),
+    SdkResultSpec(
+        "new_session",
+        fields=(
+            SdkResultFieldSpec("session", "sdk_session_state"),
+            SdkResultFieldSpec("runtime", "sdk_runtime_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "resume_session",
+        fields=(
+            SdkResultFieldSpec("session", "sdk_session_state"),
+            SdkResultFieldSpec("runtime", "sdk_runtime_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "fork_session",
+        fields=(
+            SdkResultFieldSpec("session", "sdk_session_state"),
+            SdkResultFieldSpec("runtime", "sdk_runtime_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "list_sessions",
+        fields=(SdkResultFieldSpec("sessions", "array<session_summary>"),),
+    ),
+    SdkResultSpec(
+        "save_session",
+        fields=(
+            SdkResultFieldSpec("path", "string"),
+            SdkResultFieldSpec("session", "sdk_session_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "messages",
+        fields=(SdkResultFieldSpec("messages", "array<message>"),),
+    ),
+    SdkResultSpec(
+        "ask",
+        fields=(
+            SdkResultFieldSpec("text", "string"),
+            SdkResultFieldSpec("session", "sdk_session_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "abort",
+        fields=(
+            SdkResultFieldSpec("aborted", "boolean"),
+            SdkResultFieldSpec("state", "sdk_state", required=False),
+            SdkResultFieldSpec("session", "sdk_session_state", required=False),
+        ),
+    ),
+    SdkResultSpec(
+        "list_providers",
+        fields=(SdkResultFieldSpec("providers", "array<provider_summary>"),),
+    ),
+    SdkResultSpec(
+        "list_model_choices",
+        fields=(SdkResultFieldSpec("models", "array<model_choice_summary>"),),
+    ),
+    SdkResultSpec(
+        "switch_model",
+        fields=(
+            SdkResultFieldSpec("changed", "boolean"),
+            SdkResultFieldSpec("runtime", "sdk_runtime_state"),
+            SdkResultFieldSpec("session", "sdk_session_state", nullable=True),
+        ),
+    ),
+    SdkResultSpec(
+        "set_source_enabled",
+        fields=(
+            SdkResultFieldSpec("changed", "boolean"),
+            SdkResultFieldSpec("session", "sdk_session_state"),
+        ),
+    ),
+    SdkResultSpec(
+        "list_materials",
+        fields=(SdkResultFieldSpec("materials", "array<material_summary>"),),
+    ),
+    SdkResultSpec(
+        "import_materials",
+        fields=(SdkResultFieldSpec("import", "import_materials_summary"),),
+    ),
+    SdkResultSpec(
+        "build_index",
+        fields=(SdkResultFieldSpec("index", "index_summary"),),
+    ),
+    SdkResultSpec(
+        "scan_extraction_health",
+        fields=(SdkResultFieldSpec("health", "extraction_health_summary"),),
+    ),
+    SdkResultSpec(
+        "update_config",
+        fields=(SdkResultFieldSpec("runtime", "sdk_runtime_state"),),
+    ),
+)
+JSONL_CALL_RESULT_SPECS = SERVICE_CALL_RESULT_SPECS
 SDK_EVENT_SPECS = (
     SdkEventSpec(
         "assistant_delta",
@@ -343,10 +488,19 @@ def event_specs_to_dict(specs: tuple[SdkEventSpec, ...]) -> dict[str, object]:
     return {spec.event_type: spec.to_dict() for spec in specs}
 
 
+def result_field_specs_to_dict(specs: tuple[SdkResultFieldSpec, ...]) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
+def result_specs_to_dict(specs: tuple[SdkResultSpec, ...]) -> dict[str, object]:
+    return {spec.method: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
     "JSONL_CALL_METHOD_SPECS",
+    "JSONL_CALL_RESULT_SPECS",
     "JSONL_ERROR_CODES",
     "JSONL_ERROR_SPECS",
     "JSONL_MESSAGE_TYPES",
@@ -362,6 +516,7 @@ __all__ = [
     "SDK_JSONL_VERSION",
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
+    "SERVICE_CALL_RESULT_SPECS",
     "SERVICE_STATE_FIELDS",
     "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
@@ -374,10 +529,14 @@ __all__ = [
     "SdkFieldSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
+    "SdkResultFieldSpec",
+    "SdkResultSpec",
     "error_specs_to_dict",
     "event_field_specs_to_dict",
     "event_specs_to_dict",
     "field_specs_to_dict",
     "method_specs_to_dict",
+    "result_field_specs_to_dict",
+    "result_specs_to_dict",
     "service_stream_method_for_jsonl",
 ]
