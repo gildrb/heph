@@ -12,6 +12,12 @@ from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.events import event_to_dict
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
+from heph.sdk.state import (
+    HephSdkRuntimeState,
+    HephSdkServiceState,
+    HephSdkSessionState,
+    HephSdkState,
+)
 
 type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
@@ -48,13 +54,16 @@ class HephService:
     ) -> HephService:
         return cls(runtime=HephRuntime.create_armory(path, config=config))
 
-    def state(self) -> dict[str, object]:
+    def state_snapshot(self) -> HephSdkState:
         with self._prompt_lock:
-            return {
-                "service": self._service_state(),
-                "runtime": self._runtime_state(),
-                "session": self.session.to_dict() if self.session is not None else None,
-            }
+            return HephSdkState(
+                service=self._service_state(),
+                runtime=self._runtime_state(),
+                session=self._session_state(),
+            )
+
+    def state(self) -> dict[str, object]:
+        return self.state_snapshot().to_dict()
 
     def call(
         self,
@@ -217,7 +226,7 @@ class HephService:
                 self.runtime.config.temperature = _optional_float(params, "temperature")
             if value := _optional_str(params, "thinking_visibility"):
                 self.runtime.config.thinking_visibility = normalize_thinking_visibility(value)
-        return {"runtime": self._runtime_state()}
+        return {"runtime": self._runtime_state().to_dict()}
 
     def list_materials(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -244,25 +253,19 @@ class HephService:
         with self._prompt_lock:
             return self._active_prompt_abort is not None
 
-    def _service_state(self) -> dict[str, object]:
-        return {"prompt_active": self._active_prompt_abort is not None}
+    def _service_state(self) -> HephSdkServiceState:
+        return HephSdkServiceState(prompt_active=self._active_prompt_abort is not None)
 
-    def _runtime_state(self) -> dict[str, object]:
-        return {
-            "armory_path": (
-                str(self.runtime.armory_path) if self.runtime.armory_path is not None else None
-            ),
-            "model": self.runtime.config.model,
-            "base_url": self.runtime.config.base_url,
-            "max_tokens": self.runtime.config.max_tokens,
-            "rag_context_budget": self.runtime.config.rag_context_budget,
-            "temperature": self.runtime.config.temperature,
-            "thinking_visibility": self.runtime.config.thinking_visibility,
-            "feature_flags": sorted(self.runtime.config.feature_flags),
-        }
+    def _runtime_state(self) -> HephSdkRuntimeState:
+        return HephSdkRuntimeState.from_runtime(self.runtime)
+
+    def _session_state(self) -> HephSdkSessionState | None:
+        if self.session is None:
+            return None
+        return HephSdkSessionState.from_session(self.session)
 
     def _session_payload(self) -> dict[str, object]:
-        return {"session": self._session_dict(), "runtime": self._runtime_state()}
+        return {"session": self._session_dict(), "runtime": self._runtime_state().to_dict()}
 
     def _session_dict(self) -> dict[str, object]:
         return self._require_session().to_dict()
@@ -348,6 +351,10 @@ def _optional_float(params: Mapping[str, object], key: str) -> float | None:
 
 
 __all__ = [
+    "HephSdkRuntimeState",
+    "HephSdkServiceState",
+    "HephSdkSessionState",
+    "HephSdkState",
     "HephService",
     "ServicePayload",
     "ServiceStream",

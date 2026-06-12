@@ -140,10 +140,10 @@ The Python SDK remains the source of truth. The transport is only a
 serialization boundary for non-Python clients.
 
 `HephService` is the intended core for that transport boundary. It maintains an
-active runtime and optional active session, and it returns JSON-ready
-dictionaries so a thin stdio, JSON-RPC, WebSocket, or embedded-host adapter can
-serialize responses without learning harness internals.
-Its `state()` payload includes a top-level `service` object with
+active runtime and optional active session. Direct Python clients should use
+`state_snapshot()` for typed `HephSdkState` values, while transports can keep
+calling `state()` for the same JSON-ready dictionary shape.
+The snapshot and payload include a top-level `service` object with
 `prompt_active`, so clients can disable state-changing controls without
 inspecting internal `ChatSession` objects.
 

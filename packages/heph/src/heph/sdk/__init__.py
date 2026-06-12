@@ -45,6 +45,12 @@ from heph.sdk.runtime import (
     SessionSummary,
 )
 from heph.sdk.service import HephService, ServicePayload, ServiceStream
+from heph.sdk.state import (
+    HephSdkRuntimeState,
+    HephSdkServiceState,
+    HephSdkSessionState,
+    HephSdkState,
+)
 from heph.sdk.stdio import (
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
@@ -72,6 +78,10 @@ __all__ = [
     "HephSdkBusyError",
     "HephSdkError",
     "HephSdkOptions",
+    "HephSdkRuntimeState",
+    "HephSdkServiceState",
+    "HephSdkSessionState",
+    "HephSdkState",
     "HephService",
     "HephSession",
     "ImportMaterialsSummary",

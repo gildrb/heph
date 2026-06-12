@@ -12,6 +12,10 @@ from heph.sdk import (
     HephSdkBusyError,
     HephSdkError,
     HephSdkOptions,
+    HephSdkRuntimeState,
+    HephSdkServiceState,
+    HephSdkSessionState,
+    HephSdkState,
     HephService,
     HephSession,
     ImportMaterialsSummary,
@@ -412,6 +416,35 @@ def test_service_manages_runtime_session_and_streams_json_events(
         {"role": "user", "content": "Use the service."},
         {"role": "assistant", "content": "Service reply."},
     ]
+
+
+def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> None:
+    config = ChatConfig(
+        base_url="https://example.invalid/v1",
+        model="typed-state-model",
+        temperature=None,
+        feature_flags=frozenset({"beta", "alpha"}),
+    )
+    armory_path = _armory(tmp_path)
+    service = HephService.open_armory(armory_path, config=config)
+
+    empty_snapshot = service.state_snapshot()
+    session_payload = service.new_session()
+    snapshot = service.state_snapshot()
+
+    assert isinstance(empty_snapshot, HephSdkState)
+    assert isinstance(empty_snapshot.service, HephSdkServiceState)
+    assert isinstance(empty_snapshot.runtime, HephSdkRuntimeState)
+    assert empty_snapshot.session is None
+    assert snapshot.service.prompt_active is False
+    assert snapshot.runtime.armory_path == armory_path.resolve()
+    assert snapshot.runtime.model == "typed-state-model"
+    assert snapshot.runtime.temperature is None
+    assert snapshot.runtime.feature_flags == ("alpha", "beta")
+    assert isinstance(snapshot.session, HephSdkSessionState)
+    assert snapshot.session.messages == ()
+    assert session_payload["runtime"] == snapshot.runtime.to_dict()
+    assert service.state() == snapshot.to_dict()
 
 
 def test_service_blocks_state_changes_while_prompt_streams(
