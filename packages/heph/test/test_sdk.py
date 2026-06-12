@@ -13,6 +13,7 @@ from heph.sdk import (
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_SPECS,
     JSONL_MESSAGE_TYPES,
+    JSONL_REQUEST_SPEC,
     SDK_CAPABILITIES,
     ArmoryValidationSummary,
     AssistantDelta,
@@ -197,6 +198,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_call_results = _payload_mapping(results["service_call"])
     jsonl_call_results = _payload_mapping(results["jsonl_call"])
     jsonl_error_specs = _payload_mapping(errors["jsonl"])
+    jsonl_request_spec = _payload_mapping(jsonl["request_spec"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_message_specs = _payload_mapping(jsonl["message_specs"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
@@ -243,6 +245,23 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert sdk_methods.service_stream_method_for_jsonl("build_index_stream") == "build_index"
     assert sdk_methods.service_stream_method_for_jsonl("prompt") is None
     assert sdk_methods.service_stream_method_for_jsonl("unknown") is None
+    request_fields = _payload_mapping(jsonl_request_spec["fields"])
+    assert list(request_fields) == [field.name for field in JSONL_REQUEST_SPEC.fields]
+    assert _payload_mapping(request_fields["id"]) == {
+        "type": "string_or_integer",
+        "required": False,
+        "nullable": True,
+    }
+    assert _payload_mapping(request_fields["method"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(request_fields["params"]) == {
+        "type": "object",
+        "required": False,
+        "nullable": True,
+    }
     open_armory_spec = _payload_mapping(service_call_specs["open_armory"])
     open_armory_params = [
         _payload_mapping(param) for param in _payload_list(open_armory_spec["params"])
@@ -513,11 +532,21 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         )
         for spec in capabilities.jsonl_message_specs
     )
+    broken_request_fields = tuple(
+        replace(field, value_type="missing_jsonl_request_type")
+        if field.name == "params"
+        else field
+        for field in capabilities.jsonl_request_spec.fields
+    )
     broken_capabilities = replace(
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
         service_call_methods=(*capabilities.service_call_methods, "state"),
         service_call_result_specs=broken_result_specs,
+        jsonl_request_spec=replace(
+            capabilities.jsonl_request_spec,
+            fields=(*broken_request_fields, broken_request_fields[0]),
+        ),
         jsonl_message_types=(*capabilities.jsonl_message_types, "bogus_message"),
         jsonl_message_specs=broken_message_specs,
     )
@@ -530,8 +559,13 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         "service.busy_allowed_call_methods contains entries that are not advertised calls: bogus"
         in issues
     )
+    assert "jsonl.request_spec.fields contains duplicate entries: id" in issues
     assert "jsonl.message_types does not match its structured specs." in issues
     assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
+    assert (
+        "jsonl.request_spec.params references unknown SDK type: missing_jsonl_request_type"
+        in issues
+    )
     assert (
         "jsonl.message_specs.stream_event.event references unknown SDK type: "
         "missing_jsonl_message_type" in issues

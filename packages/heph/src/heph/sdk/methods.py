@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 14
+SDK_CAPABILITIES_VERSION = 15
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -149,6 +149,16 @@ class SdkJsonlMessageSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class SdkJsonlRequestSpec:
+    """A JSON-ready JSONL request envelope contract."""
+
+    fields: tuple[SdkJsonlMessageFieldSpec, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"fields": jsonl_message_field_specs_to_dict(self.fields)}
+
+
+@dataclass(frozen=True, slots=True)
 class SdkMethodParameter:
     """A JSON-ready SDK method parameter contract."""
 
@@ -249,6 +259,13 @@ SERVICE_STREAM_METHODS = tuple(spec.method for spec in SERVICE_STREAM_METHOD_SPE
 JSONL_CALL_METHODS = SERVICE_CALL_METHODS
 JSONL_STREAM_METHODS = tuple(spec.method for spec in JSONL_STREAM_METHOD_SPECS)
 JSONL_OPERATION_STREAM_METHODS = {"build_index_stream": "build_index"}
+JSONL_REQUEST_SPEC = SdkJsonlRequestSpec(
+    fields=(
+        SdkJsonlMessageFieldSpec("id", "string_or_integer", required=False, nullable=True),
+        SdkJsonlMessageFieldSpec("method", "string"),
+        SdkJsonlMessageFieldSpec("params", "object", required=False, nullable=True),
+    ),
+)
 REQUEST_ID_MESSAGE_FIELD = SdkJsonlMessageFieldSpec(
     "id",
     "string_or_integer",
@@ -774,6 +791,10 @@ def jsonl_message_specs_to_dict(specs: tuple[SdkJsonlMessageSpec, ...]) -> dict[
     return {spec.message_type: spec.to_dict() for spec in specs}
 
 
+def jsonl_request_spec_to_dict(spec: SdkJsonlRequestSpec) -> dict[str, object]:
+    return spec.to_dict()
+
+
 def result_field_specs_to_dict(specs: tuple[SdkResultFieldSpec, ...]) -> dict[str, object]:
     return {spec.name: spec.to_dict() for spec in specs}
 
@@ -800,6 +821,7 @@ __all__ = [
     "JSONL_MESSAGE_SPECS",
     "JSONL_MESSAGE_TYPES",
     "JSONL_OPERATION_STREAM_METHODS",
+    "JSONL_REQUEST_SPEC",
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",
     "RUNTIME_STATE_FIELDS",
@@ -825,6 +847,7 @@ __all__ = [
     "SdkFieldSpec",
     "SdkJsonlMessageFieldSpec",
     "SdkJsonlMessageSpec",
+    "SdkJsonlRequestSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
     "SdkResultFieldSpec",
@@ -837,6 +860,7 @@ __all__ = [
     "field_specs_to_dict",
     "jsonl_message_field_specs_to_dict",
     "jsonl_message_specs_to_dict",
+    "jsonl_request_spec_to_dict",
     "method_specs_to_dict",
     "result_field_specs_to_dict",
     "result_specs_to_dict",

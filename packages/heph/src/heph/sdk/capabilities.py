@@ -13,6 +13,7 @@ from heph.sdk.methods import (
     JSONL_ERROR_SPECS,
     JSONL_MESSAGE_SPECS,
     JSONL_MESSAGE_TYPES,
+    JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
     RUNTIME_STATE_FIELD_SPECS,
@@ -36,6 +37,7 @@ from heph.sdk.methods import (
     SdkEventSpec,
     SdkFieldSpec,
     SdkJsonlMessageSpec,
+    SdkJsonlRequestSpec,
     SdkMethodSpec,
     SdkResultSpec,
     SdkTypeSpec,
@@ -43,6 +45,7 @@ from heph.sdk.methods import (
     event_specs_to_dict,
     field_specs_to_dict,
     jsonl_message_specs_to_dict,
+    jsonl_request_spec_to_dict,
     method_specs_to_dict,
     result_specs_to_dict,
     type_specs_to_dict,
@@ -84,6 +87,7 @@ class HephSdkCapabilities:
     event_specs: tuple[SdkEventSpec, ...]
     jsonl_error_specs: tuple[SdkErrorSpec, ...]
     jsonl_message_specs: tuple[SdkJsonlMessageSpec, ...]
+    jsonl_request_spec: SdkJsonlRequestSpec
     service_call_method_specs: tuple[SdkMethodSpec, ...]
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
@@ -108,6 +112,7 @@ class HephSdkCapabilities:
                 "version": self.jsonl_version,
                 "call_methods": list(self.jsonl_call_methods),
                 "stream_methods": list(self.jsonl_stream_methods),
+                "request_spec": jsonl_request_spec_to_dict(self.jsonl_request_spec),
                 "message_types": list(self.jsonl_message_types),
                 "message_specs": jsonl_message_specs_to_dict(self.jsonl_message_specs),
                 "error_codes": list(self.jsonl_error_codes),
@@ -159,6 +164,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     event_specs=SDK_EVENT_SPECS,
     jsonl_error_specs=JSONL_ERROR_SPECS,
     jsonl_message_specs=JSONL_MESSAGE_SPECS,
+    jsonl_request_spec=JSONL_REQUEST_SPEC,
     service_call_method_specs=SERVICE_CALL_METHOD_SPECS,
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
@@ -185,6 +191,11 @@ def validate_sdk_capabilities(
     _append_duplicate_issue(issues, "service.stream_methods", capabilities.service_stream_methods)
     _append_duplicate_issue(issues, "jsonl.call_methods", capabilities.jsonl_call_methods)
     _append_duplicate_issue(issues, "jsonl.stream_methods", capabilities.jsonl_stream_methods)
+    _append_duplicate_issue(
+        issues,
+        "jsonl.request_spec.fields",
+        tuple(field.name for field in capabilities.jsonl_request_spec.fields),
+    )
     _append_duplicate_issue(issues, "jsonl.message_types", capabilities.jsonl_message_types)
     _append_duplicate_issue(issues, "events.types", capabilities.event_types)
     _append_duplicate_issue(issues, "jsonl.error_codes", capabilities.jsonl_error_codes)
@@ -373,6 +384,10 @@ def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[tuple[st
         references.extend(
             (f"events.{spec.event_type}.{field.name}", field.value_type) for field in spec.fields
         )
+    references.extend(
+        (f"jsonl.request_spec.{field.name}", field.value_type)
+        for field in capabilities.jsonl_request_spec.fields
+    )
     for spec in capabilities.jsonl_message_specs:
         references.extend(
             (f"jsonl.message_specs.{spec.message_type}.{field.name}", field.value_type)
@@ -417,6 +432,7 @@ __all__ = [
     "JSONL_ERROR_SPECS",
     "JSONL_MESSAGE_SPECS",
     "JSONL_MESSAGE_TYPES",
+    "JSONL_REQUEST_SPEC",
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",
     "RUNTIME_STATE_FIELDS",
