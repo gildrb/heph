@@ -42,6 +42,7 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
+from heph.sdk.models import ModelChoiceSummary
 from heph.sdk.runtime import (
     ArmorySummary,
     HephEventListener,
@@ -103,6 +104,7 @@ __all__ = [
     "JsonlSdkServer",
     "MaterialOperation",
     "MaterialSummary",
+    "ModelChoiceSummary",
     "Notice",
     "ReasoningDelta",
     "SdkProtocolError",

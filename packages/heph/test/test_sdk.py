@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from ai.providers.config import default_config
 from ai.runtime import ChatConfig
 from heph.sdk import (
     JSONL_ERROR_CODES,
@@ -26,6 +27,7 @@ from heph.sdk import (
     ImportMaterialsSummary,
     IndexSummary,
     MaterialOperation,
+    ModelChoiceSummary,
     Notice,
     ReasoningDelta,
     ToolCall,
@@ -39,6 +41,7 @@ from heph.sdk import (
     from_turn_event,
     get_sdk_capabilities,
 )
+from heph.sdk import models as sdk_models
 from heph.sdk import runtime as sdk_runtime
 from hephaion.chat.events import (
     AssistantDeltaEvent,
@@ -61,6 +64,19 @@ class _FakeIndex:
 
 def _config() -> ChatConfig:
     return ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini")
+
+
+def _pollinations_config(monkeypatch: pytest.MonkeyPatch) -> ChatConfig:
+    provider_config = default_config()
+    monkeypatch.setattr(
+        sdk_models.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: provider_config),
+    )
+    monkeypatch.setattr(sdk_models.ProviderConfig, "save", lambda _self, path=None: None)
+    config = ChatConfig()
+    provider_config.apply_to_config(config)
+    return config
 
 
 def _armory(tmp_path: Path) -> Path:
@@ -162,8 +178,10 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 4
+    assert payload["version"] == 5
     assert "capabilities" in service_call_methods
+    assert "list_model_choices" in service_call_methods
+    assert "switch_model" in service_call_methods
     assert "build_index" in service_stream_methods
     assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
     assert jsonl["protocol"] == "heph-sdk-jsonl"
@@ -175,7 +193,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "index_complete" in event_types
     assert "active_operation" in service_fields
     assert "is_busy" in service_fields
+    assert "provider_slug" in runtime_fields
     assert "reasoning_level" in runtime_fields
+    assert "provider_slug" in session_fields
     assert "enabled_source_files" in session_fields
     assert "is_disposed" in session_fields
 
@@ -797,11 +817,13 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert snapshot.service.active_operation is None
     assert snapshot.service.is_busy is False
     assert snapshot.runtime.armory_path == armory_path.resolve()
+    assert snapshot.runtime.provider_slug == ""
     assert snapshot.runtime.model == "typed-state-model"
     assert snapshot.runtime.temperature is None
     assert snapshot.runtime.reasoning_level == "low"
     assert snapshot.runtime.feature_flags == ("alpha", "beta")
     assert isinstance(snapshot.session, HephSdkSessionState)
+    assert snapshot.session.provider_slug == ""
     assert snapshot.session.source_file_count == 1
     assert snapshot.session.source_files == ("materials/notes.md",)
     assert snapshot.session.enabled_source_files == ("materials/notes.md",)
@@ -831,6 +853,8 @@ def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
     )
 
     assert runtime_state.reasoning_level == "low"
+    assert runtime_state.provider_slug == ""
+    assert runtime_state.to_dict()["provider_slug"] == ""
     assert runtime_state.to_dict()["reasoning_level"] == "low"
 
 
@@ -845,6 +869,7 @@ def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
         "session_id": "session-1",
         "title": "Title",
         "armory_path": None,
+        "provider_slug": "",
         "model": "sdk-model",
         "is_streaming": False,
         "is_disposed": False,
@@ -855,6 +880,72 @@ def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
         "has_unsaved_changes": False,
         "messages": [],
     }
+
+
+def test_sdk_model_choices_and_switching_are_structured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_pollinations_config(monkeypatch))
+
+    runtime_choices = service.runtime.list_model_choices()
+    assert runtime_choices
+    current_choice = next(
+        choice
+        for choice in runtime_choices
+        if choice.provider_slug == "pollinations" and choice.model == "openai"
+    )
+    assert isinstance(current_choice, ModelChoiceSummary)
+    assert current_choice.provider_display_name == "Pollinations AI (free)"
+    assert current_choice.endpoint == "https://text.pollinations.ai/openai"
+    assert current_choice.is_free is True
+    assert current_choice.is_current is True
+    assert current_choice.free_description == "free, no API key"
+
+    service_choices = _payload_list(service.call("list_model_choices")["models"])
+    service_choice = next(
+        choice_payload
+        for choice in service_choices
+        if (choice_payload := _payload_mapping(choice))["provider_slug"] == "pollinations"
+        and choice_payload["model"] == "openai"
+    )
+    assert service_choice["is_current"] is True
+    assert service_choice["free_description"] == "free, no API key"
+
+    switch_payload = service.call(
+        "switch_model",
+        {"provider_slug": "pollinations", "model": "openai-fast"},
+    )
+    runtime_payload = _payload_mapping(switch_payload["runtime"])
+    assert switch_payload["changed"] is True
+    assert runtime_payload["provider_slug"] == "pollinations"
+    assert runtime_payload["model"] == "openai-fast"
+    assert switch_payload["session"] is None
+
+    missing_payload = service.call(
+        "switch_model",
+        {"provider_slug": "pollinations", "model": "missing-model"},
+    )
+    missing_runtime = _payload_mapping(missing_payload["runtime"])
+    assert missing_payload["changed"] is False
+    assert missing_runtime["model"] == "openai-fast"
+
+    service.new_session()
+    session_switch = service.call(
+        "switch_model",
+        {"provider_slug": "pollinations", "model": "openai"},
+    )
+    session_payload = _payload_mapping(session_switch["session"])
+    session_runtime = _payload_mapping(session_switch["runtime"])
+    assert session_switch["changed"] is True
+    assert session_payload["provider_slug"] == "pollinations"
+    assert session_payload["model"] == "openai"
+    assert session_runtime["model"] == "openai"
+    assert service.session is not None
+    assert any(
+        choice.is_current
+        for choice in service.session.list_model_choices()
+        if choice.provider_slug == "pollinations" and choice.model == "openai"
+    )
 
 
 def test_service_blocks_state_changes_while_prompt_streams(
@@ -928,6 +1019,10 @@ def test_service_blocks_state_changes_while_prompt_streams(
         service.scan_extraction_health()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_armories()
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+        service.list_model_choices()
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+        service.switch_model("pollinations", "openai")
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.set_source_enabled("materials/notes.md", enabled=False)
 
@@ -1254,6 +1349,10 @@ def test_service_streams_build_index_progress(
         list(service.prompt("Prompt during index."))
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         list(session.prompt("Direct prompt during index."))
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+        service.list_model_choices()
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+        service.switch_model("pollinations", "openai")
     abort_payload = service.call("abort")
     abort_result = _payload_mapping(abort_payload)
     abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
@@ -1480,6 +1579,8 @@ def test_service_call_and_stream_dispatcher(
         list(service.stream("prompt", {"text": ""}))
     with pytest.raises(HephSdkError, match="must be a boolean"):
         service.call("set_source_enabled", {"source": "materials/notes.md", "enabled": "no"})
+    with pytest.raises(HephSdkError, match="must be a boolean"):
+        service.call("list_model_choices", {"refresh_live": "yes"})
 
 
 @pytest.mark.parametrize(

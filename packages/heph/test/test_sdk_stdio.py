@@ -98,6 +98,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     payloads = _payloads(output.getvalue())
     ready_capabilities = _payload_mapping(payloads[0]["capabilities"])
     ready_jsonl = _payload_mapping(ready_capabilities["jsonl"])
+    ready_call_methods = _payload_list(ready_jsonl["call_methods"])
     ready_stream_methods = _payload_list(ready_jsonl["stream_methods"])
     ready_message_types = _payload_list(ready_jsonl["message_types"])
     ready_error_codes = _payload_list(ready_jsonl["error_codes"])
@@ -110,6 +111,8 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert payloads[0]["protocol"] == SDK_JSONL_PROTOCOL
     assert payloads[0]["version"] == SDK_JSONL_VERSION
     assert ready_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert "list_model_choices" in ready_call_methods
+    assert "switch_model" in ready_call_methods
     assert "build_index_stream" in ready_stream_methods
     assert ready_message_types == list(JSONL_MESSAGE_TYPES)
     assert ready_error_codes == list(JSONL_ERROR_CODES)

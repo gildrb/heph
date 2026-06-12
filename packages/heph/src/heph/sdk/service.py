@@ -110,6 +110,15 @@ class HephService:
             return self.ask(_required_str(parameters, "text"))
         if method == "abort":
             return self.abort()
+        if method == "list_model_choices":
+            return self.list_model_choices(
+                refresh_live=_optional_bool(parameters, "refresh_live") or False
+            )
+        if method == "switch_model":
+            return self.switch_model(
+                _required_str(parameters, "provider_slug"),
+                _required_str(parameters, "model"),
+            )
         if method == "set_source_enabled":
             return self.set_source_enabled(
                 _required_str(parameters, "source"),
@@ -233,6 +242,26 @@ class HephService:
             session = self._require_session()
         session.abort()
         return {"aborted": True, "session": session.to_dict()}
+
+    def list_model_choices(self, *, refresh_live: bool = False) -> dict[str, object]:
+        with self._idle_service_call():
+            if self.session is None:
+                models = self.runtime.list_model_choices(refresh_live=refresh_live)
+            else:
+                models = self.session.list_model_choices(refresh_live=refresh_live)
+        return {"models": [model.to_dict() for model in models]}
+
+    def switch_model(self, provider_slug: str, model: str) -> dict[str, object]:
+        with self._idle_service_call():
+            if self.session is None:
+                changed = self.runtime.switch_model(provider_slug, model)
+            else:
+                changed = self.session.switch_model(provider_slug, model)
+                if changed:
+                    self.runtime.config = self.session._session.config
+            session = self.session.to_dict() if self.session is not None else None
+            runtime = self._runtime_state().to_dict()
+        return {"changed": changed, "runtime": runtime, "session": session}
 
     def set_source_enabled(self, source: str, enabled: bool) -> dict[str, object]:
         with self._idle_service_call():
@@ -438,6 +467,15 @@ def _optional_str(params: Mapping[str, object], key: str) -> str | None:
         return None
     if not isinstance(value, str):
         raise HephSdkError(f"SDK service parameter '{key}' must be a string.")
+    return value
+
+
+def _optional_bool(params: Mapping[str, object], key: str) -> bool | None:
+    value = params.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise HephSdkError(f"SDK service parameter '{key}' must be a boolean.")
     return value
 
 

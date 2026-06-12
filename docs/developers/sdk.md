@@ -27,8 +27,10 @@ SwiftUI / GUI / automation client
 - Session source-file snapshots and enable/disable controls for material scope.
 - Explicit session disposal state for stale handles after replacement.
 - Material, index, and extraction-health DTOs for armory management.
+- Structured model choice and model switching helpers for provider-aware clients.
 - JSON-ready `to_dict()` helpers for transport clients.
-- `ArmorySummary`, `SessionSummary`, and `HephMessage` value objects.
+- `ArmorySummary`, `SessionSummary`, `ModelChoiceSummary`, and `HephMessage`
+  value objects.
 
 ```python
 from heph.sdk import AssistantDelta, HephRuntime
@@ -68,6 +70,19 @@ health = runtime.scan_extraction_health()
 
 `HephRuntime.build_index(progress=...)` can also report live
 `IndexProgressEvent` values while still returning the final `IndexSummary`.
+
+For model selection:
+
+```python
+from heph.sdk import HephRuntime
+
+runtime = HephRuntime.plain()
+
+for choice in runtime.list_model_choices():
+    print(choice.provider_display_name, choice.model, choice.is_current)
+
+runtime.switch_model("openai", "gpt-5.5")
+```
 
 For transport-style integration, use the service facade:
 
@@ -189,6 +204,8 @@ The capability payload has its own `version`, separate from the JSONL
 - `ask`
 - `prompt`
 - `abort`
+- `list_model_choices`
+- `switch_model`
 - `set_source_enabled`
 - `list_materials`
 - `import_materials`

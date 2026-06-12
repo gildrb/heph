@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 4
+SDK_CAPABILITIES_VERSION = 5
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -23,6 +23,8 @@ SERVICE_CALL_METHODS = (
     "messages",
     "ask",
     "abort",
+    "list_model_choices",
+    "switch_model",
     "set_source_enabled",
     "list_materials",
     "import_materials",
@@ -65,6 +67,7 @@ SDK_EVENT_TYPES = (
 SERVICE_STATE_FIELDS = ("prompt_active", "active_operation", "is_busy")
 RUNTIME_STATE_FIELDS = (
     "armory_path",
+    "provider_slug",
     "model",
     "base_url",
     "max_tokens",
@@ -78,6 +81,7 @@ SESSION_STATE_FIELDS = (
     "session_id",
     "title",
     "armory_path",
+    "provider_slug",
     "model",
     "is_streaming",
     "is_disposed",

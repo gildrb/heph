@@ -42,6 +42,15 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
+from heph.sdk.models import (
+    ModelChoiceSummary,
+)
+from heph.sdk.models import (
+    list_model_choices as list_config_model_choices,
+)
+from heph.sdk.models import (
+    switch_model as switch_config_model,
+)
 from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
@@ -144,6 +153,10 @@ class HephSession:
         return self._session.config.model
 
     @property
+    def provider_slug(self) -> str:
+        return self._session.config.provider_slug
+
+    @property
     def source_file_count(self) -> int:
         return self._session.source_file_count
 
@@ -233,6 +246,16 @@ class HephSession:
             elif isinstance(event, TurnComplete):
                 full_text = event.full_text
         return full_text or "".join(chunks)
+
+    def list_model_choices(self, *, refresh_live: bool = False) -> tuple[ModelChoiceSummary, ...]:
+        with self._stream_lock:
+            self._ensure_not_disposed_locked()
+            config = self._session.config
+        return list_config_model_choices(config, refresh_live=refresh_live)
+
+    def switch_model(self, provider_slug: str, model: str) -> bool:
+        with self._idle_mutation():
+            return switch_config_model(self._session.config, provider_slug, model)
 
     def refresh_materials(self) -> None:
         with self._idle_mutation():
@@ -343,6 +366,7 @@ class HephSdkSessionState:
     model: str
     is_streaming: bool
     messages: tuple[HephMessage, ...]
+    provider_slug: str = ""
     source_file_count: int = 0
     source_files: tuple[str, ...] = ()
     disabled_source_files: frozenset[str] = frozenset()
@@ -356,6 +380,7 @@ class HephSdkSessionState:
             session_id=session.session_id,
             title=session.title,
             armory_path=session.armory_path,
+            provider_slug=session.provider_slug,
             model=session.model,
             is_streaming=session.is_streaming,
             messages=session.messages,
@@ -372,6 +397,7 @@ class HephSdkSessionState:
             "session_id": self.session_id,
             "title": self.title,
             "armory_path": str(self.armory_path) if self.armory_path is not None else None,
+            "provider_slug": self.provider_slug,
             "model": self.model,
             "is_streaming": self.is_streaming,
             "is_disposed": self.is_disposed,
@@ -453,6 +479,12 @@ class HephRuntime:
             )
             for record in list_armory_sessions(self.armory_path)
         )
+
+    def list_model_choices(self, *, refresh_live: bool = False) -> tuple[ModelChoiceSummary, ...]:
+        return list_config_model_choices(self.config, refresh_live=refresh_live)
+
+    def switch_model(self, provider_slug: str, model: str) -> bool:
+        return switch_config_model(self.config, provider_slug, model)
 
     def list_materials(self) -> tuple[MaterialSummary, ...]:
         armory_path = self._require_armory_path("list materials")
@@ -547,5 +579,6 @@ __all__ = [
     "IndexProgressEvent",
     "IndexSummary",
     "MaterialSummary",
+    "ModelChoiceSummary",
     "SessionSummary",
 ]

@@ -42,11 +42,13 @@ class HephSdkRuntimeState:
     thinking_visibility: str
     feature_flags: tuple[str, ...]
     reasoning_level: str = DEFAULT_REASONING_LEVEL
+    provider_slug: str = ""
 
     @classmethod
     def from_runtime(cls, runtime: HephRuntime) -> HephSdkRuntimeState:
         return cls(
             armory_path=runtime.armory_path,
+            provider_slug=runtime.config.provider_slug,
             model=runtime.config.model,
             base_url=runtime.config.base_url,
             max_tokens=runtime.config.max_tokens,
@@ -60,6 +62,7 @@ class HephSdkRuntimeState:
     def to_dict(self) -> dict[str, object]:
         return {
             "armory_path": str(self.armory_path) if self.armory_path is not None else None,
+            "provider_slug": self.provider_slug,
             "model": self.model,
             "base_url": self.base_url,
             "max_tokens": self.max_tokens,
