@@ -12,7 +12,7 @@ from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
 from heph.sdk.factory import HephSdkOptions, create_heph_service
-from heph.sdk.runtime import HephSdkError
+from heph.sdk.runtime import HephSdkBusyError, HephSdkError
 from heph.sdk.service import HephService, ServicePayload
 
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
@@ -81,6 +81,8 @@ class JsonlSdkServer:
             self._handle_call(request_id, method, params)
         except SdkProtocolError as exc:
             self._write_error(request_id, exc.code, str(exc))
+        except HephSdkBusyError as exc:
+            self._write_error(request_id, "busy", str(exc))
         except (HephSdkError, ArmoryError) as exc:
             self._write_error(request_id, "sdk_error", str(exc))
         except Exception as exc:
@@ -95,11 +97,8 @@ class JsonlSdkServer:
         if method == "abort":
             self._write_response(request_id, self._abort_active_prompt())
             return
-        if self._prompt_is_active() and method != "state":
-            raise SdkProtocolError(
-                "busy",
-                "An SDK prompt stream is active; only state and abort are available.",
-            )
+        if self._stream_is_pending() and method != "state":
+            raise HephSdkBusyError()
         self._write_response(request_id, self.service.call(method, params))
 
     def _start_prompt_stream(self, request_id: RequestId, params: dict[str, object]) -> None:
@@ -107,7 +106,7 @@ class JsonlSdkServer:
         active_prompt = ActivePrompt(request_id=request_id, abort=threading.Event())
         with self._state_lock:
             if self._active_prompt is not None:
-                raise SdkProtocolError("busy", "An SDK prompt stream is already active.")
+                raise HephSdkBusyError()
             self._active_prompt = active_prompt
         self._write({"type": "stream_start", "id": request_id, "method": "prompt"})
         thread = threading.Thread(
@@ -128,6 +127,12 @@ class JsonlSdkServer:
                         "event": event,
                     }
                 )
+        except HephSdkBusyError as exc:
+            self._write_stream_end(
+                active_prompt.request_id,
+                ok=False,
+                error=_error("busy", str(exc)),
+            )
         except HephSdkError as exc:
             self._write_stream_end(
                 active_prompt.request_id,
@@ -151,11 +156,11 @@ class JsonlSdkServer:
         with self._state_lock:
             active_prompt = self._active_prompt
         if active_prompt is None:
-            return self.service.call("abort")
+            return {"aborted": False, "state": self.service.state()}
         active_prompt.abort.set()
         return {"aborted": True, "state": self.service.state()}
 
-    def _prompt_is_active(self) -> bool:
+    def _stream_is_pending(self) -> bool:
         with self._state_lock:
             return self._active_prompt is not None
 

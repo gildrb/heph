@@ -26,7 +26,6 @@ from hephaion.chat.session import (
     validate_armory_path,
 )
 from hephaion.chat.session_persistence import save_dirty_session_if_needed
-from hephaion.materials import MATERIALS_DIR, material_manifest
 from hephaion.materials.importing import import_material_files, resolve_import_source
 from hephaion.parameters.cli import load_config
 from hephaion.rag.health import scan_extraction_health as scan_extraction_health_report
@@ -41,12 +40,23 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
+from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
 
 
 class HephSdkError(Exception):
     """Raised when an SDK operation is invalid for the active runtime."""
+
+
+class HephSdkBusyError(HephSdkError):
+    """Raised when the SDK service is busy with an active prompt stream."""
+
+    def __init__(
+        self,
+        message: str = "An SDK prompt stream is active; only state and abort are available.",
+    ) -> None:
+        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +360,7 @@ __all__ = [
     "HephEventListener",
     "HephMessage",
     "HephRuntime",
+    "HephSdkBusyError",
     "HephSdkError",
     "HephSession",
     "ImportMaterialsSummary",

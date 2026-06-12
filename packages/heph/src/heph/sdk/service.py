@@ -11,12 +11,10 @@ from pathlib import Path
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.events import event_to_dict
-from heph.sdk.runtime import HephRuntime, HephSdkError, HephSession
+from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
 
 type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
-
-_BUSY_MESSAGE = "An SDK prompt stream is active; only state and abort are available."
 
 
 @dataclass(slots=True)
@@ -65,7 +63,7 @@ class HephService:
     ) -> ServicePayload:
         parameters = params or {}
         if self.prompt_is_active() and method not in {"state", "abort"}:
-            raise HephSdkError(_BUSY_MESSAGE)
+            raise HephSdkBusyError()
         if method == "state":
             return self.state()
         if method == "use_plain_runtime":
@@ -290,7 +288,7 @@ class HephService:
     def _begin_prompt(self, abort: threading.Event) -> HephSession:
         with self._prompt_lock:
             if self._active_prompt_abort is not None:
-                raise HephSdkError(_BUSY_MESSAGE)
+                raise HephSdkBusyError()
             session = self._require_session()
             self._active_prompt_abort = abort
             return session
@@ -312,7 +310,7 @@ class HephService:
 
     def _ensure_idle_for_service_call(self) -> None:
         if self._active_prompt_abort is not None:
-            raise HephSdkError(_BUSY_MESSAGE)
+            raise HephSdkBusyError()
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:

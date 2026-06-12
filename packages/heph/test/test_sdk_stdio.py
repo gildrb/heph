@@ -10,8 +10,14 @@ from pathlib import Path
 import pytest
 from ai.runtime import ChatConfig
 from heph.cli.main import build_parser, run_argv
-from heph.sdk import SDK_JSONL_PROTOCOL, HephSdkOptions, HephService, JsonlSdkServer
+from heph.sdk import (
+    SDK_JSONL_PROTOCOL,
+    HephSdkOptions,
+    HephService,
+    JsonlSdkServer,
+)
 from heph.sdk import runtime as sdk_runtime
+from heph.sdk import stdio as sdk_stdio
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
 from hephaion.chat.session import ChatSession
 
@@ -117,6 +123,7 @@ def test_jsonl_sdk_server_abort_reaches_active_prompt(
         input_stream=io.StringIO(
             _jsonl(
                 {"id": "turn-1", "method": "prompt", "params": {"text": "cancel this"}},
+                {"id": "new-while-busy", "method": "new_session"},
                 {"id": "abort-1", "method": "abort"},
             )
         ),
@@ -127,12 +134,187 @@ def test_jsonl_sdk_server_abort_reaches_active_prompt(
 
     payloads = _payloads(output.getvalue())
     abort_response = next(payload for payload in payloads if payload.get("id") == "abort-1")
+    busy_response = next(payload for payload in payloads if payload.get("id") == "new-while-busy")
     stream_events = [payload for payload in payloads if payload["type"] == "stream_event"]
     complete_event = _payload_mapping(stream_events[-1]["event"])
 
+    assert busy_response["type"] == "error"
+    assert _payload_mapping(busy_response["error"])["code"] == "busy"
     assert _payload_mapping(abort_response["result"])["aborted"] is True
     assert complete_event["finish_reason"] == "abort"
     assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
+
+
+def test_jsonl_sdk_server_maps_service_busy_errors_to_busy_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    prompt_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        _ = abort
+        assert prompt == "external prompt"
+        started.set()
+        yield AssistantDeltaEvent("first")
+        assert release.wait(timeout=2.0)
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def collect_prompt() -> None:
+        try:
+            list(service.prompt("external prompt"))
+        except Exception as exc:
+            prompt_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_prompt, name="test-sdk-stdio-busy")
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+    server.handle_request({"id": "new-while-service-busy", "method": "new_session"})
+
+    release.set()
+    thread.join(timeout=2.0)
+    payloads = _payloads(output.getvalue())
+    error = _payload_mapping(payloads[0]["error"])
+
+    assert payloads[0]["type"] == "error"
+    assert payloads[0]["id"] == "new-while-service-busy"
+    assert error["code"] == "busy"
+    assert prompt_errors == []
+    assert not thread.is_alive()
+
+
+def test_jsonl_abort_does_not_cancel_unowned_direct_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    direct_abort_seen = threading.Event()
+    prompt_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        assert prompt == "direct prompt"
+        assert abort is not None
+        started.set()
+        yield AssistantDeltaEvent("direct")
+        assert release.wait(timeout=2.0)
+        if abort.is_set():
+            direct_abort_seen.set()
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def collect_prompt() -> None:
+        try:
+            list(service.prompt("direct prompt"))
+        except Exception as exc:
+            prompt_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_prompt, name="test-sdk-stdio-direct-prompt")
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+    active_prompt = sdk_stdio.ActivePrompt(
+        request_id="jsonl-pending",
+        abort=threading.Event(),
+    )
+    server._active_prompt = active_prompt
+
+    server.handle_request({"id": "abort-jsonl", "method": "abort"})
+    release.set()
+    thread.join(timeout=2.0)
+    payloads = _payloads(output.getvalue())
+
+    assert active_prompt.abort.is_set()
+    assert _payload_mapping(payloads[0]["result"])["aborted"] is True
+    assert not direct_abort_seen.is_set()
+    assert prompt_errors == []
+    assert not thread.is_alive()
+
+
+def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    direct_abort_seen = threading.Event()
+    prompt_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        assert prompt == "direct prompt"
+        assert abort is not None
+        started.set()
+        yield AssistantDeltaEvent("direct")
+        assert release.wait(timeout=2.0)
+        if abort.is_set():
+            direct_abort_seen.set()
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def collect_prompt() -> None:
+        try:
+            list(service.prompt("direct prompt"))
+        except Exception as exc:
+            prompt_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_prompt, name="test-sdk-stdio-unowned-abort")
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+    server.handle_request({"id": "abort-jsonl", "method": "abort"})
+
+    release.set()
+    thread.join(timeout=2.0)
+    payloads = _payloads(output.getvalue())
+    result = _payload_mapping(payloads[0]["result"])
+
+    assert result["aborted"] is False
+    assert _payload_mapping(result["state"])["service"] == {"prompt_active": True}
+    assert not direct_abort_seen.is_set()
+    assert prompt_errors == []
+    assert not thread.is_alive()
 
 
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:

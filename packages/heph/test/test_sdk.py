@@ -9,6 +9,7 @@ from ai.runtime import ChatConfig
 from heph.sdk import (
     AssistantDelta,
     HephRuntime,
+    HephSdkBusyError,
     HephSdkError,
     HephSdkOptions,
     HephService,
@@ -457,9 +458,9 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert active_state["prompt_active"] is True
     source = tmp_path / "late-material.md"
     source.write_text("# Late\n\nShould not import during streaming.\n", encoding="utf-8")
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
         service.call("new_session")
-    with pytest.raises(HephSdkError, match="only state and abort"):
+    with pytest.raises(HephSdkBusyError, match="only state and abort"):
         service.ask("Nested prompt.")
     with pytest.raises(HephSdkError, match="only state and abort"):
         service.update_config({"model": "mutated-during-stream"})

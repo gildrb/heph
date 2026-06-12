@@ -173,6 +173,10 @@ inspecting internal `ChatSession` objects.
 still call `state` and `abort`; other service methods are rejected until the
 stream ends. This lifecycle rule is enforced by `HephService` itself, so it
 applies to both direct Python embeddings and JSONL transport clients.
+In Python, this raises `HephSdkBusyError`, a subclass of `HephSdkError`. In
+JSONL, the same condition is reported with error code `"busy"`.
+JSONL `abort` is scoped to the prompt stream owned by that transport process;
+when no JSONL stream is active it returns a no-op state payload.
 
 ## Event Contract
 
