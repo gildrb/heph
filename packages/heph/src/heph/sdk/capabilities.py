@@ -21,6 +21,7 @@ from heph.sdk.methods import (
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_TYPE_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
     SERVICE_CALL_RESULT_SPECS,
@@ -35,11 +36,13 @@ from heph.sdk.methods import (
     SdkFieldSpec,
     SdkMethodSpec,
     SdkResultSpec,
+    SdkTypeSpec,
     error_specs_to_dict,
     event_specs_to_dict,
     field_specs_to_dict,
     method_specs_to_dict,
     result_specs_to_dict,
+    type_specs_to_dict,
 )
 
 
@@ -72,6 +75,7 @@ class HephSdkCapabilities:
     service_state_field_specs: tuple[SdkFieldSpec, ...]
     runtime_state_field_specs: tuple[SdkFieldSpec, ...]
     session_state_field_specs: tuple[SdkFieldSpec, ...]
+    type_specs: tuple[SdkTypeSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -114,6 +118,7 @@ class HephSdkCapabilities:
                 "runtime_state": field_specs_to_dict(self.runtime_state_field_specs),
                 "session_state": field_specs_to_dict(self.session_state_field_specs),
             },
+            "types": type_specs_to_dict(self.type_specs),
         }
 
 
@@ -143,6 +148,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     service_state_field_specs=SERVICE_STATE_FIELD_SPECS,
     runtime_state_field_specs=RUNTIME_STATE_FIELD_SPECS,
     session_state_field_specs=SESSION_STATE_FIELD_SPECS,
+    type_specs=SDK_TYPE_SPECS,
 )
 
 
@@ -168,6 +174,7 @@ __all__ = [
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_TYPE_SPECS",
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_CALL_RESULT_SPECS",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 12
+SDK_CAPABILITIES_VERSION = 13
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -47,6 +47,34 @@ class SdkEventSpec:
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": event_field_specs_to_dict(self.fields)}
+
+
+@dataclass(frozen=True, slots=True)
+class SdkTypeFieldSpec:
+    """A JSON-ready reusable SDK DTO field contract."""
+
+    name: str
+    value_type: str
+    required: bool = True
+    nullable: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": self.value_type,
+            "required": self.required,
+            "nullable": self.nullable,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkTypeSpec:
+    """A JSON-ready reusable SDK DTO contract."""
+
+    type_name: str
+    fields: tuple[SdkTypeFieldSpec, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"fields": type_field_specs_to_dict(self.fields)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +145,12 @@ class SdkMethodSpec:
 
     def to_dict(self) -> dict[str, object]:
         return {"params": [param.to_dict() for param in self.params]}
+
+
+def _type_fields_from_state_specs(specs: tuple[SdkFieldSpec, ...]) -> tuple[SdkTypeFieldSpec, ...]:
+    return tuple(
+        SdkTypeFieldSpec(spec.name, spec.value_type, nullable=spec.nullable) for spec in specs
+    )
 
 
 PATH_PARAM = SdkMethodParameter("path", "string", True)
@@ -459,6 +493,155 @@ SESSION_STATE_FIELD_SPECS = (
 SERVICE_STATE_FIELDS = tuple(spec.name for spec in SERVICE_STATE_FIELD_SPECS)
 RUNTIME_STATE_FIELDS = tuple(spec.name for spec in RUNTIME_STATE_FIELD_SPECS)
 SESSION_STATE_FIELDS = tuple(spec.name for spec in SESSION_STATE_FIELD_SPECS)
+SDK_TYPE_SPECS = (
+    SdkTypeSpec(
+        "sdk_capabilities",
+        (
+            SdkTypeFieldSpec("version", "integer"),
+            SdkTypeFieldSpec("service", "object"),
+            SdkTypeFieldSpec("jsonl", "object"),
+            SdkTypeFieldSpec("events", "object"),
+            SdkTypeFieldSpec("state", "object"),
+            SdkTypeFieldSpec("methods", "object"),
+            SdkTypeFieldSpec("errors", "object"),
+            SdkTypeFieldSpec("results", "object"),
+            SdkTypeFieldSpec("fields", "object"),
+            SdkTypeFieldSpec("types", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_state",
+        (
+            SdkTypeFieldSpec("service", "sdk_service_state"),
+            SdkTypeFieldSpec("runtime", "sdk_runtime_state"),
+            SdkTypeFieldSpec("session", "sdk_session_state", nullable=True),
+        ),
+    ),
+    SdkTypeSpec("sdk_service_state", _type_fields_from_state_specs(SERVICE_STATE_FIELD_SPECS)),
+    SdkTypeSpec("sdk_runtime_state", _type_fields_from_state_specs(RUNTIME_STATE_FIELD_SPECS)),
+    SdkTypeSpec("sdk_session_state", _type_fields_from_state_specs(SESSION_STATE_FIELD_SPECS)),
+    SdkTypeSpec(
+        "message",
+        (
+            SdkTypeFieldSpec("role", "string"),
+            SdkTypeFieldSpec("content", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "armory_summary",
+        (
+            SdkTypeFieldSpec("name", "string"),
+            SdkTypeFieldSpec("path", "string"),
+            SdkTypeFieldSpec("exists", "boolean"),
+            SdkTypeFieldSpec("valid", "boolean"),
+        ),
+    ),
+    SdkTypeSpec(
+        "armory_validation_summary",
+        (
+            SdkTypeFieldSpec("name", "string"),
+            SdkTypeFieldSpec("path", "string"),
+            SdkTypeFieldSpec("exists", "boolean"),
+            SdkTypeFieldSpec("is_dir", "boolean"),
+            SdkTypeFieldSpec("valid", "boolean"),
+            SdkTypeFieldSpec("error", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "session_summary",
+        (
+            SdkTypeFieldSpec("session_id", "string"),
+            SdkTypeFieldSpec("title", "string"),
+            SdkTypeFieldSpec("created_at", "string"),
+            SdkTypeFieldSpec("updated_at", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "provider_summary",
+        (
+            SdkTypeFieldSpec("provider_slug", "string"),
+            SdkTypeFieldSpec("display_name", "string"),
+            SdkTypeFieldSpec("endpoint", "string"),
+            SdkTypeFieldSpec("api_key_env", "string"),
+            SdkTypeFieldSpec("current_model", "string"),
+            SdkTypeFieldSpec("model_count", "integer"),
+            SdkTypeFieldSpec("is_active", "boolean"),
+            SdkTypeFieldSpec("is_current", "boolean"),
+            SdkTypeFieldSpec("credential_kind", "string"),
+            SdkTypeFieldSpec("credential_source", "string"),
+            SdkTypeFieldSpec("credential_required", "boolean"),
+            SdkTypeFieldSpec("credential_configured", "boolean"),
+        ),
+    ),
+    SdkTypeSpec(
+        "model_choice_summary",
+        (
+            SdkTypeFieldSpec("provider_slug", "string"),
+            SdkTypeFieldSpec("provider_display_name", "string"),
+            SdkTypeFieldSpec("model", "string"),
+            SdkTypeFieldSpec("endpoint", "string"),
+            SdkTypeFieldSpec("is_free", "boolean"),
+            SdkTypeFieldSpec("is_current", "boolean"),
+            SdkTypeFieldSpec("free_description", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "material_summary",
+        (
+            SdkTypeFieldSpec("path", "string"),
+            SdkTypeFieldSpec("rel_path", "string"),
+            SdkTypeFieldSpec("display_name", "string"),
+            SdkTypeFieldSpec("kind", "literal<materials>"),
+            SdkTypeFieldSpec("role", "string"),
+            SdkTypeFieldSpec("confidence", "number"),
+            SdkTypeFieldSpec("reason", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "import_materials_summary",
+        (
+            SdkTypeFieldSpec("imported", "array<string>"),
+            SdkTypeFieldSpec("considered", "integer"),
+            SdkTypeFieldSpec("skipped", "integer"),
+            SdkTypeFieldSpec("skipped_duplicates", "integer"),
+            SdkTypeFieldSpec("skipped_unsupported", "integer"),
+        ),
+    ),
+    SdkTypeSpec(
+        "index_progress_event",
+        (
+            SdkTypeFieldSpec("action", "string"),
+            SdkTypeFieldSpec("detail", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "index_summary",
+        (
+            SdkTypeFieldSpec("documents", "integer"),
+            SdkTypeFieldSpec("chunks", "integer"),
+            SdkTypeFieldSpec("progress", "array<index_progress_event>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "extraction_health_issue_summary",
+        (
+            SdkTypeFieldSpec("source", "string"),
+            SdkTypeFieldSpec("forbidden_text_present", "array<string>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "extraction_health_summary",
+        (
+            SdkTypeFieldSpec("armory_path", "string"),
+            SdkTypeFieldSpec("documents", "integer"),
+            SdkTypeFieldSpec("checks", "integer"),
+            SdkTypeFieldSpec("pass_rate", "number"),
+            SdkTypeFieldSpec("passed", "boolean"),
+            SdkTypeFieldSpec("forbidden_text", "array<string>"),
+            SdkTypeFieldSpec("issues", "array<extraction_health_issue_summary>"),
+        ),
+    ),
+)
 
 
 def service_stream_method_for_jsonl(method: str) -> str | None:
@@ -496,6 +679,14 @@ def result_specs_to_dict(specs: tuple[SdkResultSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
+def type_field_specs_to_dict(specs: tuple[SdkTypeFieldSpec, ...]) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
+def type_specs_to_dict(specs: tuple[SdkTypeSpec, ...]) -> dict[str, object]:
+    return {spec.type_name: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
@@ -514,6 +705,7 @@ __all__ = [
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_TYPE_SPECS",
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_CALL_RESULT_SPECS",
@@ -531,6 +723,8 @@ __all__ = [
     "SdkMethodSpec",
     "SdkResultFieldSpec",
     "SdkResultSpec",
+    "SdkTypeFieldSpec",
+    "SdkTypeSpec",
     "error_specs_to_dict",
     "event_field_specs_to_dict",
     "event_specs_to_dict",
@@ -539,4 +733,6 @@ __all__ = [
     "result_field_specs_to_dict",
     "result_specs_to_dict",
     "service_stream_method_for_jsonl",
+    "type_field_specs_to_dict",
+    "type_specs_to_dict",
 ]

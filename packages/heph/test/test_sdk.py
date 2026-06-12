@@ -181,6 +181,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     errors = _payload_mapping(payload["errors"])
     results = _payload_mapping(payload["results"])
     fields = _payload_mapping(payload["fields"])
+    types = _payload_mapping(payload["types"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
@@ -207,6 +208,12 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
+    assert "sdk_capabilities" in types
+    assert "sdk_state" in types
+    assert "provider_summary" in types
+    assert "model_choice_summary" in types
+    assert "index_summary" in types
+    assert "extraction_health_summary" in types
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -341,6 +348,59 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(service_field_specs) == service_fields
     assert list(runtime_field_specs) == runtime_fields
     assert list(session_field_specs) == session_fields
+    sdk_state_fields = _payload_mapping(_payload_mapping(types["sdk_state"])["fields"])
+    runtime_type_fields = _payload_mapping(_payload_mapping(types["sdk_runtime_state"])["fields"])
+    session_type_fields = _payload_mapping(_payload_mapping(types["sdk_session_state"])["fields"])
+    message_type_fields = _payload_mapping(_payload_mapping(types["message"])["fields"])
+    provider_type_fields = _payload_mapping(_payload_mapping(types["provider_summary"])["fields"])
+    model_type_fields = _payload_mapping(_payload_mapping(types["model_choice_summary"])["fields"])
+    material_type_fields = _payload_mapping(_payload_mapping(types["material_summary"])["fields"])
+    index_type_fields = _payload_mapping(_payload_mapping(types["index_summary"])["fields"])
+    health_type_fields = _payload_mapping(
+        _payload_mapping(types["extraction_health_summary"])["fields"]
+    )
+    assert _payload_mapping(sdk_state_fields["session"]) == {
+        "type": "sdk_session_state",
+        "required": True,
+        "nullable": True,
+    }
+    assert list(runtime_type_fields) == runtime_fields
+    assert list(session_type_fields) == session_fields
+    assert _payload_mapping(session_type_fields["messages"]) == {
+        "type": "array<message>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(message_type_fields["content"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(provider_type_fields["credential_configured"]) == {
+        "type": "boolean",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(model_type_fields["free_description"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(material_type_fields["kind"]) == {
+        "type": "literal<materials>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(index_type_fields["progress"]) == {
+        "type": "array<index_progress_event>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(health_type_fields["issues"]) == {
+        "type": "array<extraction_health_issue_summary>",
+        "required": True,
+        "nullable": False,
+    }
     service_operation_spec = _payload_mapping(service_field_specs["active_operation"])
     runtime_armory_spec = _payload_mapping(runtime_field_specs["armory_path"])
     runtime_flags_spec = _payload_mapping(runtime_field_specs["feature_flags"])
