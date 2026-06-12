@@ -53,6 +53,11 @@ class JsonlSdkServer:
     _state_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _active_prompt: ActivePrompt | None = field(default=None, init=False, repr=False)
     _active_operation: ActiveOperation | None = field(default=None, init=False, repr=False)
+    _stream_threads_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+    )
     _stream_threads: list[threading.Thread] = field(default_factory=list, init=False, repr=False)
 
     def serve(self) -> None:
@@ -194,11 +199,11 @@ class JsonlSdkServer:
             args=(request_id, events, cleanup),
             name=thread_name,
         )
-        self._stream_threads.append(thread)
+        self._track_stream_thread(thread)
         try:
             thread.start()
         except BaseException:
-            self._stream_threads.remove(thread)
+            self._forget_stream_thread(thread)
             cleanup()
             raise
 
@@ -230,7 +235,10 @@ class JsonlSdkServer:
         else:
             self._write_stream_end(request_id, ok=True, error=None)
         finally:
-            cleanup()
+            try:
+                cleanup()
+            finally:
+                self._forget_stream_thread(threading.current_thread())
 
     def _abort_active_prompt(self) -> ServicePayload:
         with self._state_lock:
@@ -265,9 +273,23 @@ class JsonlSdkServer:
         with self._state_lock:
             return self._active_prompt is not None or self._active_operation is not None
 
+    def _track_stream_thread(self, thread: threading.Thread) -> None:
+        with self._stream_threads_lock:
+            self._stream_threads.append(thread)
+
+    def _forget_stream_thread(self, thread: threading.Thread) -> None:
+        with self._stream_threads_lock:
+            if thread in self._stream_threads:
+                self._stream_threads.remove(thread)
+
     def _wait_for_streams(self) -> None:
-        for thread in self._stream_threads:
-            thread.join()
+        while True:
+            with self._stream_threads_lock:
+                threads = tuple(self._stream_threads)
+            if not threads:
+                return
+            for thread in threads:
+                thread.join()
 
     def _write_response(self, request_id: RequestId, result: ServicePayload) -> None:
         self._write({"type": "response", "id": request_id, "ok": True, "result": result})

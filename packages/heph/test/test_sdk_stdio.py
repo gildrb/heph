@@ -170,6 +170,59 @@ def test_jsonl_sdk_server_abort_reaches_active_prompt(
     assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
 
 
+def test_jsonl_sdk_server_prunes_completed_stream_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt in {"tracked once", "tracked twice"}
+        started.set()
+        yield AssistantDeltaEvent(prompt)
+        assert release.wait(timeout=2.0)
+        yield TurnCompleteEvent(prompt, 0, 1.0, "stop", 100)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "turn-1", "method": "prompt", "params": {"text": "tracked once"}})
+    assert started.wait(timeout=2.0)
+    with server._stream_threads_lock:
+        assert len(server._stream_threads) == 1
+
+    release.set()
+    server._wait_for_streams()
+    with server._stream_threads_lock:
+        assert server._stream_threads == []
+
+    started.clear()
+    release.clear()
+    server.handle_request(
+        {"id": "turn-2", "method": "prompt", "params": {"text": "tracked twice"}}
+    )
+    assert started.wait(timeout=2.0)
+    release.set()
+    server._wait_for_streams()
+
+    with server._stream_threads_lock:
+        assert server._stream_threads == []
+    assert output.getvalue().count('"type": "stream_end"') == 2
+
+
 def test_jsonl_sdk_server_maps_service_busy_errors_to_busy_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
