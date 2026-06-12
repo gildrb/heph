@@ -9,6 +9,7 @@ from heph.sdk.capabilities import (
     SDK_CAPABILITIES_VERSION,
     HephSdkCapabilities,
     get_sdk_capabilities,
+    validate_sdk_capabilities,
 )
 from heph.sdk.events import (
     AssistantDelta,
@@ -126,4 +127,5 @@ __all__ = [
     "from_turn_event",
     "get_sdk_capabilities",
     "serve_stdio",
+    "validate_sdk_capabilities",
 ]

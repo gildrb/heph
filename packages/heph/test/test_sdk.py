@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ from heph.sdk import (
     event_to_dict,
     from_turn_event,
     get_sdk_capabilities,
+    validate_sdk_capabilities,
 )
 from heph.sdk import methods as sdk_methods
 from heph.sdk import models as sdk_models
@@ -207,6 +209,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
+    assert validate_sdk_capabilities(capabilities) == ()
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert "sdk_capabilities" in types
     assert "sdk_state" in types
@@ -409,6 +412,30 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert runtime_armory_spec == {"type": "string", "nullable": True}
     assert runtime_flags_spec == {"type": "array<string>", "nullable": False}
     assert session_messages_spec == {"type": "array<message>", "nullable": False}
+
+
+def test_sdk_capabilities_validator_reports_contract_drift() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_result_specs = tuple(
+        replace(spec, value_type="missing_custom_type") if spec.method == "state" else spec
+        for spec in capabilities.service_call_result_specs
+    )
+    broken_capabilities = replace(
+        capabilities,
+        busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
+        service_call_methods=(*capabilities.service_call_methods, "state"),
+        service_call_result_specs=broken_result_specs,
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "service.call_methods contains duplicate entries: state" in issues
+    assert "service.call_methods does not match its structured specs." in issues
+    assert (
+        "service.busy_allowed_call_methods contains entries that are not advertised calls: bogus"
+        in issues
+    )
+    assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
 
 
 def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:

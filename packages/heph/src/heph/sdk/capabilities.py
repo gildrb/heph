@@ -45,6 +45,10 @@ from heph.sdk.methods import (
     type_specs_to_dict,
 )
 
+_SCALAR_TYPES = frozenset({"boolean", "integer", "number", "number_or_null", "object", "string"})
+_ARRAY_PREFIX = "array<"
+_LITERAL_PREFIX = "literal<"
+
 
 @dataclass(frozen=True, slots=True)
 class HephSdkCapabilities:
@@ -156,6 +160,226 @@ def get_sdk_capabilities() -> HephSdkCapabilities:
     return SDK_CAPABILITIES
 
 
+def validate_sdk_capabilities(
+    capabilities: HephSdkCapabilities = SDK_CAPABILITIES,
+) -> tuple[str, ...]:
+    """Return human-readable SDK capability contract issues."""
+    issues: list[str] = []
+    _append_duplicate_issue(issues, "service.call_methods", capabilities.service_call_methods)
+    _append_duplicate_issue(issues, "service.stream_methods", capabilities.service_stream_methods)
+    _append_duplicate_issue(issues, "jsonl.call_methods", capabilities.jsonl_call_methods)
+    _append_duplicate_issue(issues, "jsonl.stream_methods", capabilities.jsonl_stream_methods)
+    _append_duplicate_issue(issues, "events.types", capabilities.event_types)
+    _append_duplicate_issue(issues, "jsonl.error_codes", capabilities.jsonl_error_codes)
+    _append_duplicate_issue(
+        issues,
+        "service.busy_allowed_call_methods",
+        capabilities.busy_allowed_call_methods,
+    )
+    _append_duplicate_issue(
+        issues,
+        "types",
+        tuple(spec.type_name for spec in capabilities.type_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "service.call_methods",
+        capabilities.service_call_methods,
+        tuple(spec.method for spec in capabilities.service_call_method_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "service.stream_methods",
+        capabilities.service_stream_methods,
+        tuple(spec.method for spec in capabilities.service_stream_method_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "jsonl.call_methods",
+        capabilities.jsonl_call_methods,
+        tuple(spec.method for spec in capabilities.jsonl_call_method_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "jsonl.stream_methods",
+        capabilities.jsonl_stream_methods,
+        tuple(spec.method for spec in capabilities.jsonl_stream_method_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "results.service_call",
+        capabilities.service_call_methods,
+        tuple(spec.method for spec in capabilities.service_call_result_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "results.jsonl_call",
+        capabilities.jsonl_call_methods,
+        tuple(spec.method for spec in capabilities.jsonl_call_result_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "events.types",
+        capabilities.event_types,
+        tuple(spec.event_type for spec in capabilities.event_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "state.service_fields",
+        capabilities.service_state_fields,
+        tuple(spec.name for spec in capabilities.service_state_field_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "state.runtime_fields",
+        capabilities.runtime_state_fields,
+        tuple(spec.name for spec in capabilities.runtime_state_field_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "state.session_fields",
+        capabilities.session_state_fields,
+        tuple(spec.name for spec in capabilities.session_state_field_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "jsonl.error_codes",
+        capabilities.jsonl_error_codes,
+        tuple(spec.code for spec in capabilities.jsonl_error_specs),
+    )
+    _append_subset_issue(
+        issues,
+        "service.busy_allowed_call_methods",
+        capabilities.busy_allowed_call_methods,
+        capabilities.service_call_methods,
+    )
+    _append_unknown_type_issues(issues, capabilities)
+    return tuple(issues)
+
+
+def _append_duplicate_issue(issues: list[str], label: str, names: tuple[str, ...]) -> None:
+    duplicates = _duplicates(names)
+    if duplicates:
+        issues.append(f"{label} contains duplicate entries: {', '.join(duplicates)}")
+
+
+def _append_mismatch_issue(
+    issues: list[str],
+    label: str,
+    advertised: tuple[str, ...],
+    structured: tuple[str, ...],
+) -> None:
+    if advertised != structured:
+        issues.append(f"{label} does not match its structured specs.")
+
+
+def _append_subset_issue(
+    issues: list[str],
+    label: str,
+    values: tuple[str, ...],
+    allowed_values: tuple[str, ...],
+) -> None:
+    allowed = frozenset(allowed_values)
+    unknown = tuple(value for value in values if value not in allowed)
+    if unknown:
+        issues.append(
+            f"{label} contains entries that are not advertised calls: {', '.join(unknown)}"
+        )
+
+
+def _duplicates(names: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    duplicate_set: set[str] = set()
+    for name in names:
+        if name in seen and name not in duplicate_set:
+            duplicates.append(name)
+            duplicate_set.add(name)
+        seen.add(name)
+    return tuple(duplicates)
+
+
+def _append_unknown_type_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    known_types = frozenset(spec.type_name for spec in capabilities.type_specs)
+    issues.extend(
+        f"{context} references unknown SDK type: {type_name}"
+        for context, value_type in _referenced_value_types(capabilities)
+        for type_name in _custom_type_references(value_type)
+        if type_name not in known_types
+    )
+
+
+def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[tuple[str, str], ...]:
+    references: list[tuple[str, str]] = []
+    for spec in capabilities.service_call_method_specs:
+        references.extend(
+            (f"methods.service_call.{spec.method}.{param.name}", param.value_type)
+            for param in spec.params
+        )
+    for spec in capabilities.service_stream_method_specs:
+        references.extend(
+            (f"methods.service_stream.{spec.method}.{param.name}", param.value_type)
+            for param in spec.params
+        )
+    for spec in capabilities.jsonl_call_method_specs:
+        references.extend(
+            (f"methods.jsonl_call.{spec.method}.{param.name}", param.value_type)
+            for param in spec.params
+        )
+    for spec in capabilities.jsonl_stream_method_specs:
+        references.extend(
+            (f"methods.jsonl_stream.{spec.method}.{param.name}", param.value_type)
+            for param in spec.params
+        )
+    references.extend(
+        (f"fields.service_state.{spec.name}", spec.value_type)
+        for spec in capabilities.service_state_field_specs
+    )
+    references.extend(
+        (f"fields.runtime_state.{spec.name}", spec.value_type)
+        for spec in capabilities.runtime_state_field_specs
+    )
+    references.extend(
+        (f"fields.session_state.{spec.name}", spec.value_type)
+        for spec in capabilities.session_state_field_specs
+    )
+    for spec in capabilities.event_specs:
+        references.extend(
+            (f"events.{spec.event_type}.{field.name}", field.value_type) for field in spec.fields
+        )
+    for spec in capabilities.service_call_result_specs:
+        references.append((f"results.service_call.{spec.method}", spec.value_type))
+        references.extend(
+            (f"results.service_call.{spec.method}.{field.name}", field.value_type)
+            for field in spec.fields
+        )
+    for spec in capabilities.jsonl_call_result_specs:
+        references.append((f"results.jsonl_call.{spec.method}", spec.value_type))
+        references.extend(
+            (f"results.jsonl_call.{spec.method}.{field.name}", field.value_type)
+            for field in spec.fields
+        )
+    for spec in capabilities.type_specs:
+        references.extend(
+            (f"types.{spec.type_name}.{field.name}", field.value_type) for field in spec.fields
+        )
+    return tuple(references)
+
+
+def _custom_type_references(value_type: str) -> tuple[str, ...]:
+    if value_type in _SCALAR_TYPES:
+        return ()
+    if value_type.startswith(_LITERAL_PREFIX) and value_type.endswith(">"):
+        return ()
+    if value_type.startswith(_ARRAY_PREFIX) and value_type.endswith(">"):
+        inner_type = value_type.removeprefix(_ARRAY_PREFIX).removesuffix(">")
+        return _custom_type_references(inner_type)
+    return (value_type,)
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
@@ -186,4 +410,5 @@ __all__ = [
     "SESSION_STATE_FIELD_SPECS",
     "HephSdkCapabilities",
     "get_sdk_capabilities",
+    "validate_sdk_capabilities",
 ]

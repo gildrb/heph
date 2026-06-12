@@ -212,6 +212,8 @@ and JSONL call method, using stable SDK DTO names such as `sdk_state`,
 `sdk_session_state`, `provider_summary`, and `index_summary`.
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
+`validate_sdk_capabilities()` checks the advertised graph for list/spec drift
+and unresolved DTO type references; keep it green when extending the SDK surface.
 The `errors.jsonl` section describes each JSONL error code so native clients can
 present stable recovery copy without hard-coding the Python docs.
 The `fields` section describes service, runtime, and session state field types
