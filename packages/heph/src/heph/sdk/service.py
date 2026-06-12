@@ -99,6 +99,11 @@ class HephService:
             return self.ask(_required_str(parameters, "text"))
         if method == "abort":
             return self.abort()
+        if method == "set_source_enabled":
+            return self.set_source_enabled(
+                _required_str(parameters, "source"),
+                _required_bool(parameters, "enabled"),
+            )
         if method == "list_materials":
             return self.list_materials()
         if method == "import_materials":
@@ -207,6 +212,11 @@ class HephService:
         with self._idle_service_call():
             self._require_session().abort()
             return {"aborted": True, "session": self._session_dict()}
+
+    def set_source_enabled(self, source: str, enabled: bool) -> dict[str, object]:
+        with self._idle_service_call():
+            changed = self._require_session().set_source_enabled(source, enabled)
+            return {"changed": changed, "session": self._session_dict()}
 
     def update_config(self, params: Mapping[str, object]) -> dict[str, object]:
         with self._idle_service_call():
@@ -320,6 +330,13 @@ def _required_str(params: Mapping[str, object], key: str) -> str:
     value = params.get(key)
     if not isinstance(value, str) or not value.strip():
         raise HephSdkError(f"SDK service parameter '{key}' must be a non-empty string.")
+    return value
+
+
+def _required_bool(params: Mapping[str, object], key: str) -> bool:
+    value = params.get(key)
+    if not isinstance(value, bool):
+        raise HephSdkError(f"SDK service parameter '{key}' must be a boolean.")
     return value
 
 

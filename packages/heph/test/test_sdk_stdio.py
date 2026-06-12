@@ -317,6 +317,45 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
     assert not thread.is_alive()
 
 
+def test_jsonl_sdk_server_handles_source_scope_toggle(tmp_path: Path) -> None:
+    armory_path = tmp_path / ".armories" / "jsonl-scope"
+    service = HephService.create_armory(armory_path, config=_config())
+    materials_path = armory_path / "materials" / "notes.md"
+    materials_path.write_text("# Notes\n\nTransport source.\n", encoding="utf-8")
+    service.new_session()
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            _jsonl(
+                {
+                    "id": "disable-notes",
+                    "method": "set_source_enabled",
+                    "params": {"source": "materials/notes.md", "enabled": False},
+                },
+                {"id": "state-after-toggle", "method": "state"},
+            )
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    toggle_response = next(payload for payload in payloads if payload.get("id") == "disable-notes")
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-toggle"
+    )
+    toggle_result = _payload_mapping(toggle_response["result"])
+    toggle_session = _payload_mapping(toggle_result["session"])
+    state_session = _payload_mapping(_payload_mapping(state_response["result"])["session"])
+
+    assert toggle_result["changed"] is True
+    assert toggle_session["disabled_source_files"] == ["materials/notes.md"]
+    assert toggle_session["enabled_source_files"] == []
+    assert state_session["disabled_source_files"] == ["materials/notes.md"]
+
+
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     service = HephService.plain(config=_config())
     output = io.StringIO()

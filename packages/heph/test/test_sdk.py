@@ -199,6 +199,30 @@ def test_session_messages_hide_internal_system_prompt(tmp_path: Path) -> None:
     assert session.to_dict()["messages"] == []
 
 
+def test_session_exposes_and_toggles_source_file_scope(tmp_path: Path) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+
+    assert session.source_file_count == 1
+    assert session.source_files == ("materials/notes.md",)
+    assert session.enabled_source_files == ("materials/notes.md",)
+    assert session.disabled_source_files == frozenset()
+
+    assert session.set_source_enabled("materials/notes.md", enabled=False)
+    assert session.disabled_source_files == frozenset({"materials/notes.md"})
+    assert session.enabled_source_files == ()
+    assert session.to_dict()["disabled_source_files"] == ["materials/notes.md"]
+    assert session.to_dict()["enabled_source_files"] == []
+    assert session.has_unsaved_changes
+
+    assert not session.set_source_enabled("materials/notes.md", enabled=False)
+    assert session.set_source_enabled("materials/notes.md", enabled=True)
+    assert session.disabled_source_files == frozenset()
+
+    with pytest.raises(HephSdkError, match="not attached"):
+        session.set_source_enabled("materials/missing.md", enabled=False)
+
+
 def test_session_subscribe_abort_and_dispose(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -497,9 +521,36 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert snapshot.runtime.temperature is None
     assert snapshot.runtime.feature_flags == ("alpha", "beta")
     assert isinstance(snapshot.session, HephSdkSessionState)
+    assert snapshot.session.source_file_count == 1
+    assert snapshot.session.source_files == ("materials/notes.md",)
+    assert snapshot.session.enabled_source_files == ("materials/notes.md",)
+    assert snapshot.session.disabled_source_files == frozenset()
+    assert not snapshot.session.has_unsaved_changes
     assert snapshot.session.messages == ()
     assert session_payload["runtime"] == snapshot.runtime.to_dict()
     assert service.state() == snapshot.to_dict()
+
+
+def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
+    session_state = HephSdkSessionState("session-1", "Title", None, "sdk-model", False, ())
+
+    assert session_state.source_file_count == 0
+    assert session_state.source_files == ()
+    assert session_state.disabled_source_files == frozenset()
+    assert session_state.enabled_source_files == ()
+    assert session_state.to_dict() == {
+        "session_id": "session-1",
+        "title": "Title",
+        "armory_path": None,
+        "model": "sdk-model",
+        "is_streaming": False,
+        "source_file_count": 0,
+        "source_files": [],
+        "disabled_source_files": [],
+        "enabled_source_files": [],
+        "has_unsaved_changes": False,
+        "messages": [],
+    }
 
 
 def test_service_blocks_state_changes_while_prompt_streams(
@@ -568,6 +619,8 @@ def test_service_blocks_state_changes_while_prompt_streams(
         service.scan_extraction_health()
     with pytest.raises(HephSdkError, match="only state and abort"):
         service.list_armories()
+    with pytest.raises(HephSdkError, match="only state and abort"):
+        service.set_source_enabled("materials/notes.md", enabled=False)
 
     abort_payload = service.call("abort")
     release.set()
@@ -650,14 +703,27 @@ def test_service_import_materials_refreshes_active_session_sources(tmp_path: Pat
     service.import_materials(first_source)
     service.new_session()
     assert service.session is not None
-    assert service.session._session.source_files == ("materials/week-1.md",)
+    assert service.session.source_files == ("materials/week-1.md",)
 
     service.import_materials(second_source)
 
-    assert service.session._session.source_files == (
+    assert service.session.source_files == (
         "materials/week-1.md",
         "materials/week-2.md",
     )
+    toggle_payload = service.call(
+        "set_source_enabled",
+        {"source": "materials/week-1.md", "enabled": False},
+    )
+    session_payload = _payload_mapping(toggle_payload["session"])
+
+    assert toggle_payload["changed"] is True
+    assert session_payload["disabled_source_files"] == ["materials/week-1.md"]
+    assert session_payload["enabled_source_files"] == ["materials/week-2.md"]
+    assert session_payload["has_unsaved_changes"] is True
+
+    no_change_payload = service.set_source_enabled("materials/week-1.md", enabled=False)
+    assert no_change_payload["changed"] is False
 
 
 def test_service_call_and_stream_dispatcher(
@@ -715,6 +781,8 @@ def test_service_call_and_stream_dispatcher(
         service.call("missing")
     with pytest.raises(HephSdkError, match="non-empty string"):
         list(service.stream("prompt", {"text": ""}))
+    with pytest.raises(HephSdkError, match="must be a boolean"):
+        service.call("set_source_enabled", {"source": "materials/notes.md", "enabled": "no"})
 
 
 @pytest.mark.parametrize(

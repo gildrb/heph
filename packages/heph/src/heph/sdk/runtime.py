@@ -130,6 +130,27 @@ class HephSession:
         return self._session.config.model
 
     @property
+    def source_file_count(self) -> int:
+        return self._session.source_file_count
+
+    @property
+    def source_files(self) -> tuple[str, ...]:
+        return self._session.source_files
+
+    @property
+    def disabled_source_files(self) -> frozenset[str]:
+        return frozenset(self._session.disabled_source_files)
+
+    @property
+    def enabled_source_files(self) -> tuple[str, ...]:
+        disabled = self.disabled_source_files
+        return tuple(source for source in self.source_files if source not in disabled)
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        return self._session.dirty
+
+    @property
     def messages(self) -> tuple[HephMessage, ...]:
         return tuple(
             HephMessage(role=message.role, content=message.content)
@@ -190,6 +211,21 @@ class HephSession:
     def refresh_materials(self) -> None:
         self._session.refresh_armory_sources()
 
+    def set_source_enabled(self, source: str, enabled: bool) -> bool:
+        if source not in self.source_files:
+            raise HephSdkError(f"SDK session source file is not attached: {source}")
+        disabled_sources = self._session.disabled_source_files
+        if enabled:
+            if source not in disabled_sources:
+                return False
+            disabled_sources.remove(source)
+        else:
+            if source in disabled_sources:
+                return False
+            disabled_sources.add(source)
+        self._session.dirty = True
+        return True
+
     def save(self) -> Path:
         return save_session(self._session)
 
@@ -199,14 +235,7 @@ class HephSession:
         self._session.trace.close()
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "session_id": self.session_id,
-            "title": self.title,
-            "armory_path": str(self.armory_path) if self.armory_path is not None else None,
-            "model": self.model,
-            "is_streaming": self.is_streaming,
-            "messages": [message.to_dict() for message in self.messages],
-        }
+        return HephSdkSessionState.from_session(self).to_dict()
 
     def _emit(self, event: HephEvent) -> None:
         for listener in tuple(self._listeners):
@@ -224,6 +253,52 @@ class HephSession:
             if self._active_abort is abort:
                 self._streaming = False
                 self._active_abort = None
+
+
+@dataclass(frozen=True, slots=True)
+class HephSdkSessionState:
+    session_id: str
+    title: str
+    armory_path: Path | None
+    model: str
+    is_streaming: bool
+    messages: tuple[HephMessage, ...]
+    source_file_count: int = 0
+    source_files: tuple[str, ...] = ()
+    disabled_source_files: frozenset[str] = frozenset()
+    enabled_source_files: tuple[str, ...] = ()
+    has_unsaved_changes: bool = False
+
+    @classmethod
+    def from_session(cls, session: HephSession) -> HephSdkSessionState:
+        return cls(
+            session_id=session.session_id,
+            title=session.title,
+            armory_path=session.armory_path,
+            model=session.model,
+            is_streaming=session.is_streaming,
+            messages=session.messages,
+            source_file_count=session.source_file_count,
+            source_files=session.source_files,
+            disabled_source_files=session.disabled_source_files,
+            enabled_source_files=session.enabled_source_files,
+            has_unsaved_changes=session.has_unsaved_changes,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "title": self.title,
+            "armory_path": str(self.armory_path) if self.armory_path is not None else None,
+            "model": self.model,
+            "is_streaming": self.is_streaming,
+            "source_file_count": self.source_file_count,
+            "source_files": list(self.source_files),
+            "disabled_source_files": sorted(self.disabled_source_files),
+            "enabled_source_files": list(self.enabled_source_files),
+            "has_unsaved_changes": self.has_unsaved_changes,
+            "messages": [message.to_dict() for message in self.messages],
+        }
 
 
 @dataclass(slots=True)
@@ -375,6 +450,7 @@ __all__ = [
     "HephRuntime",
     "HephSdkBusyError",
     "HephSdkError",
+    "HephSdkSessionState",
     "HephSession",
     "ImportMaterialsSummary",
     "IndexProgressEvent",

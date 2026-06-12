@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from heph.sdk.runtime import HephMessage, HephRuntime, HephSession
+from heph.sdk.runtime import HephRuntime, HephSdkSessionState
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,37 +50,6 @@ class HephSdkRuntimeState:
             "temperature": self.temperature,
             "thinking_visibility": self.thinking_visibility,
             "feature_flags": list(self.feature_flags),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class HephSdkSessionState:
-    session_id: str
-    title: str
-    armory_path: Path | None
-    model: str
-    is_streaming: bool
-    messages: tuple[HephMessage, ...]
-
-    @classmethod
-    def from_session(cls, session: HephSession) -> HephSdkSessionState:
-        return cls(
-            session_id=session.session_id,
-            title=session.title,
-            armory_path=session.armory_path,
-            model=session.model,
-            is_streaming=session.is_streaming,
-            messages=session.messages,
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "session_id": self.session_id,
-            "title": self.title,
-            "armory_path": str(self.armory_path) if self.armory_path is not None else None,
-            "model": self.model,
-            "is_streaming": self.is_streaming,
-            "messages": [message.to_dict() for message in self.messages],
         }
 
 

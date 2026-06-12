@@ -23,6 +23,7 @@ SwiftUI / GUI / automation client
 - `HephSession` for one active chat session.
 - `HephService` for stateful, dictionary-returning transport adapters.
 - `HephEvent` DTOs for structured turn streams.
+- Session source-file snapshots and enable/disable controls for material scope.
 - Material, index, and extraction-health DTOs for armory management.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `SessionSummary`, and `HephMessage` value objects.
@@ -134,6 +135,7 @@ The transport should expose the same SDK concepts:
 - sessions: new, resume, fork, list, save;
 - turns: prompt, abort, stream events;
 - messages: list current conversation messages;
+- source scope: inspect and enable or disable attached source files;
 - config: inspect and switch model/provider settings.
 
 The Python SDK remains the source of truth. The transport is only a
@@ -163,6 +165,7 @@ inspecting internal `ChatSession` objects.
 - `ask`
 - `prompt`
 - `abort`
+- `set_source_enabled`
 - `list_materials`
 - `import_materials`
 - `build_index`
