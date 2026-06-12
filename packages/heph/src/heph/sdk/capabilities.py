@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 2
+SDK_CAPABILITIES_VERSION = 3
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -80,6 +80,7 @@ SESSION_STATE_FIELDS = (
     "armory_path",
     "model",
     "is_streaming",
+    "is_disposed",
     "source_file_count",
     "source_files",
     "disabled_source_files",

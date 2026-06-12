@@ -162,7 +162,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 2
+    assert payload["version"] == 3
     assert "capabilities" in service_call_methods
     assert "build_index" in service_stream_methods
     assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
@@ -176,6 +176,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "active_operation" in service_fields
     assert "reasoning_level" in runtime_fields
     assert "enabled_source_files" in session_fields
+    assert "is_disposed" in session_fields
 
 
 def test_session_prompt_streams_sdk_events_and_autosaves(
@@ -306,7 +307,33 @@ def test_session_subscribe_abort_and_dispose(
     assert [event.kind for event in events] == ["assistant_delta", "turn_complete"]
     assert not session.is_streaming
     unsubscribe()
+    assert not session.is_disposed
     session.dispose()
+    assert session.is_disposed
+    assert session.to_dict()["is_disposed"] is True
+
+
+def test_session_dispose_is_idempotent_and_rejects_stale_use(tmp_path: Path) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+
+    session.dispose()
+    session.dispose()
+
+    assert session.is_disposed
+    assert session.to_dict()["is_disposed"] is True
+    session.abort()
+
+    with pytest.raises(HephSdkError, match="disposed"):
+        session.subscribe(lambda event: None)
+    with pytest.raises(HephSdkError, match="disposed"):
+        list(session.prompt("This stale session should not stream."))
+    with pytest.raises(HephSdkError, match="disposed"):
+        session.refresh_materials()
+    with pytest.raises(HephSdkError, match="disposed"):
+        session.set_source_enabled("materials/notes.md", enabled=False)
+    with pytest.raises(HephSdkError, match="disposed"):
+        session.save()
 
 
 def test_session_subscriber_can_unsubscribe_while_events_emit(
@@ -711,6 +738,7 @@ def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
         "armory_path": None,
         "model": "sdk-model",
         "is_streaming": False,
+        "is_disposed": False,
         "source_file_count": 0,
         "source_files": [],
         "disabled_source_files": [],
@@ -1030,17 +1058,22 @@ def test_service_disposes_replaced_sessions(
     second_session = service.session
     assert second_session is not None
     assert disposed_sessions == [first_session]
+    assert first_session.is_disposed
+    with pytest.raises(HephSdkError, match="disposed"):
+        list(first_session.prompt("Stale session."))
 
     service.resume_session(first_session.session_id)
     resumed_session = service.session
     assert resumed_session is not None
     assert resumed_session.session_id == first_session.session_id
     assert disposed_sessions == [first_session, second_session]
+    assert second_session.is_disposed
 
     service.use_plain_runtime()
 
     assert service.session is None
     assert disposed_sessions == [first_session, second_session, resumed_session]
+    assert resumed_session.is_disposed
 
 
 def test_service_material_methods_return_transport_ready_payloads(tmp_path: Path) -> None:

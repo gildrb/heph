@@ -25,6 +25,7 @@ SwiftUI / GUI / automation client
 - `HephSdkCapabilities` and `get_sdk_capabilities()` for feature discovery.
 - `HephEvent` DTOs for structured turn streams.
 - Session source-file snapshots and enable/disable controls for material scope.
+- Explicit session disposal state for stale handles after replacement.
 - Material, index, and extraction-health DTOs for armory management.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `SessionSummary`, and `HephMessage` value objects.
@@ -119,7 +120,10 @@ Keep two concepts separate:
 That split matters for native clients because replacing a session should be a
 clear state transition. A SwiftUI app can hold a selected session ID, subscribe
 to its events, and then re-subscribe when the runtime switches to a new,
-resumed, or forked session.
+resumed, or forked session. When `HephService` replaces the active session or
+runtime, the previous `HephSession` is disposed. Stale direct handles keep their
+identity and snapshots, expose `is_disposed`, and reject new streams,
+subscriptions, saves, refreshes, and source-scope mutations with `HephSdkError`.
 
 ## Native Apple Path
 
@@ -276,6 +280,9 @@ is true while a turn is active. While streaming, direct session clients can
 observe state, receive events, and abort the turn; mutation methods such as
 `set_source_enabled()`, `refresh_materials()`, and `save()` raise
 `HephSdkBusyError` until the stream ends.
+`session.is_disposed` is true after the session has been replaced or explicitly
+disposed. Disposed session snapshots remain readable, but clients should switch
+back to the current service state before starting more work.
 
 ## Service Dispatch
 

@@ -122,6 +122,7 @@ class HephSession:
         repr=False,
     )
     _streaming: bool = field(default=False, init=False, repr=False)
+    _disposed: bool = field(default=False, init=False, repr=False)
 
     @property
     def session_id(self) -> str:
@@ -173,10 +174,17 @@ class HephSession:
         with self._stream_lock:
             return self._streaming
 
+    @property
+    def is_disposed(self) -> bool:
+        with self._stream_lock:
+            return self._disposed
+
     def subscribe(self, listener: HephEventListener) -> Callable[[], None]:
         """Subscribe to prompt events. Returns an unsubscribe callback."""
-        with self._listeners_lock:
-            self._listeners.append(listener)
+        with self._stream_lock:
+            self._ensure_not_disposed_locked()
+            with self._listeners_lock:
+                self._listeners.append(listener)
 
         def unsubscribe() -> None:
             with self._listeners_lock:
@@ -248,9 +256,15 @@ class HephSession:
             return save_session(self._session)
 
     def dispose(self) -> None:
+        with self._stream_lock:
+            if self._disposed:
+                return
+            self._disposed = True
+            active_abort = self._active_abort
         with self._listeners_lock:
             self._listeners.clear()
-        self.abort()
+        if active_abort is not None:
+            active_abort.set()
         self._session.trace.close()
 
     def to_dict(self) -> dict[str, object]:
@@ -264,10 +278,12 @@ class HephSession:
 
     def _set_stream_start_guard(self, guard: HephSessionStreamGuard) -> None:
         with self._stream_lock:
+            self._ensure_not_disposed_locked()
             self._stream_start_guard = guard
 
     def _stream_guard(self, abort: threading.Event) -> AbstractContextManager[None]:
         with self._stream_lock:
+            self._ensure_not_disposed_locked()
             guard = self._stream_start_guard
         if guard is None:
             return nullcontext()
@@ -276,12 +292,14 @@ class HephSession:
     @contextmanager
     def _idle_mutation(self) -> Iterator[None]:
         with self._stream_lock:
+            self._ensure_not_disposed_locked()
             if self._streaming:
                 raise HephSdkBusyError("Session is already streaming.")
             yield
 
     def _begin_stream(self, abort: threading.Event) -> None:
         with self._stream_lock:
+            self._ensure_not_disposed_locked()
             if self._streaming:
                 raise HephSdkBusyError("Session is already streaming.")
             self._active_abort = abort
@@ -292,6 +310,10 @@ class HephSession:
             if self._active_abort is abort:
                 self._streaming = False
                 self._active_abort = None
+
+    def _ensure_not_disposed_locked(self) -> None:
+        if self._disposed:
+            raise HephSdkError("SDK session is disposed.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +329,7 @@ class HephSdkSessionState:
     disabled_source_files: frozenset[str] = frozenset()
     enabled_source_files: tuple[str, ...] = ()
     has_unsaved_changes: bool = False
+    is_disposed: bool = False
 
     @classmethod
     def from_session(cls, session: HephSession) -> HephSdkSessionState:
@@ -322,6 +345,7 @@ class HephSdkSessionState:
             disabled_source_files=session.disabled_source_files,
             enabled_source_files=session.enabled_source_files,
             has_unsaved_changes=session.has_unsaved_changes,
+            is_disposed=session.is_disposed,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -331,6 +355,7 @@ class HephSdkSessionState:
             "armory_path": str(self.armory_path) if self.armory_path is not None else None,
             "model": self.model,
             "is_streaming": self.is_streaming,
+            "is_disposed": self.is_disposed,
             "source_file_count": self.source_file_count,
             "source_files": list(self.source_files),
             "disabled_source_files": sorted(self.disabled_source_files),
