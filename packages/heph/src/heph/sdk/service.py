@@ -7,7 +7,6 @@ from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from queue import Queue
 
 from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
@@ -15,6 +14,7 @@ from ai.runtime import ChatConfig, normalize_thinking_visibility
 from heph.sdk.capabilities import BUSY_ALLOWED_CALL_METHODS, get_sdk_capabilities
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
+from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
 from heph.sdk.state import (
     HephSdkRuntimeState,
@@ -25,15 +25,6 @@ from heph.sdk.state import (
 
 type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
-
-
-@dataclass(frozen=True, slots=True)
-class _IndexStreamDone:
-    payload: ServicePayload | None = None
-    error: BaseException | None = None
-
-
-type _IndexStreamItem = ServicePayload | _IndexStreamDone
 
 
 @dataclass(slots=True)
@@ -289,46 +280,18 @@ class HephService:
             return {"index": self.runtime.build_index().to_dict()}
 
     def build_index_stream(self) -> Iterator[dict[str, object]]:
-        items: Queue[_IndexStreamItem] = Queue()
+        def build(publish: OperationStreamPublish) -> ServicePayload:
+            def record_progress(event: IndexProgressEvent) -> None:
+                publish({"type": "index_progress", **event.to_dict()})
 
-        def record_progress(event: IndexProgressEvent) -> None:
-            items.put({"type": "index_progress", **event.to_dict()})
+            summary = self.runtime.build_index(progress=record_progress)
+            return {"type": "index_complete", "index": summary.to_dict()}
 
         self._begin_operation("build_index")
-
-        def build() -> None:
-            try:
-                summary = self.runtime.build_index(progress=record_progress)
-            except BaseException as exc:
-                items.put(_IndexStreamDone(error=exc))
-            else:
-                items.put(
-                    _IndexStreamDone(
-                        payload={"type": "index_complete", "index": summary.to_dict()}
-                    )
-                )
-
-        thread = threading.Thread(target=build, name="heph-sdk-build-index")
         try:
-            thread.start()
-        except BaseException:
-            self._end_operation("build_index")
-            raise
-        try:
-            while True:
-                item = items.get()
-                if isinstance(item, _IndexStreamDone):
-                    if item.error is not None:
-                        raise item.error
-                    if item.payload is not None:
-                        yield item.payload
-                    return
-                yield item
+            yield from iter_operation_stream(thread_name="heph-sdk-build-index", worker=build)
         finally:
-            try:
-                thread.join()
-            finally:
-                self._end_operation("build_index")
+            self._end_operation("build_index")
 
     def scan_extraction_health(self) -> dict[str, object]:
         with self._idle_service_call():

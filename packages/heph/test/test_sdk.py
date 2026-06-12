@@ -1094,6 +1094,46 @@ def test_service_streams_build_index_progress(
     assert idle_service["active_operation"] is None
 
 
+def test_service_streams_build_index_clears_operation_on_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    release = threading.Event()
+
+    def failing_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        assert release.wait(timeout=2.0)
+        raise RuntimeError("index failed")
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", failing_build_index)
+    stream = service.stream("build_index")
+
+    first_event = next(stream)
+    active_service = _payload_mapping(service.state()["service"])
+    assert active_service["active_operation"] == "build_index"
+
+    release.set()
+    with pytest.raises(RuntimeError, match="index failed"):
+        list(stream)
+
+    idle_service = _payload_mapping(service.state()["service"])
+    assert first_event == {
+        "type": "index_progress",
+        "action": "reading",
+        "detail": "materials/notes.md",
+    }
+    assert idle_service["active_operation"] is None
+
+
 def test_service_streams_build_index_with_file_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
