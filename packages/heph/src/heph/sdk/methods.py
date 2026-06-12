@@ -22,8 +22,8 @@ class SdkFieldSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class SdkEventFieldSpec:
-    """A JSON-ready SDK event payload field contract."""
+class SdkObjectFieldSpec:
+    """A JSON-ready SDK object field contract."""
 
     name: str
     value_type: str
@@ -36,6 +36,12 @@ class SdkEventFieldSpec:
             "required": self.required,
             "nullable": self.nullable,
         }
+
+
+SdkEventFieldSpec = SdkObjectFieldSpec
+SdkTypeFieldSpec = SdkObjectFieldSpec
+SdkResultFieldSpec = SdkObjectFieldSpec
+SdkJsonlMessageFieldSpec = SdkObjectFieldSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,27 +49,10 @@ class SdkEventSpec:
     """A JSON-ready SDK stream event payload contract."""
 
     event_type: str
-    fields: tuple[SdkEventFieldSpec, ...]
+    fields: tuple[SdkObjectFieldSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": event_field_specs_to_dict(self.fields)}
-
-
-@dataclass(frozen=True, slots=True)
-class SdkTypeFieldSpec:
-    """A JSON-ready reusable SDK DTO field contract."""
-
-    name: str
-    value_type: str
-    required: bool = True
-    nullable: bool = False
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "type": self.value_type,
-            "required": self.required,
-            "nullable": self.nullable,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,27 +60,10 @@ class SdkTypeSpec:
     """A JSON-ready reusable SDK DTO contract."""
 
     type_name: str
-    fields: tuple[SdkTypeFieldSpec, ...]
+    fields: tuple[SdkObjectFieldSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": type_field_specs_to_dict(self.fields)}
-
-
-@dataclass(frozen=True, slots=True)
-class SdkResultFieldSpec:
-    """A JSON-ready SDK call result field contract."""
-
-    name: str
-    value_type: str
-    required: bool = True
-    nullable: bool = False
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "type": self.value_type,
-            "required": self.required,
-            "nullable": self.nullable,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +72,7 @@ class SdkResultSpec:
 
     method: str
     value_type: str = "object"
-    fields: tuple[SdkResultFieldSpec, ...] = ()
+    fields: tuple[SdkObjectFieldSpec, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -121,28 +93,11 @@ class SdkErrorSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class SdkJsonlMessageFieldSpec:
-    """A JSON-ready JSONL transport message field contract."""
-
-    name: str
-    value_type: str
-    required: bool = True
-    nullable: bool = False
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "type": self.value_type,
-            "required": self.required,
-            "nullable": self.nullable,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class SdkJsonlMessageSpec:
     """A JSON-ready JSONL transport envelope contract."""
 
     message_type: str
-    fields: tuple[SdkJsonlMessageFieldSpec, ...]
+    fields: tuple[SdkObjectFieldSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": jsonl_message_field_specs_to_dict(self.fields)}
@@ -152,7 +107,7 @@ class SdkJsonlMessageSpec:
 class SdkJsonlRequestSpec:
     """A JSON-ready JSONL request envelope contract."""
 
-    fields: tuple[SdkJsonlMessageFieldSpec, ...]
+    fields: tuple[SdkObjectFieldSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": jsonl_message_field_specs_to_dict(self.fields)}
@@ -185,7 +140,9 @@ class SdkMethodSpec:
         return {"params": [param.to_dict() for param in self.params]}
 
 
-def _type_fields_from_state_specs(specs: tuple[SdkFieldSpec, ...]) -> tuple[SdkTypeFieldSpec, ...]:
+def _type_fields_from_state_specs(
+    specs: tuple[SdkFieldSpec, ...],
+) -> tuple[SdkObjectFieldSpec, ...]:
     return tuple(
         SdkTypeFieldSpec(spec.name, spec.value_type, nullable=spec.nullable) for spec in specs
     )
@@ -773,8 +730,12 @@ def field_specs_to_dict(specs: tuple[SdkFieldSpec, ...]) -> dict[str, object]:
     return {spec.name: spec.to_dict() for spec in specs}
 
 
-def event_field_specs_to_dict(specs: tuple[SdkEventFieldSpec, ...]) -> dict[str, object]:
+def _object_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
     return {spec.name: spec.to_dict() for spec in specs}
+
+
+def event_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
+    return _object_field_specs_to_dict(specs)
 
 
 def event_specs_to_dict(specs: tuple[SdkEventSpec, ...]) -> dict[str, object]:
@@ -782,9 +743,9 @@ def event_specs_to_dict(specs: tuple[SdkEventSpec, ...]) -> dict[str, object]:
 
 
 def jsonl_message_field_specs_to_dict(
-    specs: tuple[SdkJsonlMessageFieldSpec, ...],
+    specs: tuple[SdkObjectFieldSpec, ...],
 ) -> dict[str, object]:
-    return {spec.name: spec.to_dict() for spec in specs}
+    return _object_field_specs_to_dict(specs)
 
 
 def jsonl_message_specs_to_dict(specs: tuple[SdkJsonlMessageSpec, ...]) -> dict[str, object]:
@@ -795,16 +756,16 @@ def jsonl_request_spec_to_dict(spec: SdkJsonlRequestSpec) -> dict[str, object]:
     return spec.to_dict()
 
 
-def result_field_specs_to_dict(specs: tuple[SdkResultFieldSpec, ...]) -> dict[str, object]:
-    return {spec.name: spec.to_dict() for spec in specs}
+def result_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
+    return _object_field_specs_to_dict(specs)
 
 
 def result_specs_to_dict(specs: tuple[SdkResultSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
-def type_field_specs_to_dict(specs: tuple[SdkTypeFieldSpec, ...]) -> dict[str, object]:
-    return {spec.name: spec.to_dict() for spec in specs}
+def type_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
+    return _object_field_specs_to_dict(specs)
 
 
 def type_specs_to_dict(specs: tuple[SdkTypeSpec, ...]) -> dict[str, object]:
@@ -850,6 +811,7 @@ __all__ = [
     "SdkJsonlRequestSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
+    "SdkObjectFieldSpec",
     "SdkResultFieldSpec",
     "SdkResultSpec",
     "SdkTypeFieldSpec",

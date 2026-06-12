@@ -174,6 +174,21 @@ def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
     assert complete.to_dict()["full_text"] == "done"
 
 
+def test_sdk_object_field_spec_keeps_compatible_aliases() -> None:
+    assert sdk_methods.SdkEventFieldSpec is sdk_methods.SdkObjectFieldSpec
+    assert sdk_methods.SdkTypeFieldSpec is sdk_methods.SdkObjectFieldSpec
+    assert sdk_methods.SdkResultFieldSpec is sdk_methods.SdkObjectFieldSpec
+    assert sdk_methods.SdkJsonlMessageFieldSpec is sdk_methods.SdkObjectFieldSpec
+
+    field = sdk_methods.SdkEventFieldSpec("metadata", "object", required=False)
+
+    assert field.to_dict() == {
+        "type": "object",
+        "required": False,
+        "nullable": False,
+    }
+
+
 def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     capabilities = get_sdk_capabilities()
     payload = capabilities.to_dict()
