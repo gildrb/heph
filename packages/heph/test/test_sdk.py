@@ -238,6 +238,61 @@ def test_session_subscribe_abort_and_dispose(
     session.dispose()
 
 
+def test_session_rejects_concurrent_prompt_streams(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    started = threading.Event()
+    release = threading.Event()
+    abort_seen = threading.Event()
+    streamed_events: list[object] = []
+    stream_errors: list[Exception] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        assert prompt == "First prompt."
+        assert abort is not None
+        started.set()
+        yield AssistantDeltaEvent("first")
+        assert release.wait(timeout=2.0)
+        if abort.is_set():
+            abort_seen.set()
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def collect_events() -> None:
+        try:
+            streamed_events.extend(session.prompt("First prompt."))
+        except Exception as exc:
+            stream_errors.append(exc)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    thread = threading.Thread(target=collect_events, name="test-sdk-session-prompt")
+
+    thread.start()
+    assert started.wait(timeout=2.0)
+
+    assert session.is_streaming
+    with pytest.raises(HephSdkBusyError, match="already streaming"):
+        list(session.prompt("Second prompt."))
+
+    session.abort()
+    release.set()
+    thread.join(timeout=2.0)
+
+    assert abort_seen.is_set()
+    assert not session.is_streaming
+    assert stream_errors == []
+    assert len(streamed_events) == 2
+    assert not thread.is_alive()
+
+
 def test_runtime_lists_saves_and_resumes_sessions(tmp_path: Path) -> None:
     runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
     session = runtime.new_session()

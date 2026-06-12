@@ -177,6 +177,8 @@ In Python, this raises `HephSdkBusyError`, a subclass of `HephSdkError`. In
 JSONL, the same condition is reported with error code `"busy"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL stream is active it returns a no-op state payload.
+Direct `HephSession` users get the same `HephSdkBusyError` when starting a
+second prompt on a session that is already streaming.
 
 ## Event Contract
 

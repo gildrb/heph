@@ -109,6 +109,7 @@ class HephSession:
 
     _session: ChatSession
     _listeners: list[HephEventListener] = field(default_factory=list, init=False, repr=False)
+    _stream_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_abort: threading.Event | None = field(default=None, init=False, repr=False)
     _streaming: bool = field(default=False, init=False, repr=False)
 
@@ -138,7 +139,8 @@ class HephSession:
 
     @property
     def is_streaming(self) -> bool:
-        return self._streaming
+        with self._stream_lock:
+            return self._streaming
 
     def subscribe(self, listener: HephEventListener) -> Callable[[], None]:
         """Subscribe to prompt events. Returns an unsubscribe callback."""
@@ -151,8 +153,10 @@ class HephSession:
         return unsubscribe
 
     def abort(self) -> None:
-        if self._active_abort is not None:
-            self._active_abort.set()
+        with self._stream_lock:
+            active_abort = self._active_abort
+        if active_abort is not None:
+            active_abort.set()
 
     def prompt(
         self,
@@ -161,11 +165,8 @@ class HephSession:
         abort: threading.Event | None = None,
     ) -> Iterator[HephEvent]:
         """Run a user turn and stream stable SDK events."""
-        if self._streaming:
-            raise HephSdkError("Session is already streaming.")
         active_abort = abort or threading.Event()
-        self._active_abort = active_abort
-        self._streaming = True
+        self._begin_stream(active_abort)
         try:
             for event in iter_chat_events(self._session, text, abort=active_abort):
                 sdk_event = from_turn_event(event)
@@ -173,8 +174,7 @@ class HephSession:
                 yield sdk_event
         finally:
             save_dirty_session_if_needed(self._session)
-            self._streaming = False
-            self._active_abort = None
+            self._end_stream(active_abort)
 
     def ask(self, text: str, *, abort: threading.Event | None = None) -> str:
         """Run a user turn and return the final assistant text."""
@@ -211,6 +211,19 @@ class HephSession:
     def _emit(self, event: HephEvent) -> None:
         for listener in tuple(self._listeners):
             listener(event)
+
+    def _begin_stream(self, abort: threading.Event) -> None:
+        with self._stream_lock:
+            if self._streaming:
+                raise HephSdkBusyError("Session is already streaming.")
+            self._active_abort = abort
+            self._streaming = True
+
+    def _end_stream(self, abort: threading.Event) -> None:
+        with self._stream_lock:
+            if self._active_abort is abort:
+                self._streaming = False
+                self._active_abort = None
 
 
 @dataclass(slots=True)
