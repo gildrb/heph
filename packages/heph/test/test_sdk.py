@@ -177,11 +177,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     jsonl = _payload_mapping(payload["jsonl"])
     events = _payload_mapping(payload["events"])
     state = _payload_mapping(payload["state"])
+    methods = _payload_mapping(payload["methods"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
     jsonl_call_methods = _payload_list(jsonl["call_methods"])
     jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
+    service_call_specs = _payload_mapping(methods["service_call"])
+    service_stream_specs = _payload_mapping(methods["service_stream"])
+    jsonl_call_specs = _payload_mapping(methods["jsonl_call"])
+    jsonl_stream_specs = _payload_mapping(methods["jsonl_stream"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
     event_types = _payload_list(events["types"])
@@ -191,12 +196,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 7
+    assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert jsonl_call_methods == list(sdk_methods.JSONL_CALL_METHODS)
     assert jsonl_stream_methods == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert list(service_call_specs) == service_call_methods
+    assert list(service_stream_specs) == service_stream_methods
+    assert list(jsonl_call_specs) == jsonl_call_methods
+    assert list(jsonl_stream_specs) == jsonl_stream_methods
     assert "capabilities" in service_call_methods
     assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
@@ -208,6 +217,29 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert sdk_methods.service_stream_method_for_jsonl("build_index_stream") == "build_index"
     assert sdk_methods.service_stream_method_for_jsonl("prompt") is None
     assert sdk_methods.service_stream_method_for_jsonl("unknown") is None
+    open_armory_spec = _payload_mapping(service_call_specs["open_armory"])
+    open_armory_params = [
+        _payload_mapping(param) for param in _payload_list(open_armory_spec["params"])
+    ]
+    switch_model_spec = _payload_mapping(service_call_specs["switch_model"])
+    switch_model_params = [
+        _payload_mapping(param) for param in _payload_list(switch_model_spec["params"])
+    ]
+    prompt_spec = _payload_mapping(jsonl_stream_specs["prompt"])
+    prompt_params = [_payload_mapping(param) for param in _payload_list(prompt_spec["params"])]
+    update_config_spec = _payload_mapping(service_call_specs["update_config"])
+    update_config_params = [
+        _payload_mapping(param) for param in _payload_list(update_config_spec["params"])
+    ]
+    assert open_armory_params == [{"name": "path", "type": "string", "required": True}]
+    assert switch_model_params == [
+        {"name": "provider_slug", "type": "string", "required": True},
+        {"name": "model", "type": "string", "required": True},
+    ]
+    assert prompt_params == [{"name": "text", "type": "string", "required": True}]
+    assert {"name": "temperature", "type": "number_or_null", "required": False} in (
+        update_config_params
+    )
     assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert "reasoning_delta" in event_types

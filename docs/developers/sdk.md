@@ -203,6 +203,10 @@ server also includes the same capability payload in its initial `ready` message.
 Capabilities list service methods, JSONL method names, stream event types, state
 fields, JSONL message types, JSONL error codes, and calls that remain available
 while a stream is active.
+The payload also includes a `methods` section with JSON-ready parameter specs
+for service calls, service streams, JSONL calls, and JSONL streams. Native
+clients can use those specs to build request validation, disable incomplete
+forms, and keep transport wrappers aligned with the advertised SDK contract.
 The capability payload has its own `version`, separate from the JSONL
 `protocol` and wire `version`.
 

@@ -6,19 +6,25 @@ from dataclasses import dataclass
 
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    JSONL_CALL_METHOD_SPECS,
     JSONL_CALL_METHODS,
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_TYPES,
+    JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
     RUNTIME_STATE_FIELDS,
     SDK_CAPABILITIES_VERSION,
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
     SERVICE_STATE_FIELDS,
+    SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
     SESSION_STATE_FIELDS,
+    SdkMethodSpec,
+    method_specs_to_dict,
 )
 
 
@@ -40,6 +46,10 @@ class HephSdkCapabilities:
     jsonl_version: int
     jsonl_message_types: tuple[str, ...]
     jsonl_error_codes: tuple[str, ...]
+    service_call_method_specs: tuple[SdkMethodSpec, ...]
+    service_stream_method_specs: tuple[SdkMethodSpec, ...]
+    jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
+    jsonl_stream_method_specs: tuple[SdkMethodSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -63,6 +73,12 @@ class HephSdkCapabilities:
                 "runtime_fields": list(self.runtime_state_fields),
                 "session_fields": list(self.session_state_fields),
             },
+            "methods": {
+                "service_call": method_specs_to_dict(self.service_call_method_specs),
+                "service_stream": method_specs_to_dict(self.service_stream_method_specs),
+                "jsonl_call": method_specs_to_dict(self.jsonl_call_method_specs),
+                "jsonl_stream": method_specs_to_dict(self.jsonl_stream_method_specs),
+            },
         }
 
 
@@ -81,6 +97,10 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_version=SDK_JSONL_VERSION,
     jsonl_message_types=JSONL_MESSAGE_TYPES,
     jsonl_error_codes=JSONL_ERROR_CODES,
+    service_call_method_specs=SERVICE_CALL_METHOD_SPECS,
+    service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
+    jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
+    jsonl_stream_method_specs=JSONL_STREAM_METHOD_SPECS,
 )
 
 
@@ -91,9 +111,11 @@ def get_sdk_capabilities() -> HephSdkCapabilities:
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
+    "JSONL_CALL_METHOD_SPECS",
     "JSONL_ERROR_CODES",
     "JSONL_MESSAGE_TYPES",
     "JSONL_STREAM_METHODS",
+    "JSONL_STREAM_METHOD_SPECS",
     "RUNTIME_STATE_FIELDS",
     "SDK_CAPABILITIES",
     "SDK_CAPABILITIES_VERSION",
@@ -101,8 +123,10 @@ __all__ = [
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "SERVICE_CALL_METHODS",
+    "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_STATE_FIELDS",
     "SERVICE_STREAM_METHODS",
+    "SERVICE_STREAM_METHOD_SPECS",
     "SESSION_STATE_FIELDS",
     "HephSdkCapabilities",
     "get_sdk_capabilities",
