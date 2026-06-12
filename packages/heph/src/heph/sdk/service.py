@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.events import event_to_dict
@@ -234,6 +235,9 @@ class HephService:
                     self.runtime.config.rag_context_budget = rag_context_budget
             if "temperature" in params:
                 self.runtime.config.temperature = _optional_float(params, "temperature")
+            reasoning_level = _optional_str(params, "reasoning_level")
+            if reasoning_level is not None:
+                self.runtime.config.reasoning_level = normalize_reasoning_level(reasoning_level)
             if value := _optional_str(params, "thinking_visibility"):
                 self.runtime.config.thinking_visibility = normalize_thinking_visibility(value)
         return {"runtime": self._runtime_state().to_dict()}

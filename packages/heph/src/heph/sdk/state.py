@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai.providers.reasoning import DEFAULT_REASONING_LEVEL
+
 from heph.sdk.runtime import HephRuntime, HephSdkSessionState
 
 
@@ -26,6 +28,7 @@ class HephSdkRuntimeState:
     temperature: float | None
     thinking_visibility: str
     feature_flags: tuple[str, ...]
+    reasoning_level: str = DEFAULT_REASONING_LEVEL
 
     @classmethod
     def from_runtime(cls, runtime: HephRuntime) -> HephSdkRuntimeState:
@@ -38,6 +41,7 @@ class HephSdkRuntimeState:
             temperature=runtime.config.temperature,
             thinking_visibility=runtime.config.thinking_visibility,
             feature_flags=tuple(sorted(runtime.config.feature_flags)),
+            reasoning_level=runtime.config.reasoning_level,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -48,6 +52,7 @@ class HephSdkRuntimeState:
             "max_tokens": self.max_tokens,
             "rag_context_budget": self.rag_context_budget,
             "temperature": self.temperature,
+            "reasoning_level": self.reasoning_level,
             "thinking_visibility": self.thinking_visibility,
             "feature_flags": list(self.feature_flags),
         }

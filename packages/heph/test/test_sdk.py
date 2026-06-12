@@ -339,6 +339,7 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
         base_url="https://example.invalid/v1",
         max_tokens=123,
         rag_context_budget=456,
+        reasoning_level="HIGH",
         temperature=3.0,
         feature_flags=frozenset({"sdk"}),
         thinking_visibility="all",
@@ -355,6 +356,7 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
     assert service_result.service.runtime.config.model == "sdk-model"
     assert service_result.session is not None
     assert session_result.session.armory_path == runtime_result.runtime.armory_path
+    assert config.reasoning_level == "high"
     assert config.temperature == 2.0
     assert config.feature_flags == frozenset({"sdk"})
     assert config.thinking_visibility == "all"
@@ -519,6 +521,7 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert snapshot.runtime.armory_path == armory_path.resolve()
     assert snapshot.runtime.model == "typed-state-model"
     assert snapshot.runtime.temperature is None
+    assert snapshot.runtime.reasoning_level == "low"
     assert snapshot.runtime.feature_flags == ("alpha", "beta")
     assert isinstance(snapshot.session, HephSdkSessionState)
     assert snapshot.session.source_file_count == 1
@@ -529,6 +532,22 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert snapshot.session.messages == ()
     assert session_payload["runtime"] == snapshot.runtime.to_dict()
     assert service.state() == snapshot.to_dict()
+
+
+def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
+    runtime_state = HephSdkRuntimeState(
+        None,
+        "sdk-model",
+        "https://example.invalid/v1",
+        123,
+        456,
+        None,
+        "off",
+        (),
+    )
+
+    assert runtime_state.reasoning_level == "low"
+    assert runtime_state.to_dict()["reasoning_level"] == "low"
 
 
 def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
@@ -756,6 +775,7 @@ def test_service_call_and_stream_dispatcher(
             "model": "updated-model",
             "max_tokens": 500,
             "temperature": 4.0,
+            "reasoning_level": "xhigh",
             "thinking_visibility": "all",
         },
     )
@@ -763,17 +783,21 @@ def test_service_call_and_stream_dispatcher(
         "update_config",
         {"max_tokens": 0, "rag_context_budget": 0},
     )
+    default_reasoning_payload = service.call("update_config", {"reasoning_level": ""})
     events = list(service.stream("prompt", {"text": "Dispatch this."}))
     ask = service.call("ask", {"text": "Return final text."})
 
     runtime_payload = _payload_mapping(config_payload["runtime"])
     zero_runtime_payload = _payload_mapping(zero_config_payload["runtime"])
+    default_reasoning_runtime = _payload_mapping(default_reasoning_payload["runtime"])
     assert runtime_payload["model"] == "updated-model"
     assert runtime_payload["max_tokens"] == 500
     assert runtime_payload["temperature"] == 2.0
+    assert runtime_payload["reasoning_level"] == "xhigh"
     assert runtime_payload["thinking_visibility"] == "all"
     assert zero_runtime_payload["max_tokens"] == 0
     assert zero_runtime_payload["rag_context_budget"] == 0
+    assert default_reasoning_runtime["reasoning_level"] == "low"
     assert events[0] == {"type": "assistant_delta", "delta": "Dispatched."}
     assert _payload_mapping(ask)["text"] == "Dispatched."
 

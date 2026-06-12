@@ -136,7 +136,8 @@ The transport should expose the same SDK concepts:
 - turns: prompt, abort, stream events;
 - messages: list current conversation messages;
 - source scope: inspect and enable or disable attached source files;
-- config: inspect and switch model/provider settings.
+- config: inspect and switch model/provider settings, reasoning level, and
+  thinking visibility.
 
 The Python SDK remains the source of truth. The transport is only a
 serialization boundary for non-Python clients.
