@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 1
+SDK_CAPABILITIES_VERSION = 2
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -33,6 +33,21 @@ SERVICE_CALL_METHODS = (
 SERVICE_STREAM_METHODS = ("prompt", "build_index")
 JSONL_CALL_METHODS = SERVICE_CALL_METHODS
 JSONL_STREAM_METHODS = ("prompt", "build_index_stream")
+JSONL_MESSAGE_TYPES = (
+    "ready",
+    "response",
+    "error",
+    "stream_start",
+    "stream_event",
+    "stream_end",
+)
+JSONL_ERROR_CODES = (
+    "invalid_json",
+    "invalid_request",
+    "busy",
+    "sdk_error",
+    "internal_error",
+)
 BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities")
 SDK_EVENT_TYPES = (
     "assistant_delta",
@@ -90,6 +105,8 @@ class HephSdkCapabilities:
     session_state_fields: tuple[str, ...]
     jsonl_protocol: str
     jsonl_version: int
+    jsonl_message_types: tuple[str, ...]
+    jsonl_error_codes: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -104,6 +121,8 @@ class HephSdkCapabilities:
                 "version": self.jsonl_version,
                 "call_methods": list(self.jsonl_call_methods),
                 "stream_methods": list(self.jsonl_stream_methods),
+                "message_types": list(self.jsonl_message_types),
+                "error_codes": list(self.jsonl_error_codes),
             },
             "events": {"types": list(self.event_types)},
             "state": {
@@ -127,6 +146,8 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     session_state_fields=SESSION_STATE_FIELDS,
     jsonl_protocol=SDK_JSONL_PROTOCOL,
     jsonl_version=SDK_JSONL_VERSION,
+    jsonl_message_types=JSONL_MESSAGE_TYPES,
+    jsonl_error_codes=JSONL_ERROR_CODES,
 )
 
 
@@ -137,6 +158,8 @@ def get_sdk_capabilities() -> HephSdkCapabilities:
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
+    "JSONL_ERROR_CODES",
+    "JSONL_MESSAGE_TYPES",
     "JSONL_STREAM_METHODS",
     "RUNTIME_STATE_FIELDS",
     "SDK_CAPABILITIES",

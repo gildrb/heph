@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from heph.sdk.capabilities import (
+    JSONL_ERROR_CODES,
+    JSONL_MESSAGE_TYPES,
     SDK_CAPABILITIES,
     SDK_CAPABILITIES_VERSION,
     HephSdkCapabilities,
@@ -66,6 +68,8 @@ from heph.sdk.stdio import (
 )
 
 __all__ = [
+    "JSONL_ERROR_CODES",
+    "JSONL_MESSAGE_TYPES",
     "SDK_CAPABILITIES",
     "SDK_CAPABILITIES_VERSION",
     "SDK_JSONL_PROTOCOL",

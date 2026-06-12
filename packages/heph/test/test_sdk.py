@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from ai.runtime import ChatConfig
 from heph.sdk import (
+    JSONL_ERROR_CODES,
+    JSONL_MESSAGE_TYPES,
     SDK_CAPABILITIES,
     AssistantDelta,
     HephRuntime,
@@ -151,6 +153,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
     jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
+    jsonl_message_types = _payload_list(jsonl["message_types"])
+    jsonl_error_codes = _payload_list(jsonl["error_codes"])
     event_types = _payload_list(events["types"])
     service_fields = _payload_list(state["service_fields"])
     runtime_fields = _payload_list(state["runtime_fields"])
@@ -158,12 +162,14 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     assert "capabilities" in service_call_methods
     assert "build_index" in service_stream_methods
     assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
     assert jsonl["protocol"] == "heph-sdk-jsonl"
     assert "build_index_stream" in jsonl_stream_methods
+    assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
+    assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert "reasoning_delta" in event_types
     assert "index_progress" in event_types
     assert "index_complete" in event_types

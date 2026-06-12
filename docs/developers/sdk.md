@@ -162,7 +162,10 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 `HephService.capabilities()`, or the transport `capabilities` method. The JSONL
 server also includes the same capability payload in its initial `ready` message.
 Capabilities list service methods, JSONL method names, stream event types, state
-fields, and calls that remain available while a stream is active.
+fields, JSONL message types, JSONL error codes, and calls that remain available
+while a stream is active.
+The capability payload has its own `version`, separate from the JSONL
+`protocol` and wire `version`.
 
 `heph sdk serve` is the first concrete transport. It supports:
 
@@ -290,6 +293,26 @@ The stdio transport maps the same concept onto request IDs. A `prompt` request
 emits `stream_start`, zero or more `stream_event` objects, and one
 `stream_end`. A `build_index_stream` request uses the same stream framing for
 index progress. Non-streaming requests emit one `response` or `error`.
+
+The JSONL message types advertised through capabilities are:
+
+- `ready`
+- `response`
+- `error`
+- `stream_start`
+- `stream_event`
+- `stream_end`
+
+The JSONL error codes advertised through capabilities are:
+
+- `invalid_json`: a request line is not valid JSON.
+- `invalid_request`: a request has the wrong envelope, id, method, or params
+  shape.
+- `busy`: a state-changing request was rejected while a prompt or operation
+  stream was active.
+- `sdk_error`: the SDK rejected a valid request, such as opening a missing
+  armory or prompting without an active session.
+- `internal_error`: an unexpected server-side exception escaped the SDK layer.
 
 ## Boundary Rules
 

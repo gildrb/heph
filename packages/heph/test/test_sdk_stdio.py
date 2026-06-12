@@ -11,6 +11,8 @@ import pytest
 from ai.runtime import ChatConfig
 from heph.cli.main import build_parser, run_argv
 from heph.sdk import (
+    JSONL_ERROR_CODES,
+    JSONL_MESSAGE_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     HephSdkOptions,
@@ -97,19 +99,27 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     ready_capabilities = _payload_mapping(payloads[0]["capabilities"])
     ready_jsonl = _payload_mapping(ready_capabilities["jsonl"])
     ready_stream_methods = _payload_list(ready_jsonl["stream_methods"])
+    ready_message_types = _payload_list(ready_jsonl["message_types"])
+    ready_error_codes = _payload_list(ready_jsonl["error_codes"])
     capabilities_response = _payload_mapping(payloads[2]["result"])
     capabilities = _payload_mapping(capabilities_response["capabilities"])
     capabilities_jsonl = _payload_mapping(capabilities["jsonl"])
+    capability_message_types = _payload_list(capabilities_jsonl["message_types"])
+    capability_error_codes = _payload_list(capabilities_jsonl["error_codes"])
     assert payloads[0]["type"] == "ready"
     assert payloads[0]["protocol"] == SDK_JSONL_PROTOCOL
     assert payloads[0]["version"] == SDK_JSONL_VERSION
     assert ready_jsonl["protocol"] == SDK_JSONL_PROTOCOL
     assert "build_index_stream" in ready_stream_methods
+    assert ready_message_types == list(JSONL_MESSAGE_TYPES)
+    assert ready_error_codes == list(JSONL_ERROR_CODES)
     assert payloads[1]["type"] == "response"
     assert payloads[1]["id"] == "state-1"
     assert payloads[2]["type"] == "response"
     assert payloads[2]["id"] == "caps-1"
     assert capabilities_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert capability_message_types == list(JSONL_MESSAGE_TYPES)
+    assert capability_error_codes == list(JSONL_ERROR_CODES)
     assert payloads[3] == {"type": "stream_start", "id": "turn-1", "method": "prompt"}
     assert payloads[4] == {
         "type": "stream_event",
