@@ -11,6 +11,7 @@ from heph.sdk.methods import (
     JSONL_CALL_RESULT_SPECS,
     JSONL_ERROR_CODES,
     JSONL_ERROR_SPECS,
+    JSONL_MESSAGE_SPECS,
     JSONL_MESSAGE_TYPES,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
@@ -34,18 +35,30 @@ from heph.sdk.methods import (
     SdkErrorSpec,
     SdkEventSpec,
     SdkFieldSpec,
+    SdkJsonlMessageSpec,
     SdkMethodSpec,
     SdkResultSpec,
     SdkTypeSpec,
     error_specs_to_dict,
     event_specs_to_dict,
     field_specs_to_dict,
+    jsonl_message_specs_to_dict,
     method_specs_to_dict,
     result_specs_to_dict,
     type_specs_to_dict,
 )
 
-_SCALAR_TYPES = frozenset({"boolean", "integer", "number", "number_or_null", "object", "string"})
+_BUILTIN_TYPES = frozenset(
+    {
+        "boolean",
+        "integer",
+        "number",
+        "number_or_null",
+        "object",
+        "string",
+        "string_or_integer",
+    }
+)
 _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
 
@@ -70,6 +83,7 @@ class HephSdkCapabilities:
     jsonl_error_codes: tuple[str, ...]
     event_specs: tuple[SdkEventSpec, ...]
     jsonl_error_specs: tuple[SdkErrorSpec, ...]
+    jsonl_message_specs: tuple[SdkJsonlMessageSpec, ...]
     service_call_method_specs: tuple[SdkMethodSpec, ...]
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
@@ -95,6 +109,7 @@ class HephSdkCapabilities:
                 "call_methods": list(self.jsonl_call_methods),
                 "stream_methods": list(self.jsonl_stream_methods),
                 "message_types": list(self.jsonl_message_types),
+                "message_specs": jsonl_message_specs_to_dict(self.jsonl_message_specs),
                 "error_codes": list(self.jsonl_error_codes),
             },
             "events": {
@@ -143,6 +158,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_error_codes=JSONL_ERROR_CODES,
     event_specs=SDK_EVENT_SPECS,
     jsonl_error_specs=JSONL_ERROR_SPECS,
+    jsonl_message_specs=JSONL_MESSAGE_SPECS,
     service_call_method_specs=SERVICE_CALL_METHOD_SPECS,
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
@@ -169,6 +185,7 @@ def validate_sdk_capabilities(
     _append_duplicate_issue(issues, "service.stream_methods", capabilities.service_stream_methods)
     _append_duplicate_issue(issues, "jsonl.call_methods", capabilities.jsonl_call_methods)
     _append_duplicate_issue(issues, "jsonl.stream_methods", capabilities.jsonl_stream_methods)
+    _append_duplicate_issue(issues, "jsonl.message_types", capabilities.jsonl_message_types)
     _append_duplicate_issue(issues, "events.types", capabilities.event_types)
     _append_duplicate_issue(issues, "jsonl.error_codes", capabilities.jsonl_error_codes)
     _append_duplicate_issue(
@@ -222,6 +239,12 @@ def validate_sdk_capabilities(
         "events.types",
         capabilities.event_types,
         tuple(spec.event_type for spec in capabilities.event_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "jsonl.message_types",
+        capabilities.jsonl_message_types,
+        tuple(spec.message_type for spec in capabilities.jsonl_message_specs),
     )
     _append_mismatch_issue(
         issues,
@@ -350,6 +373,11 @@ def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[tuple[st
         references.extend(
             (f"events.{spec.event_type}.{field.name}", field.value_type) for field in spec.fields
         )
+    for spec in capabilities.jsonl_message_specs:
+        references.extend(
+            (f"jsonl.message_specs.{spec.message_type}.{field.name}", field.value_type)
+            for field in spec.fields
+        )
     for spec in capabilities.service_call_result_specs:
         references.append((f"results.service_call.{spec.method}", spec.value_type))
         references.extend(
@@ -370,7 +398,7 @@ def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[tuple[st
 
 
 def _custom_type_references(value_type: str) -> tuple[str, ...]:
-    if value_type in _SCALAR_TYPES:
+    if value_type in _BUILTIN_TYPES:
         return ()
     if value_type.startswith(_LITERAL_PREFIX) and value_type.endswith(">"):
         return ()
@@ -387,6 +415,7 @@ __all__ = [
     "JSONL_CALL_RESULT_SPECS",
     "JSONL_ERROR_CODES",
     "JSONL_ERROR_SPECS",
+    "JSONL_MESSAGE_SPECS",
     "JSONL_MESSAGE_TYPES",
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",

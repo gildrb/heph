@@ -11,6 +11,7 @@ from ai.providers.config import default_config
 from ai.runtime import ChatConfig
 from heph.sdk import (
     JSONL_ERROR_CODES,
+    JSONL_MESSAGE_SPECS,
     JSONL_MESSAGE_TYPES,
     SDK_CAPABILITIES,
     ArmoryValidationSummary,
@@ -197,6 +198,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     jsonl_call_results = _payload_mapping(results["jsonl_call"])
     jsonl_error_specs = _payload_mapping(errors["jsonl"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
+    jsonl_message_specs = _payload_mapping(jsonl["message_specs"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
     event_types = _payload_list(events["types"])
     event_specs = _payload_mapping(events["specs"])
@@ -217,6 +219,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "model_choice_summary" in types
     assert "index_summary" in types
     assert "extraction_health_summary" in types
+    assert "jsonl_error" in types
+    assert "sdk_event" in types
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -305,6 +309,71 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "nullable": False,
     }
     assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
+    assert jsonl_message_types == [spec.message_type for spec in JSONL_MESSAGE_SPECS]
+    assert list(jsonl_message_specs) == jsonl_message_types
+    ready_message_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["ready"])["fields"]
+    )
+    response_message_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["response"])["fields"]
+    )
+    error_message_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["error"])["fields"]
+    )
+    stream_start_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["stream_start"])["fields"]
+    )
+    stream_event_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["stream_event"])["fields"]
+    )
+    stream_end_fields = _payload_mapping(
+        _payload_mapping(jsonl_message_specs["stream_end"])["fields"]
+    )
+    assert _payload_mapping(ready_message_fields["type"]) == {
+        "type": "literal<ready>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(ready_message_fields["capabilities"]) == {
+        "type": "sdk_capabilities",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(ready_message_fields["state"]) == {
+        "type": "sdk_state",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(response_message_fields["id"]) == {
+        "type": "string_or_integer",
+        "required": True,
+        "nullable": True,
+    }
+    assert _payload_mapping(response_message_fields["result"]) == {
+        "type": "object",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(error_message_fields["error"]) == {
+        "type": "jsonl_error",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(stream_start_fields["method"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(stream_event_fields["event"]) == {
+        "type": "sdk_event",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(stream_end_fields["error"]) == {
+        "type": "jsonl_error",
+        "required": False,
+        "nullable": False,
+    }
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert list(jsonl_error_specs) == jsonl_error_codes
     busy_error_spec = _payload_mapping(jsonl_error_specs["busy"])
@@ -362,6 +431,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     health_type_fields = _payload_mapping(
         _payload_mapping(types["extraction_health_summary"])["fields"]
     )
+    jsonl_error_type_fields = _payload_mapping(_payload_mapping(types["jsonl_error"])["fields"])
+    sdk_event_type_fields = _payload_mapping(_payload_mapping(types["sdk_event"])["fields"])
     assert _payload_mapping(sdk_state_fields["session"]) == {
         "type": "sdk_session_state",
         "required": True,
@@ -404,6 +475,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": False,
     }
+    assert _payload_mapping(jsonl_error_type_fields["code"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_event_type_fields["type"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
     service_operation_spec = _payload_mapping(service_field_specs["active_operation"])
     runtime_armory_spec = _payload_mapping(runtime_field_specs["armory_path"])
     runtime_flags_spec = _payload_mapping(runtime_field_specs["feature_flags"])
@@ -420,11 +501,25 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         replace(spec, value_type="missing_custom_type") if spec.method == "state" else spec
         for spec in capabilities.service_call_result_specs
     )
+    broken_message_specs = tuple(
+        replace(
+            spec,
+            fields=tuple(
+                replace(field, value_type="missing_jsonl_message_type")
+                if spec.message_type == "stream_event" and field.name == "event"
+                else field
+                for field in spec.fields
+            ),
+        )
+        for spec in capabilities.jsonl_message_specs
+    )
     broken_capabilities = replace(
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
         service_call_methods=(*capabilities.service_call_methods, "state"),
         service_call_result_specs=broken_result_specs,
+        jsonl_message_types=(*capabilities.jsonl_message_types, "bogus_message"),
+        jsonl_message_specs=broken_message_specs,
     )
 
     issues = validate_sdk_capabilities(broken_capabilities)
@@ -435,7 +530,12 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         "service.busy_allowed_call_methods contains entries that are not advertised calls: bogus"
         in issues
     )
+    assert "jsonl.message_types does not match its structured specs." in issues
     assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
+    assert (
+        "jsonl.message_specs.stream_event.event references unknown SDK type: "
+        "missing_jsonl_message_type" in issues
+    )
 
 
 def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:

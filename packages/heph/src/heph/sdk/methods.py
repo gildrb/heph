@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 13
+SDK_CAPABILITIES_VERSION = 14
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -121,6 +121,34 @@ class SdkErrorSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class SdkJsonlMessageFieldSpec:
+    """A JSON-ready JSONL transport message field contract."""
+
+    name: str
+    value_type: str
+    required: bool = True
+    nullable: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": self.value_type,
+            "required": self.required,
+            "nullable": self.nullable,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkJsonlMessageSpec:
+    """A JSON-ready JSONL transport envelope contract."""
+
+    message_type: str
+    fields: tuple[SdkJsonlMessageFieldSpec, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"fields": jsonl_message_field_specs_to_dict(self.fields)}
+
+
+@dataclass(frozen=True, slots=True)
 class SdkMethodParameter:
     """A JSON-ready SDK method parameter contract."""
 
@@ -221,14 +249,68 @@ SERVICE_STREAM_METHODS = tuple(spec.method for spec in SERVICE_STREAM_METHOD_SPE
 JSONL_CALL_METHODS = SERVICE_CALL_METHODS
 JSONL_STREAM_METHODS = tuple(spec.method for spec in JSONL_STREAM_METHOD_SPECS)
 JSONL_OPERATION_STREAM_METHODS = {"build_index_stream": "build_index"}
-JSONL_MESSAGE_TYPES = (
-    "ready",
-    "response",
-    "error",
-    "stream_start",
-    "stream_event",
-    "stream_end",
+REQUEST_ID_MESSAGE_FIELD = SdkJsonlMessageFieldSpec(
+    "id",
+    "string_or_integer",
+    nullable=True,
 )
+JSONL_ERROR_MESSAGE_FIELD = SdkJsonlMessageFieldSpec("error", "jsonl_error")
+JSONL_MESSAGE_SPECS = (
+    SdkJsonlMessageSpec(
+        "ready",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<ready>"),
+            SdkJsonlMessageFieldSpec("protocol", "string"),
+            SdkJsonlMessageFieldSpec("version", "integer"),
+            SdkJsonlMessageFieldSpec("capabilities", "sdk_capabilities"),
+            SdkJsonlMessageFieldSpec("state", "sdk_state"),
+        ),
+    ),
+    SdkJsonlMessageSpec(
+        "response",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<response>"),
+            REQUEST_ID_MESSAGE_FIELD,
+            SdkJsonlMessageFieldSpec("ok", "boolean"),
+            SdkJsonlMessageFieldSpec("result", "object"),
+        ),
+    ),
+    SdkJsonlMessageSpec(
+        "error",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<error>"),
+            REQUEST_ID_MESSAGE_FIELD,
+            SdkJsonlMessageFieldSpec("ok", "boolean"),
+            JSONL_ERROR_MESSAGE_FIELD,
+        ),
+    ),
+    SdkJsonlMessageSpec(
+        "stream_start",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<stream_start>"),
+            REQUEST_ID_MESSAGE_FIELD,
+            SdkJsonlMessageFieldSpec("method", "string"),
+        ),
+    ),
+    SdkJsonlMessageSpec(
+        "stream_event",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<stream_event>"),
+            REQUEST_ID_MESSAGE_FIELD,
+            SdkJsonlMessageFieldSpec("event", "sdk_event"),
+        ),
+    ),
+    SdkJsonlMessageSpec(
+        "stream_end",
+        (
+            SdkJsonlMessageFieldSpec("type", "literal<stream_end>"),
+            REQUEST_ID_MESSAGE_FIELD,
+            SdkJsonlMessageFieldSpec("ok", "boolean"),
+            SdkJsonlMessageFieldSpec("error", "jsonl_error", required=False),
+        ),
+    ),
+)
+JSONL_MESSAGE_TYPES = tuple(spec.message_type for spec in JSONL_MESSAGE_SPECS)
 JSONL_ERROR_SPECS = (
     SdkErrorSpec("invalid_json", "A request line was not valid JSON."),
     SdkErrorSpec(
@@ -510,6 +592,17 @@ SDK_TYPE_SPECS = (
         ),
     ),
     SdkTypeSpec(
+        "jsonl_error",
+        (
+            SdkTypeFieldSpec("code", "string"),
+            SdkTypeFieldSpec("message", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_event",
+        (SdkTypeFieldSpec("type", "string"),),
+    ),
+    SdkTypeSpec(
         "sdk_state",
         (
             SdkTypeFieldSpec("service", "sdk_service_state"),
@@ -671,6 +764,16 @@ def event_specs_to_dict(specs: tuple[SdkEventSpec, ...]) -> dict[str, object]:
     return {spec.event_type: spec.to_dict() for spec in specs}
 
 
+def jsonl_message_field_specs_to_dict(
+    specs: tuple[SdkJsonlMessageFieldSpec, ...],
+) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
+def jsonl_message_specs_to_dict(specs: tuple[SdkJsonlMessageSpec, ...]) -> dict[str, object]:
+    return {spec.message_type: spec.to_dict() for spec in specs}
+
+
 def result_field_specs_to_dict(specs: tuple[SdkResultFieldSpec, ...]) -> dict[str, object]:
     return {spec.name: spec.to_dict() for spec in specs}
 
@@ -694,6 +797,7 @@ __all__ = [
     "JSONL_CALL_RESULT_SPECS",
     "JSONL_ERROR_CODES",
     "JSONL_ERROR_SPECS",
+    "JSONL_MESSAGE_SPECS",
     "JSONL_MESSAGE_TYPES",
     "JSONL_OPERATION_STREAM_METHODS",
     "JSONL_STREAM_METHODS",
@@ -719,6 +823,8 @@ __all__ = [
     "SdkEventFieldSpec",
     "SdkEventSpec",
     "SdkFieldSpec",
+    "SdkJsonlMessageFieldSpec",
+    "SdkJsonlMessageSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
     "SdkResultFieldSpec",
@@ -729,6 +835,8 @@ __all__ = [
     "event_field_specs_to_dict",
     "event_specs_to_dict",
     "field_specs_to_dict",
+    "jsonl_message_field_specs_to_dict",
+    "jsonl_message_specs_to_dict",
     "method_specs_to_dict",
     "result_field_specs_to_dict",
     "result_specs_to_dict",

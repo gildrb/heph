@@ -203,6 +203,9 @@ server also includes the same capability payload in its initial `ready` message.
 Capabilities list service methods, JSONL method names, stream event types, state
 fields, JSONL message types, JSONL error codes, and calls that remain available
 while a stream is active.
+The `jsonl.message_specs` section describes the top-level transport envelopes
+(`ready`, `response`, `error`, `stream_start`, `stream_event`, and `stream_end`)
+so native clients can generate wire decoders without scraping examples.
 The payload also includes a `methods` section with JSON-ready parameter specs
 for service calls, service streams, JSONL calls, and JSONL streams. Native
 clients can use those specs to build request validation, disable incomplete
@@ -221,6 +224,8 @@ and nullability for clients that generate typed wrappers around the JSON-ready
 state payload.
 The `events.specs` section describes each SDK stream event payload so clients
 can generate discriminated event unions without scraping examples or Python DTOs.
+The `sdk_event` DTO is the shared `"type"` discriminator for those event
+payloads; use `events.specs` for each concrete event shape.
 The capability payload has its own `version`, separate from the JSONL
 `protocol` and wire `version`.
 
