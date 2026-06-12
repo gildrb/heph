@@ -309,6 +309,54 @@ def test_session_subscribe_abort_and_dispose(
     session.dispose()
 
 
+def test_session_subscriber_can_unsubscribe_while_events_emit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    first_listener_events: list[str] = []
+    second_listener_events: list[str] = []
+    unsubscribe_first: list[Callable[[], None]] = []
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, prompt, abort
+        yield AssistantDeltaEvent("first")
+        yield AssistantDeltaEvent("second")
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    def first_listener(event: object) -> None:
+        if isinstance(event, AssistantDelta):
+            first_listener_events.append(event.delta)
+            unsubscribe_first[0]()
+
+    def second_listener(event: object) -> None:
+        if isinstance(event, AssistantDelta):
+            second_listener_events.append(f"delta:{event.delta}")
+        elif isinstance(event, TurnComplete):
+            second_listener_events.append("complete")
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    unsubscribe_first.append(session.subscribe(first_listener))
+    unsubscribe_second = session.subscribe(second_listener)
+
+    events = list(session.prompt("Emit multiple events."))
+
+    assert [event.kind for event in events] == [
+        "assistant_delta",
+        "assistant_delta",
+        "turn_complete",
+    ]
+    assert first_listener_events == ["first"]
+    assert second_listener_events == ["delta:first", "delta:second", "complete"]
+    unsubscribe_second()
+
+
 def test_session_rejects_concurrent_prompt_streams(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

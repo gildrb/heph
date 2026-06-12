@@ -113,6 +113,7 @@ class HephSession:
 
     _session: ChatSession
     _listeners: list[HephEventListener] = field(default_factory=list, init=False, repr=False)
+    _listeners_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _stream_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_abort: threading.Event | None = field(default=None, init=False, repr=False)
     _stream_start_guard: HephSessionStreamGuard | None = field(
@@ -174,11 +175,13 @@ class HephSession:
 
     def subscribe(self, listener: HephEventListener) -> Callable[[], None]:
         """Subscribe to prompt events. Returns an unsubscribe callback."""
-        self._listeners.append(listener)
+        with self._listeners_lock:
+            self._listeners.append(listener)
 
         def unsubscribe() -> None:
-            if listener in self._listeners:
-                self._listeners.remove(listener)
+            with self._listeners_lock:
+                if listener in self._listeners:
+                    self._listeners.remove(listener)
 
         return unsubscribe
 
@@ -245,7 +248,8 @@ class HephSession:
             return save_session(self._session)
 
     def dispose(self) -> None:
-        self._listeners.clear()
+        with self._listeners_lock:
+            self._listeners.clear()
         self.abort()
         self._session.trace.close()
 
@@ -253,7 +257,9 @@ class HephSession:
         return HephSdkSessionState.from_session(self).to_dict()
 
     def _emit(self, event: HephEvent) -> None:
-        for listener in tuple(self._listeners):
+        with self._listeners_lock:
+            listeners = tuple(self._listeners)
+        for listener in listeners:
             listener(event)
 
     def _set_stream_start_guard(self, guard: HephSessionStreamGuard) -> None:
