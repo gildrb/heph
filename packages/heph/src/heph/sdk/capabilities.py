@@ -9,6 +9,7 @@ from heph.sdk.methods import (
     JSONL_CALL_METHOD_SPECS,
     JSONL_CALL_METHODS,
     JSONL_ERROR_CODES,
+    JSONL_ERROR_SPECS,
     JSONL_MESSAGE_TYPES,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
@@ -23,7 +24,9 @@ from heph.sdk.methods import (
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
     SESSION_STATE_FIELDS,
+    SdkErrorSpec,
     SdkMethodSpec,
+    error_specs_to_dict,
     method_specs_to_dict,
 )
 
@@ -46,6 +49,7 @@ class HephSdkCapabilities:
     jsonl_version: int
     jsonl_message_types: tuple[str, ...]
     jsonl_error_codes: tuple[str, ...]
+    jsonl_error_specs: tuple[SdkErrorSpec, ...]
     service_call_method_specs: tuple[SdkMethodSpec, ...]
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
@@ -79,6 +83,7 @@ class HephSdkCapabilities:
                 "jsonl_call": method_specs_to_dict(self.jsonl_call_method_specs),
                 "jsonl_stream": method_specs_to_dict(self.jsonl_stream_method_specs),
             },
+            "errors": {"jsonl": error_specs_to_dict(self.jsonl_error_specs)},
         }
 
 
@@ -97,6 +102,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_version=SDK_JSONL_VERSION,
     jsonl_message_types=JSONL_MESSAGE_TYPES,
     jsonl_error_codes=JSONL_ERROR_CODES,
+    jsonl_error_specs=JSONL_ERROR_SPECS,
     service_call_method_specs=SERVICE_CALL_METHOD_SPECS,
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
@@ -113,6 +119,7 @@ __all__ = [
     "JSONL_CALL_METHODS",
     "JSONL_CALL_METHOD_SPECS",
     "JSONL_ERROR_CODES",
+    "JSONL_ERROR_SPECS",
     "JSONL_MESSAGE_TYPES",
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",

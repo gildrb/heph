@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 8
+SDK_CAPABILITIES_VERSION = 9
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
+
+
+@dataclass(frozen=True, slots=True)
+class SdkErrorSpec:
+    """A JSON-ready SDK transport error-code contract."""
+
+    code: str
+    description: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {"description": self.description}
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,13 +123,17 @@ JSONL_MESSAGE_TYPES = (
     "stream_event",
     "stream_end",
 )
-JSONL_ERROR_CODES = (
-    "invalid_json",
-    "invalid_request",
-    "busy",
-    "sdk_error",
-    "internal_error",
+JSONL_ERROR_SPECS = (
+    SdkErrorSpec("invalid_json", "A request line was not valid JSON."),
+    SdkErrorSpec(
+        "invalid_request",
+        "A request envelope, id, method, or params shape was invalid.",
+    ),
+    SdkErrorSpec("busy", "The service rejected a request while a stream was active."),
+    SdkErrorSpec("sdk_error", "The SDK rejected a valid request."),
+    SdkErrorSpec("internal_error", "An unexpected server-side exception escaped the SDK layer."),
 )
+JSONL_ERROR_CODES = tuple(spec.code for spec in JSONL_ERROR_SPECS)
 BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities")
 SDK_EVENT_TYPES = (
     "assistant_delta",
@@ -174,11 +189,16 @@ def method_specs_to_dict(specs: tuple[SdkMethodSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
+def error_specs_to_dict(specs: tuple[SdkErrorSpec, ...]) -> dict[str, object]:
+    return {spec.code: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
     "JSONL_CALL_METHOD_SPECS",
     "JSONL_ERROR_CODES",
+    "JSONL_ERROR_SPECS",
     "JSONL_MESSAGE_TYPES",
     "JSONL_OPERATION_STREAM_METHODS",
     "JSONL_STREAM_METHODS",
@@ -194,8 +214,10 @@ __all__ = [
     "SERVICE_STREAM_METHODS",
     "SERVICE_STREAM_METHOD_SPECS",
     "SESSION_STATE_FIELDS",
+    "SdkErrorSpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
+    "error_specs_to_dict",
     "method_specs_to_dict",
     "service_stream_method_for_jsonl",
 ]

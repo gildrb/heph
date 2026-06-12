@@ -178,6 +178,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     events = _payload_mapping(payload["events"])
     state = _payload_mapping(payload["state"])
     methods = _payload_mapping(payload["methods"])
+    errors = _payload_mapping(payload["errors"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
@@ -187,6 +188,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_stream_specs = _payload_mapping(methods["service_stream"])
     jsonl_call_specs = _payload_mapping(methods["jsonl_call"])
     jsonl_stream_specs = _payload_mapping(methods["jsonl_stream"])
+    jsonl_error_specs = _payload_mapping(errors["jsonl"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
     jsonl_error_codes = _payload_list(jsonl["error_codes"])
     event_types = _payload_list(events["types"])
@@ -242,6 +244,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     )
     assert jsonl_message_types == list(JSONL_MESSAGE_TYPES)
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
+    assert list(jsonl_error_specs) == jsonl_error_codes
+    busy_error_spec = _payload_mapping(jsonl_error_specs["busy"])
+    internal_error_spec = _payload_mapping(jsonl_error_specs["internal_error"])
+    assert "stream was active" in str(busy_error_spec["description"])
+    assert "unexpected server-side exception" in str(internal_error_spec["description"])
     assert "reasoning_delta" in event_types
     assert "index_progress" in event_types
     assert "index_complete" in event_types
