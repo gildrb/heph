@@ -16,7 +16,6 @@ from ai.runtime import ChatConfig, Conversation, Message
 from hephaion.agent.prompt import build_system_prompt
 from hephaion.agent.steering import Steering
 from hephaion.agent.tools import ToolRegistry, default_registry
-from hephaion.armory.storage import normalize_path, read_marker, validate
 from hephaion.armory.trust import armory_path_trusted
 from hephaion.chat import storage as chat_storage
 from hephaion.chat.message_delivery import send_user_message as _deliver_user_message
@@ -133,13 +132,6 @@ class SessionError(Exception):
 
 ARMORY_PLUGINS_TRUST_ENV = "HEPHAION_TRUST_ARMORY_PLUGINS"
 ARMORY_MEMORY_TRUST_ENV = "HEPHAION_TRUST_ARMORY_MEMORY"
-
-
-def validate_armory_path(path_str: str) -> Path:
-    armory_path = normalize_path(path_str)
-    validate(armory_path)
-    read_marker(armory_path)
-    return armory_path
 
 
 def empty_armory_guidance(armory_path: Path) -> str:

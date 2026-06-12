@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 6
+SDK_CAPABILITIES_VERSION = 7
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -15,6 +15,7 @@ SERVICE_CALL_METHODS = (
     "open_armory",
     "create_armory",
     "list_armories",
+    "validate_armory",
     "new_session",
     "resume_session",
     "fork_session",

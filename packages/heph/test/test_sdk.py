@@ -12,6 +12,7 @@ from heph.sdk import (
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_TYPES,
     SDK_CAPABILITIES,
+    ArmoryValidationSummary,
     AssistantDelta,
     HephRuntime,
     HephSdkBusyError,
@@ -188,8 +189,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 6
+    assert payload["version"] == 7
     assert "capabilities" in service_call_methods
+    assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
     assert "list_model_choices" in service_call_methods
     assert "switch_model" in service_call_methods
@@ -209,6 +211,52 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "provider_slug" in session_fields
     assert "enabled_source_files" in session_fields
     assert "is_disposed" in session_fields
+
+
+def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:
+    armory_path = _armory(tmp_path)
+    missing_path = tmp_path / "missing-armory"
+    file_path = tmp_path / "not-an-armory.txt"
+    file_path.write_text("not a directory", encoding="utf-8")
+    broken_path = tmp_path / "broken-armory"
+    broken_path.mkdir()
+    service = HephService.plain(config=_config())
+
+    valid = HephRuntime.validate_armory(armory_path)
+    valid_payload = _payload_mapping(
+        service.call("validate_armory", {"path": str(armory_path)})["armory"]
+    )
+    missing = HephRuntime.validate_armory(missing_path)
+    file_candidate = HephRuntime.validate_armory(file_path)
+    broken_payload = _payload_mapping(service.validate_armory(broken_path)["armory"])
+    unknown_user = HephRuntime.validate_armory("~definitely_no_such_user/armory")
+    plain_runtime = _payload_mapping(service.state()["runtime"])
+
+    assert isinstance(valid, ArmoryValidationSummary)
+    assert valid.path == armory_path.resolve()
+    assert valid.name == "sdk-armory"
+    assert valid.exists
+    assert valid.is_dir
+    assert valid.valid
+    assert valid.error == ""
+    assert valid_payload == valid.to_dict()
+    assert missing.exists is False
+    assert missing.is_dir is False
+    assert missing.valid is False
+    assert "does not exist" in missing.error
+    assert file_candidate.exists is True
+    assert file_candidate.is_dir is False
+    assert file_candidate.valid is False
+    assert "not a directory" in file_candidate.error
+    assert broken_payload["exists"] is True
+    assert broken_payload["is_dir"] is True
+    assert broken_payload["valid"] is False
+    assert "missing armory marker file" in str(broken_payload["error"])
+    assert unknown_user.exists is False
+    assert unknown_user.is_dir is False
+    assert unknown_user.valid is False
+    assert unknown_user.error
+    assert plain_runtime["armory_path"] is None
 
 
 def test_session_prompt_streams_sdk_events_and_autosaves(
@@ -1099,6 +1147,8 @@ def test_service_blocks_state_changes_while_prompt_streams(
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_armories()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+        service.validate_armory(tmp_path)
+    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_providers()
     with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
         service.list_model_choices()
@@ -1436,6 +1486,8 @@ def test_service_streams_build_index_progress(
         service.list_model_choices()
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.switch_model("pollinations", "openai")
+    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+        service.validate_armory(tmp_path)
     abort_payload = service.call("abort")
     abort_result = _payload_mapping(abort_payload)
     abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
@@ -1635,6 +1687,7 @@ def test_service_call_and_stream_dispatcher(
     )
     default_reasoning_payload = service.call("update_config", {"reasoning_level": ""})
     capabilities_payload = service.call("capabilities")
+    validation_payload = service.call("validate_armory", {"path": str(armory)})
     events = list(service.stream("prompt", {"text": "Dispatch this."}))
     ask = service.call("ask", {"text": "Return final text."})
 
@@ -1643,6 +1696,7 @@ def test_service_call_and_stream_dispatcher(
     default_reasoning_runtime = _payload_mapping(default_reasoning_payload["runtime"])
     capabilities = _payload_mapping(capabilities_payload["capabilities"])
     capability_service = _payload_mapping(capabilities["service"])
+    validated_armory = _payload_mapping(validation_payload["armory"])
     assert runtime_payload["model"] == "updated-model"
     assert runtime_payload["max_tokens"] == 500
     assert runtime_payload["temperature"] == 2.0
@@ -1653,6 +1707,8 @@ def test_service_call_and_stream_dispatcher(
     assert default_reasoning_runtime["reasoning_level"] == "low"
     assert capabilities_payload == service.capabilities()
     assert "capabilities" in _payload_list(capability_service["call_methods"])
+    assert validated_armory["valid"] is True
+    assert validated_armory["path"] == str(armory.resolve())
     assert events[0] == {"type": "assistant_delta", "delta": "Dispatched."}
     assert _payload_mapping(ask)["text"] == "Dispatched."
 

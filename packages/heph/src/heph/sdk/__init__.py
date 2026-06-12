@@ -46,6 +46,7 @@ from heph.sdk.models import ModelChoiceSummary
 from heph.sdk.providers import ProviderSummary
 from heph.sdk.runtime import (
     ArmorySummary,
+    ArmoryValidationSummary,
     HephEventListener,
     HephMessage,
     HephRuntime,
@@ -77,6 +78,7 @@ __all__ = [
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "ArmorySummary",
+    "ArmoryValidationSummary",
     "AssistantDelta",
     "CompactRequest",
     "CreateHephRuntimeResult",

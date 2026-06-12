@@ -94,6 +94,8 @@ class HephService:
             return self.create_runtime_armory(_required_str(parameters, "path"))
         if method == "list_armories":
             return self.list_armories()
+        if method == "validate_armory":
+            return self.validate_armory(_required_str(parameters, "path"))
         if method == "new_session":
             return self.new_session()
         if method == "resume_session":
@@ -173,6 +175,10 @@ class HephService:
     def list_armories(self) -> dict[str, object]:
         with self._idle_service_call():
             return {"armories": [armory.to_dict() for armory in HephRuntime.list_armories()]}
+
+    def validate_armory(self, path: str | Path) -> dict[str, object]:
+        with self._idle_service_call():
+            return {"armory": HephRuntime.validate_armory(path).to_dict()}
 
     def new_session(self) -> dict[str, object]:
         with self._idle_service_call():

@@ -85,6 +85,13 @@ def validate(path: Path) -> None:
         raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
 
 
+def validate_armory_path(path: str | Path) -> Path:
+    armory_path = normalize_path(path)
+    validate(armory_path)
+    read_marker(armory_path)
+    return armory_path
+
+
 def _validate_armory_dir(path: Path, resolved_path: Path, dirname: str) -> None:
     target = path / dirname
     if target.is_symlink():

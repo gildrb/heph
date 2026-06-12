@@ -15,7 +15,7 @@ from hephaion.armory.search import (
     remember_armory,
     set_last_armory,
 )
-from hephaion.armory.storage import initialize, normalize_path
+from hephaion.armory.storage import ArmoryError, initialize, normalize_path, validate_armory_path
 from hephaion.chat.orchestrator import iter_chat_events
 from hephaion.chat.session import (
     ChatSession,
@@ -25,7 +25,6 @@ from hephaion.chat.session import (
     list_armory_sessions,
     resume_session,
     save_session,
-    validate_armory_path,
 )
 from hephaion.chat.session_persistence import save_dirty_session_if_needed
 from hephaion.materials.importing import import_material_files, resolve_import_source
@@ -106,6 +105,29 @@ class ArmorySummary:
             "path": str(self.path),
             "exists": self.exists,
             "valid": self.valid,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ArmoryValidationSummary:
+    path: Path
+    exists: bool
+    is_dir: bool
+    valid: bool
+    error: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.path.name
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "path": str(self.path),
+            "exists": self.exists,
+            "is_dir": self.is_dir,
+            "valid": self.valid,
+            "error": self.error,
         }
 
 
@@ -465,6 +487,23 @@ class HephRuntime:
             for entry in load_available_armory_entries()
         )
 
+    @staticmethod
+    def validate_armory(path: str | Path) -> ArmoryValidationSummary:
+        armory_path = _resolved_validation_path(path)
+        exists = armory_path.exists()
+        is_dir = armory_path.is_dir() if exists else False
+        try:
+            valid_path = validate_armory_path(armory_path)
+        except (ArmoryError, OSError, RuntimeError, ValueError) as exc:
+            return ArmoryValidationSummary(
+                path=armory_path,
+                exists=exists,
+                is_dir=is_dir,
+                valid=False,
+                error=str(exc),
+            )
+        return ArmoryValidationSummary(path=valid_path, exists=True, is_dir=True, valid=True)
+
     def new_session(self) -> HephSession:
         if self.armory_path is None:
             return HephSession(create_plain_session(self.config))
@@ -579,8 +618,16 @@ def _config_or_default(config: ChatConfig | None, armory_path: Path | None) -> C
     return load_config(armory_path)
 
 
+def _resolved_validation_path(path: str | Path) -> Path:
+    try:
+        return normalize_path(path)
+    except (OSError, RuntimeError, ValueError):
+        return Path(path)
+
+
 __all__ = [
     "ArmorySummary",
+    "ArmoryValidationSummary",
     "ExtractionHealthIssueSummary",
     "ExtractionHealthSummary",
     "HephEventListener",

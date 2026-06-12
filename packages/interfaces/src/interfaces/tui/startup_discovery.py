@@ -9,8 +9,7 @@ from hephaion.armory.search import (
     load_available_armory_entries,
     remember_armory,
 )
-from hephaion.armory.storage import ArmoryError
-from hephaion.chat.session import validate_armory_path
+from hephaion.armory.storage import ArmoryError, validate_armory_path
 
 
 def _append_unique(paths: list[Path], seen: set[Path], path: Path) -> None:

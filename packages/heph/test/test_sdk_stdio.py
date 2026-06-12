@@ -15,6 +15,7 @@ from heph.sdk import (
     JSONL_MESSAGE_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    HephRuntime,
     HephSdkOptions,
     HephService,
     JsonlSdkServer,
@@ -111,6 +112,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert payloads[0]["protocol"] == SDK_JSONL_PROTOCOL
     assert payloads[0]["version"] == SDK_JSONL_VERSION
     assert ready_jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert "validate_armory" in ready_call_methods
     assert "list_providers" in ready_call_methods
     assert "list_model_choices" in ready_call_methods
     assert "switch_model" in ready_call_methods
@@ -787,6 +789,54 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
     assert _payload_mapping(service_error["error"])["code"] == "sdk_error"
     assert state_response["type"] == "response"
     assert state_response["ok"] is True
+
+
+def test_jsonl_sdk_server_validates_armory_candidates(tmp_path: Path) -> None:
+    armory_path = tmp_path / ".armories" / "valid"
+    HephRuntime.create_armory(armory_path, config=_config())
+    missing_path = tmp_path / "missing"
+    service = HephService.plain(config=_config())
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            _jsonl(
+                {
+                    "id": "valid-armory",
+                    "method": "validate_armory",
+                    "params": {"path": str(armory_path)},
+                },
+                {
+                    "id": "missing-armory",
+                    "method": "validate_armory",
+                    "params": {"path": str(missing_path)},
+                },
+            )
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    valid_response = next(payload for payload in payloads if payload.get("id") == "valid-armory")
+    missing_response = next(
+        payload for payload in payloads if payload.get("id") == "missing-armory"
+    )
+    valid_armory = _payload_mapping(_payload_mapping(valid_response["result"])["armory"])
+    missing_armory = _payload_mapping(_payload_mapping(missing_response["result"])["armory"])
+    runtime_state = _payload_mapping(_payload_mapping(payloads[0]["state"])["runtime"])
+
+    assert valid_response["type"] == "response"
+    assert valid_response["ok"] is True
+    assert valid_armory["valid"] is True
+    assert valid_armory["path"] == str(armory_path.resolve())
+    assert missing_response["type"] == "response"
+    assert missing_response["ok"] is True
+    assert missing_armory["valid"] is False
+    assert missing_armory["exists"] is False
+    assert "does not exist" in str(missing_armory["error"])
+    assert runtime_state["armory_path"] is None
 
 
 def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> None:

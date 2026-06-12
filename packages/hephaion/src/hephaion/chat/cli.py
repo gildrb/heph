@@ -8,14 +8,13 @@ import sys
 from pathlib import Path
 
 from hephaion.armory.search import set_last_armory
-from hephaion.armory.storage import ArmoryError
+from hephaion.armory.storage import ArmoryError, validate_armory_path
 from hephaion.chat.automation import event_to_json_object, iter_chat_events
 from hephaion.chat.session import (
     ChatSession,
     SessionError,
     create_session,
     send_user_message,
-    validate_armory_path,
 )
 from hephaion.parameters.cli import load_config
 

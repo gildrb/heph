@@ -30,8 +30,8 @@ SwiftUI / GUI / automation client
 - Structured provider summaries for credential-source and active-provider status.
 - Structured model choice and model switching helpers for provider-aware clients.
 - JSON-ready `to_dict()` helpers for transport clients.
-- `ArmorySummary`, `SessionSummary`, `ProviderSummary`, `ModelChoiceSummary`,
-  and `HephMessage` value objects.
+- `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
+  `ModelChoiceSummary`, and `HephMessage` value objects.
 
 ```python
 from heph.sdk import AssistantDelta, HephRuntime
@@ -71,6 +71,21 @@ health = runtime.scan_extraction_health()
 
 `HephRuntime.build_index(progress=...)` can also report live
 `IndexProgressEvent` values while still returning the final `IndexSummary`.
+
+For armory file pickers:
+
+```python
+from heph.sdk import HephRuntime
+
+validation = HephRuntime.validate_armory("~/my-armory")
+if validation.valid:
+    runtime = HephRuntime.open_armory(validation.path)
+else:
+    print(validation.error)
+```
+
+`validate_armory()` checks the path, required layout, and marker file without
+opening the armory, remembering it, or changing the active service runtime.
 
 For model selection:
 
@@ -199,6 +214,7 @@ The capability payload has its own `version`, separate from the JSONL
 - `open_armory`
 - `create_armory`
 - `list_armories`
+- `validate_armory`
 - `new_session`
 - `resume_session`
 - `fork_session`
