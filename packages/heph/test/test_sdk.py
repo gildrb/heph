@@ -162,7 +162,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert capabilities is SDK_CAPABILITIES
-    assert payload["version"] == 3
+    assert payload["version"] == 4
     assert "capabilities" in service_call_methods
     assert "build_index" in service_stream_methods
     assert busy_allowed_call_methods == ["state", "abort", "capabilities"]
@@ -174,6 +174,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "index_progress" in event_types
     assert "index_complete" in event_types
     assert "active_operation" in service_fields
+    assert "is_busy" in service_fields
     assert "reasoning_level" in runtime_fields
     assert "enabled_source_files" in session_fields
     assert "is_disposed" in session_fields
@@ -754,6 +755,7 @@ def test_service_manages_runtime_session_and_streams_json_events(
 
     assert service_state["prompt_active"] is False
     assert service_state["active_operation"] is None
+    assert service_state["is_busy"] is False
     assert runtime_payload["model"] == "gpt-4o-mini"
     assert events == [
         {"type": "assistant_delta", "delta": "Service reply."},
@@ -790,8 +792,10 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert isinstance(empty_snapshot.service, HephSdkServiceState)
     assert isinstance(empty_snapshot.runtime, HephSdkRuntimeState)
     assert empty_snapshot.session is None
+    assert empty_snapshot.service.is_busy is False
     assert snapshot.service.prompt_active is False
     assert snapshot.service.active_operation is None
+    assert snapshot.service.is_busy is False
     assert snapshot.runtime.armory_path == armory_path.resolve()
     assert snapshot.runtime.model == "typed-state-model"
     assert snapshot.runtime.temperature is None
@@ -806,6 +810,12 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert snapshot.session.messages == ()
     assert session_payload["runtime"] == snapshot.runtime.to_dict()
     assert service.state() == snapshot.to_dict()
+
+
+def test_service_state_constructor_derives_busy_flag() -> None:
+    assert HephSdkServiceState(False).is_busy is False
+    assert HephSdkServiceState(True).is_busy is True
+    assert HephSdkServiceState(False, "build_index").is_busy is True
 
 
 def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
@@ -890,6 +900,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
     active_state = _payload_mapping(service.state()["service"])
     assert active_state["prompt_active"] is True
     assert active_state["active_operation"] is None
+    assert active_state["is_busy"] is True
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
     assert "capabilities" in _payload_list(active_capability_service["busy_allowed_call_methods"])
@@ -929,6 +940,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert abort_seen.is_set()
     assert idle_state["prompt_active"] is False
     assert idle_state["active_operation"] is None
+    assert idle_state["is_busy"] is False
     assert not thread.is_alive()
     assert stream_errors == []
     assert streamed_events[0] == {"type": "notice", "message": "Waiting.", "code": "sdk_test"}
@@ -978,6 +990,7 @@ def test_service_treats_direct_session_stream_as_busy(
 
     active_state = service.state_snapshot()
     assert active_state.service.prompt_active
+    assert active_state.service.is_busy
     assert active_state.session is not None
     assert active_state.session.is_streaming
     direct_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
@@ -998,6 +1011,7 @@ def test_service_treats_direct_session_stream_as_busy(
     assert len(streamed_events) == 2
     assert not thread.is_alive()
     assert not service.state_snapshot().service.prompt_active
+    assert not service.state_snapshot().service.is_busy
 
 
 def test_service_direct_session_stream_start_blocks_replacement_race(
@@ -1230,6 +1244,7 @@ def test_service_streams_build_index_progress(
     active_service = _payload_mapping(service.state()["service"])
     assert active_service["prompt_active"] is False
     assert active_service["active_operation"] == "build_index"
+    assert active_service["is_busy"] is True
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
     assert "build_index" in _payload_list(active_capability_service["stream_methods"])
@@ -1244,11 +1259,13 @@ def test_service_streams_build_index_progress(
     abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
     assert abort_result["aborted"] is False
     assert abort_service["active_operation"] == "build_index"
+    assert abort_service["is_busy"] is True
 
     release.set()
     assert finished.wait(timeout=2.0)
     finished_but_unconsumed_service = _payload_mapping(service.state()["service"])
     assert finished_but_unconsumed_service["active_operation"] == "build_index"
+    assert finished_but_unconsumed_service["is_busy"] is True
     with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
         service.list_materials()
     remaining_events = list(stream)
@@ -1278,6 +1295,7 @@ def test_service_streams_build_index_progress(
         },
     ]
     assert idle_service["active_operation"] is None
+    assert idle_service["is_busy"] is False
 
 
 def test_service_streams_build_index_clears_operation_on_error(
@@ -1306,6 +1324,7 @@ def test_service_streams_build_index_clears_operation_on_error(
     first_event = next(stream)
     active_service = _payload_mapping(service.state()["service"])
     assert active_service["active_operation"] == "build_index"
+    assert active_service["is_busy"] is True
 
     release.set()
     with pytest.raises(RuntimeError, match="index failed"):
@@ -1318,6 +1337,7 @@ def test_service_streams_build_index_clears_operation_on_error(
         "detail": "materials/notes.md",
     }
     assert idle_service["active_operation"] is None
+    assert idle_service["is_busy"] is False
 
 
 def test_service_streams_build_index_with_file_timeout(

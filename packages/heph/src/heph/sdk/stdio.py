@@ -115,7 +115,7 @@ class JsonlSdkServer:
             self._write_response(request_id, self._abort_active_prompt())
             return
         if method == "state":
-            self._write_response(request_id, self._state_with_transport_operation())
+            self._write_response(request_id, self._state_with_transport_busy())
             return
         if method == "capabilities":
             self._write_response(request_id, self.service.capabilities())
@@ -244,27 +244,34 @@ class JsonlSdkServer:
         with self._state_lock:
             active_prompt = self._active_prompt
         if active_prompt is None:
-            return {"aborted": False, "state": self._state_with_transport_operation()}
+            return {"aborted": False, "state": self._state_with_transport_busy()}
         active_prompt.abort.set()
-        return {"aborted": True, "state": self._state_with_transport_operation()}
+        return {"aborted": True, "state": self._state_with_transport_busy()}
 
-    def _state_with_transport_operation(self) -> ServicePayload:
+    def _state_with_transport_busy(self) -> ServicePayload:
         state = self.service.state()
         with self._state_lock:
+            active_prompt = self._active_prompt is not None
             active_operation = (
                 self._active_operation.active_operation
                 if self._active_operation is not None
                 else None
             )
-        if active_operation is None:
+        if not active_prompt and active_operation is None:
             return state
         service_state = state.get("service")
         if not is_string_mapping(service_state):
             return state
-        if service_state.get("active_operation") is not None:
+        if (not active_prompt or service_state.get("prompt_active") is True) and (
+            active_operation is None or service_state.get("active_operation") is not None
+        ):
             return state
         merged_service = dict(service_state)
-        merged_service["active_operation"] = active_operation
+        if active_prompt:
+            merged_service["prompt_active"] = True
+        if active_operation is not None and merged_service.get("active_operation") is None:
+            merged_service["active_operation"] = active_operation
+        merged_service["is_busy"] = True
         merged_state = dict(state)
         merged_state["service"] = merged_service
         return merged_state

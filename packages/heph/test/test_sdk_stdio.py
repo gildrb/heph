@@ -402,10 +402,36 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
     assert _payload_mapping(result["state"])["service"] == {
         "prompt_active": True,
         "active_operation": None,
+        "is_busy": True,
     }
     assert not direct_abort_seen.is_set()
     assert prompt_errors == []
     assert not thread.is_alive()
+
+
+def test_jsonl_state_marks_pending_prompt_busy() -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+    server._active_prompt = sdk_stdio.ActivePrompt(
+        request_id="prompt-pending",
+        abort=threading.Event(),
+    )
+
+    server.handle_request({"id": "state-during-pending-prompt", "method": "state"})
+
+    payloads = _payloads(output.getvalue())
+    result = _payload_mapping(payloads[0]["result"])
+    assert _payload_mapping(result["service"]) == {
+        "prompt_active": True,
+        "active_operation": None,
+        "is_busy": True,
+    }
 
 
 def test_jsonl_sdk_server_handles_source_scope_toggle(tmp_path: Path) -> None:
@@ -535,12 +561,24 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         for payload in payloads
         if payload["type"] == "stream_event"
     ]
-    assert immediate_service == {"prompt_active": False, "active_operation": "build_index"}
-    assert state_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert immediate_service == {
+        "prompt_active": False,
+        "active_operation": "build_index",
+        "is_busy": True,
+    }
+    assert state_service == {
+        "prompt_active": False,
+        "active_operation": "build_index",
+        "is_busy": True,
+    }
     assert capabilities_response["type"] == "response"
     assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert abort_result["aborted"] is False
-    assert abort_state_service == {"prompt_active": False, "active_operation": "build_index"}
+    assert abort_state_service == {
+        "prompt_active": False,
+        "active_operation": "build_index",
+        "is_busy": True,
+    }
     assert prompt_error_payload["code"] == "busy"
     assert events == [
         {
@@ -623,7 +661,11 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
     assert "prompt failed" in str(stream_error["message"])
-    assert service_state == {"prompt_active": False, "active_operation": None}
+    assert service_state == {
+        "prompt_active": False,
+        "active_operation": None,
+        "is_busy": False,
+    }
 
 
 def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
@@ -685,7 +727,11 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
     assert "index failed" in str(stream_error["message"])
-    assert service_state == {"prompt_active": False, "active_operation": None}
+    assert service_state == {
+        "prompt_active": False,
+        "active_operation": None,
+        "is_busy": False,
+    }
 
 
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:

@@ -157,11 +157,11 @@ active runtime and optional active session. Direct Python clients should use
 `state_snapshot()` for typed `HephSdkState` values, while transports can keep
 calling `state()` for the same JSON-ready dictionary shape.
 The snapshot and payload include a top-level `service` object with
-`prompt_active` and `active_operation`, so clients can disable state-changing
-controls without inspecting internal `ChatSession` objects. `prompt_active` is
-true for both service-owned prompt streams and direct streams on the active
-`HephSession`; `active_operation` names non-prompt operation streams such as
-`build_index`.
+`is_busy`, `prompt_active`, and `active_operation`, so clients can disable
+state-changing controls without inspecting internal `ChatSession` objects.
+`prompt_active` is true for both service-owned prompt streams and direct streams
+on the active `HephSession`; `active_operation` names non-prompt operation
+streams such as `build_index`.
 
 Clients can discover the supported contract with `get_sdk_capabilities()`,
 `HephService.capabilities()`, or the transport `capabilities` method. The JSONL
@@ -202,11 +202,12 @@ operation stream is active, clients can still call `state` and `capabilities`;
 `abort` cancels prompt streams but returns a no-op state payload for non-prompt
 operation streams such as `build_index_stream`. Other service methods are
 rejected until the stream ends. Clients should gate state-changing UI with
-`service.prompt_active` and `service.active_operation`. This lifecycle rule is
-enforced by `HephService` itself, so it applies to both direct Python embeddings
-and JSONL transport clients. In Python, this raises `HephSdkBusyError`, a
-subclass of `HephSdkError`. In JSONL, the same condition is reported with error
-code `"busy"`.
+`service.is_busy`; `prompt_active` and `active_operation` remain available for
+more specific status display. This lifecycle rule is enforced by `HephService`
+itself, so it applies to both direct Python embeddings and JSONL transport
+clients. In Python, this raises `HephSdkBusyError`, a subclass of
+`HephSdkError`. In JSONL, the same condition is reported with error code
+`"busy"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a

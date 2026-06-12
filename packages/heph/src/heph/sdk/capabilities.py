@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 3
+SDK_CAPABILITIES_VERSION = 4
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -62,7 +62,7 @@ SDK_EVENT_TYPES = (
     "index_progress",
     "index_complete",
 )
-SERVICE_STATE_FIELDS = ("prompt_active", "active_operation")
+SERVICE_STATE_FIELDS = ("prompt_active", "active_operation", "is_busy")
 RUNTIME_STATE_FIELDS = (
     "armory_path",
     "model",

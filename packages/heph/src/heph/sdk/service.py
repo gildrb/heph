@@ -302,9 +302,11 @@ class HephService:
             return self._prompt_is_active_locked()
 
     def _service_state(self) -> HephSdkServiceState:
+        prompt_active = self._prompt_is_active_locked()
         return HephSdkServiceState(
-            prompt_active=self._prompt_is_active_locked(),
+            prompt_active=prompt_active,
             active_operation=self._active_operation,
+            is_busy=self._active_operation is not None or prompt_active,
         )
 
     def _runtime_state(self) -> HephSdkRuntimeState:

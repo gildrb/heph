@@ -14,11 +14,20 @@ from heph.sdk.runtime import HephRuntime, HephSdkSessionState
 class HephSdkServiceState:
     prompt_active: bool
     active_operation: str | None = None
+    is_busy: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "is_busy",
+            self.is_busy or self.prompt_active or self.active_operation is not None,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
             "prompt_active": self.prompt_active,
             "active_operation": self.active_operation,
+            "is_busy": self.is_busy,
         }
 
 
