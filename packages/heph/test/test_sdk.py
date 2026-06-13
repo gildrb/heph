@@ -61,6 +61,7 @@ from heph.sdk import methods as sdk_methods
 from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
+from heph.sdk.method_validation import validate_method_params
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -212,6 +213,79 @@ def test_sdk_object_field_spec_keeps_compatible_aliases() -> None:
         "required": False,
         "nullable": False,
     }
+
+
+def test_sdk_method_validation_accepts_advertised_value_types() -> None:
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (
+                sdk_methods.SdkMethodParameter("name", "string", True),
+                sdk_methods.SdkMethodParameter("enabled", "boolean", True),
+                sdk_methods.SdkMethodParameter("count", "integer", True),
+                sdk_methods.SdkMethodParameter("ratio", "number", True),
+                sdk_methods.SdkMethodParameter("maybe", "number_or_null", True),
+                sdk_methods.SdkMethodParameter("identity", "string_or_integer", True),
+                sdk_methods.SdkMethodParameter("payload", "object", True),
+                sdk_methods.SdkMethodParameter("items", "array<string>", True),
+                sdk_methods.SdkMethodParameter("status", "literal<ready>", True),
+            ),
+        ),
+    )
+    params: dict[str, object] = {
+        "name": "heph",
+        "enabled": True,
+        "count": 3,
+        "ratio": 0.5,
+        "maybe": None,
+        "identity": 7,
+        "payload": {"ok": True},
+        "items": ["a", "b"],
+        "status": "ready",
+    }
+
+    assert validate_method_params("check", params, specs) == params
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("name", 7, "a string"),
+        ("enabled", "yes", "a boolean"),
+        ("count", True, "an integer"),
+        ("ratio", False, "a number"),
+        ("maybe", "1", "a number or null"),
+        ("identity", False, "a string or integer"),
+        ("payload", [], "an object"),
+        ("items", "not an array", "an array"),
+        ("items", [1], "an array"),
+        ("status", "waiting", "literal value 'ready'"),
+    ],
+)
+def test_sdk_method_validation_rejects_advertised_value_type_mismatch(
+    name: str,
+    value: object,
+    message: str,
+) -> None:
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (
+                sdk_methods.SdkMethodParameter("name", "string", False),
+                sdk_methods.SdkMethodParameter("enabled", "boolean", False),
+                sdk_methods.SdkMethodParameter("count", "integer", False),
+                sdk_methods.SdkMethodParameter("ratio", "number", False),
+                sdk_methods.SdkMethodParameter("maybe", "number_or_null", False),
+                sdk_methods.SdkMethodParameter("identity", "string_or_integer", False),
+                sdk_methods.SdkMethodParameter("payload", "object", False),
+                sdk_methods.SdkMethodParameter("items", "array<string>", False),
+                sdk_methods.SdkMethodParameter("status", "literal<ready>", False),
+            ),
+        ),
+    )
+
+    with pytest.raises(HephSdkError, match=message):
+        validate_method_params("check", {name: value}, specs)
 
 
 def test_sdk_app_settings_snapshot_and_update_are_structured(
@@ -2477,6 +2551,8 @@ def test_service_call_and_stream_dispatcher(
         service.call("state", {"typo": True})
     with pytest.raises(HephSdkError, match="requires parameter: path"):
         service.call("open_armory")
+    with pytest.raises(HephSdkError, match="parameter 'text' must be a string"):
+        service.call("ask", {"text": 123})
     with pytest.raises(HephSdkError, match="non-empty string"):
         list(service.stream("prompt", {"text": ""}))
     with pytest.raises(HephSdkError, match="does not accept parameter: text"):

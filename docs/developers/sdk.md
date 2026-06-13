@@ -247,8 +247,8 @@ forms, and keep transport wrappers aligned with the advertised SDK contract.
 Enum-like parameters include a `choices` list, for example theme, activity
 trace mode, vocabulary strictness, thinking visibility, and reasoning level.
 The SDK service and JSONL transport enforce the same method specs at runtime:
-unsupported parameters, missing required parameters, and values outside
-advertised `choices` are rejected instead of being ignored.
+unsupported parameters, missing required parameters, wrong JSON value types, and
+values outside advertised `choices` are rejected instead of being ignored.
 The `results` section describes the top-level payload returned by each service
 and JSONL call method, using stable SDK DTO names such as `sdk_state`,
 `sdk_session_state`, `provider_summary`, and `index_summary`.
