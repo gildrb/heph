@@ -2447,7 +2447,6 @@ def test_service_call_and_stream_dispatcher(
         "update_config",
         {"max_tokens": 0, "rag_context_budget": 0},
     )
-    default_reasoning_payload = service.call("update_config", {"reasoning_level": ""})
     capabilities_payload = service.call("capabilities")
     validation_payload = service.call("validate_armory", {"path": str(armory)})
     events = list(service.stream("prompt", {"text": "Dispatch this."}))
@@ -2455,7 +2454,6 @@ def test_service_call_and_stream_dispatcher(
 
     runtime_payload = _payload_mapping(config_payload["runtime"])
     zero_runtime_payload = _payload_mapping(zero_config_payload["runtime"])
-    default_reasoning_runtime = _payload_mapping(default_reasoning_payload["runtime"])
     capabilities = _payload_mapping(capabilities_payload["capabilities"])
     capability_service = _payload_mapping(capabilities["service"])
     validated_armory = _payload_mapping(validation_payload["armory"])
@@ -2466,7 +2464,6 @@ def test_service_call_and_stream_dispatcher(
     assert runtime_payload["thinking_visibility"] == "all"
     assert zero_runtime_payload["max_tokens"] == 0
     assert zero_runtime_payload["rag_context_budget"] == 0
-    assert default_reasoning_runtime["reasoning_level"] == "low"
     assert capabilities_payload == service.capabilities()
     assert "capabilities" in _payload_list(capability_service["call_methods"])
     assert validated_armory["valid"] is True
@@ -2490,6 +2487,10 @@ def test_service_call_and_stream_dispatcher(
         service.call("list_model_choices", {"refresh_live": "yes"})
     with pytest.raises(HephSdkError, match="does not accept parameter: typo"):
         service.call("update_config", {"typo": "ignored before this change"})
+    with pytest.raises(HephSdkError, match="parameter 'reasoning_level' must be one of"):
+        service.call("update_config", {"reasoning_level": "turbo"})
+    with pytest.raises(HephSdkError, match="parameter 'theme' must be one of"):
+        service.call("update_settings", {"theme": "neon"})
 
 
 @pytest.mark.parametrize(

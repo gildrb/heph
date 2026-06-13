@@ -34,6 +34,15 @@ def validate_method_params(
         raise HephSdkError(
             f"{surface} method '{method}' requires {_parameter_names_message(missing_keys)}."
         )
+    for param in spec.params:
+        if param.choices and param.name in parameters:
+            _validate_parameter_choice(
+                surface,
+                method,
+                param.name,
+                parameters[param.name],
+                param.choices,
+            )
     return parameters
 
 
@@ -55,6 +64,20 @@ def _method_spec(method: str, specs: tuple[SdkMethodSpec, ...]) -> SdkMethodSpec
 def _parameter_names_message(names: tuple[str, ...]) -> str:
     joined = ", ".join(names)
     return f"parameter: {joined}" if len(names) == 1 else f"parameters: {joined}"
+
+
+def _validate_parameter_choice(
+    surface: str,
+    method: str,
+    name: str,
+    value: object,
+    choices: tuple[str, ...],
+) -> None:
+    if isinstance(value, str) and value in choices:
+        return
+    raise HephSdkError(
+        f"{surface} method '{method}' parameter '{name}' must be one of: {', '.join(choices)}."
+    )
 
 
 __all__ = ["validate_method_params"]

@@ -792,6 +792,11 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
                     "params": {"text": "unused"},
                 },
                 {
+                    "id": "bad-choice",
+                    "method": "update_settings",
+                    "params": {"theme": "neon"},
+                },
+                {
                     "id": "bad-armory",
                     "method": "open_armory",
                     "params": {"path": str(tmp_path / "missing")},
@@ -812,6 +817,7 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
     bad_index_param = next(
         payload for payload in payloads if payload.get("id") == "bad-index-param"
     )
+    bad_choice = next(payload for payload in payloads if payload.get("id") == "bad-choice")
     service_error = next(payload for payload in payloads if payload.get("id") == "bad-armory")
     state_response = next(
         payload for payload in payloads if payload.get("id") == "state-after-error"
@@ -831,6 +837,11 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
     assert _payload_mapping(bad_index_param["error"])["code"] == "sdk_error"
     assert "does not accept parameter: text" in str(
         _payload_mapping(bad_index_param["error"])["message"]
+    )
+    assert bad_choice["type"] == "error"
+    assert _payload_mapping(bad_choice["error"])["code"] == "sdk_error"
+    assert "parameter 'theme' must be one of" in str(
+        _payload_mapping(bad_choice["error"])["message"]
     )
     assert service_error["type"] == "error"
     assert _payload_mapping(service_error["error"])["code"] == "sdk_error"
