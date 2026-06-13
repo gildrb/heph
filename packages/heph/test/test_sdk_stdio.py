@@ -777,6 +777,21 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
         input_stream=io.StringIO(
             _jsonl(
                 {
+                    "id": "bad-param",
+                    "method": "state",
+                    "params": {"typo": True},
+                },
+                {
+                    "id": "bad-prompt-param",
+                    "method": "prompt",
+                    "params": {"text": "hello", "typo": True},
+                },
+                {
+                    "id": "bad-index-param",
+                    "method": "build_index_stream",
+                    "params": {"text": "unused"},
+                },
+                {
                     "id": "bad-armory",
                     "method": "open_armory",
                     "params": {"path": str(tmp_path / "missing")},
@@ -790,11 +805,33 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
     server.serve()
 
     payloads = _payloads(output.getvalue())
+    bad_param = next(payload for payload in payloads if payload.get("id") == "bad-param")
+    bad_prompt_param = next(
+        payload for payload in payloads if payload.get("id") == "bad-prompt-param"
+    )
+    bad_index_param = next(
+        payload for payload in payloads if payload.get("id") == "bad-index-param"
+    )
     service_error = next(payload for payload in payloads if payload.get("id") == "bad-armory")
     state_response = next(
         payload for payload in payloads if payload.get("id") == "state-after-error"
     )
 
+    assert bad_param["type"] == "error"
+    assert _payload_mapping(bad_param["error"])["code"] == "sdk_error"
+    assert "does not accept parameter: typo" in str(
+        _payload_mapping(bad_param["error"])["message"]
+    )
+    assert bad_prompt_param["type"] == "error"
+    assert _payload_mapping(bad_prompt_param["error"])["code"] == "sdk_error"
+    assert "does not accept parameter: typo" in str(
+        _payload_mapping(bad_prompt_param["error"])["message"]
+    )
+    assert bad_index_param["type"] == "error"
+    assert _payload_mapping(bad_index_param["error"])["code"] == "sdk_error"
+    assert "does not accept parameter: text" in str(
+        _payload_mapping(bad_index_param["error"])["message"]
+    )
     assert service_error["type"] == "error"
     assert _payload_mapping(service_error["error"])["code"] == "sdk_error"
     assert state_response["type"] == "response"

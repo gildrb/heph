@@ -2253,7 +2253,7 @@ def test_service_settings_methods_return_and_apply_display_preferences(
     assert service.session.live_tokens_visible is True
     assert service.session.live_cost_visible is True
 
-    with pytest.raises(HephSdkError, match="Unsupported SDK app setting: analytics_enabled"):
+    with pytest.raises(HephSdkError, match="does not accept parameter: analytics_enabled"):
         service.call("update_settings", {"analytics_enabled": True})
 
 
@@ -2356,12 +2356,20 @@ def test_service_call_and_stream_dispatcher(
 
     with pytest.raises(HephSdkError, match="Unknown SDK service method"):
         service.call("missing")
+    with pytest.raises(HephSdkError, match="does not accept parameter: typo"):
+        service.call("state", {"typo": True})
+    with pytest.raises(HephSdkError, match="requires parameter: path"):
+        service.call("open_armory")
     with pytest.raises(HephSdkError, match="non-empty string"):
         list(service.stream("prompt", {"text": ""}))
+    with pytest.raises(HephSdkError, match="does not accept parameter: text"):
+        list(service.stream("build_index", {"text": "unused"}))
     with pytest.raises(HephSdkError, match="must be a boolean"):
         service.call("set_source_enabled", {"source": "materials/notes.md", "enabled": "no"})
     with pytest.raises(HephSdkError, match="must be a boolean"):
         service.call("list_model_choices", {"refresh_live": "yes"})
+    with pytest.raises(HephSdkError, match="does not accept parameter: typo"):
+        service.call("update_config", {"typo": "ignored before this change"})
 
 
 @pytest.mark.parametrize(

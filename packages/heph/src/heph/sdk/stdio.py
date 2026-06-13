@@ -13,7 +13,9 @@ from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
 from heph.sdk.factory import HephSdkOptions, create_heph_service
+from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
+    JSONL_STREAM_METHOD_SPECS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     service_stream_method_for_jsonl,
@@ -94,6 +96,12 @@ class JsonlSdkServer:
             method = _request_method(request)
             params = _request_params(request)
             if method == "prompt":
+                params = validate_method_params(
+                    method,
+                    params,
+                    JSONL_STREAM_METHOD_SPECS,
+                    surface="SDK JSONL",
+                )
                 self._start_prompt_stream(request_id, params)
                 return
             service_method = service_stream_method_for_jsonl(method)
@@ -116,6 +124,7 @@ class JsonlSdkServer:
         method: str,
         params: dict[str, object],
     ) -> None:
+        params = self.service.validate_call_params(method, params)
         if method == "abort":
             self._write_response(request_id, self._abort_active_prompt())
             return
@@ -167,6 +176,12 @@ class JsonlSdkServer:
         service_method: str,
         params: dict[str, object],
     ) -> None:
+        params = validate_method_params(
+            method,
+            params,
+            JSONL_STREAM_METHOD_SPECS,
+            surface="SDK JSONL",
+        )
         active_operation = ActiveOperation(
             request_id=request_id,
             active_operation=service_method,

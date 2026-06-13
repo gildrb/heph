@@ -244,6 +244,9 @@ The payload also includes a `methods` section with JSON-ready parameter specs
 for service calls, service streams, JSONL calls, and JSONL streams. Native
 clients can use those specs to build request validation, disable incomplete
 forms, and keep transport wrappers aligned with the advertised SDK contract.
+The SDK service and JSONL transport enforce the same method specs at runtime:
+unsupported parameters and missing required parameters are rejected instead of
+being ignored.
 The `results` section describes the top-level payload returned by each service
 and JSONL call method, using stable SDK DTO names such as `sdk_state`,
 `sdk_session_state`, `provider_summary`, and `index_summary`.

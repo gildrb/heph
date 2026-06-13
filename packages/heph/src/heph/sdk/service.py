@@ -14,7 +14,12 @@ from ai.runtime import ChatConfig, normalize_thinking_visibility
 from heph.sdk.capabilities import get_sdk_capabilities
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
-from heph.sdk.methods import BUSY_ALLOWED_CALL_METHODS
+from heph.sdk.method_validation import validate_method_params
+from heph.sdk.methods import (
+    BUSY_ALLOWED_CALL_METHODS,
+    SERVICE_CALL_METHOD_SPECS,
+    SERVICE_STREAM_METHOD_SPECS,
+)
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
 from heph.sdk.settings import (
@@ -82,12 +87,26 @@ class HephService:
     def state(self) -> dict[str, object]:
         return self.state_snapshot().to_dict()
 
+    def validate_call_params(
+        self,
+        method: str,
+        params: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        return validate_method_params(method, params, SERVICE_CALL_METHOD_SPECS)
+
+    def validate_stream_params(
+        self,
+        method: str,
+        params: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        return validate_method_params(method, params, SERVICE_STREAM_METHOD_SPECS)
+
     def call(
         self,
         method: str,
         params: Mapping[str, object] | None = None,
     ) -> ServicePayload:
-        parameters = params or {}
+        parameters = self.validate_call_params(method, params)
         if self._is_busy() and method not in BUSY_ALLOWED_CALL_METHODS:
             raise HephSdkBusyError()
         if method == "state":
@@ -163,7 +182,7 @@ class HephService:
         method: str,
         params: Mapping[str, object] | None = None,
     ) -> ServiceStream:
-        parameters = params or {}
+        parameters = self.validate_stream_params(method, params)
         if method == "prompt":
             yield from self.prompt(_required_str(parameters, "text"))
             return
