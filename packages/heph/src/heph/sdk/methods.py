@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 15
+SDK_CAPABILITIES_VERSION = 16
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -164,6 +164,12 @@ RAG_CONTEXT_BUDGET_PARAM = SdkMethodParameter("rag_context_budget", "integer", F
 TEMPERATURE_PARAM = SdkMethodParameter("temperature", "number_or_null", False)
 REASONING_LEVEL_PARAM = SdkMethodParameter("reasoning_level", "string", False)
 THINKING_VISIBILITY_PARAM = SdkMethodParameter("thinking_visibility", "string", False)
+THEME_PARAM = SdkMethodParameter("theme", "string", False)
+DEFAULT_ARMORY_PATH_PARAM = SdkMethodParameter("default_armory_path", "string", False)
+ACTIVITY_TRACE_MODE_PARAM = SdkMethodParameter("activity_trace_mode", "string", False)
+VOCAB_STRICTNESS_PARAM = SdkMethodParameter("vocab_strictness", "string", False)
+LIVE_TOKENS_VISIBLE_PARAM = SdkMethodParameter("live_tokens_visible", "boolean", False)
+LIVE_COST_VISIBLE_PARAM = SdkMethodParameter("live_cost_visible", "boolean", False)
 
 SERVICE_CALL_METHOD_SPECS = (
     SdkMethodSpec("state"),
@@ -181,6 +187,7 @@ SERVICE_CALL_METHOD_SPECS = (
     SdkMethodSpec("messages"),
     SdkMethodSpec("ask", (TEXT_PARAM,)),
     SdkMethodSpec("abort"),
+    SdkMethodSpec("settings"),
     SdkMethodSpec("list_providers"),
     SdkMethodSpec("list_model_choices", (REFRESH_LIVE_PARAM,)),
     SdkMethodSpec("switch_model", (PROVIDER_SLUG_PARAM, MODEL_PARAM)),
@@ -199,6 +206,18 @@ SERVICE_CALL_METHOD_SPECS = (
             TEMPERATURE_PARAM,
             REASONING_LEVEL_PARAM,
             THINKING_VISIBILITY_PARAM,
+        ),
+    ),
+    SdkMethodSpec(
+        "update_settings",
+        (
+            THEME_PARAM,
+            DEFAULT_ARMORY_PATH_PARAM,
+            ACTIVITY_TRACE_MODE_PARAM,
+            VOCAB_STRICTNESS_PARAM,
+            THINKING_VISIBILITY_PARAM,
+            LIVE_TOKENS_VISIBLE_PARAM,
+            LIVE_COST_VISIBLE_PARAM,
         ),
     ),
 )
@@ -296,7 +315,7 @@ JSONL_ERROR_SPECS = (
     SdkErrorSpec("internal_error", "An unexpected server-side exception escaped the SDK layer."),
 )
 JSONL_ERROR_CODES = tuple(spec.code for spec in JSONL_ERROR_SPECS)
-BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities")
+BUSY_ALLOWED_CALL_METHODS = ("state", "abort", "capabilities", "settings")
 SERVICE_CALL_RESULT_SPECS = (
     SdkResultSpec("state", value_type="sdk_state"),
     SdkResultSpec(
@@ -366,6 +385,10 @@ SERVICE_CALL_RESULT_SPECS = (
         ),
     ),
     SdkResultSpec(
+        "settings",
+        fields=(SdkResultFieldSpec("settings", "sdk_app_settings"),),
+    ),
+    SdkResultSpec(
         "list_providers",
         fields=(SdkResultFieldSpec("providers", "array<provider_summary>"),),
     ),
@@ -407,6 +430,14 @@ SERVICE_CALL_RESULT_SPECS = (
     SdkResultSpec(
         "update_config",
         fields=(SdkResultFieldSpec("runtime", "sdk_runtime_state"),),
+    ),
+    SdkResultSpec(
+        "update_settings",
+        fields=(
+            SdkResultFieldSpec("settings", "sdk_app_settings"),
+            SdkResultFieldSpec("runtime", "sdk_runtime_state"),
+            SdkResultFieldSpec("session", "sdk_session_state", nullable=True),
+        ),
     ),
 )
 JSONL_CALL_RESULT_SPECS = SERVICE_CALL_RESULT_SPECS
@@ -537,6 +568,9 @@ SESSION_STATE_FIELD_SPECS = (
     SdkFieldSpec("armory_path", "string", nullable=True),
     SdkFieldSpec("provider_slug", "string"),
     SdkFieldSpec("model", "string"),
+    SdkFieldSpec("thinking_visibility", "string"),
+    SdkFieldSpec("live_tokens_visible", "boolean"),
+    SdkFieldSpec("live_cost_visible", "boolean"),
     SdkFieldSpec("is_streaming", "boolean"),
     SdkFieldSpec("is_disposed", "boolean"),
     SdkFieldSpec("source_file_count", "integer"),
@@ -592,6 +626,49 @@ SDK_TYPE_SPECS = (
         (
             SdkTypeFieldSpec("role", "string"),
             SdkTypeFieldSpec("content", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "setting_choice",
+        (
+            SdkTypeFieldSpec("value", "string"),
+            SdkTypeFieldSpec("label", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_settings_choices",
+        (
+            SdkTypeFieldSpec("themes", "array<setting_choice>"),
+            SdkTypeFieldSpec("activity_trace_modes", "array<setting_choice>"),
+            SdkTypeFieldSpec("thinking_visibility_modes", "array<setting_choice>"),
+            SdkTypeFieldSpec("vocab_strictness_modes", "array<setting_choice>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_privacy_settings",
+        (
+            SdkTypeFieldSpec("analytics_enabled", "boolean"),
+            SdkTypeFieldSpec("analytics_available", "boolean"),
+            SdkTypeFieldSpec("analytics_env_override", "boolean"),
+            SdkTypeFieldSpec("crash_reports_enabled", "boolean"),
+            SdkTypeFieldSpec("crash_reports_available", "boolean"),
+            SdkTypeFieldSpec("crash_reports_env_override", "boolean"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_app_settings",
+        (
+            SdkTypeFieldSpec("theme", "string"),
+            SdkTypeFieldSpec("default_armory_path", "string"),
+            SdkTypeFieldSpec("last_armory_path", "string"),
+            SdkTypeFieldSpec("activity_trace_mode", "string"),
+            SdkTypeFieldSpec("vocab_strictness", "string"),
+            SdkTypeFieldSpec("thinking_visibility", "string"),
+            SdkTypeFieldSpec("live_tokens_visible", "boolean"),
+            SdkTypeFieldSpec("live_cost_visible", "boolean"),
+            SdkTypeFieldSpec("privacy", "sdk_privacy_settings"),
+            SdkTypeFieldSpec("choices", "sdk_settings_choices"),
+            SdkTypeFieldSpec("mutable_keys", "array<string>"),
         ),
     ),
     SdkTypeSpec(

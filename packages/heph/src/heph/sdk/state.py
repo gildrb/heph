@@ -63,6 +63,15 @@ class _SessionStateSource(Protocol):
     def model(self) -> str: ...
 
     @property
+    def thinking_visibility(self) -> str: ...
+
+    @property
+    def live_tokens_visible(self) -> bool: ...
+
+    @property
+    def live_cost_visible(self) -> bool: ...
+
+    @property
     def is_streaming(self) -> bool: ...
 
     @property
@@ -169,6 +178,9 @@ class HephSdkSessionState:
     is_streaming: bool
     messages: tuple[HephMessage, ...]
     provider_slug: str = ""
+    thinking_visibility: str = ""
+    live_tokens_visible: bool = False
+    live_cost_visible: bool = False
     source_file_count: int = 0
     source_files: tuple[str, ...] = ()
     disabled_source_files: frozenset[str] = frozenset()
@@ -184,6 +196,9 @@ class HephSdkSessionState:
             armory_path=session.armory_path,
             provider_slug=session.provider_slug,
             model=session.model,
+            thinking_visibility=session.thinking_visibility,
+            live_tokens_visible=session.live_tokens_visible,
+            live_cost_visible=session.live_cost_visible,
             is_streaming=session.is_streaming,
             messages=session.messages,
             source_file_count=session.source_file_count,
@@ -201,6 +216,9 @@ class HephSdkSessionState:
             "armory_path": str(self.armory_path) if self.armory_path is not None else None,
             "provider_slug": self.provider_slug,
             "model": self.model,
+            "thinking_visibility": self.thinking_visibility,
+            "live_tokens_visible": self.live_tokens_visible,
+            "live_cost_visible": self.live_cost_visible,
             "is_streaming": self.is_streaming,
             "is_disposed": self.is_disposed,
             "source_file_count": self.source_file_count,

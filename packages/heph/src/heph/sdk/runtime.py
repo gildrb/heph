@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from ai.logging import get_logger
 from ai.runtime import ChatConfig
@@ -65,6 +66,17 @@ type HephSessionStreamGuard = Callable[[threading.Event], AbstractContextManager
 _log = get_logger("heph.sdk.runtime")
 
 
+class _DisplaySettingsSource(Protocol):
+    @property
+    def thinking_visibility(self) -> str: ...
+
+    @property
+    def live_tokens_visible(self) -> bool: ...
+
+    @property
+    def live_cost_visible(self) -> bool: ...
+
+
 class HephSdkError(Exception):
     """Raised when an SDK operation is invalid for the active runtime."""
 
@@ -75,7 +87,7 @@ class HephSdkBusyError(HephSdkError):
     def __init__(
         self,
         message: str = (
-            "An SDK stream is active; only state, abort, and capabilities are available."
+            "An SDK stream is active; only state, abort, capabilities, and settings are available."
         ),
     ) -> None:
         super().__init__(message)
@@ -173,8 +185,20 @@ class HephSession:
         return self._session.config.model
 
     @property
+    def thinking_visibility(self) -> str:
+        return self._session.config.thinking_visibility
+
+    @property
     def provider_slug(self) -> str:
         return self._session.config.provider_slug
+
+    @property
+    def live_tokens_visible(self) -> bool:
+        return self._session.live_tokens_visible
+
+    @property
+    def live_cost_visible(self) -> bool:
+        return self._session.live_cost_visible
 
     @property
     def source_file_count(self) -> int:
@@ -282,6 +306,12 @@ class HephSession:
     def switch_model(self, provider_slug: str, model: str) -> bool:
         with self._idle_mutation():
             return switch_config_model(self._session.config, provider_slug, model)
+
+    def apply_display_settings(self, settings: _DisplaySettingsSource) -> None:
+        with self._idle_mutation():
+            self._session.config.thinking_visibility = settings.thinking_visibility
+            self._session.live_tokens_visible = settings.live_tokens_visible
+            self._session.live_cost_visible = settings.live_cost_visible
 
     def refresh_materials(self) -> None:
         with self._idle_mutation():

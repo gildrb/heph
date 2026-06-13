@@ -116,6 +116,8 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert "list_providers" in ready_call_methods
     assert "list_model_choices" in ready_call_methods
     assert "switch_model" in ready_call_methods
+    assert "settings" in ready_call_methods
+    assert "update_settings" in ready_call_methods
     assert "build_index_stream" in ready_stream_methods
     assert ready_message_types == list(JSONL_MESSAGE_TYPES)
     assert ready_error_codes == list(JSONL_ERROR_CODES)
@@ -518,6 +520,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
 
     server.handle_request({"id": "state-during-index", "method": "state"})
     server.handle_request({"id": "caps-during-index", "method": "capabilities"})
+    server.handle_request({"id": "settings-during-index", "method": "settings"})
     server.handle_request({"id": "abort-during-index", "method": "abort"})
     server.handle_request(
         {
@@ -545,6 +548,9 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     capabilities_response = next(
         payload for payload in payloads if payload.get("id") == "caps-during-index"
     )
+    settings_response = next(
+        payload for payload in payloads if payload.get("id") == "settings-during-index"
+    )
     abort_response = next(
         payload for payload in payloads if payload.get("id") == "abort-during-index"
     )
@@ -559,6 +565,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         _payload_mapping(capabilities_response["result"])["capabilities"]
     )
     capability_service = _payload_mapping(capabilities["service"])
+    settings = _payload_mapping(_payload_mapping(settings_response["result"])["settings"])
     abort_result = _payload_mapping(abort_response["result"])
     abort_state_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
     prompt_error_payload = _payload_mapping(prompt_error["error"])
@@ -579,6 +586,9 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     }
     assert capabilities_response["type"] == "response"
     assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
+    assert "settings" in _payload_list(capability_service["busy_allowed_call_methods"])
+    assert settings_response["type"] == "response"
+    assert settings["theme"] in {"dark", "light"}
     assert abort_result["aborted"] is False
     assert abort_state_service == {
         "prompt_active": False,

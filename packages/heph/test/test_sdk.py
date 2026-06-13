@@ -16,6 +16,7 @@ from heph.sdk import (
     JSONL_MESSAGE_TYPES,
     JSONL_REQUEST_SPEC,
     SDK_CAPABILITIES,
+    SDK_MUTABLE_APP_SETTINGS,
     ArmoryValidationSummary,
     AssistantDelta,
     HephMessage,
@@ -37,6 +38,9 @@ from heph.sdk import (
     Notice,
     ProviderSummary,
     ReasoningDelta,
+    SdkAppSettings,
+    SdkSettingsError,
+    SettingChoice,
     ToolCall,
     ToolResult,
     TurnComplete,
@@ -47,6 +51,8 @@ from heph.sdk import (
     event_to_dict,
     from_turn_event,
     get_sdk_capabilities,
+    load_sdk_app_settings,
+    update_sdk_app_settings,
     validate_sdk_capabilities,
 )
 from heph.sdk import methods as sdk_methods
@@ -65,6 +71,8 @@ from hephaion.chat.events import (
 )
 from hephaion.chat.session import ChatSession
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
+
+from hephaion.parameters import settings as settings_store
 
 
 class _FakeIndex:
@@ -115,6 +123,14 @@ def _payloads_by_slug(items: object) -> dict[str, dict[str, object]]:
         provider = _payload_mapping(item)
         providers[str(provider["provider_slug"])] = provider
     return providers
+
+
+def _isolate_settings_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    config_dir = tmp_path / ".config" / "hephaion"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+    return config_file
 
 
 def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
@@ -191,6 +207,80 @@ def test_sdk_object_field_spec_keeps_compatible_aliases() -> None:
     }
 
 
+def test_sdk_app_settings_snapshot_and_update_are_structured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = _isolate_settings_store(tmp_path, monkeypatch)
+    monkeypatch.delenv("HEPHAION_ANALYTICS_ENABLED", raising=False)
+    monkeypatch.delenv("HEPHAION_CRASH_REPORTS_ENABLED", raising=False)
+    settings_store.save_setting("theme", "light")
+
+    settings = load_sdk_app_settings()
+    payload = settings.to_dict()
+    choices = _payload_mapping(payload["choices"])
+    theme_choices = [_payload_mapping(choice) for choice in _payload_list(choices["themes"])]
+    privacy = _payload_mapping(payload["privacy"])
+    mutable_keys = _payload_list(payload["mutable_keys"])
+
+    assert isinstance(settings, SdkAppSettings)
+    assert settings.theme == "light"
+    assert settings.choices.themes[0] == SettingChoice("dark", "Dark")
+    assert mutable_keys == list(SDK_MUTABLE_APP_SETTINGS)
+    assert "analytics_enabled" not in mutable_keys
+    assert theme_choices == [
+        {"value": "dark", "label": "Dark"},
+        {"value": "light", "label": "Light"},
+    ]
+    assert privacy["analytics_env_override"] is False
+    assert privacy["crash_reports_env_override"] is False
+
+    default_armory = tmp_path / "default-armory"
+    updated = update_sdk_app_settings(
+        {
+            "theme": "dark",
+            "default_armory_path": str(default_armory),
+            "activity_trace_mode": "hidden_tool_calls",
+            "vocab_strictness": "lenient",
+            "thinking_visibility": "all",
+            "live_tokens_visible": True,
+            "live_cost_visible": True,
+        }
+    )
+    stored = settings_store.load_app_settings()
+
+    assert config_file.is_file()
+    assert updated.theme == "dark"
+    assert updated.default_armory_path == str(default_armory.resolve())
+    assert stored.activity_trace_mode == "hidden_tool_calls"
+    assert stored.vocab_strictness == "lenient"
+    assert stored.thinking_visibility == "all"
+    assert stored.live_tokens_visible is True
+    assert stored.live_cost_visible is True
+
+
+def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _isolate_settings_store(tmp_path, monkeypatch)
+    settings_store.save_setting("theme", "light")
+
+    with pytest.raises(SdkSettingsError, match="Unsupported SDK app setting: analytics_enabled"):
+        update_sdk_app_settings({"analytics_enabled": True})
+    with pytest.raises(SdkSettingsError, match="Invalid SDK app setting 'theme'"):
+        update_sdk_app_settings({"theme": "solarized", "live_tokens_visible": True})
+    with pytest.raises(SdkSettingsError, match="'live_tokens_visible' must be a boolean"):
+        update_sdk_app_settings({"live_tokens_visible": "maybe"})
+    with pytest.raises(SdkSettingsError, match="'default_armory_path' must be a string"):
+        update_sdk_app_settings({"default_armory_path": None})
+
+    stored = settings_store.load_app_settings()
+    assert stored.theme == "light"
+    assert stored.live_tokens_visible is False
+    assert stored.default_armory_path == ""
+
+
 def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     capabilities = get_sdk_capabilities()
     payload = capabilities.to_dict()
@@ -236,6 +326,10 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "sdk_state" in types
     assert "provider_summary" in types
     assert "model_choice_summary" in types
+    assert "setting_choice" in types
+    assert "sdk_settings_choices" in types
+    assert "sdk_privacy_settings" in types
+    assert "sdk_app_settings" in types
     assert "index_summary" in types
     assert "extraction_health_summary" in types
     assert "jsonl_error" in types
@@ -256,6 +350,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "list_providers" in service_call_methods
     assert "list_model_choices" in service_call_methods
     assert "switch_model" in service_call_methods
+    assert "settings" in service_call_methods
+    assert "update_settings" in service_call_methods
+    assert "settings" in busy_allowed_call_methods
     assert "build_index" in service_stream_methods
     assert jsonl["protocol"] == "heph-sdk-jsonl"
     assert "build_index_stream" in jsonl_stream_methods
@@ -293,6 +390,10 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     update_config_params = [
         _payload_mapping(param) for param in _payload_list(update_config_spec["params"])
     ]
+    update_settings_spec = _payload_mapping(service_call_specs["update_settings"])
+    update_settings_params = [
+        _payload_mapping(param) for param in _payload_list(update_settings_spec["params"])
+    ]
     assert open_armory_params == [{"name": "path", "type": "string", "required": True}]
     assert switch_model_params == [
         {"name": "provider_slug", "type": "string", "required": True},
@@ -302,6 +403,13 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert {"name": "temperature", "type": "number_or_null", "required": False} in (
         update_config_params
     )
+    assert {"name": "theme", "type": "string", "required": False} in update_settings_params
+    assert {"name": "thinking_visibility", "type": "string", "required": False} in (
+        update_settings_params
+    )
+    assert {"name": "live_tokens_visible", "type": "boolean", "required": False} in (
+        update_settings_params
+    )
     state_result = _payload_mapping(service_call_results["state"])
     capabilities_result = _payload_mapping(service_call_results["capabilities"])
     capabilities_result_fields = _payload_mapping(capabilities_result["fields"])
@@ -309,6 +417,10 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     list_providers_result_fields = _payload_mapping(list_providers_result["fields"])
     switch_model_result = _payload_mapping(service_call_results["switch_model"])
     switch_model_result_fields = _payload_mapping(switch_model_result["fields"])
+    settings_result = _payload_mapping(service_call_results["settings"])
+    settings_result_fields = _payload_mapping(settings_result["fields"])
+    update_settings_result = _payload_mapping(service_call_results["update_settings"])
+    update_settings_result_fields = _payload_mapping(update_settings_result["fields"])
     abort_result = _payload_mapping(service_call_results["abort"])
     abort_result_fields = _payload_mapping(abort_result["fields"])
     messages_result = _payload_mapping(service_call_results["messages"])
@@ -325,6 +437,21 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "nullable": False,
     }
     assert _payload_mapping(switch_model_result_fields["session"]) == {
+        "type": "sdk_session_state",
+        "required": True,
+        "nullable": True,
+    }
+    assert _payload_mapping(settings_result_fields["settings"]) == {
+        "type": "sdk_app_settings",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(update_settings_result_fields["settings"]) == {
+        "type": "sdk_app_settings",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(update_settings_result_fields["session"]) == {
         "type": "sdk_session_state",
         "required": True,
         "nullable": True,
@@ -460,6 +587,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     runtime_type_fields = _payload_mapping(_payload_mapping(types["sdk_runtime_state"])["fields"])
     session_type_fields = _payload_mapping(_payload_mapping(types["sdk_session_state"])["fields"])
     message_type_fields = _payload_mapping(_payload_mapping(types["message"])["fields"])
+    setting_choice_type_fields = _payload_mapping(
+        _payload_mapping(types["setting_choice"])["fields"]
+    )
+    settings_choices_type_fields = _payload_mapping(
+        _payload_mapping(types["sdk_settings_choices"])["fields"]
+    )
+    privacy_type_fields = _payload_mapping(
+        _payload_mapping(types["sdk_privacy_settings"])["fields"]
+    )
+    settings_type_fields = _payload_mapping(_payload_mapping(types["sdk_app_settings"])["fields"])
     provider_type_fields = _payload_mapping(_payload_mapping(types["provider_summary"])["fields"])
     model_type_fields = _payload_mapping(_payload_mapping(types["model_choice_summary"])["fields"])
     material_type_fields = _payload_mapping(_payload_mapping(types["material_summary"])["fields"])
@@ -483,6 +620,36 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     }
     assert _payload_mapping(message_type_fields["content"]) == {
         "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(setting_choice_type_fields["label"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(settings_choices_type_fields["themes"]) == {
+        "type": "array<setting_choice>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(privacy_type_fields["analytics_enabled"]) == {
+        "type": "boolean",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(settings_type_fields["privacy"]) == {
+        "type": "sdk_privacy_settings",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(settings_type_fields["choices"]) == {
+        "type": "sdk_settings_choices",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(settings_type_fields["mutable_keys"]) == {
+        "type": "array<string>",
         "required": True,
         "nullable": False,
     }
@@ -1312,6 +1479,9 @@ def test_session_state_constructor_keeps_legacy_positional_shape() -> None:
         "armory_path": None,
         "provider_slug": "",
         "model": "sdk-model",
+        "thinking_visibility": "",
+        "live_tokens_visible": False,
+        "live_cost_visible": False,
         "is_streaming": False,
         "is_disposed": False,
         "source_file_count": 0,
@@ -1503,40 +1673,43 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert active_state["is_busy"] is True
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
+    active_settings = _payload_mapping(service.call("settings")["settings"])
     assert "capabilities" in _payload_list(active_capability_service["busy_allowed_call_methods"])
+    assert "settings" in _payload_list(active_capability_service["busy_allowed_call_methods"])
+    assert active_settings["theme"] in {"dark", "light"}
     source = tmp_path / "late-material.md"
     source.write_text("# Late\n\nShould not import during streaming.\n", encoding="utf-8")
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.call("new_session")
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.ask("Nested prompt.")
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.update_config({"model": "mutated-during-stream"})
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.import_materials(source)
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.build_index()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.save_session()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.messages()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.list_sessions()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.list_materials()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.scan_extraction_health()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.list_armories()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.validate_armory(tmp_path)
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.list_providers()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.list_model_choices()
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.switch_model("pollinations", "openai")
-    with pytest.raises(HephSdkError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkError, match="only state, abort, capabilities, and settings"):
         service.set_source_enabled("materials/notes.md", enabled=False)
 
     abort_payload = service.call("abort")
@@ -1603,8 +1776,11 @@ def test_service_treats_direct_session_stream_as_busy(
     assert active_state.session.is_streaming
     direct_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     direct_capability_service = _payload_mapping(direct_capabilities["service"])
+    direct_settings = _payload_mapping(service.call("settings")["settings"])
     assert "capabilities" in _payload_list(direct_capability_service["busy_allowed_call_methods"])
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    assert "settings" in _payload_list(direct_capability_service["busy_allowed_call_methods"])
+    assert direct_settings["theme"] in {"dark", "light"}
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.call("new_session")
     with pytest.raises(HephSdkBusyError, match="already streaming"):
         list(service.prompt("Nested service prompt."))
@@ -1855,20 +2031,23 @@ def test_service_streams_build_index_progress(
     assert active_service["is_busy"] is True
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
+    active_settings = _payload_mapping(service.call("settings")["settings"])
     assert "build_index" in _payload_list(active_capability_service["stream_methods"])
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    assert "settings" in _payload_list(active_capability_service["busy_allowed_call_methods"])
+    assert active_settings["theme"] in {"dark", "light"}
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.new_session()
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         list(service.prompt("Prompt during index."))
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         list(session.prompt("Direct prompt during index."))
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.list_providers()
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.list_model_choices()
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.switch_model("pollinations", "openai")
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.validate_armory(tmp_path)
     abort_payload = service.call("abort")
     abort_result = _payload_mapping(abort_payload)
@@ -1882,7 +2061,7 @@ def test_service_streams_build_index_progress(
     finished_but_unconsumed_service = _payload_mapping(service.state()["service"])
     assert finished_but_unconsumed_service["active_operation"] == "build_index"
     assert finished_but_unconsumed_service["is_busy"] is True
-    with pytest.raises(HephSdkBusyError, match="only state, abort, and capabilities"):
+    with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.list_materials()
     remaining_events = list(stream)
     idle_service = _payload_mapping(service.state()["service"])
@@ -2027,6 +2206,87 @@ def test_service_import_materials_refreshes_active_session_sources(tmp_path: Pat
 
     no_change_payload = service.set_source_enabled("materials/week-1.md", enabled=False)
     assert no_change_payload["changed"] is False
+
+
+def test_service_settings_methods_return_and_apply_display_preferences(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _isolate_settings_store(tmp_path, monkeypatch)
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    settings_payload = _payload_mapping(service.call("settings")["settings"])
+    choices_payload = _payload_mapping(settings_payload["choices"])
+    updated_payload = service.call(
+        "update_settings",
+        {
+            "theme": "light",
+            "activity_trace_mode": "hidden_tool_calls",
+            "thinking_visibility": "all",
+            "live_tokens_visible": True,
+            "live_cost_visible": True,
+            "vocab_strictness": "lenient",
+        },
+    )
+    updated_settings = _payload_mapping(updated_payload["settings"])
+    runtime_payload = _payload_mapping(updated_payload["runtime"])
+    session_payload = _payload_mapping(updated_payload["session"])
+    stored = settings_store.load_app_settings()
+
+    assert "themes" in choices_payload
+    assert updated_settings["theme"] == "light"
+    assert updated_settings["thinking_visibility"] == "all"
+    assert updated_settings["live_tokens_visible"] is True
+    assert updated_settings["live_cost_visible"] is True
+    assert runtime_payload["thinking_visibility"] == "all"
+    assert session_payload["thinking_visibility"] == "all"
+    assert session_payload["live_tokens_visible"] is True
+    assert session_payload["live_cost_visible"] is True
+    assert session_payload["is_disposed"] is False
+    assert stored.activity_trace_mode == "hidden_tool_calls"
+    assert stored.vocab_strictness == "lenient"
+    assert stored.live_tokens_visible is True
+    assert stored.live_cost_visible is True
+    assert service.session is not None
+    assert service.session.thinking_visibility == "all"
+    assert service.session.live_tokens_visible is True
+    assert service.session.live_cost_visible is True
+
+    with pytest.raises(HephSdkError, match="Unsupported SDK app setting: analytics_enabled"):
+        service.call("update_settings", {"analytics_enabled": True})
+
+
+def test_service_settings_apply_to_session_created_after_update(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _isolate_settings_store(tmp_path, monkeypatch)
+    service = HephService.plain(config=_config())
+
+    updated_payload = service.call(
+        "update_settings",
+        {
+            "thinking_visibility": "all",
+            "live_tokens_visible": True,
+            "live_cost_visible": True,
+        },
+    )
+
+    assert updated_payload["session"] is None
+
+    session_payload = service.call("new_session")
+    runtime_payload = _payload_mapping(session_payload["runtime"])
+    active_session_payload = _payload_mapping(session_payload["session"])
+
+    assert runtime_payload["thinking_visibility"] == "all"
+    assert active_session_payload["thinking_visibility"] == "all"
+    assert active_session_payload["live_tokens_visible"] is True
+    assert active_session_payload["live_cost_visible"] is True
+    assert service.session is not None
+    assert service.session.thinking_visibility == "all"
+    assert service.session.live_tokens_visible is True
+    assert service.session.live_cost_visible is True
 
 
 def test_service_call_and_stream_dispatcher(

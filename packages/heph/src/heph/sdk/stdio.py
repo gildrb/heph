@@ -125,6 +125,9 @@ class JsonlSdkServer:
         if method == "capabilities":
             self._write_response(request_id, self.service.capabilities())
             return
+        if method == "settings":
+            self._write_response(request_id, self.service.settings())
+            return
         if self._stream_is_pending():
             raise HephSdkBusyError()
         self._write_response(request_id, self.service.call(method, params))

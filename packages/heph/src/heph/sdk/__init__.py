@@ -59,6 +59,16 @@ from heph.sdk.runtime import (
     SessionSummary,
 )
 from heph.sdk.service import HephService, ServicePayload, ServiceStream
+from heph.sdk.settings import (
+    SDK_MUTABLE_APP_SETTINGS,
+    PrivacySettingsSummary,
+    SdkAppSettings,
+    SdkSettingsError,
+    SettingChoice,
+    SettingsChoices,
+    load_sdk_app_settings,
+    update_sdk_app_settings,
+)
 from heph.sdk.state import (
     HephSdkRuntimeState,
     HephSdkServiceState,
@@ -82,6 +92,7 @@ __all__ = [
     "SDK_CAPABILITIES_VERSION",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_MUTABLE_APP_SETTINGS",
     "ArmorySummary",
     "ArmoryValidationSummary",
     "AssistantDelta",
@@ -114,12 +125,17 @@ __all__ = [
     "MaterialSummary",
     "ModelChoiceSummary",
     "Notice",
+    "PrivacySettingsSummary",
     "ProviderSummary",
     "ReasoningDelta",
+    "SdkAppSettings",
     "SdkProtocolError",
+    "SdkSettingsError",
     "ServicePayload",
     "ServiceStream",
     "SessionSummary",
+    "SettingChoice",
+    "SettingsChoices",
     "ToolCall",
     "ToolResult",
     "TurnComplete",
@@ -130,6 +146,8 @@ __all__ = [
     "event_to_dict",
     "from_turn_event",
     "get_sdk_capabilities",
+    "load_sdk_app_settings",
     "serve_stdio",
+    "update_sdk_app_settings",
     "validate_sdk_capabilities",
 ]

@@ -29,6 +29,7 @@ SwiftUI / GUI / automation client
 - Material, index, and extraction-health DTOs for armory management.
 - Structured provider summaries for credential-source and active-provider status.
 - Structured model choice and model switching helpers for provider-aware clients.
+- Structured app settings snapshots and update helpers for GUI/mobile preferences.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
@@ -102,6 +103,30 @@ for choice in runtime.list_model_choices():
 
 runtime.switch_model("openai", "gpt-5.5")
 ```
+
+For app settings:
+
+```python
+from heph.sdk import HephService
+
+service = HephService.plain()
+settings = service.call("settings")["settings"]
+service.call(
+    "update_settings",
+    {
+        "theme": "light",
+        "thinking_visibility": "all",
+        "live_tokens_visible": True,
+    },
+)
+```
+
+`settings` returns `sdk_app_settings` with current values, read-only privacy
+status, valid choice lists, and `mutable_keys`. `update_settings` persists
+supported app preferences and applies display settings such as thinking
+visibility and live token/cost visibility to the active runtime/session when one
+exists. Privacy consent is intentionally summarized but not mutated through this
+generic SDK method.
 
 For transport-style integration, use the service facade:
 
@@ -181,7 +206,10 @@ The transport should expose the same SDK concepts:
 - messages: list current conversation messages;
 - source scope: inspect and enable or disable attached source files;
 - config: inspect and switch model/provider settings, reasoning level, and
-  thinking visibility.
+  thinking visibility;
+- app settings: inspect and update GUI/mobile preferences such as theme,
+  activity trace mode, thinking visibility, live token/cost visibility, and
+  vocabulary strictness.
 
 The Python SDK remains the source of truth. The transport is only a
 serialization boundary for non-Python clients.
@@ -196,6 +224,9 @@ state-changing controls without inspecting internal `ChatSession` objects.
 `prompt_active` is true for both service-owned prompt streams and direct streams
 on the active `HephSession`; `active_operation` names non-prompt operation
 streams such as `build_index`.
+Session state includes display settings that can affect rendering for the active
+conversation, including `thinking_visibility`, `live_tokens_visible`, and
+`live_cost_visible`.
 
 Clients can discover the supported contract with `get_sdk_capabilities()`,
 `HephService.capabilities()`, or the transport `capabilities` method. The JSONL
@@ -250,6 +281,7 @@ The capability payload has its own `version`, separate from the JSONL
 - `ask`
 - `prompt`
 - `abort`
+- `settings`
 - `list_providers`
 - `list_model_choices`
 - `switch_model`
@@ -260,12 +292,13 @@ The capability payload has its own `version`, separate from the JSONL
 - `build_index_stream`
 - `scan_extraction_health`
 - `update_config`
+- `update_settings`
 
 `prompt` and `build_index_stream` are streaming methods. While a prompt or
-operation stream is active, clients can still call `state` and `capabilities`;
-`abort` cancels prompt streams but returns a no-op state payload for non-prompt
-operation streams such as `build_index_stream`. Other service methods are
-rejected until the stream ends. Clients should gate state-changing UI with
+operation stream is active, clients can still call `state`, `capabilities`, and
+`settings`; `abort` cancels prompt streams but returns a no-op state payload for
+non-prompt operation streams such as `build_index_stream`. Other service methods
+are rejected until the stream ends. Clients should gate state-changing UI with
 `service.is_busy`; `prompt_active` and `active_operation` remain available for
 more specific status display. This lifecycle rule is enforced by `HephService`
 itself, so it applies to both direct Python embeddings and JSONL transport

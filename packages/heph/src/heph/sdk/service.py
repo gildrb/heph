@@ -17,6 +17,12 @@ from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.methods import BUSY_ALLOWED_CALL_METHODS
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
+from heph.sdk.settings import (
+    SdkAppSettings,
+    SdkSettingsError,
+    load_sdk_app_settings,
+    update_sdk_app_settings,
+)
 from heph.sdk.state import (
     HephSdkRuntimeState,
     HephSdkServiceState,
@@ -41,6 +47,7 @@ class HephService:
     def __post_init__(self) -> None:
         if self.session is not None:
             self._attach_session_stream_guard(self.session)
+            self._apply_current_app_settings()
 
     @classmethod
     def plain(cls, *, config: ChatConfig | None = None) -> HephService:
@@ -113,6 +120,8 @@ class HephService:
             return self.ask(_required_str(parameters, "text"))
         if method == "abort":
             return self.abort()
+        if method == "settings":
+            return self.settings()
         if method == "list_providers":
             return self.list_providers()
         if method == "list_model_choices":
@@ -139,10 +148,15 @@ class HephService:
             return self.scan_extraction_health()
         if method == "update_config":
             return self.update_config(parameters)
+        if method == "update_settings":
+            return self.update_settings(parameters)
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
     def capabilities(self) -> ServicePayload:
         return {"capabilities": get_sdk_capabilities().to_dict()}
+
+    def settings(self) -> ServicePayload:
+        return {"settings": load_sdk_app_settings().to_dict()}
 
     def stream(
         self,
@@ -308,6 +322,17 @@ class HephService:
                 self.runtime.config.thinking_visibility = normalize_thinking_visibility(value)
         return {"runtime": self._runtime_state().to_dict()}
 
+    def update_settings(self, params: Mapping[str, object]) -> dict[str, object]:
+        with self._idle_service_call():
+            try:
+                settings = update_sdk_app_settings(params)
+            except SdkSettingsError as exc:
+                raise HephSdkError(str(exc)) from exc
+            self._apply_app_settings(settings)
+            session = self.session.to_dict() if self.session is not None else None
+            runtime = self._runtime_state().to_dict()
+        return {"settings": settings.to_dict(), "runtime": runtime, "session": session}
+
     def list_materials(self) -> dict[str, object]:
         with self._idle_service_call():
             return {
@@ -363,6 +388,16 @@ class HephService:
             return None
         return HephSdkSessionState.from_session(self.session)
 
+    def _apply_app_settings(self, settings: SdkAppSettings) -> None:
+        self.runtime.config.thinking_visibility = normalize_thinking_visibility(
+            settings.thinking_visibility
+        )
+        if self.session is not None:
+            self.session.apply_display_settings(settings)
+
+    def _apply_current_app_settings(self) -> None:
+        self._apply_app_settings(load_sdk_app_settings())
+
     def _session_payload(self) -> dict[str, object]:
         return {"session": self._session_dict(), "runtime": self._runtime_state().to_dict()}
 
@@ -385,6 +420,7 @@ class HephService:
         old_session = self.session
         self._attach_session_stream_guard(session)
         self.session = session
+        self._apply_current_app_settings()
         if old_session is not None and old_session is not session:
             old_session.dispose()
 
