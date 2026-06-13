@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +37,37 @@ from heph.sdk.state import (
 
 type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
+type _ServiceCallArgumentDecoder = Callable[[Mapping[str, object], str], object]
+type _ServiceCallHandler = Callable[..., ServicePayload]
+
+
+@dataclass(frozen=True, slots=True)
+class _ServiceCallArgument:
+    name: str
+    decoder: _ServiceCallArgumentDecoder
+
+    def value_from(self, params: Mapping[str, object]) -> object:
+        return self.decoder(params, self.name)
+
+
+@dataclass(frozen=True, slots=True)
+class _ServiceCallRoute:
+    method: str
+    handler: _ServiceCallHandler
+    arguments: tuple[_ServiceCallArgument, ...] = ()
+    keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
+    params_as_argument: bool = False
+
+    def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
+        if self.params_as_argument:
+            return self.handler(params)
+        keywords = {
+            argument.name: argument.value_from(params) for argument in self.keyword_arguments
+        }
+        return self.handler(
+            *(argument.value_from(params) for argument in self.arguments),
+            **keywords,
+        )
 
 
 @dataclass(slots=True)
@@ -109,67 +140,88 @@ class HephService:
         parameters = self.validate_call_params(method, params)
         if self._is_busy() and method not in BUSY_ALLOWED_CALL_METHODS:
             raise HephSdkBusyError()
-        if method == "state":
-            return self.state()
-        if method == "capabilities":
-            return self.capabilities()
-        if method == "use_plain_runtime":
-            return self.use_plain_runtime()
-        if method == "open_armory":
-            return self.open_runtime_armory(_required_str(parameters, "path"))
-        if method == "create_armory":
-            return self.create_runtime_armory(_required_str(parameters, "path"))
-        if method == "list_armories":
-            return self.list_armories()
-        if method == "validate_armory":
-            return self.validate_armory(_required_str(parameters, "path"))
-        if method == "new_session":
-            return self.new_session()
-        if method == "resume_session":
-            return self.resume_session(_required_str(parameters, "session_id"))
-        if method == "fork_session":
-            return self.fork_session(_required_str(parameters, "turn_id"))
-        if method == "list_sessions":
-            return self.list_sessions()
-        if method == "save_session":
-            return self.save_session()
-        if method == "messages":
-            return self.messages()
-        if method == "ask":
-            return self.ask(_required_str(parameters, "text"))
-        if method == "abort":
-            return self.abort()
-        if method == "settings":
-            return self.settings()
-        if method == "list_providers":
-            return self.list_providers()
-        if method == "list_model_choices":
-            return self.list_model_choices(
-                refresh_live=_optional_bool(parameters, "refresh_live") or False
-            )
-        if method == "switch_model":
-            return self.switch_model(
-                _required_str(parameters, "provider_slug"),
-                _required_str(parameters, "model"),
-            )
-        if method == "set_source_enabled":
-            return self.set_source_enabled(
-                _required_str(parameters, "source"),
-                _required_bool(parameters, "enabled"),
-            )
-        if method == "list_materials":
-            return self.list_materials()
-        if method == "import_materials":
-            return self.import_materials(_required_str(parameters, "source"))
-        if method == "build_index":
-            return self.build_index()
-        if method == "scan_extraction_health":
-            return self.scan_extraction_health()
-        if method == "update_config":
-            return self.update_config(parameters)
-        if method == "update_settings":
-            return self.update_settings(parameters)
+        if route := self._call_routes().get(method):
+            return route.dispatch(parameters)
         raise HephSdkError(f"Unknown SDK service method: {method}")
+
+    def _call_routes(self) -> dict[str, _ServiceCallRoute]:
+        routes = (
+            _ServiceCallRoute("state", self.state),
+            _ServiceCallRoute("capabilities", self.capabilities),
+            _ServiceCallRoute("use_plain_runtime", self.use_plain_runtime),
+            _ServiceCallRoute(
+                "open_armory",
+                self.open_runtime_armory,
+                (_ServiceCallArgument("path", _required_str),),
+            ),
+            _ServiceCallRoute(
+                "create_armory",
+                self.create_runtime_armory,
+                (_ServiceCallArgument("path", _required_str),),
+            ),
+            _ServiceCallRoute("list_armories", self.list_armories),
+            _ServiceCallRoute(
+                "validate_armory",
+                self.validate_armory,
+                (_ServiceCallArgument("path", _required_str),),
+            ),
+            _ServiceCallRoute("new_session", self.new_session),
+            _ServiceCallRoute(
+                "resume_session",
+                self.resume_session,
+                (_ServiceCallArgument("session_id", _required_str),),
+            ),
+            _ServiceCallRoute(
+                "fork_session",
+                self.fork_session,
+                (_ServiceCallArgument("turn_id", _required_str),),
+            ),
+            _ServiceCallRoute("list_sessions", self.list_sessions),
+            _ServiceCallRoute("save_session", self.save_session),
+            _ServiceCallRoute("messages", self.messages),
+            _ServiceCallRoute(
+                "ask",
+                self.ask,
+                (_ServiceCallArgument("text", _required_str),),
+            ),
+            _ServiceCallRoute("abort", self.abort),
+            _ServiceCallRoute("settings", self.settings),
+            _ServiceCallRoute("list_providers", self.list_providers),
+            _ServiceCallRoute(
+                "list_model_choices",
+                self.list_model_choices,
+                keyword_arguments=(
+                    _ServiceCallArgument("refresh_live", _optional_bool_default_false),
+                ),
+            ),
+            _ServiceCallRoute(
+                "switch_model",
+                self.switch_model,
+                (
+                    _ServiceCallArgument("provider_slug", _required_str),
+                    _ServiceCallArgument("model", _required_str),
+                ),
+            ),
+            _ServiceCallRoute(
+                "set_source_enabled",
+                self.set_source_enabled,
+                (
+                    _ServiceCallArgument("source", _required_str),
+                    _ServiceCallArgument("enabled", _required_bool),
+                ),
+            ),
+            _ServiceCallRoute("list_materials", self.list_materials),
+            _ServiceCallRoute(
+                "import_materials",
+                self.import_materials,
+                (_ServiceCallArgument("source", _required_str),),
+            ),
+            _ServiceCallRoute("build_index", self.build_index),
+            _ServiceCallRoute("scan_extraction_health", self.scan_extraction_health),
+            _ServiceCallRoute("update_config", self.update_config, params_as_argument=True),
+            _ServiceCallRoute("update_settings", self.update_settings, params_as_argument=True),
+        )
+        return {route.method: route for route in routes}
 
     def capabilities(self) -> ServicePayload:
         return {"capabilities": get_sdk_capabilities().to_dict()}
@@ -549,6 +601,11 @@ def _optional_bool(params: Mapping[str, object], key: str) -> bool | None:
     if not isinstance(value, bool):
         raise HephSdkError(f"SDK service parameter '{key}' must be a boolean.")
     return value
+
+
+def _optional_bool_default_false(params: Mapping[str, object], key: str) -> bool:
+    value = _optional_bool(params, key)
+    return value if value is not None else False
 
 
 def _optional_int(params: Mapping[str, object], key: str) -> int | None:

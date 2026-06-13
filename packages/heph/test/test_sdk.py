@@ -247,6 +247,12 @@ def test_sdk_method_validation_accepts_advertised_value_types() -> None:
     assert validate_method_params("check", params, specs) == params
 
 
+def test_sdk_service_call_routes_match_advertised_methods() -> None:
+    service = HephService.plain(config=_config())
+
+    assert tuple(service._call_routes()) == sdk_methods.SERVICE_CALL_METHODS
+
+
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [
