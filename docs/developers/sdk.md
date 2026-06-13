@@ -240,6 +240,8 @@ so native clients can generate wire decoders without scraping examples.
 The `jsonl.request_spec` section describes the inbound request envelope
 (`id`, `method`, and optional `params`) so transport clients can generate
 encoders and local request validation from the same capability payload.
+JSONL requests with top-level fields outside the advertised request envelope are
+rejected with `invalid_request`.
 The payload also includes a `methods` section with JSON-ready parameter specs
 for service calls, service streams, JSONL calls, and JSONL streams. Native
 clients can use those specs to build request validation, disable incomplete

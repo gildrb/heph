@@ -15,6 +15,7 @@ from hephaion.armory.storage import ArmoryError
 from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
+    JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
@@ -26,6 +27,8 @@ from heph.sdk.service import HephService, ServicePayload
 type RequestId = str | int | None
 type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
 type JsonlStreamCleanup = Callable[[], None]
+
+_REQUEST_FIELDS = frozenset(field.name for field in JSONL_REQUEST_SPEC.fields)
 
 
 class SdkProtocolError(Exception):
@@ -374,7 +377,22 @@ def _parse_request(line: str) -> dict[str, object]:
         raise SdkProtocolError("invalid_json", f"Invalid JSON request: {exc.msg}") from exc
     if not is_string_mapping(parsed):
         raise SdkProtocolError("invalid_request", "SDK requests must be JSON objects.")
+    _validate_request_fields(parsed)
     return parsed
+
+
+def _validate_request_fields(request: dict[str, object]) -> None:
+    unknown_fields = tuple(sorted(field for field in request if field not in _REQUEST_FIELDS))
+    if unknown_fields:
+        raise SdkProtocolError(
+            "invalid_request",
+            f"SDK request envelope does not accept {_field_names_message(unknown_fields)}.",
+        )
+
+
+def _field_names_message(names: tuple[str, ...]) -> str:
+    joined = ", ".join(names)
+    return f"field: {joined}" if len(names) == 1 else f"fields: {joined}"
 
 
 def _request_id(value: object) -> RequestId:

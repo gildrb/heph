@@ -755,7 +755,12 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     output = io.StringIO()
     server = JsonlSdkServer(
         service=service,
-        input_stream=io.StringIO("{broken\n[]\n"),
+        input_stream=io.StringIO(
+            "{broken\n"
+            "[]\n"
+            f"{json.dumps({'id': 'extra-field', 'method': 'state', 'extra': True})}\n"
+            f"{json.dumps({'id': 'state-after-protocol-errors', 'method': 'state'})}\n"
+        ),
         output_stream=output,
     )
 
@@ -766,7 +771,22 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     assert [_payload_mapping(error["error"])["code"] for error in errors] == [
         "invalid_json",
         "invalid_request",
+        "invalid_request",
     ]
+    extra_field_error = next(
+        payload
+        for payload in errors
+        if "does not accept field: extra" in str(_payload_mapping(payload["error"])["message"])
+    )
+    assert extra_field_error["type"] == "error"
+    assert "does not accept field: extra" in str(
+        _payload_mapping(extra_field_error["error"])["message"]
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-protocol-errors"
+    )
+    assert state_response["type"] == "response"
+    assert state_response["ok"] is True
 
 
 def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -> None:
