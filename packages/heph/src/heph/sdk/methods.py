@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 16
+SDK_CAPABILITIES_VERSION = 17
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -78,6 +78,21 @@ class SdkResultSpec:
         return {
             "type": self.value_type,
             "fields": result_field_specs_to_dict(self.fields),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkStreamSpec:
+    """A JSON-ready SDK stream event contract."""
+
+    method: str
+    event_types: tuple[str, ...]
+    completion_event: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "event_types": list(self.event_types),
+            "completion_event": self.completion_event,
         }
 
 
@@ -545,6 +560,24 @@ SDK_EVENT_SPECS = (
     ),
 )
 SDK_EVENT_TYPES = tuple(spec.event_type for spec in SDK_EVENT_SPECS)
+TURN_STREAM_EVENT_TYPES = tuple(
+    event_type
+    for event_type in SDK_EVENT_TYPES
+    if event_type not in {"index_progress", "index_complete"}
+)
+INDEX_STREAM_EVENT_TYPES = ("index_progress", "index_complete")
+SERVICE_STREAM_SPECS = (
+    SdkStreamSpec("prompt", TURN_STREAM_EVENT_TYPES, completion_event="turn_complete"),
+    SdkStreamSpec("build_index", INDEX_STREAM_EVENT_TYPES, completion_event="index_complete"),
+)
+JSONL_STREAM_SPECS = (
+    SdkStreamSpec("prompt", TURN_STREAM_EVENT_TYPES, completion_event="turn_complete"),
+    SdkStreamSpec(
+        "build_index_stream",
+        INDEX_STREAM_EVENT_TYPES,
+        completion_event="index_complete",
+    ),
+)
 SERVICE_STATE_FIELD_SPECS = (
     SdkFieldSpec("prompt_active", "boolean"),
     SdkFieldSpec("active_operation", "string", nullable=True),
@@ -595,6 +628,7 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("methods", "object"),
             SdkTypeFieldSpec("errors", "object"),
             SdkTypeFieldSpec("results", "object"),
+            SdkTypeFieldSpec("streams", "object"),
             SdkTypeFieldSpec("fields", "object"),
             SdkTypeFieldSpec("types", "object"),
         ),
@@ -841,6 +875,10 @@ def result_specs_to_dict(specs: tuple[SdkResultSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
+def stream_specs_to_dict(specs: tuple[SdkStreamSpec, ...]) -> dict[str, object]:
+    return {spec.method: spec.to_dict() for spec in specs}
+
+
 def type_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
     return _object_field_specs_to_dict(specs)
 
@@ -851,6 +889,7 @@ def type_specs_to_dict(specs: tuple[SdkTypeSpec, ...]) -> dict[str, object]:
 
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
+    "INDEX_STREAM_EVENT_TYPES",
     "JSONL_CALL_METHODS",
     "JSONL_CALL_METHOD_SPECS",
     "JSONL_CALL_RESULT_SPECS",
@@ -862,6 +901,7 @@ __all__ = [
     "JSONL_REQUEST_SPEC",
     "JSONL_STREAM_METHODS",
     "JSONL_STREAM_METHOD_SPECS",
+    "JSONL_STREAM_SPECS",
     "RUNTIME_STATE_FIELDS",
     "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES_VERSION",
@@ -877,8 +917,10 @@ __all__ = [
     "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
     "SERVICE_STREAM_METHOD_SPECS",
+    "SERVICE_STREAM_SPECS",
     "SESSION_STATE_FIELDS",
     "SESSION_STATE_FIELD_SPECS",
+    "TURN_STREAM_EVENT_TYPES",
     "SdkErrorSpec",
     "SdkEventFieldSpec",
     "SdkEventSpec",
@@ -891,6 +933,7 @@ __all__ = [
     "SdkObjectFieldSpec",
     "SdkResultFieldSpec",
     "SdkResultSpec",
+    "SdkStreamSpec",
     "SdkTypeFieldSpec",
     "SdkTypeSpec",
     "error_specs_to_dict",
@@ -904,6 +947,7 @@ __all__ = [
     "result_field_specs_to_dict",
     "result_specs_to_dict",
     "service_stream_method_for_jsonl",
+    "stream_specs_to_dict",
     "type_field_specs_to_dict",
     "type_specs_to_dict",
 ]

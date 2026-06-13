@@ -250,10 +250,14 @@ being ignored.
 The `results` section describes the top-level payload returned by each service
 and JSONL call method, using stable SDK DTO names such as `sdk_state`,
 `sdk_session_state`, `provider_summary`, and `index_summary`.
+The `streams` section describes the event types each service and JSONL stream
+method can emit, plus the normal completion event such as `turn_complete` for
+prompt streams and `index_complete` for index streams.
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift
-and unresolved DTO type references; keep it green when extending the SDK surface.
+unresolved DTO type references, and stream event drift; keep it green when
+extending the SDK surface.
 The `errors.jsonl` section describes each JSONL error code so native clients can
 present stable recovery copy without hard-coding the Python docs.
 The `fields` section describes service, runtime, and session state field types

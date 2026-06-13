@@ -291,6 +291,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     methods = _payload_mapping(payload["methods"])
     errors = _payload_mapping(payload["errors"])
     results = _payload_mapping(payload["results"])
+    streams = _payload_mapping(payload["streams"])
     fields = _payload_mapping(payload["fields"])
     types = _payload_mapping(payload["types"])
     service_call_methods = _payload_list(service["call_methods"])
@@ -304,6 +305,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     jsonl_stream_specs = _payload_mapping(methods["jsonl_stream"])
     service_call_results = _payload_mapping(results["service_call"])
     jsonl_call_results = _payload_mapping(results["jsonl_call"])
+    service_stream_contracts = _payload_mapping(streams["service"])
+    jsonl_stream_contracts = _payload_mapping(streams["jsonl"])
     jsonl_error_specs = _payload_mapping(errors["jsonl"])
     jsonl_request_spec = _payload_mapping(jsonl["request_spec"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
@@ -345,6 +348,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(jsonl_stream_specs) == jsonl_stream_methods
     assert list(service_call_results) == service_call_methods
     assert list(jsonl_call_results) == jsonl_call_methods
+    assert list(service_stream_contracts) == service_stream_methods
+    assert list(jsonl_stream_contracts) == jsonl_stream_methods
     assert "capabilities" in service_call_methods
     assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
@@ -410,6 +415,26 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert {"name": "live_tokens_visible", "type": "boolean", "required": False} in (
         update_settings_params
     )
+    service_prompt_stream = _payload_mapping(service_stream_contracts["prompt"])
+    service_index_stream = _payload_mapping(service_stream_contracts["build_index"])
+    jsonl_prompt_stream = _payload_mapping(jsonl_stream_contracts["prompt"])
+    jsonl_index_stream = _payload_mapping(jsonl_stream_contracts["build_index_stream"])
+    assert _payload_list(service_prompt_stream["event_types"]) == list(
+        sdk_methods.TURN_STREAM_EVENT_TYPES
+    )
+    assert service_prompt_stream["completion_event"] == "turn_complete"
+    assert _payload_list(service_index_stream["event_types"]) == list(
+        sdk_methods.INDEX_STREAM_EVENT_TYPES
+    )
+    assert service_index_stream["completion_event"] == "index_complete"
+    assert _payload_list(jsonl_prompt_stream["event_types"]) == list(
+        sdk_methods.TURN_STREAM_EVENT_TYPES
+    )
+    assert jsonl_prompt_stream["completion_event"] == "turn_complete"
+    assert _payload_list(jsonl_index_stream["event_types"]) == list(
+        sdk_methods.INDEX_STREAM_EVENT_TYPES
+    )
+    assert jsonl_index_stream["completion_event"] == "index_complete"
     state_result = _payload_mapping(service_call_results["state"])
     capabilities_result = _payload_mapping(service_call_results["capabilities"])
     capabilities_result_fields = _payload_mapping(capabilities_result["fields"])
@@ -584,6 +609,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(runtime_field_specs) == runtime_fields
     assert list(session_field_specs) == session_fields
     sdk_state_fields = _payload_mapping(_payload_mapping(types["sdk_state"])["fields"])
+    sdk_capabilities_fields = _payload_mapping(
+        _payload_mapping(types["sdk_capabilities"])["fields"]
+    )
     runtime_type_fields = _payload_mapping(_payload_mapping(types["sdk_runtime_state"])["fields"])
     session_type_fields = _payload_mapping(_payload_mapping(types["sdk_session_state"])["fields"])
     message_type_fields = _payload_mapping(_payload_mapping(types["message"])["fields"])
@@ -610,6 +638,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "type": "sdk_session_state",
         "required": True,
         "nullable": True,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["streams"]) == {
+        "type": "object",
+        "required": True,
+        "nullable": False,
     }
     assert list(runtime_type_fields) == runtime_fields
     assert list(session_type_fields) == session_fields
@@ -722,6 +755,23 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         else field
         for field in capabilities.jsonl_request_spec.fields
     )
+    broken_service_stream_specs = tuple(
+        replace(
+            spec,
+            event_types=(
+                *spec.event_types,
+                spec.event_types[0],
+                "missing_stream_event",
+            ),
+            completion_event="missing_completion_event",
+        )
+        if spec.method == "prompt"
+        else spec
+        for spec in capabilities.service_stream_specs
+    )
+    broken_jsonl_stream_specs = tuple(
+        spec for spec in capabilities.jsonl_stream_specs if spec.method != "build_index_stream"
+    )
     broken_capabilities = replace(
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
@@ -733,6 +783,8 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         ),
         jsonl_message_types=(*capabilities.jsonl_message_types, "bogus_message"),
         jsonl_message_specs=broken_message_specs,
+        service_stream_specs=broken_service_stream_specs,
+        jsonl_stream_specs=broken_jsonl_stream_specs,
     )
 
     issues = validate_sdk_capabilities(broken_capabilities)
@@ -745,6 +797,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     )
     assert "jsonl.request_spec.fields contains duplicate entries: id" in issues
     assert "jsonl.message_types does not match its structured specs." in issues
+    assert "streams.jsonl does not match its structured specs." in issues
     assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
     assert (
         "jsonl.request_spec.params references unknown SDK type: missing_jsonl_request_type"
@@ -754,6 +807,11 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         "jsonl.message_specs.stream_event.event references unknown SDK type: "
         "missing_jsonl_message_type" in issues
     )
+    assert (
+        "streams.service.prompt.event_types contains duplicate entries: assistant_delta" in issues
+    )
+    assert "streams.service.prompt references unknown SDK events: missing_stream_event" in issues
+    assert "streams.service.prompt completion event is unknown: missing_completion_event" in issues
 
 
 def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:

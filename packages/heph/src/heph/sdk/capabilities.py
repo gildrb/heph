@@ -16,6 +16,7 @@ from heph.sdk.methods import (
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
+    JSONL_STREAM_SPECS,
     RUNTIME_STATE_FIELD_SPECS,
     RUNTIME_STATE_FIELDS,
     SDK_CAPABILITIES_VERSION,
@@ -31,6 +32,7 @@ from heph.sdk.methods import (
     SERVICE_STATE_FIELDS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
+    SERVICE_STREAM_SPECS,
     SESSION_STATE_FIELD_SPECS,
     SESSION_STATE_FIELDS,
     SdkErrorSpec,
@@ -40,6 +42,7 @@ from heph.sdk.methods import (
     SdkJsonlRequestSpec,
     SdkMethodSpec,
     SdkResultSpec,
+    SdkStreamSpec,
     SdkTypeSpec,
     error_specs_to_dict,
     event_specs_to_dict,
@@ -48,6 +51,7 @@ from heph.sdk.methods import (
     jsonl_request_spec_to_dict,
     method_specs_to_dict,
     result_specs_to_dict,
+    stream_specs_to_dict,
     type_specs_to_dict,
 )
 
@@ -94,6 +98,8 @@ class HephSdkCapabilities:
     jsonl_stream_method_specs: tuple[SdkMethodSpec, ...]
     service_call_result_specs: tuple[SdkResultSpec, ...]
     jsonl_call_result_specs: tuple[SdkResultSpec, ...]
+    service_stream_specs: tuple[SdkStreamSpec, ...]
+    jsonl_stream_specs: tuple[SdkStreamSpec, ...]
     service_state_field_specs: tuple[SdkFieldSpec, ...]
     runtime_state_field_specs: tuple[SdkFieldSpec, ...]
     session_state_field_specs: tuple[SdkFieldSpec, ...]
@@ -137,6 +143,10 @@ class HephSdkCapabilities:
                 "service_call": result_specs_to_dict(self.service_call_result_specs),
                 "jsonl_call": result_specs_to_dict(self.jsonl_call_result_specs),
             },
+            "streams": {
+                "service": stream_specs_to_dict(self.service_stream_specs),
+                "jsonl": stream_specs_to_dict(self.jsonl_stream_specs),
+            },
             "fields": {
                 "service_state": field_specs_to_dict(self.service_state_field_specs),
                 "runtime_state": field_specs_to_dict(self.runtime_state_field_specs),
@@ -171,6 +181,8 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_stream_method_specs=JSONL_STREAM_METHOD_SPECS,
     service_call_result_specs=SERVICE_CALL_RESULT_SPECS,
     jsonl_call_result_specs=JSONL_CALL_RESULT_SPECS,
+    service_stream_specs=SERVICE_STREAM_SPECS,
+    jsonl_stream_specs=JSONL_STREAM_SPECS,
     service_state_field_specs=SERVICE_STATE_FIELD_SPECS,
     runtime_state_field_specs=RUNTIME_STATE_FIELD_SPECS,
     session_state_field_specs=SESSION_STATE_FIELD_SPECS,
@@ -247,6 +259,18 @@ def validate_sdk_capabilities(
     )
     _append_mismatch_issue(
         issues,
+        "streams.service",
+        capabilities.service_stream_methods,
+        tuple(spec.method for spec in capabilities.service_stream_specs),
+    )
+    _append_mismatch_issue(
+        issues,
+        "streams.jsonl",
+        capabilities.jsonl_stream_methods,
+        tuple(spec.method for spec in capabilities.jsonl_stream_specs),
+    )
+    _append_mismatch_issue(
+        issues,
         "events.types",
         capabilities.event_types,
         tuple(spec.event_type for spec in capabilities.event_specs),
@@ -288,6 +312,7 @@ def validate_sdk_capabilities(
         capabilities.service_call_methods,
     )
     _append_unknown_type_issues(issues, capabilities)
+    _append_stream_event_issues(issues, capabilities)
     return tuple(issues)
 
 
@@ -344,6 +369,35 @@ def _append_unknown_type_issues(
         for type_name in _custom_type_references(value_type)
         if type_name not in known_types
     )
+
+
+def _append_stream_event_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    known_events = frozenset(capabilities.event_types)
+    for context, specs in (
+        ("streams.service", capabilities.service_stream_specs),
+        ("streams.jsonl", capabilities.jsonl_stream_specs),
+    ):
+        for spec in specs:
+            _append_duplicate_issue(
+                issues,
+                f"{context}.{spec.method}.event_types",
+                spec.event_types,
+            )
+            unknown_events = tuple(
+                event_type for event_type in spec.event_types if event_type not in known_events
+            )
+            if unknown_events:
+                issues.append(
+                    f"{context}.{spec.method} references unknown SDK events: "
+                    f"{', '.join(unknown_events)}"
+                )
+            if spec.completion_event is not None and spec.completion_event not in known_events:
+                issues.append(
+                    f"{context}.{spec.method} completion event is unknown: {spec.completion_event}"
+                )
 
 
 def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[tuple[str, str], ...]:
