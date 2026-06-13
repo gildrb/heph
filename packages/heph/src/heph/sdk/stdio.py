@@ -51,6 +51,16 @@ class ActiveOperation:
     active_operation: str
 
 
+@dataclass(frozen=True, slots=True)
+class TransportBusyState:
+    prompt_active: bool
+    active_operation: str | None
+
+    @property
+    def is_busy(self) -> bool:
+        return self.prompt_active or self.active_operation is not None
+
+
 @dataclass(slots=True)
 class JsonlSdkServer:
     """Run a stateful SDK service over newline-delimited JSON."""
@@ -276,31 +286,30 @@ class JsonlSdkServer:
 
     def _state_with_transport_busy(self) -> ServicePayload:
         state = self.service.state()
+        transport_state = self._transport_busy_state()
+        if not transport_state.is_busy:
+            return state
+        service_state = state.get("service")
+        if not is_string_mapping(service_state):
+            return state
+        if _service_state_includes_transport_busy(service_state, transport_state):
+            return state
+        merged_service = _merge_transport_busy_state(service_state, transport_state)
+        merged_state = dict(state)
+        merged_state["service"] = merged_service
+        return merged_state
+
+    def _transport_busy_state(self) -> TransportBusyState:
         with self._state_lock:
-            active_prompt = self._active_prompt is not None
             active_operation = (
                 self._active_operation.active_operation
                 if self._active_operation is not None
                 else None
             )
-        if not active_prompt and active_operation is None:
-            return state
-        service_state = state.get("service")
-        if not is_string_mapping(service_state):
-            return state
-        if (not active_prompt or service_state.get("prompt_active") is True) and (
-            active_operation is None or service_state.get("active_operation") is not None
-        ):
-            return state
-        merged_service = dict(service_state)
-        if active_prompt:
-            merged_service["prompt_active"] = True
-        if active_operation is not None and merged_service.get("active_operation") is None:
-            merged_service["active_operation"] = active_operation
-        merged_service["is_busy"] = True
-        merged_state = dict(state)
-        merged_state["service"] = merged_service
-        return merged_state
+            return TransportBusyState(
+                prompt_active=self._active_prompt is not None,
+                active_operation=active_operation,
+            )
 
     def _stream_is_pending(self) -> bool:
         with self._state_lock:
@@ -427,6 +436,36 @@ def _required_string(params: dict[str, object], key: str) -> str:
             f"SDK request parameter '{key}' must be a string.",
         )
     return value
+
+
+def _service_state_includes_transport_busy(
+    service_state: dict[str, object],
+    transport_state: TransportBusyState,
+) -> bool:
+    prompt_recorded = (
+        not transport_state.prompt_active or service_state.get("prompt_active") is True
+    )
+    operation_recorded = (
+        transport_state.active_operation is None
+        or service_state.get("active_operation") is not None
+    )
+    return prompt_recorded and operation_recorded
+
+
+def _merge_transport_busy_state(
+    service_state: dict[str, object],
+    transport_state: TransportBusyState,
+) -> dict[str, object]:
+    merged_service = dict(service_state)
+    if transport_state.prompt_active:
+        merged_service["prompt_active"] = True
+    if (
+        transport_state.active_operation is not None
+        and merged_service.get("active_operation") is None
+    ):
+        merged_service["active_operation"] = transport_state.active_operation
+    merged_service["is_busy"] = True
+    return merged_service
 
 
 def _error(code: str, message: str) -> dict[str, object]:
