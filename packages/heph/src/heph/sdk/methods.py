@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SDK_CAPABILITIES_VERSION = 17
+from ai.providers.reasoning import REASONING_LEVELS
+from ai.runtime.thinking import THINKING_VISIBILITY_MODES
+from hephaion.parameters.settings import (
+    ACTIVITY_TRACE_MODES,
+    THEME_PRESETS,
+    VOCAB_STRICTNESS_MODES,
+)
+
+SDK_CAPABILITIES_VERSION = 18
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -135,13 +143,17 @@ class SdkMethodParameter:
     name: str
     value_type: str
     required: bool
+    choices: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "name": self.name,
             "type": self.value_type,
             "required": self.required,
         }
+        if self.choices:
+            payload["choices"] = list(self.choices)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,12 +189,32 @@ OPTIONAL_MODEL_PARAM = SdkMethodParameter("model", "string", False)
 MAX_TOKENS_PARAM = SdkMethodParameter("max_tokens", "integer", False)
 RAG_CONTEXT_BUDGET_PARAM = SdkMethodParameter("rag_context_budget", "integer", False)
 TEMPERATURE_PARAM = SdkMethodParameter("temperature", "number_or_null", False)
-REASONING_LEVEL_PARAM = SdkMethodParameter("reasoning_level", "string", False)
-THINKING_VISIBILITY_PARAM = SdkMethodParameter("thinking_visibility", "string", False)
-THEME_PARAM = SdkMethodParameter("theme", "string", False)
+REASONING_LEVEL_PARAM = SdkMethodParameter(
+    "reasoning_level",
+    "string",
+    False,
+    choices=REASONING_LEVELS,
+)
+THINKING_VISIBILITY_PARAM = SdkMethodParameter(
+    "thinking_visibility",
+    "string",
+    False,
+    choices=THINKING_VISIBILITY_MODES,
+)
+THEME_PARAM = SdkMethodParameter("theme", "string", False, choices=THEME_PRESETS)
 DEFAULT_ARMORY_PATH_PARAM = SdkMethodParameter("default_armory_path", "string", False)
-ACTIVITY_TRACE_MODE_PARAM = SdkMethodParameter("activity_trace_mode", "string", False)
-VOCAB_STRICTNESS_PARAM = SdkMethodParameter("vocab_strictness", "string", False)
+ACTIVITY_TRACE_MODE_PARAM = SdkMethodParameter(
+    "activity_trace_mode",
+    "string",
+    False,
+    choices=ACTIVITY_TRACE_MODES,
+)
+VOCAB_STRICTNESS_PARAM = SdkMethodParameter(
+    "vocab_strictness",
+    "string",
+    False,
+    choices=VOCAB_STRICTNESS_MODES,
+)
 LIVE_TOKENS_VISIBLE_PARAM = SdkMethodParameter("live_tokens_visible", "boolean", False)
 LIVE_COST_VISIBLE_PARAM = SdkMethodParameter("live_cost_visible", "boolean", False)
 

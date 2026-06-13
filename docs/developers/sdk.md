@@ -244,6 +244,8 @@ The payload also includes a `methods` section with JSON-ready parameter specs
 for service calls, service streams, JSONL calls, and JSONL streams. Native
 clients can use those specs to build request validation, disable incomplete
 forms, and keep transport wrappers aligned with the advertised SDK contract.
+Enum-like parameters include a `choices` list, for example theme, activity
+trace mode, vocabulary strictness, thinking visibility, and reasoning level.
 The SDK service and JSONL transport enforce the same method specs at runtime:
 unsupported parameters and missing required parameters are rejected instead of
 being ignored.

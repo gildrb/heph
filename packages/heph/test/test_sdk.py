@@ -9,7 +9,9 @@ from typing import get_type_hints
 
 import pytest
 from ai.providers.config import default_config
+from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime import ChatConfig
+from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 from heph.sdk import (
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_SPECS,
@@ -70,6 +72,11 @@ from hephaion.chat.events import (
     TurnEvent,
 )
 from hephaion.chat.session import ChatSession
+from hephaion.parameters.settings import (
+    ACTIVITY_TRACE_MODES,
+    THEME_PRESETS,
+    VOCAB_STRICTNESS_MODES,
+)
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 
 from hephaion.parameters import settings as settings_store
@@ -395,10 +402,14 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     update_config_params = [
         _payload_mapping(param) for param in _payload_list(update_config_spec["params"])
     ]
+    update_config_params_by_name = {str(param["name"]): param for param in update_config_params}
     update_settings_spec = _payload_mapping(service_call_specs["update_settings"])
     update_settings_params = [
         _payload_mapping(param) for param in _payload_list(update_settings_spec["params"])
     ]
+    update_settings_params_by_name = {
+        str(param["name"]): param for param in update_settings_params
+    }
     assert open_armory_params == [{"name": "path", "type": "string", "required": True}]
     assert switch_model_params == [
         {"name": "provider_slug", "type": "string", "required": True},
@@ -408,10 +419,42 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert {"name": "temperature", "type": "number_or_null", "required": False} in (
         update_config_params
     )
-    assert {"name": "theme", "type": "string", "required": False} in update_settings_params
-    assert {"name": "thinking_visibility", "type": "string", "required": False} in (
-        update_settings_params
-    )
+    assert update_config_params_by_name["reasoning_level"] == {
+        "name": "reasoning_level",
+        "type": "string",
+        "required": False,
+        "choices": list(REASONING_LEVELS),
+    }
+    assert update_config_params_by_name["thinking_visibility"] == {
+        "name": "thinking_visibility",
+        "type": "string",
+        "required": False,
+        "choices": list(THINKING_VISIBILITY_MODES),
+    }
+    assert update_settings_params_by_name["theme"] == {
+        "name": "theme",
+        "type": "string",
+        "required": False,
+        "choices": list(THEME_PRESETS),
+    }
+    assert update_settings_params_by_name["thinking_visibility"] == {
+        "name": "thinking_visibility",
+        "type": "string",
+        "required": False,
+        "choices": list(THINKING_VISIBILITY_MODES),
+    }
+    assert update_settings_params_by_name["activity_trace_mode"] == {
+        "name": "activity_trace_mode",
+        "type": "string",
+        "required": False,
+        "choices": list(ACTIVITY_TRACE_MODES),
+    }
+    assert update_settings_params_by_name["vocab_strictness"] == {
+        "name": "vocab_strictness",
+        "type": "string",
+        "required": False,
+        "choices": list(VOCAB_STRICTNESS_MODES),
+    }
     assert {"name": "live_tokens_visible", "type": "boolean", "required": False} in (
         update_settings_params
     )
@@ -755,6 +798,20 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         else field
         for field in capabilities.jsonl_request_spec.fields
     )
+    broken_service_call_method_specs = tuple(
+        replace(
+            spec,
+            params=tuple(
+                replace(param, choices=(*param.choices, param.choices[0]))
+                if spec.method == "update_settings" and param.name == "theme"
+                else param
+                for param in spec.params
+            ),
+        )
+        if spec.method == "update_settings"
+        else spec
+        for spec in capabilities.service_call_method_specs
+    )
     broken_service_stream_specs = tuple(
         replace(
             spec,
@@ -776,6 +833,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
         service_call_methods=(*capabilities.service_call_methods, "state"),
+        service_call_method_specs=broken_service_call_method_specs,
         service_call_result_specs=broken_result_specs,
         jsonl_request_spec=replace(
             capabilities.jsonl_request_spec,
@@ -798,6 +856,10 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "jsonl.request_spec.fields contains duplicate entries: id" in issues
     assert "jsonl.message_types does not match its structured specs." in issues
     assert "streams.jsonl does not match its structured specs." in issues
+    assert (
+        "methods.service_call.update_settings.theme.choices contains duplicate entries: dark"
+        in (issues)
+    )
     assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
     assert (
         "jsonl.request_spec.params references unknown SDK type: missing_jsonl_request_type"

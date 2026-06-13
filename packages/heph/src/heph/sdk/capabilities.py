@@ -311,6 +311,7 @@ def validate_sdk_capabilities(
         capabilities.busy_allowed_call_methods,
         capabilities.service_call_methods,
     )
+    _append_parameter_choice_issues(issues, capabilities)
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
     return tuple(issues)
@@ -369,6 +370,26 @@ def _append_unknown_type_issues(
         for type_name in _custom_type_references(value_type)
         if type_name not in known_types
     )
+
+
+def _append_parameter_choice_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    for context, method_specs in (
+        ("methods.service_call", capabilities.service_call_method_specs),
+        ("methods.service_stream", capabilities.service_stream_method_specs),
+        ("methods.jsonl_call", capabilities.jsonl_call_method_specs),
+        ("methods.jsonl_stream", capabilities.jsonl_stream_method_specs),
+    ):
+        for spec in method_specs:
+            for param in spec.params:
+                if param.choices:
+                    _append_duplicate_issue(
+                        issues,
+                        f"{context}.{spec.method}.{param.name}.choices",
+                        param.choices,
+                    )
 
 
 def _append_stream_event_issues(
