@@ -78,6 +78,7 @@ _BUILTIN_TYPES = frozenset(
 )
 _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
+_MAP_PREFIX = "map<"
 _JSONL_REQUEST_ENVELOPE_FIELDS = (
     SdkObjectFieldSpec("id", "string_or_integer", required=False, nullable=True),
     SdkObjectFieldSpec("method", "string"),
@@ -959,6 +960,8 @@ def _custom_type_references(value_type: str) -> tuple[str, ...]:
         return ()
     if inner_type := _array_inner_type(value_type):
         return _custom_type_references(inner_type)
+    if inner_type := _map_inner_type(value_type):
+        return _custom_type_references(inner_type)
     return (value_type,)
 
 
@@ -972,6 +975,10 @@ def _is_literal_value_type(value_type: str) -> bool:
 
 def _array_inner_type(value_type: str) -> str | None:
     return _enclosed_type_argument(value_type, prefix=_ARRAY_PREFIX)
+
+
+def _map_inner_type(value_type: str) -> str | None:
+    return _enclosed_type_argument(value_type, prefix=_MAP_PREFIX)
 
 
 def _enclosed_type_argument(value_type: str, *, prefix: str) -> str | None:

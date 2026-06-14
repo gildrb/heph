@@ -24,6 +24,7 @@ from heph.sdk.runtime import HephSdkError
 
 _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
+_MAP_PREFIX = "map<"
 _SDK_EVENT_TYPE = "sdk_event"
 type _TypeMatcher = Callable[[object], bool]
 
@@ -540,6 +541,9 @@ def _validate_jsonl_request_value_type(
     if item_type := _array_item_type(value_type):
         _validate_jsonl_request_array(surface, location, value, item_type, type_map)
         return
+    if item_type := _map_item_type(value_type):
+        _validate_jsonl_request_map(surface, location, value, item_type, type_map)
+        return
     if _value_matches_type(value, value_type):
         return
     raise HephSdkError(f"{surface} {location} must be {_type_message(value_type)}.")
@@ -558,6 +562,24 @@ def _validate_jsonl_request_array(
         _validate_jsonl_request_value_type(
             surface,
             f"{location}[{index}]",
+            item,
+            item_type,
+            type_map,
+        )
+
+
+def _validate_jsonl_request_map(
+    surface: str,
+    location: str,
+    value: object,
+    item_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    fields = _string_keyed_json_object(surface, location, value)
+    for key, item in fields.items():
+        _validate_jsonl_request_value_type(
+            surface,
+            f"{location}.{key}",
             item,
             item_type,
             type_map,
@@ -651,6 +673,12 @@ def _array_item_location(location: str, index: int) -> str:
     return f"{location}[{index}]"
 
 
+def _map_item_location(location: str, key: str) -> str:
+    if location.startswith("result field '") and location.endswith("'"):
+        return _result_field_location(f"{_result_path(location)}.{key}")
+    return f"{location}.{key}"
+
+
 def _nested_result_path(parent: str, field_name: str) -> str:
     if parent == "result":
         return field_name
@@ -680,6 +708,9 @@ def _validate_result_value_type(
         return
     if item_type := _array_item_type(value_type):
         _validate_result_array(surface, method, location, value, item_type, type_map)
+        return
+    if item_type := _map_item_type(value_type):
+        _validate_result_map(surface, method, location, value, item_type, type_map)
         return
     if _value_matches_type(value, value_type):
         return
@@ -716,6 +747,26 @@ def _validate_result_array(
             surface,
             method,
             _array_item_location(location, index),
+            item,
+            item_type,
+            type_map,
+        )
+
+
+def _validate_result_map(
+    surface: str,
+    method: str,
+    location: str,
+    value: object,
+    item_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    fields = _string_keyed_result_object(surface, method, location, value)
+    for key, item in fields.items():
+        _validate_result_value_type(
+            surface,
+            method,
+            _map_item_location(location, key),
             item,
             item_type,
             type_map,
@@ -818,6 +869,8 @@ def _value_matches_type(value: object, value_type: str) -> bool:
         return rule.matches(value)
     if item_type := _array_item_type(value_type):
         return _value_is_array_of_type(value, item_type)
+    if item_type := _map_item_type(value_type):
+        return _value_is_map_of_type(value, item_type)
     literal_value = _literal_value(value_type)
     if literal_value is not None:
         return value == literal_value
@@ -825,14 +878,20 @@ def _value_matches_type(value: object, value_type: str) -> bool:
 
 
 def _array_item_type(value_type: str) -> str | None:
-    if value_type.startswith(_ARRAY_PREFIX) and value_type.endswith(">"):
-        return value_type.removeprefix(_ARRAY_PREFIX).removesuffix(">")
-    return None
+    return _enclosed_type_argument(value_type, prefix=_ARRAY_PREFIX)
+
+
+def _map_item_type(value_type: str) -> str | None:
+    return _enclosed_type_argument(value_type, prefix=_MAP_PREFIX)
 
 
 def _literal_value(value_type: str) -> str | None:
-    if value_type.startswith(_LITERAL_PREFIX) and value_type.endswith(">"):
-        return value_type.removeprefix(_LITERAL_PREFIX).removesuffix(">")
+    return _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
+
+
+def _enclosed_type_argument(value_type: str, *, prefix: str) -> str | None:
+    if value_type.startswith(prefix) and value_type.endswith(">"):
+        return value_type.removeprefix(prefix).removesuffix(">")
     return None
 
 
@@ -840,6 +899,15 @@ def _value_is_array_of_type(value: object, item_type: str) -> bool:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         return False
     return all(_value_matches_type(item, item_type) for item in value)
+
+
+def _value_is_map_of_type(value: object, item_type: str) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    return all(
+        isinstance(key, str) and _value_matches_type(item, item_type)
+        for key, item in value.items()
+    )
 
 
 def _is_json_string(value: object) -> bool:
@@ -875,6 +943,8 @@ def _type_message(value_type: str) -> str:
         return rule.message
     if _array_item_type(value_type) is not None:
         return "an array"
+    if _map_item_type(value_type) is not None:
+        return "an object map"
     literal_value = _literal_value(value_type)
     if literal_value is not None:
         return f"literal value '{literal_value}'"

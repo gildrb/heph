@@ -363,6 +363,32 @@ def test_sdk_result_validation_accepts_nested_advertised_dto_shape() -> None:
     assert validate_result_payload("check", result, specs, type_specs=type_specs) == result
 
 
+def test_sdk_result_validation_accepts_advertised_map_shape() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("widgets", "map<widget>"),),
+        ),
+    )
+    result: dict[str, object] = {
+        "widgets": {
+            "primary": {"name": "heph", "count": 1},
+            "secondary": {"name": "hephaion", "count": 2},
+        }
+    }
+
+    assert validate_result_payload("check", result, specs, type_specs=type_specs) == result
+
+
 @pytest.mark.parametrize(
     ("result", "message"),
     [
@@ -429,6 +455,35 @@ def test_sdk_result_validation_rejects_nested_advertised_dto_drift() -> None:
     with pytest.raises(
         HephSdkError,
         match=r"result field 'widget\.items\[0\]\.count' must be an integer",
+    ):
+        validate_result_payload("check", result, specs, type_specs=type_specs)
+
+
+def test_sdk_result_validation_rejects_advertised_map_drift() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("widgets", "map<widget>"),),
+        ),
+    )
+    result: dict[str, object] = {
+        "widgets": {
+            "primary": {"name": "heph", "count": "bad"},
+        }
+    }
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'widgets\.primary\.count' must be an integer",
     ):
         validate_result_payload("check", result, specs, type_specs=type_specs)
 
@@ -695,6 +750,35 @@ def test_sdk_service_direct_capabilities_validate_nested_sections(
         service.capabilities()
 
 
+def test_sdk_service_direct_capabilities_validate_nested_spec_maps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenCapabilities:
+        def to_dict(self) -> dict[str, object]:
+            payload = get_sdk_capabilities().to_dict()
+            methods = dict(_payload_mapping(payload["methods"]))
+            service_call = dict(_payload_mapping(methods["service_call"]))
+            state_spec = dict(_payload_mapping(service_call["state"]))
+            state_spec["params"] = "bad"
+            service_call["state"] = state_spec
+            methods["service_call"] = service_call
+            payload["methods"] = methods
+            return payload
+
+    def broken_capabilities() -> BrokenCapabilities:
+        return BrokenCapabilities()
+
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(sdk_service, "get_sdk_capabilities", broken_capabilities)
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'capabilities\.methods\.service_call\.state\.params' "
+        r"must be an array",
+    ):
+        service.capabilities()
+
+
 def test_sdk_service_call_rejects_nested_result_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -955,6 +1039,17 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "sdk_capabilities_streams" in types
     assert "sdk_capabilities_availability" in types
     assert "sdk_capabilities_fields" in types
+    assert "sdk_field_spec" in types
+    assert "sdk_object_field_spec" in types
+    assert "sdk_event_spec" in types
+    assert "sdk_type_spec" in types
+    assert "sdk_result_spec" in types
+    assert "sdk_stream_spec" in types
+    assert "sdk_error_spec" in types
+    assert "sdk_jsonl_message_spec" in types
+    assert "sdk_jsonl_request_spec" in types
+    assert "sdk_method_parameter" in types
+    assert "sdk_method_spec" in types
     assert "sdk_state" in types
     assert "provider_summary" in types
     assert "model_choice_summary" in types
@@ -1368,6 +1463,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": False,
     }
+    assert _payload_mapping(sdk_capabilities_fields["methods"]) == {
+        "type": "sdk_capabilities_methods",
+        "required": True,
+        "nullable": False,
+    }
     assert _payload_mapping(sdk_capabilities_fields["streams"]) == {
         "type": "sdk_capabilities_streams",
         "required": True,
@@ -1375,6 +1475,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     }
     assert _payload_mapping(sdk_capabilities_fields["availability"]) == {
         "type": "sdk_capabilities_availability",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["types"]) == {
+        "type": "map<sdk_type_spec>",
         "required": True,
         "nullable": False,
     }
