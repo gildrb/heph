@@ -289,6 +289,12 @@ def test_sdk_service_call_routes_match_advertised_methods() -> None:
     assert tuple(service._call_routes()) == sdk_methods.SERVICE_CALL_METHODS
 
 
+def test_sdk_service_stream_routes_match_advertised_methods() -> None:
+    service = HephService.plain(config=_config())
+
+    assert tuple(service._stream_routes()) == sdk_methods.SERVICE_STREAM_METHODS
+
+
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [

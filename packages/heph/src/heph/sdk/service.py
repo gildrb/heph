@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from pathlib import Path
 
 from ai.runtime import ChatConfig, normalize_thinking_visibility
@@ -52,44 +53,19 @@ type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
 type _ServiceCallArgumentDecoder = Callable[[Mapping[str, object], str], object]
 type _ServiceCallHandler = Callable[..., ServicePayload]
+type _ServiceStreamHandler = Callable[[dict[str, object]], ServiceStream]
 type _ServiceConfigParamDecoder = Callable[
     [Mapping[str, object], str],
     SdkConfigUpdateValue | None,
 ]
 
-_BASE_AVAILABLE_CALL_METHODS = frozenset(
-    {
-        "state",
-        "capabilities",
-        "use_plain_runtime",
-        "open_armory",
-        "create_armory",
-        "list_armories",
-        "validate_armory",
-        "new_session",
-        "list_sessions",
-        "settings",
-        "list_providers",
-        "list_model_choices",
-        "switch_model",
-        "update_config",
-        "update_settings",
-    }
-)
-_ARMORY_AVAILABLE_CALL_METHODS = frozenset(
-    {
-        "resume_session",
-        "list_materials",
-        "import_materials",
-        "build_index",
-        "scan_extraction_health",
-    }
-)
-_SESSION_AVAILABLE_CALL_METHODS = frozenset({"fork_session", "messages", "ask", "abort"})
-_ARMORY_SESSION_AVAILABLE_CALL_METHODS = frozenset({"save_session"})
-_SESSION_SOURCE_AVAILABLE_CALL_METHODS = frozenset({"set_source_enabled"})
-_SESSION_AVAILABLE_STREAM_METHODS = frozenset({"prompt"})
-_ARMORY_AVAILABLE_STREAM_METHODS = frozenset({"build_index"})
+
+class _ServiceAvailabilityRequirement(Enum):
+    ALWAYS = auto()
+    ARMORY = auto()
+    SESSION = auto()
+    ARMORY_SESSION = auto()
+    SESSION_SOURCES = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +84,7 @@ class _ServiceCallRoute:
     arguments: tuple[_ServiceCallArgument, ...] = ()
     keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
     params_as_argument: bool = False
+    availability: _ServiceAvailabilityRequirement = _ServiceAvailabilityRequirement.ALWAYS
 
     def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
         if self.params_as_argument:
@@ -119,6 +96,16 @@ class _ServiceCallRoute:
             *(argument.value_from(params) for argument in self.arguments),
             **keywords,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _ServiceStreamRoute:
+    method: str
+    handler: _ServiceStreamHandler
+    availability: _ServiceAvailabilityRequirement
+
+    def dispatch(self, params: dict[str, object]) -> ServiceStream:
+        return self.handler(params)
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,7 +219,7 @@ class HephService:
     ) -> ServicePayload:
         parameters = self.validate_call_params(method, params)
         if route := self._call_routes().get(method):
-            self.ensure_call_available(method)
+            self._ensure_call_route_available(route)
             return route.dispatch(parameters)
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
@@ -262,21 +249,36 @@ class HephService:
                 "resume_session",
                 self.resume_session,
                 (_ServiceCallArgument("session_id", _required_str),),
+                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute(
                 "fork_session",
                 self.fork_session,
                 (_ServiceCallArgument("turn_id", _required_str),),
+                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceCallRoute("list_sessions", self.list_sessions),
-            _ServiceCallRoute("save_session", self.save_session),
-            _ServiceCallRoute("messages", self.messages),
+            _ServiceCallRoute(
+                "save_session",
+                self.save_session,
+                availability=_ServiceAvailabilityRequirement.ARMORY_SESSION,
+            ),
+            _ServiceCallRoute(
+                "messages",
+                self.messages,
+                availability=_ServiceAvailabilityRequirement.SESSION,
+            ),
             _ServiceCallRoute(
                 "ask",
                 self.ask,
                 (_ServiceCallArgument("text", _required_str),),
+                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
-            _ServiceCallRoute("abort", self.abort),
+            _ServiceCallRoute(
+                "abort",
+                self.abort,
+                availability=_ServiceAvailabilityRequirement.SESSION,
+            ),
             _ServiceCallRoute("settings", self.settings),
             _ServiceCallRoute("list_providers", self.list_providers),
             _ServiceCallRoute(
@@ -301,15 +303,29 @@ class HephService:
                     _ServiceCallArgument("source", _required_str),
                     _ServiceCallArgument("enabled", _required_bool),
                 ),
+                availability=_ServiceAvailabilityRequirement.SESSION_SOURCES,
             ),
-            _ServiceCallRoute("list_materials", self.list_materials),
+            _ServiceCallRoute(
+                "list_materials",
+                self.list_materials,
+                availability=_ServiceAvailabilityRequirement.ARMORY,
+            ),
             _ServiceCallRoute(
                 "import_materials",
                 self.import_materials,
                 (_ServiceCallArgument("source", _required_str),),
+                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
-            _ServiceCallRoute("build_index", self.build_index),
-            _ServiceCallRoute("scan_extraction_health", self.scan_extraction_health),
+            _ServiceCallRoute(
+                "build_index",
+                self.build_index,
+                availability=_ServiceAvailabilityRequirement.ARMORY,
+            ),
+            _ServiceCallRoute(
+                "scan_extraction_health",
+                self.scan_extraction_health,
+                availability=_ServiceAvailabilityRequirement.ARMORY,
+            ),
             _ServiceCallRoute("update_config", self.update_config, params_as_argument=True),
             _ServiceCallRoute("update_settings", self.update_settings, params_as_argument=True),
         )
@@ -327,43 +343,64 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServiceStream:
         parameters = self.validate_stream_params(method, params)
-        if method not in SERVICE_STREAM_METHODS:
-            raise HephSdkError(f"Unknown SDK service stream method: {method}")
-        self.ensure_stream_available(method)
-        if method == "prompt":
-            yield from self.prompt(_required_str(parameters, "text"))
-            return
-        if method == "build_index":
-            yield from self.build_index_stream()
+        if route := self._stream_routes().get(method):
+            self._ensure_stream_route_available(route)
+            yield from route.dispatch(parameters)
             return
         raise HephSdkError(f"Unknown SDK service stream method: {method}")
 
     def ensure_call_available(self, method: str) -> None:
+        if route := self._call_routes().get(method):
+            self._ensure_call_route_available(route)
+            return
+        raise HephSdkError(f"Unknown SDK service method: {method}")
+
+    def ensure_stream_available(self, method: str) -> None:
+        if route := self._stream_routes().get(method):
+            self._ensure_stream_route_available(route)
+            return
+        raise HephSdkError(f"Unknown SDK service stream method: {method}")
+
+    def _ensure_call_route_available(self, route: _ServiceCallRoute) -> None:
         with self._prompt_lock:
             is_busy = self._is_busy_locked()
             if is_busy:
-                if method not in BUSY_ALLOWED_CALL_METHODS:
+                if route.method not in BUSY_ALLOWED_CALL_METHODS:
                     raise HephSdkBusyError()
                 return
-            available_methods = _available_call_methods(
-                self.runtime,
-                self.session,
-                is_busy=False,
-            )
-        if method not in available_methods:
-            raise HephSdkUnavailableError(method, kind="SDK service call")
+            is_available = _route_is_available(route, self.runtime, self.session)
+        if not is_available:
+            raise HephSdkUnavailableError(route.method, kind="SDK service call")
 
-    def ensure_stream_available(self, method: str) -> None:
+    def _ensure_stream_route_available(self, route: _ServiceStreamRoute) -> None:
         with self._prompt_lock:
             if self._is_busy_locked():
                 raise HephSdkBusyError()
-            available_methods = _available_stream_methods(
-                self.runtime,
-                self.session,
-                is_busy=False,
-            )
-        if method not in available_methods:
-            raise HephSdkUnavailableError(method, kind="SDK service stream")
+            is_available = _route_is_available(route, self.runtime, self.session)
+        if not is_available:
+            raise HephSdkUnavailableError(route.method, kind="SDK service stream")
+
+    def _stream_routes(self) -> dict[str, _ServiceStreamRoute]:
+        routes = (
+            _ServiceStreamRoute(
+                "prompt",
+                self._prompt_stream,
+                _ServiceAvailabilityRequirement.SESSION,
+            ),
+            _ServiceStreamRoute(
+                "build_index",
+                self._build_index_stream,
+                _ServiceAvailabilityRequirement.ARMORY,
+            ),
+        )
+        return {route.method: route for route in routes}
+
+    def _prompt_stream(self, params: dict[str, object]) -> ServiceStream:
+        return self.prompt(_required_str(params, "text"))
+
+    def _build_index_stream(self, params: dict[str, object]) -> ServiceStream:
+        _ = params
+        return self.build_index_stream()
 
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -547,11 +584,13 @@ class HephService:
             active_operation=self._active_operation,
             is_busy=is_busy,
             available_call_methods=_available_call_methods(
+                self._call_routes(),
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
             ),
             available_stream_methods=_available_stream_methods(
+                self._stream_routes(),
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
@@ -678,7 +717,11 @@ class HephService:
         return self.session is not None and self.session.is_streaming
 
 
+type _AvailableRoute = _ServiceCallRoute | _ServiceStreamRoute
+
+
 def _available_call_methods(
+    routes: Mapping[str, _ServiceCallRoute],
     runtime: HephRuntime,
     session: HephSession | None,
     *,
@@ -687,19 +730,16 @@ def _available_call_methods(
     if is_busy:
         return BUSY_ALLOWED_CALL_METHODS
 
-    available = set(_BASE_AVAILABLE_CALL_METHODS)
-    if runtime.armory_path is not None:
-        available.update(_ARMORY_AVAILABLE_CALL_METHODS)
-    if session is not None:
-        available.update(_SESSION_AVAILABLE_CALL_METHODS)
-        if session.armory_path is not None:
-            available.update(_ARMORY_SESSION_AVAILABLE_CALL_METHODS)
-        if session.source_files:
-            available.update(_SESSION_SOURCE_AVAILABLE_CALL_METHODS)
-    return _ordered_available_methods(SERVICE_CALL_METHODS, available)
+    return tuple(
+        method
+        for method in SERVICE_CALL_METHODS
+        if (route := routes.get(method)) is not None
+        and _route_is_available(route, runtime, session)
+    )
 
 
 def _available_stream_methods(
+    routes: Mapping[str, _ServiceStreamRoute],
     runtime: HephRuntime,
     session: HephSession | None,
     *,
@@ -708,19 +748,30 @@ def _available_stream_methods(
     if is_busy:
         return ()
 
-    available: set[str] = set()
-    if session is not None:
-        available.update(_SESSION_AVAILABLE_STREAM_METHODS)
-    if runtime.armory_path is not None:
-        available.update(_ARMORY_AVAILABLE_STREAM_METHODS)
-    return _ordered_available_methods(SERVICE_STREAM_METHODS, available)
+    return tuple(
+        method
+        for method in SERVICE_STREAM_METHODS
+        if (route := routes.get(method)) is not None
+        and _route_is_available(route, runtime, session)
+    )
 
 
-def _ordered_available_methods(
-    advertised_methods: tuple[str, ...],
-    available_methods: set[str],
-) -> tuple[str, ...]:
-    return tuple(method for method in advertised_methods if method in available_methods)
+def _route_is_available(
+    route: _AvailableRoute,
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    match route.availability:
+        case _ServiceAvailabilityRequirement.ALWAYS:
+            return True
+        case _ServiceAvailabilityRequirement.ARMORY:
+            return runtime.armory_path is not None
+        case _ServiceAvailabilityRequirement.SESSION:
+            return session is not None
+        case _ServiceAvailabilityRequirement.ARMORY_SESSION:
+            return session is not None and session.armory_path is not None
+        case _ServiceAvailabilityRequirement.SESSION_SOURCES:
+            return session is not None and bool(session.source_files)
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:
