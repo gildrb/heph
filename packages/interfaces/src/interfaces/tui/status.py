@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
+from hephaion.armory.storage import armory_display_name
 
 from interfaces.tui.cell_text import cell_width, truncate_with_ellipsis
 
@@ -51,7 +52,7 @@ def _format_status_fields(title: str, fields: list[tuple[str, str]]) -> str:
 def _status_armory(session: ChatSession) -> str:
     if session.armory_path is None:
         return "none"
-    return session.armory_path.name or str(session.armory_path)
+    return armory_display_name(session.armory_path)
 
 
 def _fit_status_fields(
@@ -62,11 +63,21 @@ def _fit_status_fields(
     if width <= 0:
         return fields
     fitted = list(fields)
-    for label in ("tokens", "cost"):
+    for label in ("armory", "tokens", "cost"):
         fitted = _shrink_status_field(title, fitted, label, width)
         if cell_width(_format_status_fields(title, fitted)) <= width:
             return fitted
+        without_armory = _without_status_field(fitted, "armory")
+        if cell_width(_format_status_fields(title, without_armory)) <= width:
+            return without_armory
     return fitted
+
+
+def _without_status_field(
+    fields: list[tuple[str, str]],
+    label_to_remove: str,
+) -> list[tuple[str, str]]:
+    return [(label, value) for label, value in fields if label != label_to_remove]
 
 
 def _shrink_status_field(
@@ -102,8 +113,6 @@ def _status_field_min_width(label: str, value: str) -> int:
     if label == "tokens":
         return cell_width(value)
     if label == "model":
-        return cell_width(value)
-    if label == "armory":
         return cell_width(value)
     if value == "none":
         return cell_width(value)

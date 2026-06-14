@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, overload
 
 from hephaion.armory.search import remember_armory, set_last_armory
-from hephaion.armory.storage import ArmoryError, initialize
+from hephaion.armory.storage import ArmoryError, armory_display_name, initialize
 from hephaion.armory.storage import validate as _validate_armory
 
 from hephaion.materials import count_material_files
@@ -799,7 +799,7 @@ class TuiArmoryMixin:
         self._replace_transcript_from_session()
         self._sync_busy_to_current_session()
         self._update_info_panel()
-        self._append_notice(f"Using armory {path.name}")
+        self._append_notice(f"Using armory {armory_display_name(path)}")
         src_count = self.session.source_file_count or 0
         if src_count:
             self._append_notice(f"Loaded {src_count} file(s).")

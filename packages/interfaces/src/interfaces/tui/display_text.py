@@ -81,8 +81,9 @@ def status_text(
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.text_muted)
     text.stylize(f"bold {palette.brand_primary}", 0, len(display_title))
-    _stylize_status_labels(text, plain, status_labels(session))
-    _stylize_status_values(text, plain, status_labels(session))
+    labels = _rendered_status_labels(plain, status_labels(session))
+    _stylize_status_labels(text, plain, labels)
+    _stylize_status_values(text, plain, labels)
     return text
 
 
@@ -92,19 +93,44 @@ def status_render_width(widget_width: int) -> int | None:
     return max(1, widget_width - _STATUS_SIDEBAR_GUTTER)
 
 
+def _rendered_status_labels(plain: str, labels: Sequence[str]) -> tuple[str, ...]:
+    label_set = frozenset(labels)
+    rendered: list[str] = []
+    for field in plain.split(STATUS_FIELD_GAP)[1:]:
+        label = field.partition(" ")[0]
+        if label in label_set:
+            rendered.append(label)
+    return tuple(rendered)
+
+
 def _stylize_status_labels(text: Text, plain: str, labels: Sequence[str]) -> None:
     palette = current_palette()
     for label in labels:
-        start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
+        start = _status_label_start(plain, label)
+        if start is None:
+            continue
         text.stylize(palette.text_secondary, start, start + len(label))
 
 
 def _stylize_status_values(text: Text, plain: str, labels: Sequence[str]) -> None:
     palette = current_palette()
     for index, label in enumerate(labels):
-        value_start = plain.index(f"{label} ") + len(label) + 1
+        label_start = _status_label_start(plain, label)
+        if label_start is None:
+            continue
+        value_start = label_start + len(label) + 1
         value_end = _status_value_end(plain, labels, index, value_start)
         text.stylize(palette.text_muted, value_start, value_end)
+
+
+def _status_label_start(plain: str, label: str) -> int | None:
+    if plain.startswith(f"{label} "):
+        return 0
+    marker = f"{STATUS_FIELD_GAP}{label} "
+    start = plain.find(marker)
+    if start < 0:
+        return None
+    return start + len(STATUS_FIELD_GAP)
 
 
 def _status_value_end(

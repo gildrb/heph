@@ -13,6 +13,7 @@ from hephaion.armory.storage import (
     ARMORY_DIRS,
     MARKER_FILE,
     ArmoryValidationError,
+    armory_display_name,
     initialize,
     normalize_path,
     validate,
@@ -42,6 +43,27 @@ def test_validate_armory_path_normalizes_and_reads_marker(tmp_path: Path) -> Non
     initialize(armory_path)
 
     assert validate_armory_path(armory_path) == armory_path.resolve()
+
+
+def test_armory_display_name_preserves_existing_directory_casing(tmp_path: Path) -> None:
+    armory_path = tmp_path / "MixedCase-2"
+    armory_path.mkdir()
+
+    assert armory_display_name(tmp_path / "mixedcase-2") == "MixedCase-2"
+
+
+def test_armory_display_name_prefers_exact_case_when_case_distinct_siblings_exist(
+    tmp_path: Path,
+) -> None:
+    mixed_case = tmp_path / "MixedCase-2"
+    exact_case = tmp_path / "mixedcase-2"
+    mixed_case.mkdir()
+    try:
+        exact_case.mkdir()
+    except FileExistsError:
+        pytest.skip("case-insensitive filesystem does not allow case-distinct siblings")
+
+    assert armory_display_name(exact_case) == "mixedcase-2"
 
 
 def test_validate_armory_fails_when_marker_is_missing(tmp_path: Path) -> None:

@@ -40,6 +40,7 @@ from interfaces.tui import keybinds, keymap
 from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
+from interfaces.tui.cell_text import cell_width
 from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
@@ -3254,16 +3255,50 @@ def test_status_lines_shows_armory_name() -> None:
     assert "ARMORY Sample-Armory" in status
 
 
-def test_status_lines_keeps_full_armory_name_when_width_is_tight() -> None:
+def test_status_lines_preserves_actual_armory_name_casing(tmp_path: Path) -> None:
+    session = _plain_session()
+    actual_armory = tmp_path / "MixedCase-2"
+    actual_armory.mkdir()
+    session.armory_path = tmp_path / "mixedcase-2"
+
+    status = tui._status_lines(session)
+
+    assert "ARMORY MixedCase-2" in status
+    assert "ARMORY mixedcase-2" not in status
+
+
+def test_status_lines_shrinks_long_armory_name_before_model() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
 
     status = tui._status_lines(session, width=40)
 
-    assert "ARMORY very-long-armory-name" in status
-    assert "~/...a." not in status
+    assert cell_width(status) <= 40
+    assert "ARMORY" not in status
     assert "MODEL test-model" in status
     assert " mode " not in status
+
+
+def test_status_text_styles_only_rendered_labels_when_armory_is_omitted() -> None:
+    session = _plain_session()
+    session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
+
+    status = tui._status_text(session, width=40)
+
+    assert "ARMORY" not in status.plain
+    assert "MODEL test-model" in status.plain
+    assert "REASONING low" in status.plain
+
+
+def test_status_text_ignores_omitted_label_words_inside_values() -> None:
+    session = _plain_session()
+    session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
+    session.config.model = "foo ARMORY bar"
+
+    status = tui._status_text(session, width=52)
+
+    assert "ARMORY" not in status.plain.split("MODEL", maxsplit=1)[0]
+    assert "MODEL foo ARMORY bar" in status.plain
 
 
 def test_status_lines_shows_none_when_no_armory() -> None:

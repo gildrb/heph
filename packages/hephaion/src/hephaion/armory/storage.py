@@ -92,6 +92,22 @@ def validate_armory_path(path: str | Path) -> Path:
     return armory_path
 
 
+def armory_display_name(path: Path) -> str:
+    name = path.name
+    if not name:
+        return str(path)
+    casefold_match = ""
+    try:
+        for child in path.parent.iterdir():
+            if child.name == name:
+                return child.name
+            if not casefold_match and child.name.casefold() == name.casefold():
+                casefold_match = child.name
+    except OSError:
+        return name
+    return casefold_match or name
+
+
 def _validate_armory_dir(path: Path, resolved_path: Path, dirname: str) -> None:
     target = path / dirname
     if target.is_symlink():
