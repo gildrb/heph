@@ -6,7 +6,6 @@ TUI renderer so adapters only format it for their surface.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
@@ -46,22 +45,13 @@ def status_lines(
 
 
 def _format_status_fields(title: str, fields: list[tuple[str, str]]) -> str:
-    return STATUS_FIELD_GAP.join(
-        (title, *(f"{label.upper()} {value.lower()}" for label, value in fields))
-    )
+    return STATUS_FIELD_GAP.join((title, *(f"{label.upper()} {value}" for label, value in fields)))
 
 
 def _status_armory(session: ChatSession) -> str:
     if session.armory_path is None:
         return "none"
-    try:
-        path = session.armory_path.expanduser().resolve(strict=False)
-        armory = f"~/{path.relative_to(Path.home())}"
-    except ValueError:
-        armory = str(session.armory_path)
-    if cell_width(armory) > 48:
-        return f"...{armory[-45:]}"
-    return armory
+    return session.armory_path.name or str(session.armory_path)
 
 
 def _fit_status_fields(
@@ -72,7 +62,7 @@ def _fit_status_fields(
     if width <= 0:
         return fields
     fitted = list(fields)
-    for label in ("armory", "tokens", "cost"):
+    for label in ("tokens", "cost"):
         fitted = _shrink_status_field(title, fitted, label, width)
         if cell_width(_format_status_fields(title, fitted)) <= width:
             return fitted
@@ -112,6 +102,8 @@ def _status_field_min_width(label: str, value: str) -> int:
     if label == "tokens":
         return cell_width(value)
     if label == "model":
+        return cell_width(value)
+    if label == "armory":
         return cell_width(value)
     if value == "none":
         return cell_width(value)

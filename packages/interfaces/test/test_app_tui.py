@@ -276,13 +276,13 @@ def test_session_status_for_plain_session() -> None:
     assert "/help" not in status
 
 
-def test_session_status_normalizes_label_and_value_casing() -> None:
+def test_session_status_normalizes_labels_without_lowercasing_values() -> None:
     session = _plain_session()
     session.config.model = "Test-MODEL"
 
     status = tui._status_lines(session)
 
-    assert "MODEL test-model" in status
+    assert "MODEL Test-MODEL" in status
     assert "REASONING low" in status
 
 
@@ -3244,23 +3244,24 @@ def test_run_tui_for_path_passes_session_with_armory(
     assert captured_session is resolved_session
 
 
-def test_status_lines_shows_armory_path() -> None:
-    """Status bar text includes the armory path when session has one."""
+def test_status_lines_shows_armory_name() -> None:
+    """Status bar text includes the armory name when session has one."""
     session = _plain_session()
-    session.armory_path = Path("/tmp/my-armory")
+    session.armory_path = Path("/tmp/Sample-Armory")
 
     status = tui._status_lines(session)
 
-    assert "ARMORY /tmp/my-armory" in status
+    assert "ARMORY Sample-Armory" in status
 
 
-def test_status_lines_truncates_long_armory_path() -> None:
+def test_status_lines_keeps_full_armory_name_when_width_is_tight() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
 
-    status = tui._status_lines(session)
+    status = tui._status_lines(session, width=40)
 
-    assert "ARMORY ...qa-status/nested/folder/very-long-armory-name" in status
+    assert "ARMORY very-long-armory-name" in status
+    assert "~/...a." not in status
     assert "MODEL test-model" in status
     assert " mode " not in status
 
@@ -4533,7 +4534,7 @@ def test_plain_tui_opens_named_armory_without_path(
             assert app.session.armory_path == armory_path.resolve()
             assert app.session.source_file_count == 1
             assert app.busy is False
-            assert any("Using armory" in entry.content for entry in app.state.transcript)
+            assert any(entry.content == "Using armory module-2" for entry in app.state.transcript)
 
     asyncio.run(check_named_armory())
 
@@ -6935,7 +6936,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
             app._handle_armory_browser("/armory open")
             app._open_selected_armory(armory_path)
             assert app.session is new_session
-            assert any("Using armory" in entry.content for entry in app.state.transcript)
+            assert any(entry.content == "Using armory study" for entry in app.state.transcript)
             composer = app.query_one("#composer", tui.Input)
             assert app.focused is composer
 

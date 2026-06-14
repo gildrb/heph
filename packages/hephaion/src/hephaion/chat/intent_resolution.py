@@ -577,15 +577,18 @@ def _transform_resolution_points_at_prior_answer(
 ) -> bool:
     if resolution.prior_answer_positions:
         return True
-    if not (resolution.prior_answer_reference or resolution.followup_target.strip()):
+    if resolution.prior_answer_reference:
+        return _transform_resolution_has_explicit_prior_reference(
+            resolution,
+            prior_intent=prior_intent,
+        )
+    if not resolution.followup_target.strip():
         return False
-    if not _transform_resolution_matches_user_input(resolution, user_input=user_input):
-        return False
-    if _transform_resolution_has_explicit_prior_reference(
+    if not _transform_resolution_matches_user_input(
         resolution,
-        prior_intent=prior_intent,
+        user_input=user_input,
     ):
-        return True
+        return False
     return _transform_resolution_target_overlap_is_sufficient(resolution)
 
 

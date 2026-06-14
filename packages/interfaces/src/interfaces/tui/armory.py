@@ -799,7 +799,7 @@ class TuiArmoryMixin:
         self._replace_transcript_from_session()
         self._sync_busy_to_current_session()
         self._update_info_panel()
-        self._append_notice(f"Using armory {path}")
+        self._append_notice(f"Using armory {path.name}")
         src_count = self.session.source_file_count or 0
         if src_count:
             self._append_notice(f"Loaded {src_count} file(s).")
