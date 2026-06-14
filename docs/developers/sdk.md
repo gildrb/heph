@@ -332,6 +332,11 @@ to both direct Python embeddings and JSONL transport clients. In Python, busy
 requests raise `HephSdkBusyError`, while valid methods that are unavailable for
 the current runtime/session state raise `HephSdkUnavailableError`. In JSONL,
 those conditions are reported with error codes `"busy"` and `"unavailable"`.
+Model runtime failures raised while handling a prompt are wrapped as
+`HephSdkModelError` in direct Python embeddings and reported as structured JSONL
+stream errors for transport clients. When the lower runtime classifies the
+failure, JSONL uses the concrete model error code; otherwise it falls back to
+`"engine_error"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a
@@ -450,6 +455,20 @@ The JSONL error codes advertised through capabilities are:
   state.
 - `sdk_error`: the SDK rejected a valid request, such as opening a missing
   armory.
+- `engine_error`: the model runtime rejected a request without a more specific
+  code.
+- `account_setup`: provider account setup or billing prevented the model
+  request.
+- `provider_capacity`: provider capacity or rate limiting prevented the model
+  request.
+- `missing_credentials`: provider credentials are missing for the selected
+  model.
+- `missing_model_source`: no model source is configured.
+- `missing_model`: no model is configured.
+- `model_unavailable`: the selected model is unavailable for the configured
+  provider endpoint.
+- `circuit_open`: the model provider circuit breaker is open after recent
+  failures.
 - `internal_error`: an unexpected server-side exception escaped the SDK layer.
 
 ## Boundary Rules
