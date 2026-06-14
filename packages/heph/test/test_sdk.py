@@ -933,12 +933,17 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     broken_message_specs = tuple(
         replace(
             spec,
-            fields=tuple(
-                replace(field, value_type="missing_jsonl_message_type")
-                if spec.message_type == "stream_event" and field.name == "event"
-                else field
-                for field in spec.fields
-            ),
+            fields=(
+                *(
+                    replace(field, value_type="missing_jsonl_message_type")
+                    if spec.message_type == "stream_event" and field.name == "event"
+                    else field
+                    for field in spec.fields
+                ),
+                spec.fields[0],
+            )
+            if spec.message_type == "stream_event"
+            else spec.fields,
         )
         for spec in capabilities.jsonl_message_specs
     )
@@ -951,16 +956,31 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     broken_service_call_method_specs = tuple(
         replace(
             spec,
-            params=tuple(
-                replace(param, choices=(*param.choices, param.choices[0]))
-                if spec.method == "update_settings" and param.name == "theme"
-                else param
-                for param in spec.params
-            ),
+            params=(
+                *(
+                    replace(param, choices=(*param.choices, param.choices[0]))
+                    if spec.method == "update_settings" and param.name == "theme"
+                    else param
+                    for param in spec.params
+                ),
+                spec.params[0],
+            )
+            if spec.method == "update_settings"
+            else spec.params,
         )
         if spec.method == "update_settings"
         else spec
         for spec in capabilities.service_call_method_specs
+    )
+    broken_service_call_result_specs = tuple(
+        replace(spec, fields=(*spec.fields, spec.fields[0])) if spec.method == "abort" else spec
+        for spec in capabilities.service_call_result_specs
+    )
+    broken_type_specs = tuple(
+        replace(spec, fields=(*spec.fields, spec.fields[0]))
+        if spec.type_name == "sdk_state"
+        else spec
+        for spec in capabilities.type_specs
     )
     broken_service_stream_specs = tuple(
         replace(
@@ -984,15 +1004,17 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
         service_call_methods=(*capabilities.service_call_methods, "state"),
         service_call_method_specs=broken_service_call_method_specs,
-        service_call_result_specs=broken_result_specs,
+        service_call_result_specs=broken_service_call_result_specs,
         jsonl_request_spec=replace(
             capabilities.jsonl_request_spec,
             fields=(*broken_request_fields, broken_request_fields[0]),
         ),
         jsonl_message_types=(*capabilities.jsonl_message_types, "bogus_message"),
         jsonl_message_specs=broken_message_specs,
+        jsonl_call_result_specs=broken_result_specs,
         service_stream_specs=broken_service_stream_specs,
         jsonl_stream_specs=broken_jsonl_stream_specs,
+        type_specs=broken_type_specs,
     )
 
     issues = validate_sdk_capabilities(broken_capabilities)
@@ -1007,10 +1029,16 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "jsonl.message_types does not match its structured specs." in issues
     assert "streams.jsonl does not match its structured specs." in issues
     assert (
+        "methods.service_call.update_settings.params contains duplicate entries: theme" in issues
+    )
+    assert "jsonl.message_specs.stream_event.fields contains duplicate entries: type" in issues
+    assert "results.service_call.abort.fields contains duplicate entries: aborted" in issues
+    assert "types.sdk_state.fields contains duplicate entries: service" in issues
+    assert (
         "methods.service_call.update_settings.theme.choices contains duplicate entries: dark"
         in (issues)
     )
-    assert "results.service_call.state references unknown SDK type: missing_custom_type" in issues
+    assert "results.jsonl_call.state references unknown SDK type: missing_custom_type" in issues
     assert (
         "jsonl.request_spec.params references unknown SDK type: missing_jsonl_request_type"
         in issues

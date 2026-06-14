@@ -235,6 +235,95 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
         ("jsonl.error_codes", capabilities.jsonl_error_codes),
         ("service.busy_allowed_call_methods", capabilities.busy_allowed_call_methods),
         ("types", tuple(spec.type_name for spec in capabilities.type_specs)),
+        *_method_param_duplicate_checks(
+            "methods.service_call",
+            capabilities.service_call_method_specs,
+        ),
+        *_method_param_duplicate_checks(
+            "methods.service_stream",
+            capabilities.service_stream_method_specs,
+        ),
+        *_method_param_duplicate_checks(
+            "methods.jsonl_call",
+            capabilities.jsonl_call_method_specs,
+        ),
+        *_method_param_duplicate_checks(
+            "methods.jsonl_stream",
+            capabilities.jsonl_stream_method_specs,
+        ),
+        *_event_field_duplicate_checks(capabilities.event_specs),
+        *_jsonl_message_field_duplicate_checks(capabilities.jsonl_message_specs),
+        *_result_field_duplicate_checks(
+            "results.service_call",
+            capabilities.service_call_result_specs,
+        ),
+        *_result_field_duplicate_checks(
+            "results.jsonl_call",
+            capabilities.jsonl_call_result_specs,
+        ),
+        (
+            "fields.service_state",
+            tuple(spec.name for spec in capabilities.service_state_field_specs),
+        ),
+        (
+            "fields.runtime_state",
+            tuple(spec.name for spec in capabilities.runtime_state_field_specs),
+        ),
+        (
+            "fields.session_state",
+            tuple(spec.name for spec in capabilities.session_state_field_specs),
+        ),
+        *_type_field_duplicate_checks(capabilities.type_specs),
+    )
+
+
+def _method_param_duplicate_checks(
+    context: str,
+    specs: tuple[SdkMethodSpec, ...],
+) -> tuple[_DuplicateCheck, ...]:
+    return tuple(
+        (f"{context}.{spec.method}.params", tuple(param.name for param in spec.params))
+        for spec in specs
+    )
+
+
+def _event_field_duplicate_checks(
+    specs: tuple[SdkEventSpec, ...],
+) -> tuple[_DuplicateCheck, ...]:
+    return tuple(
+        (f"events.{spec.event_type}.fields", tuple(field.name for field in spec.fields))
+        for spec in specs
+    )
+
+
+def _jsonl_message_field_duplicate_checks(
+    specs: tuple[SdkJsonlMessageSpec, ...],
+) -> tuple[_DuplicateCheck, ...]:
+    return tuple(
+        (
+            f"jsonl.message_specs.{spec.message_type}.fields",
+            tuple(field.name for field in spec.fields),
+        )
+        for spec in specs
+    )
+
+
+def _result_field_duplicate_checks(
+    context: str,
+    specs: tuple[SdkResultSpec, ...],
+) -> tuple[_DuplicateCheck, ...]:
+    return tuple(
+        (f"{context}.{spec.method}.fields", tuple(field.name for field in spec.fields))
+        for spec in specs
+    )
+
+
+def _type_field_duplicate_checks(
+    specs: tuple[SdkTypeSpec, ...],
+) -> tuple[_DuplicateCheck, ...]:
+    return tuple(
+        (f"types.{spec.type_name}.fields", tuple(field.name for field in spec.fields))
+        for spec in specs
     )
 
 
