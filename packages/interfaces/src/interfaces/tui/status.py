@@ -72,7 +72,7 @@ def _fit_status_fields(
     if width <= 0:
         return fields
     fitted = list(fields)
-    for label in ("armory", "model", "tokens", "cost"):
+    for label in ("armory", "tokens", "cost"):
         fitted = _shrink_status_field(title, fitted, label, width)
         if cell_width(_format_status_fields(title, fitted)) <= width:
             return fitted
@@ -110,6 +110,8 @@ def _status_field_min_width(label: str, value: str) -> int:
     if label == "cost":
         return min(cell_width(value), cell_width("$0.000"))
     if label == "tokens":
+        return cell_width(value)
+    if label == "model":
         return cell_width(value)
     if value == "none":
         return cell_width(value)

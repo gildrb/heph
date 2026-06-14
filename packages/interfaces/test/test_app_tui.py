@@ -286,6 +286,16 @@ def test_session_status_normalizes_label_and_value_casing() -> None:
     assert "REASONING low" in status
 
 
+def test_session_status_keeps_full_model_name_when_width_is_tight() -> None:
+    session = _plain_session()
+    session.config.model = "gpt-5.5"
+
+    status = tui._status_lines(session, width=40)
+
+    assert "MODEL gpt-5.5" in status
+    assert ".g." not in status
+
+
 def test_session_status_supports_menu_title_replacement() -> None:
     status = tui._status_lines(_plain_session(), title="Materials")
 

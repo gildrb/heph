@@ -538,8 +538,15 @@ def _transform_prior_followup_resolution(
     if not _transform_resolution_points_at_prior_answer(
         resolution,
         user_input=user_input,
+        prior_intent=prior_intent,
     ):
-        return replace(resolution, answer_mode=ANSWER_MODE_FROM_EVIDENCE)
+        return replace(
+            resolution,
+            answer_mode=ANSWER_MODE_FROM_EVIDENCE,
+            prior_answer_reference=False,
+            prior_answer_positions=(),
+            prior_answer_position_basis="",
+        )
     return replace(
         resolution,
         intent=prior_intent,
@@ -566,16 +573,33 @@ def _transform_resolution_points_at_prior_answer(
     resolution: TurnIntentResolution,
     *,
     user_input: str,
+    prior_intent: str,
 ) -> bool:
     if resolution.prior_answer_positions:
         return True
     if not (resolution.prior_answer_reference or resolution.followup_target.strip()):
         return False
-    if resolution.prior_answer_reference:
-        return True
     if not _transform_resolution_matches_user_input(resolution, user_input=user_input):
         return False
+    if _transform_resolution_has_explicit_prior_reference(
+        resolution,
+        prior_intent=prior_intent,
+    ):
+        return True
     return _transform_resolution_target_overlap_is_sufficient(resolution)
+
+
+def _transform_resolution_has_explicit_prior_reference(
+    resolution: TurnIntentResolution,
+    *,
+    prior_intent: str,
+) -> bool:
+    source_intent_switch = resolution.intent == "source_qa" and prior_intent != "source_qa"
+    return (
+        resolution.prior_answer_reference
+        and not resolution.direct_evidence_required
+        and not source_intent_switch
+    )
 
 
 def _transform_resolution_matches_user_input(

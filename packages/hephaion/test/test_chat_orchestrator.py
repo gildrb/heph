@@ -2629,6 +2629,45 @@ def test_plain_prior_transform_accepts_explicit_prior_reference() -> None:
     assert resolution.prior_answer_reference is True
 
 
+def test_plain_prior_transform_with_fresh_request_becomes_evidence_request() -> None:
+    resolution = _stabilized_followup_intent_resolution(
+        TurnIntentResolution(
+            intent="source_qa",
+            canonical_request="Explain selection sort from the sources.",
+            is_followup=True,
+            followup_target="that",
+            answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+            retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
+            prior_answer_reference=True,
+        ),
+        user_input="Not that, explain selection sort from the sources.",
+        prior_intent="material_overview",
+    )
+
+    assert resolution.intent == "source_qa"
+    assert resolution.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+    assert resolution.prior_answer_reference is False
+
+
+def test_source_prior_transform_accepts_explicit_prior_reference() -> None:
+    resolution = _stabilized_followup_intent_resolution(
+        TurnIntentResolution(
+            intent="source_qa",
+            canonical_request="Shorten the previous source answer.",
+            is_followup=True,
+            followup_target="that",
+            answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+            prior_answer_reference=True,
+        ),
+        user_input="Shorten that.",
+        prior_intent="source_qa",
+    )
+
+    assert resolution.intent == "source_qa"
+    assert resolution.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
+    assert resolution.prior_answer_reference is True
+
+
 def test_plain_transform_without_prior_anchor_becomes_current_evidence_request() -> None:
     resolution = _stabilized_followup_intent_resolution(
         TurnIntentResolution(
