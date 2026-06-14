@@ -141,6 +141,37 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
 
 
+def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> None:
+    armory_path = tmp_path / "armory"
+    service = HephService.create_armory(armory_path, config=_config())
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            _jsonl(
+                {"id": "plain-1", "method": "use_plain_runtime"},
+                {"id": "open-1", "method": "open_armory", "params": {"path": str(armory_path)}},
+            )
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    plain_response = next(payload for payload in payloads if payload.get("id") == "plain-1")
+    open_response = next(payload for payload in payloads if payload.get("id") == "open-1")
+    plain_result = _payload_mapping(plain_response["result"])
+    open_result = _payload_mapping(open_response["result"])
+    plain_service = _payload_mapping(plain_result["service"])
+    open_service = _payload_mapping(open_result["service"])
+
+    assert plain_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert open_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert "build_index" not in _payload_list(plain_service["available_stream_methods"])
+    assert "build_index" not in _payload_list(open_service["available_stream_methods"])
+
+
 def test_jsonl_sdk_server_abort_reaches_active_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

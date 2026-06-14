@@ -171,7 +171,7 @@ class JsonlSdkServer:
     ) -> None:
         if self._stream_is_pending():
             raise HephSdkBusyError()
-        self._write_response(request_id, self.service.call(method, params))
+        self._write_response(request_id, _jsonl_result_payload(self.service.call(method, params)))
 
     def _capabilities_payload(self) -> ServicePayload:
         capabilities = self.service.capabilities().get("capabilities")
@@ -555,6 +555,16 @@ def _state_with_jsonl_stream_methods(state: ServicePayload) -> ServicePayload:
     merged_state = dict(state)
     merged_state["service"] = merged_service
     return merged_state
+
+
+def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:
+    result = _state_with_jsonl_stream_methods(result)
+    state_value = result.get("state")
+    if not is_string_mapping(state_value):
+        return result
+    merged_result = dict(result)
+    merged_result["state"] = _state_with_jsonl_stream_methods(state_value)
+    return merged_result
 
 
 def _error(code: str, message: str) -> dict[str, object]:
