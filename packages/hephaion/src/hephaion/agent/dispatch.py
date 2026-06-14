@@ -301,6 +301,103 @@ def _tool_turn_events(
     return False
 
 
+def _active_tool_registry(
+    registry: ToolRegistry | None,
+    allowed_tool_names: Sequence[str] | None,
+) -> ToolRegistry:
+    active_registry = default_registry if registry is None else registry
+    return _restricted_tool_registry(active_registry, allowed_tool_names)
+
+
+def _active_tool_schemas(
+    tool_schemas: list[ToolSchema] | None,
+    *,
+    allowed_tool_names: Sequence[str] | None,
+    registry: ToolRegistry,
+) -> list[ToolSchema] | None:
+    if allowed_tool_names is not None and tool_schemas is None:
+        return registry.schemas
+    return tool_schemas
+
+
+def _agent_loop_turn_events(
+    *,
+    config: ChatConfig,
+    conversation: Conversation,
+    workspace: Path,
+    registry: ToolRegistry,
+    retry: RetryConfig,
+    abort: threading.Event | None,
+    usage: SessionUsage | None,
+    steering: Steering | None,
+    state: AgentLoopState,
+    turn_evidence: TurnEvidence | None,
+    extra_system_prompt: str | None,
+    tool_schemas: list[ToolSchema] | None,
+    turn_idx: int,
+) -> Generator[TurnEvent, None, bool]:
+    if _abort_requested(abort, turn_idx=turn_idx, loop_timer=state.loop_timer):
+        return True
+
+    micro_compact(state.api_messages)
+
+    llm_messages, compaction_notice = _prepare_llm_messages(
+        config=config,
+        conversation=conversation,
+        workspace=workspace,
+        api_messages=state.api_messages,
+        budget=state.budget,
+        turn_evidence=turn_evidence,
+        extra_system_prompt=extra_system_prompt,
+    )
+    if compaction_notice is not None:
+        yield compaction_notice
+
+    model_result = yield from run_model_turn(
+        config=config,
+        retry=retry,
+        abort=abort,
+        registry=registry,
+        tool_schemas=tool_schemas,
+        llm_messages=llm_messages,
+        turn_idx=turn_idx,
+        turn_evidence=turn_evidence,
+    )
+
+    if not model_result.tool_calls:
+        yield from _final_response_events(
+            config=config,
+            conversation=conversation,
+            api_messages=state.api_messages,
+            collected_text=model_result.text,
+            stream_state=model_result.stream_state,
+            budget=state.budget,
+            loop_timer=state.loop_timer,
+            turn_idx=turn_idx,
+            usage=usage,
+            steering=steering,
+        )
+        return True
+
+    return (
+        yield from _tool_turn_events(
+            config=config,
+            conversation=conversation,
+            workspace=workspace,
+            registry=registry,
+            abort=abort,
+            usage=usage,
+            steering=steering,
+            state=state,
+            model_result_text=model_result.text,
+            model_result_tool_calls=model_result.tool_calls,
+            model_stream_state=model_result.stream_state,
+            model_turn_timer=model_result.turn_timer,
+            turn_idx=turn_idx,
+        )
+    )
+
+
 def iter_agent_events(
     config: ChatConfig,
     conversation: Conversation,
@@ -320,11 +417,12 @@ def iter_agent_events(
 ) -> Iterator[TurnEvent]:
     """Run the model/tool loop and emit structured turn events."""
     retry = retry or RetryConfig()
-    if registry is None:
-        registry = default_registry
-    registry = _restricted_tool_registry(registry, allowed_tool_names)
-    if allowed_tool_names is not None and tool_schemas is None:
-        tool_schemas = registry.schemas
+    registry = _active_tool_registry(registry, allowed_tool_names)
+    tool_schemas = _active_tool_schemas(
+        tool_schemas,
+        allowed_tool_names=allowed_tool_names,
+        registry=registry,
+    )
     state = _new_loop_state(config, conversation)
     _log_agent_loop_start(config, state, max_turns)
 
@@ -339,62 +437,19 @@ def iter_agent_events(
         return
 
     for turn_idx in range(max_turns):
-        if _abort_requested(abort, turn_idx=turn_idx, loop_timer=state.loop_timer):
-            return
-
-        micro_compact(state.api_messages)
-
-        llm_messages, compaction_notice = _prepare_llm_messages(
+        turn_completed = yield from _agent_loop_turn_events(
             config=config,
             conversation=conversation,
             workspace=workspace,
-            api_messages=state.api_messages,
-            budget=state.budget,
-            turn_evidence=turn_evidence,
-            extra_system_prompt=extra_system_prompt,
-        )
-        if compaction_notice is not None:
-            yield compaction_notice
-
-        model_result = yield from run_model_turn(
-            config=config,
+            registry=registry,
             retry=retry,
-            abort=abort,
-            registry=registry,
-            tool_schemas=tool_schemas,
-            llm_messages=llm_messages,
-            turn_idx=turn_idx,
-            turn_evidence=turn_evidence,
-        )
-
-        if not model_result.tool_calls:
-            yield from _final_response_events(
-                config=config,
-                conversation=conversation,
-                api_messages=state.api_messages,
-                collected_text=model_result.text,
-                stream_state=model_result.stream_state,
-                budget=state.budget,
-                loop_timer=state.loop_timer,
-                turn_idx=turn_idx,
-                usage=usage,
-                steering=steering,
-            )
-            return
-
-        turn_completed = yield from _tool_turn_events(
-            config=config,
-            conversation=conversation,
-            workspace=workspace,
-            registry=registry,
             abort=abort,
             usage=usage,
             steering=steering,
             state=state,
-            model_result_text=model_result.text,
-            model_result_tool_calls=model_result.tool_calls,
-            model_stream_state=model_result.stream_state,
-            model_turn_timer=model_result.turn_timer,
+            turn_evidence=turn_evidence,
+            extra_system_prompt=extra_system_prompt,
+            tool_schemas=tool_schemas,
             turn_idx=turn_idx,
         )
         if turn_completed:

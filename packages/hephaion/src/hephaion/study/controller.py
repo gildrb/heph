@@ -52,6 +52,9 @@ from hephaion.study.state import (
 type TurnResult = tuple[LearningState, str]
 
 _MAX_PRACTICE_TURNS = 24
+_OPEN_MATERIAL_INTENTS = frozenset(
+    {"material_overview", "source_qa", "topic_presentation", "topic_drill"}
+)
 
 
 def plan_turn(
@@ -180,16 +183,8 @@ def _plan_waiting_intent(
             _waiting_prompt(),
             phase=LearningPhase.WAITING_FOR_READY,
         )
-    if intent in {"material_overview", "source_qa", "topic_presentation", "topic_drill"}:
-        return _open_material_plan_for_intent(user_input, intent)
-    if intent == "priority_request":
-        return _priority_plan(user_input, phase=state.phase)
-    if intent == "heph_action":
-        return heph_action_plan(user_input, phase=state.phase)
-    if intent == "heph_help":
-        return heph_help_plan(user_input, phase=state.phase)
-    if intent == "chat":
-        return plain_chat_plan(user_input, phase=state.phase)
+    if common_plan := _active_recall_common_intent_plan(state, user_input, intent):
+        return common_plan
     return _material_review_plan(
         prompt=_source_followup_prompt(item, user_input),
         retrieval_query=source_query,
@@ -215,7 +210,17 @@ def _plan_recall_phase_intent(
         return _recall_review_plan(state, source_query)
     if intent == "recall_clarification":
         return recall_clarification_plan(user_input, current_item=item)
-    if intent in {"material_overview", "source_qa", "topic_presentation", "topic_drill"}:
+    if common_plan := _active_recall_common_intent_plan(state, user_input, intent):
+        return common_plan
+    return _recall_assessment_plan(state, user_input, source_query)
+
+
+def _active_recall_common_intent_plan(
+    state: LearningState,
+    user_input: str,
+    intent: str,
+) -> LearningTurnPlan | None:
+    if intent in _OPEN_MATERIAL_INTENTS:
         return _open_material_plan_for_intent(user_input, intent)
     if intent == "priority_request":
         return _priority_plan(user_input, phase=state.phase)
@@ -225,7 +230,7 @@ def _plan_recall_phase_intent(
         return heph_help_plan(user_input, phase=state.phase)
     if intent == "chat":
         return plain_chat_plan(user_input, phase=state.phase)
-    return _recall_assessment_plan(state, user_input, source_query)
+    return None
 
 
 def _plan_open_intent(
