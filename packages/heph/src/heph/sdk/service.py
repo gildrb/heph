@@ -8,10 +8,15 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.capabilities import get_sdk_capabilities
+from heph.sdk.config import (
+    SdkConfigUpdate,
+    SdkConfigUpdateName,
+    SdkConfigUpdateValue,
+    apply_sdk_config_updates,
+)
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.method_validation import validate_method_params
@@ -39,6 +44,10 @@ type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
 type _ServiceCallArgumentDecoder = Callable[[Mapping[str, object], str], object]
 type _ServiceCallHandler = Callable[..., ServicePayload]
+type _ServiceConfigParamDecoder = Callable[
+    [Mapping[str, object], str],
+    SdkConfigUpdateValue | None,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +77,21 @@ class _ServiceCallRoute:
             *(argument.value_from(params) for argument in self.arguments),
             **keywords,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _ServiceConfigParam:
+    name: SdkConfigUpdateName
+    decoder: _ServiceConfigParamDecoder
+    keep_none: bool = False
+
+    def update_from(self, params: Mapping[str, object]) -> SdkConfigUpdate | None:
+        if self.name not in params:
+            return None
+        value = self.decoder(params, self.name)
+        if value is None and not self.keep_none:
+            return None
+        return SdkConfigUpdate(self.name, value)
 
 
 @dataclass(slots=True)
@@ -372,25 +396,7 @@ class HephService:
 
     def update_config(self, params: Mapping[str, object]) -> dict[str, object]:
         with self._idle_service_call():
-            if value := _optional_str(params, "base_url"):
-                self.runtime.config.base_url = value
-            if value := _optional_str(params, "model"):
-                self.runtime.config.model = value
-            if "max_tokens" in params:
-                max_tokens = _optional_int(params, "max_tokens")
-                if max_tokens is not None:
-                    self.runtime.config.max_tokens = max_tokens
-            if "rag_context_budget" in params:
-                rag_context_budget = _optional_int(params, "rag_context_budget")
-                if rag_context_budget is not None:
-                    self.runtime.config.rag_context_budget = rag_context_budget
-            if "temperature" in params:
-                self.runtime.config.temperature = _optional_float(params, "temperature")
-            reasoning_level = _optional_str(params, "reasoning_level")
-            if reasoning_level is not None:
-                self.runtime.config.reasoning_level = normalize_reasoning_level(reasoning_level)
-            if value := _optional_str(params, "thinking_visibility"):
-                self.runtime.config.thinking_visibility = normalize_thinking_visibility(value)
+            apply_sdk_config_updates(self.runtime.config, _config_updates_from_params(params))
         return {"runtime": self._runtime_state().to_dict()}
 
     def update_settings(self, params: Mapping[str, object]) -> dict[str, object]:
@@ -585,6 +591,15 @@ def _required_bool(params: Mapping[str, object], key: str) -> bool:
     return value
 
 
+def _config_updates_from_params(params: Mapping[str, object]) -> tuple[SdkConfigUpdate, ...]:
+    updates: list[SdkConfigUpdate] = []
+    for config_param in _CONFIG_PARAMS:
+        update = config_param.update_from(params)
+        if update is not None:
+            updates.append(update)
+    return tuple(updates)
+
+
 def _optional_str(params: Mapping[str, object], key: str) -> str | None:
     value = params.get(key)
     if value is None:
@@ -622,8 +637,19 @@ def _optional_float(params: Mapping[str, object], key: str) -> float | None:
     if value is None:
         return None
     if isinstance(value, int | float) and not isinstance(value, bool):
-        return min(2.0, max(0.0, float(value)))
+        return float(value)
     raise HephSdkError(f"SDK service parameter '{key}' must be a number or null.")
+
+
+_CONFIG_PARAMS = (
+    _ServiceConfigParam("base_url", _optional_str),
+    _ServiceConfigParam("model", _optional_str),
+    _ServiceConfigParam("max_tokens", _optional_int),
+    _ServiceConfigParam("rag_context_budget", _optional_int),
+    _ServiceConfigParam("temperature", _optional_float, keep_none=True),
+    _ServiceConfigParam("reasoning_level", _optional_str),
+    _ServiceConfigParam("thinking_visibility", _optional_str),
+)
 
 
 __all__ = [

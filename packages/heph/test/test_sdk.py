@@ -2530,6 +2530,12 @@ def test_service_call_and_stream_dispatcher(
         abort: threading.Event | None = None,
     ) -> Iterator[TurnEvent]:
         _ = abort
+        assert raw_session.config.model == "updated-model"
+        assert raw_session.config.max_tokens == 0
+        assert raw_session.config.rag_context_budget == 0
+        assert raw_session.config.temperature == 2.0
+        assert raw_session.config.reasoning_level == "xhigh"
+        assert raw_session.config.thinking_visibility == "all"
         raw_session.conversation.add("user", prompt)
         raw_session.conversation.add("assistant", "Dispatched.")
         raw_session.dirty = True
@@ -2569,6 +2575,9 @@ def test_service_call_and_stream_dispatcher(
     assert runtime_payload["thinking_visibility"] == "all"
     assert zero_runtime_payload["max_tokens"] == 0
     assert zero_runtime_payload["rag_context_budget"] == 0
+    assert service.session is not None
+    assert service.session.model == "updated-model"
+    assert service.session.thinking_visibility == "all"
     assert capabilities_payload == service.capabilities()
     assert "capabilities" in _payload_list(capability_service["call_methods"])
     assert validated_armory["valid"] is True

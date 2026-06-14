@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ai.providers.reasoning import normalize_reasoning_level
-from ai.runtime import ChatConfig, normalize_thinking_visibility
+from ai.runtime import ChatConfig
 from hephaion.armory.storage import normalize_path
 from hephaion.parameters.cli import load_config
 
+from heph.sdk.config import apply_sdk_config_updates, sdk_config_update
 from heph.sdk.runtime import HephRuntime, HephSdkError, HephSession
 from heph.sdk.service import HephService
 
@@ -134,22 +134,21 @@ def _normalized_optional_path(path: str | Path | None) -> Path | None:
 
 
 def _apply_config_overrides(config: ChatConfig, options: HephSdkOptions) -> None:
-    if options.base_url is not None:
-        config.base_url = options.base_url
-    if options.model is not None:
-        config.model = options.model
-    if options.max_tokens is not None:
-        config.max_tokens = options.max_tokens
-    if options.rag_context_budget is not None:
-        config.rag_context_budget = options.rag_context_budget
-    if options.reasoning_level is not None:
-        config.reasoning_level = normalize_reasoning_level(options.reasoning_level)
-    if options.thinking_visibility is not None:
-        config.thinking_visibility = normalize_thinking_visibility(options.thinking_visibility)
-    if options.temperature is not None:
-        config.temperature = min(2.0, max(0.0, options.temperature))
-    if options.feature_flags is not None:
-        config.feature_flags = options.feature_flags
+    updates = tuple(
+        update
+        for update in (
+            sdk_config_update("base_url", options.base_url),
+            sdk_config_update("model", options.model),
+            sdk_config_update("max_tokens", options.max_tokens),
+            sdk_config_update("rag_context_budget", options.rag_context_budget),
+            sdk_config_update("reasoning_level", options.reasoning_level),
+            sdk_config_update("thinking_visibility", options.thinking_visibility),
+            sdk_config_update("temperature", options.temperature),
+            sdk_config_update("feature_flags", options.feature_flags),
+        )
+        if update is not None
+    )
+    apply_sdk_config_updates(config, updates)
 
 
 __all__ = [
