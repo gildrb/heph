@@ -751,12 +751,26 @@ def _overview_cue_looks_like_byline(cue: str) -> bool:
     words = _letter_words(cue)
     if len(words) < 4:
         return False
+    return _overview_cue_is_name_dense(words) or _overview_cue_has_multiple_name_segments(cue)
+
+
+def _overview_cue_is_name_dense(words: Sequence[str]) -> bool:
+    if len(words) < 6:
+        return False
     name_like = sum(1 for word in words if _looks_like_name_word(word))
-    if len(words) >= 6 and name_like / len(words) >= 0.8:
-        return True
-    segments = [_letter_words(segment) for segment in re.split(r"[,;/]", cue) if segment.strip()]
+    return name_like / len(words) >= 0.8
+
+
+def _overview_cue_has_multiple_name_segments(cue: str) -> bool:
+    segments = _overview_name_segments(cue)
     name_segments = sum(1 for segment in segments if _looks_like_person_name_segment(segment))
     return bool(segments) and name_segments >= 2 and name_segments / len(segments) >= 0.6
+
+
+def _overview_name_segments(cue: str) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        tuple(_letter_words(segment)) for segment in re.split(r"[,;/]", cue) if segment.strip()
+    )
 
 
 def _looks_like_person_name_segment(words: Sequence[str]) -> bool:
