@@ -291,7 +291,10 @@ client generators that want typed value objects instead of dictionaries.
 availability drift, unresolved DTO type references, and stream event drift;
 keep it green when extending the SDK surface.
 The `errors.jsonl` section describes each JSONL error code so native clients can
-present stable recovery copy without hard-coding the Python docs.
+present stable recovery copy without hard-coding the Python docs. JSONL error
+payloads always include `code`, `message`, and nullable `unavailable_reason`;
+`unavailable_reason` is populated with the same stable reason values used by
+state availability records when a valid method is unavailable or busy.
 The `fields` section describes service, runtime, and session state field types
 and nullability for clients that generate typed wrappers around the JSON-ready
 state payload.
@@ -348,7 +351,8 @@ streams. This lifecycle rule is enforced by `HephService` itself, so it applies
 to both direct Python embeddings and JSONL transport clients. In Python, busy
 requests raise `HephSdkBusyError`, while valid methods that are unavailable for
 the current runtime/session state raise `HephSdkUnavailableError`. In JSONL,
-those conditions are reported with error codes `"busy"` and `"unavailable"`.
+those conditions are reported with error codes `"busy"` and `"unavailable"` plus
+the structured `unavailable_reason` value.
 Model runtime failures raised while handling a prompt are wrapped as
 `HephSdkModelError` in direct Python embeddings and reported as structured JSONL
 stream errors for transport clients. When the lower runtime classifies the
@@ -487,6 +491,11 @@ The JSONL error codes advertised through capabilities are:
 - `circuit_open`: the model provider circuit breaker is open after recent
   failures.
 - `internal_error`: an unexpected server-side exception escaped the SDK layer.
+
+Every JSONL `error` payload includes `code`, `message`, and nullable
+`unavailable_reason`. The reason is populated for `busy` and `unavailable`
+responses so clients can reuse the same disabled-control recovery logic they
+use for service-state availability records.
 
 ## Boundary Rules
 

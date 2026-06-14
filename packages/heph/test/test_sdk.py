@@ -965,6 +965,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": False,
     }
+    assert _payload_mapping(jsonl_error_type_fields["message"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(jsonl_error_type_fields["unavailable_reason"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": True,
+    }
     assert _payload_mapping(sdk_event_type_fields["type"]) == {
         "type": "string",
         "required": True,

@@ -284,10 +284,13 @@ def test_jsonl_sdk_server_rejects_unavailable_calls_and_streams_before_start() -
     state_service = _payload_mapping(_payload_mapping(state_response["result"])["service"])
 
     assert ask_error["code"] == "unavailable"
+    assert ask_error["unavailable_reason"] == "missing_session"
     assert "ask" in str(ask_error["message"])
     assert prompt_error["code"] == "unavailable"
+    assert prompt_error["unavailable_reason"] == "missing_session"
     assert "prompt" in str(prompt_error["message"])
     assert index_error["code"] == "unavailable"
+    assert index_error["unavailable_reason"] == "missing_armory"
     assert "build_index" in str(index_error["message"])
     assert [payload for payload in payloads if payload["type"] == "stream_start"] == []
     assert [payload for payload in payloads if payload["type"] == "stream_end"] == []
@@ -340,7 +343,9 @@ def test_jsonl_sdk_server_abort_reaches_active_prompt(
     complete_event = _payload_mapping(stream_events[-1]["event"])
 
     assert busy_response["type"] == "error"
-    assert _payload_mapping(busy_response["error"])["code"] == "busy"
+    busy_error = _payload_mapping(busy_response["error"])
+    assert busy_error["code"] == "busy"
+    assert busy_error["unavailable_reason"] == "busy"
     assert _payload_mapping(abort_response["result"])["aborted"] is True
     assert complete_event["finish_reason"] == "abort"
     assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
@@ -449,6 +454,7 @@ def test_jsonl_sdk_server_maps_service_busy_errors_to_busy_code(
     assert payloads[0]["type"] == "error"
     assert payloads[0]["id"] == "new-while-service-busy"
     assert error["code"] == "busy"
+    assert error["unavailable_reason"] == "busy"
     assert prompt_errors == []
     assert not thread.is_alive()
 
@@ -760,6 +766,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     assert abort_result["aborted"] is False
     _assert_jsonl_operation_busy_service_state(abort_state_service)
     assert prompt_error_payload["code"] == "busy"
+    assert prompt_error_payload["unavailable_reason"] == "busy"
     assert events == [
         {
             "type": "index_progress",
@@ -840,6 +847,7 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
     assert stream_end["type"] == "stream_end"
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
+    assert stream_error["unavailable_reason"] is None
     assert "prompt failed" in str(stream_error["message"])
     assert service_state["prompt_active"] is False
     assert service_state["active_operation"] is None
@@ -919,6 +927,7 @@ def test_jsonl_sdk_server_reports_engine_error_code_in_prompt_stream(
 
     assert stream_end["ok"] is False
     assert stream_error["code"] == EngineErrorCode.MISSING_CREDENTIALS.value
+    assert stream_error["unavailable_reason"] is None
     assert "requires OAuth credentials" in str(stream_error["message"])
 
 
@@ -980,6 +989,7 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
     assert stream_end["type"] == "stream_end"
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
+    assert stream_error["unavailable_reason"] is None
     assert "index failed" in str(stream_error["message"])
     assert service_state["prompt_active"] is False
     assert service_state["active_operation"] is None
@@ -1044,6 +1054,7 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
         "invalid_request",
         "invalid_request",
     ]
+    assert all(_payload_mapping(error["error"])["unavailable_reason"] is None for error in errors)
     extra_field_error = next(
         payload
         for payload in errors
@@ -1128,6 +1139,7 @@ def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -
 
     assert bad_param["type"] == "error"
     assert _payload_mapping(bad_param["error"])["code"] == "sdk_error"
+    assert _payload_mapping(bad_param["error"])["unavailable_reason"] is None
     assert "does not accept parameter: typo" in str(
         _payload_mapping(bad_param["error"])["message"]
     )

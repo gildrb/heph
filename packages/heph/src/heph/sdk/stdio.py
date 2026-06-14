@@ -68,6 +68,14 @@ class _JsonlRequest:
 class _JsonlErrorPayload:
     code: str
     message: str
+    unavailable_reason: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "unavailable_reason": self.unavailable_reason,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +141,7 @@ class JsonlSdkServer:
             request = _parse_request(line)
             self.handle_request(request)
         except SdkProtocolError as exc:
-            self._write_error(None, exc.code, str(exc))
+            self._write_error(None, _request_error_payload(exc))
 
     def handle_request(self, request: dict[str, object]) -> None:
         request_id: RequestId = None
@@ -143,7 +151,7 @@ class JsonlSdkServer:
             self._dispatch_request(parsed_request)
         except Exception as exc:
             error = _request_error_payload(exc)
-            self._write_error(request_id, error.code, error.message)
+            self._write_error(request_id, error)
 
     def _dispatch_request(self, request: _JsonlRequest) -> None:
         if request.method == "prompt":
@@ -366,13 +374,13 @@ class JsonlSdkServer:
             payload["error"] = error
         self._write(payload)
 
-    def _write_error(self, request_id: RequestId, code: str, message: str) -> None:
+    def _write_error(self, request_id: RequestId, error: _JsonlErrorPayload) -> None:
         self._write(
             {
                 "type": "error",
                 "id": request_id,
                 "ok": False,
-                "error": _error(code, message),
+                "error": error.to_dict(),
             }
         )
 
@@ -656,6 +664,10 @@ def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:
 
 
 def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
+    if isinstance(exc, HephSdkBusyError):
+        return _JsonlErrorPayload(exc.code, str(exc), SDK_METHOD_UNAVAILABLE_BUSY)
+    if isinstance(exc, HephSdkUnavailableError):
+        return _JsonlErrorPayload(exc.code, str(exc), exc.unavailable_reason)
     if isinstance(exc, (SdkProtocolError, HephSdkError)):
         return _JsonlErrorPayload(exc.code, str(exc))
     if isinstance(exc, ArmoryError):
@@ -663,18 +675,8 @@ def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
     return _JsonlErrorPayload("internal_error", str(exc))
 
 
-def _error(code: str, message: str) -> dict[str, object]:
-    return {"code": code, "message": message}
-
-
 def _stream_error(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, HephSdkBusyError):
-        return _error(exc.code, str(exc))
-    if isinstance(exc, HephSdkUnavailableError):
-        return _error(exc.code, str(exc))
-    if isinstance(exc, HephSdkError):
-        return _error(exc.code, str(exc))
-    return _error("internal_error", str(exc))
+    return _request_error_payload(exc).to_dict()
 
 
 __all__ = [
