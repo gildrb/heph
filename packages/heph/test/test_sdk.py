@@ -21,6 +21,8 @@ from heph.sdk import (
     SDK_MUTABLE_APP_SETTINGS,
     ArmoryValidationSummary,
     AssistantDelta,
+    CompactRequest,
+    Guardrail,
     HephMessage,
     HephRuntime,
     HephSdkBusyError,
@@ -64,6 +66,8 @@ from heph.sdk import runtime as sdk_runtime
 from heph.sdk.method_validation import validate_method_params
 from hephaion.chat.events import (
     AssistantDeltaEvent,
+    CompactRequestEvent,
+    GuardrailEvent,
     MaterialOperationEvent,
     NoticeEvent,
     ReasoningDeltaEvent,
@@ -187,6 +191,15 @@ def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
         "metadata": {"query": "notes"},
     }
 
+    compact = from_turn_event(CompactRequestEvent("compact-1", "compact", {"ratio": 0.5}))
+    assert isinstance(compact, CompactRequest)
+    assert event_to_dict(compact) == {
+        "type": "compact_request",
+        "call_id": "compact-1",
+        "name": "compact",
+        "arguments": {"ratio": 0.5},
+    }
+
     notice = from_turn_event(NoticeEvent("Checking citations.", code="verification"))
     assert isinstance(notice, Notice)
     assert event_to_dict(notice) == {
@@ -198,6 +211,18 @@ def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
     complete = from_turn_event(TurnCompleteEvent("done", 2, 4.5, "stop", 123))
     assert isinstance(complete, TurnComplete)
     assert complete.to_dict()["full_text"] == "done"
+
+    guardrail = from_turn_event(
+        GuardrailEvent("input", "block", "Blocked locally.", {"reason": "policy"})
+    )
+    assert isinstance(guardrail, Guardrail)
+    assert event_to_dict(guardrail) == {
+        "type": "guardrail",
+        "stage": "input",
+        "action": "block",
+        "message": "Blocked locally.",
+        "metadata": {"reason": "policy"},
+    }
 
 
 def test_sdk_object_field_spec_keeps_compatible_aliases() -> None:

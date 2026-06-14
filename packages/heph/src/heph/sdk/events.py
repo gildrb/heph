@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -187,64 +188,127 @@ HephEvent = (
     | Guardrail
 )
 
+type _EventConverter = Callable[[object], HephEvent]
+
+
+@dataclass(frozen=True, slots=True)
+class _EventConversionRule:
+    source_type: type[object]
+    converter: _EventConverter
+
+    def convert_if_matching(self, event: TurnEvent) -> HephEvent | None:
+        if not isinstance(event, self.source_type):
+            return None
+        return self.converter(event)
+
 
 def from_turn_event(event: TurnEvent) -> HephEvent:
     """Convert the harness turn event into the public SDK DTO."""
-    if isinstance(event, AssistantDeltaEvent):
-        return AssistantDelta(delta=event.delta)
-    if isinstance(event, ReasoningDeltaEvent):
-        return ReasoningDelta(delta=event.delta, summary=event.summary)
-    if isinstance(event, ToolCallEvent):
-        return ToolCall(
-            call_id=event.call_id,
-            name=event.name,
-            arguments=event.arguments,
-            display=event.display,
-        )
-    if isinstance(event, ToolResultEvent):
-        return ToolResult(
-            call_id=event.call_id,
-            name=event.name,
-            content=event.content,
-            summary=event.summary,
-            success=event.success,
-            metadata=event.metadata,
-            error=event.error,
-        )
-    if isinstance(event, MaterialOperationEvent):
-        return MaterialOperation(
-            operation=event.operation,
-            message=event.message,
-            metadata=event.metadata,
-        )
-    if isinstance(event, CompactRequestEvent):
-        return CompactRequest(
-            call_id=event.call_id,
-            name=event.name,
-            arguments=event.arguments,
-        )
-    if isinstance(event, TurnCompleteEvent):
-        return TurnComplete(
-            full_text=event.full_text,
-            turn_index=event.turn_index,
-            latency_ms=event.latency_ms,
-            finish_reason=event.finish_reason,
-            tokens_remaining=event.tokens_remaining,
-        )
-    if isinstance(event, NoticeEvent):
-        return Notice(message=event.message, code=event.code, metadata=event.metadata)
-    if isinstance(event, GuardrailEvent):
-        return Guardrail(
-            stage=event.stage,
-            action=event.action,
-            message=event.message,
-            metadata=event.metadata,
-        )
+    for rule in _EVENT_CONVERSION_RULES:
+        converted = rule.convert_if_matching(event)
+        if converted is not None:
+            return converted
     raise TypeError(f"Unsupported turn event: {type(event).__name__}")
 
 
 def event_to_dict(event: HephEvent) -> dict[str, object]:
     return event.to_dict()
+
+
+def _expect_event[T](event: object, event_type: type[T]) -> T:
+    if isinstance(event, event_type):
+        return event
+    raise TypeError(f"Expected {event_type.__name__}, got {type(event).__name__}.")
+
+
+def _assistant_delta_from_event(event: object) -> AssistantDelta:
+    source = _expect_event(event, AssistantDeltaEvent)
+    return AssistantDelta(delta=source.delta)
+
+
+def _reasoning_delta_from_event(event: object) -> ReasoningDelta:
+    source = _expect_event(event, ReasoningDeltaEvent)
+    return ReasoningDelta(delta=source.delta, summary=source.summary)
+
+
+def _tool_call_from_event(event: object) -> ToolCall:
+    source = _expect_event(event, ToolCallEvent)
+    return ToolCall(
+        call_id=source.call_id,
+        name=source.name,
+        arguments=source.arguments,
+        display=source.display,
+    )
+
+
+def _tool_result_from_event(event: object) -> ToolResult:
+    source = _expect_event(event, ToolResultEvent)
+    return ToolResult(
+        call_id=source.call_id,
+        name=source.name,
+        content=source.content,
+        summary=source.summary,
+        success=source.success,
+        metadata=source.metadata,
+        error=source.error,
+    )
+
+
+def _material_operation_from_event(event: object) -> MaterialOperation:
+    source = _expect_event(event, MaterialOperationEvent)
+    return MaterialOperation(
+        operation=source.operation,
+        message=source.message,
+        metadata=source.metadata,
+    )
+
+
+def _compact_request_from_event(event: object) -> CompactRequest:
+    source = _expect_event(event, CompactRequestEvent)
+    return CompactRequest(
+        call_id=source.call_id,
+        name=source.name,
+        arguments=source.arguments,
+    )
+
+
+def _turn_complete_from_event(event: object) -> TurnComplete:
+    source = _expect_event(event, TurnCompleteEvent)
+    return TurnComplete(
+        full_text=source.full_text,
+        turn_index=source.turn_index,
+        latency_ms=source.latency_ms,
+        finish_reason=source.finish_reason,
+        tokens_remaining=source.tokens_remaining,
+    )
+
+
+def _notice_from_event(event: object) -> Notice:
+    source = _expect_event(event, NoticeEvent)
+    return Notice(message=source.message, code=source.code, metadata=source.metadata)
+
+
+def _guardrail_from_event(event: object) -> Guardrail:
+    source = _expect_event(event, GuardrailEvent)
+    return Guardrail(
+        stage=source.stage,
+        action=source.action,
+        message=source.message,
+        metadata=source.metadata,
+    )
+
+
+_EVENT_CONVERSION_RULES = (
+    _EventConversionRule(AssistantDeltaEvent, _assistant_delta_from_event),
+    _EventConversionRule(ReasoningDeltaEvent, _reasoning_delta_from_event),
+    _EventConversionRule(ToolCallEvent, _tool_call_from_event),
+    _EventConversionRule(ToolResultEvent, _tool_result_from_event),
+    _EventConversionRule(MaterialOperationEvent, _material_operation_from_event),
+    _EventConversionRule(CompactRequestEvent, _compact_request_from_event),
+    _EventConversionRule(TurnCompleteEvent, _turn_complete_from_event),
+    _EventConversionRule(NoticeEvent, _notice_from_event),
+    _EventConversionRule(GuardrailEvent, _guardrail_from_event),
+)
 
 
 __all__ = [
