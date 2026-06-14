@@ -671,6 +671,30 @@ def test_sdk_service_direct_introspection_methods_validate_results(
         service.settings()
 
 
+def test_sdk_service_direct_capabilities_validate_nested_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenCapabilities:
+        def to_dict(self) -> dict[str, object]:
+            payload = get_sdk_capabilities().to_dict()
+            jsonl = dict(_payload_mapping(payload["jsonl"]))
+            jsonl["version"] = "bad"
+            payload["jsonl"] = jsonl
+            return payload
+
+    def broken_capabilities() -> BrokenCapabilities:
+        return BrokenCapabilities()
+
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(sdk_service, "get_sdk_capabilities", broken_capabilities)
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'capabilities\.jsonl\.version' must be an integer",
+    ):
+        service.capabilities()
+
+
 def test_sdk_service_call_rejects_nested_result_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -921,6 +945,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert validate_sdk_capabilities(capabilities) == ()
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert "sdk_capabilities" in types
+    assert "sdk_capabilities_service" in types
+    assert "sdk_capabilities_jsonl" in types
+    assert "sdk_capabilities_events" in types
+    assert "sdk_capabilities_state" in types
+    assert "sdk_capabilities_methods" in types
+    assert "sdk_capabilities_errors" in types
+    assert "sdk_capabilities_results" in types
+    assert "sdk_capabilities_streams" in types
+    assert "sdk_capabilities_availability" in types
+    assert "sdk_capabilities_fields" in types
     assert "sdk_state" in types
     assert "provider_summary" in types
     assert "model_choice_summary" in types
@@ -1324,13 +1358,28 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": True,
     }
+    assert _payload_mapping(sdk_capabilities_fields["service"]) == {
+        "type": "sdk_capabilities_service",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["jsonl"]) == {
+        "type": "sdk_capabilities_jsonl",
+        "required": True,
+        "nullable": False,
+    }
     assert _payload_mapping(sdk_capabilities_fields["streams"]) == {
-        "type": "object",
+        "type": "sdk_capabilities_streams",
         "required": True,
         "nullable": False,
     }
     assert _payload_mapping(sdk_capabilities_fields["availability"]) == {
-        "type": "object",
+        "type": "sdk_capabilities_availability",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["fields"]) == {
+        "type": "sdk_capabilities_fields",
         "required": True,
         "nullable": False,
     }

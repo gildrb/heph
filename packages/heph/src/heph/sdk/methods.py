@@ -13,7 +13,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 30
+SDK_CAPABILITIES_VERSION = 31
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
@@ -834,17 +834,99 @@ SDK_TYPE_SPECS = (
         "sdk_capabilities",
         (
             SdkTypeFieldSpec("version", "integer"),
+            SdkTypeFieldSpec("service", "sdk_capabilities_service"),
+            SdkTypeFieldSpec("jsonl", "sdk_capabilities_jsonl"),
+            SdkTypeFieldSpec("events", "sdk_capabilities_events"),
+            SdkTypeFieldSpec("state", "sdk_capabilities_state"),
+            SdkTypeFieldSpec("methods", "sdk_capabilities_methods"),
+            SdkTypeFieldSpec("errors", "sdk_capabilities_errors"),
+            SdkTypeFieldSpec("results", "sdk_capabilities_results"),
+            SdkTypeFieldSpec("streams", "sdk_capabilities_streams"),
+            SdkTypeFieldSpec("availability", "sdk_capabilities_availability"),
+            SdkTypeFieldSpec("fields", "sdk_capabilities_fields"),
+            SdkTypeFieldSpec("types", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_service",
+        (
+            SdkTypeFieldSpec("call_methods", "array<string>"),
+            SdkTypeFieldSpec("stream_methods", "array<string>"),
+            SdkTypeFieldSpec("busy_allowed_call_methods", "array<string>"),
+            SdkTypeFieldSpec("method_unavailable_reasons", "array<string>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_jsonl",
+        (
+            SdkTypeFieldSpec("protocol", "string"),
+            SdkTypeFieldSpec("version", "integer"),
+            SdkTypeFieldSpec("call_methods", "array<string>"),
+            SdkTypeFieldSpec("stream_methods", "array<string>"),
+            SdkTypeFieldSpec("request_spec", "object"),
+            SdkTypeFieldSpec("message_types", "array<string>"),
+            SdkTypeFieldSpec("message_specs", "object"),
+            SdkTypeFieldSpec("error_codes", "array<string>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_events",
+        (
+            SdkTypeFieldSpec("types", "array<string>"),
+            SdkTypeFieldSpec("specs", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_state",
+        (
+            SdkTypeFieldSpec("service_fields", "array<string>"),
+            SdkTypeFieldSpec("runtime_fields", "array<string>"),
+            SdkTypeFieldSpec("session_fields", "array<string>"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_methods",
+        (
+            SdkTypeFieldSpec("service_call", "object"),
+            SdkTypeFieldSpec("service_stream", "object"),
+            SdkTypeFieldSpec("jsonl_call", "object"),
+            SdkTypeFieldSpec("jsonl_stream", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_errors",
+        (SdkTypeFieldSpec("jsonl", "object"),),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_results",
+        (
+            SdkTypeFieldSpec("service_call", "object"),
+            SdkTypeFieldSpec("jsonl_call", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_streams",
+        (
             SdkTypeFieldSpec("service", "object"),
             SdkTypeFieldSpec("jsonl", "object"),
-            SdkTypeFieldSpec("events", "object"),
-            SdkTypeFieldSpec("state", "object"),
-            SdkTypeFieldSpec("methods", "object"),
-            SdkTypeFieldSpec("errors", "object"),
-            SdkTypeFieldSpec("results", "object"),
-            SdkTypeFieldSpec("streams", "object"),
-            SdkTypeFieldSpec("availability", "object"),
-            SdkTypeFieldSpec("fields", "object"),
-            SdkTypeFieldSpec("types", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_availability",
+        (
+            SdkTypeFieldSpec("requirements", "array<string>"),
+            SdkTypeFieldSpec("service_call", "object"),
+            SdkTypeFieldSpec("service_stream", "object"),
+            SdkTypeFieldSpec("jsonl_call", "object"),
+            SdkTypeFieldSpec("jsonl_stream", "object"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_capabilities_fields",
+        (
+            SdkTypeFieldSpec("service_state", "object"),
+            SdkTypeFieldSpec("runtime_state", "object"),
+            SdkTypeFieldSpec("session_state", "object"),
         ),
     ),
     SdkTypeSpec(

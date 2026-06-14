@@ -295,6 +295,9 @@ precondition. Each method maps to a `requirement` value such as `always`,
 `unavailable_reason` that state snapshots use when that requirement is not met.
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
+Capability sections such as `service`, `jsonl`, `streams`, and `availability`
+also have named DTO specs, so clients and runtime validators can detect nested
+capability payload drift instead of treating the whole contract as loose maps.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
 availability drift, unresolved DTO type references, JSONL request-envelope
 drift, discriminator drift, and stream event drift.
