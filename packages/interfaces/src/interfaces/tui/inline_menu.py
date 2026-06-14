@@ -421,22 +421,37 @@ def _local_model_fixed_metadata_text(
     if metadata_widths is None:
         return "  ".join(field for field in (quant, size) if field)
 
-    fields: list[str] = []
     has_later_metadata = bool(size or detail)
-    if metadata_widths.quant and (quant or has_later_metadata):
-        fields.append(
-            _pad_cell_left(quant, metadata_widths.quant) if quant else " " * metadata_widths.quant
-        )
-    elif quant:
-        fields.append(quant)
+    fields = (
+        _local_model_fixed_metadata_cell(
+            quant,
+            metadata_widths.quant,
+            reserve_blank=has_later_metadata,
+        ),
+        _local_model_fixed_metadata_cell(
+            size,
+            metadata_widths.size,
+            reserve_blank=bool(detail),
+        ),
+    )
+    return "  ".join(field for field in fields if field)
 
-    if metadata_widths.size and (size or detail):
-        fields.append(
-            _pad_cell_left(size, metadata_widths.size) if size else " " * metadata_widths.size
-        )
-    elif size:
-        fields.append(size)
-    return "  ".join(fields)
+
+def _local_model_fixed_metadata_cell(
+    value: str,
+    width: int,
+    *,
+    reserve_blank: bool,
+) -> str:
+    if width:
+        if value:
+            return _pad_cell_left(value, width)
+        if reserve_blank:
+            return " " * width
+        return ""
+    if value:
+        return value
+    return ""
 
 
 def _local_model_detail_metadata_text(

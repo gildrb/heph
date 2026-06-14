@@ -44,7 +44,9 @@ from interfaces.tui.cell_text import cell_width
 from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
+    _local_model_fixed_metadata_text,
     _local_model_option_text,
+    _LocalModelMetadataWidths,
     local_model_option_description,
 )
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
@@ -2207,6 +2209,19 @@ def test_local_model_option_text_drops_detail_when_narrow() -> None:
     assert "Q4_K_M" in tight_plain
     assert "721 MB" in tight_plain
     assert tight_plain.endswith("2...")
+
+
+def test_local_model_fixed_metadata_text_reserves_visible_columns() -> None:
+    widths = _LocalModelMetadataWidths(quant=6, size=6, detail=12)
+
+    assert _local_model_fixed_metadata_text("Q4", "3 GB", "", widths) == "    Q4    3 GB"
+    assert _local_model_fixed_metadata_text("", "3 GB", "needs RAM", widths) == ("          3 GB")
+    assert _local_model_fixed_metadata_text("Q4", "", "needs RAM", widths) == "    Q4        "
+
+
+def test_local_model_fixed_metadata_text_without_widths_keeps_available_fields() -> None:
+    assert _local_model_fixed_metadata_text("Q4", "3 GB", "", None) == "Q4  3 GB"
+    assert _local_model_fixed_metadata_text("", "3 GB", "", None) == "3 GB"
 
 
 def test_local_inline_menu_entries_align_with_counter() -> None:
