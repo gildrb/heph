@@ -20,14 +20,19 @@ from heph.sdk.method_validation import (
 )
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    JSONL_CALL_METHOD_SPECS,
     JSONL_CALL_METHODS,
     JSONL_CALL_RESULT_SPECS,
+    JSONL_OPERATION_STREAM_METHODS,
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     SDK_METHOD_UNAVAILABLE_BUSY,
+    SERVICE_CALL_METHOD_SPECS,
+    SERVICE_STREAM_METHOD_SPECS,
+    SdkMethodSpec,
     jsonl_stream_method_for_service,
     service_stream_method_for_jsonl,
 )
@@ -174,7 +179,7 @@ class JsonlSdkServer:
         self._handle_call(request)
 
     def _handle_call(self, request: _JsonlRequest) -> None:
-        params = self.service.validate_call_params(request.method, request.params)
+        params = _validate_jsonl_call_params(request)
         if route := _JSONL_CALL_ROUTES.get(request.method):
             route.dispatch(self, request.request_id, params)
             return
@@ -442,6 +447,15 @@ def _jsonl_request_from_mapping(request: dict[str, object]) -> _JsonlRequest:
         request_id=_request_id(request.get("id")),
         method=_request_method(request),
         params=_request_params(request),
+    )
+
+
+def _validate_jsonl_call_params(request: _JsonlRequest) -> dict[str, object]:
+    return validate_method_params(
+        request.method,
+        request.params,
+        JSONL_CALL_METHOD_SPECS,
+        surface="SDK JSONL",
     )
 
 
@@ -725,10 +739,118 @@ def _stream_error(exc: Exception) -> dict[str, object]:
     return _request_error_payload(exc).to_dict()
 
 
+def validate_sdk_jsonl_transport_contract(service: HephService) -> tuple[str, ...]:
+    """Return implementation drift between JSONL routes and advertised SDK specs."""
+    issues: list[str] = []
+    service_call_methods = tuple(route.method for route in service._call_route_sequence())
+    service_stream_methods = tuple(route.method for route in service._stream_route_sequence())
+    _append_jsonl_call_route_issues(issues, service_call_methods)
+    _append_jsonl_stream_route_issues(issues, service_stream_methods)
+    _append_jsonl_call_parameter_issues(issues)
+    _append_jsonl_stream_parameter_issues(issues)
+    return tuple(issues)
+
+
+def _append_jsonl_call_route_issues(
+    issues: list[str],
+    service_call_methods: tuple[str, ...],
+) -> None:
+    service_methods = frozenset(service_call_methods)
+    special_routes = frozenset(_JSONL_CALL_ROUTES)
+    unadvertised_routes = tuple(
+        sorted(method for method in special_routes if method not in JSONL_CALL_METHODS)
+    )
+    if unadvertised_routes:
+        issues.append(
+            f"jsonl.call_routes contains unadvertised routes: {', '.join(unadvertised_routes)}"
+        )
+    missing_methods = tuple(
+        method
+        for method in JSONL_CALL_METHODS
+        if method not in special_routes and method not in service_methods
+    )
+    if missing_methods:
+        issues.append(
+            "jsonl.call_routes does not implement advertised JSONL calls: "
+            f"{', '.join(missing_methods)}"
+        )
+
+
+def _append_jsonl_stream_route_issues(
+    issues: list[str],
+    service_stream_methods: tuple[str, ...],
+) -> None:
+    service_methods = frozenset(service_stream_methods)
+    unadvertised_routes = tuple(
+        sorted(
+            method
+            for method in JSONL_OPERATION_STREAM_METHODS
+            if method not in JSONL_STREAM_METHODS
+        )
+    )
+    if unadvertised_routes:
+        issues.append(
+            f"jsonl.stream_routes contains unadvertised routes: {', '.join(unadvertised_routes)}"
+        )
+    missing_methods = tuple(
+        method
+        for method in JSONL_STREAM_METHODS
+        if (service_method := _jsonl_service_stream_method(method)) is None
+        or service_method not in service_methods
+    )
+    if missing_methods:
+        issues.append(
+            "jsonl.stream_routes does not implement advertised JSONL streams: "
+            f"{', '.join(missing_methods)}"
+        )
+
+
+def _append_jsonl_call_parameter_issues(issues: list[str]) -> None:
+    service_specs = _method_specs_by_method(SERVICE_CALL_METHOD_SPECS)
+    for spec in JSONL_CALL_METHOD_SPECS:
+        service_spec = service_specs.get(spec.method)
+        if service_spec is None:
+            continue
+        if _method_param_names(spec) != _method_param_names(service_spec):
+            issues.append(
+                f"jsonl.call_specs.{spec.method} params do not match service call params."
+            )
+
+
+def _append_jsonl_stream_parameter_issues(issues: list[str]) -> None:
+    service_specs = _method_specs_by_method(SERVICE_STREAM_METHOD_SPECS)
+    for spec in JSONL_STREAM_METHOD_SPECS:
+        service_method = _jsonl_service_stream_method(spec.method)
+        if service_method is None:
+            continue
+        service_spec = service_specs.get(service_method)
+        if service_spec is None:
+            continue
+        if _method_param_names(spec) != _method_param_names(service_spec):
+            issues.append(
+                f"jsonl.stream_specs.{spec.method} params do not match service stream params."
+            )
+
+
+def _jsonl_service_stream_method(method: str) -> str | None:
+    if method == "prompt":
+        return "prompt"
+    return service_stream_method_for_jsonl(method)
+
+
+def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMethodSpec]:
+    return {spec.method: spec for spec in specs}
+
+
+def _method_param_names(spec: SdkMethodSpec) -> tuple[str, ...]:
+    return tuple(param.name for param in spec.params)
+
+
 __all__ = [
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "JsonlSdkServer",
     "SdkProtocolError",
     "serve_stdio",
+    "validate_sdk_jsonl_transport_contract",
 ]

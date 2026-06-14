@@ -20,6 +20,7 @@ from heph.sdk import (
     HephSdkOptions,
     HephService,
     JsonlSdkServer,
+    validate_sdk_jsonl_transport_contract,
 )
 from heph.sdk import methods as sdk_methods
 from heph.sdk import runtime as sdk_runtime
@@ -268,6 +269,79 @@ def test_jsonl_sdk_server_rejects_outgoing_envelope_drift() -> None:
         server._write({"type": "response", "id": "bad", "ok": "yes", "result": {}})
 
     assert output.getvalue() == ""
+
+
+def test_jsonl_transport_contract_validator_matches_advertised_routes() -> None:
+    service = HephService.plain(config=_config())
+
+    assert validate_sdk_jsonl_transport_contract(service) == ()
+
+
+def test_jsonl_transport_contract_validator_reports_call_route_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    call_routes = service._call_route_sequence()
+
+    def broken_call_route_sequence(
+        self: HephService,
+    ) -> tuple[object, ...]:
+        _ = self
+        return tuple(route for route in call_routes if route.method != "validate_armory")
+
+    monkeypatch.setattr(HephService, "_call_route_sequence", broken_call_route_sequence)
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.call_routes does not implement advertised JSONL calls: validate_armory",
+    )
+
+
+def test_jsonl_transport_contract_validator_reports_stream_route_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    stream_routes = service._stream_route_sequence()
+
+    def broken_stream_route_sequence(
+        self: HephService,
+    ) -> tuple[object, ...]:
+        _ = self
+        return tuple(route for route in stream_routes if route.method != "build_index")
+
+    monkeypatch.setattr(HephService, "_stream_route_sequence", broken_stream_route_sequence)
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.stream_routes does not implement advertised JSONL streams: build_index_stream",
+    )
+
+
+def test_jsonl_sdk_server_validates_advertised_call_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sdk_stdio,
+        "JSONL_CALL_METHOD_SPECS",
+        (
+            sdk_methods.SdkMethodSpec(
+                "state",
+                (sdk_methods.SdkMethodParameter("required", "string", True),),
+            ),
+        ),
+    )
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=HephService.plain(config=_config()),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "state-missing-param", "method": "state"})
+
+    payloads = _payloads(output.getvalue())
+    error = _payload_mapping(payloads[0]["error"])
+    assert payloads[0]["type"] == "error"
+    assert error["code"] == "sdk_error"
+    assert "requires parameter: required" in str(error["message"])
 
 
 def test_jsonl_state_translation_ignores_unknown_stream_availability_records() -> None:

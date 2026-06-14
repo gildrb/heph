@@ -101,6 +101,7 @@ from heph.sdk.stdio import (
     JsonlSdkServer,
     SdkProtocolError,
     serve_stdio,
+    validate_sdk_jsonl_transport_contract,
 )
 
 __all__ = [
@@ -183,5 +184,6 @@ __all__ = [
     "serve_stdio",
     "update_sdk_app_settings",
     "validate_sdk_capabilities",
+    "validate_sdk_jsonl_transport_contract",
     "validate_sdk_service_contract",
 ]

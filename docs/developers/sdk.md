@@ -297,8 +297,10 @@ client generators that want typed value objects instead of dictionaries.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
 availability drift, unresolved DTO type references, and stream event drift.
 `validate_sdk_service_contract()` checks the service implementation routes
-against those advertised methods and route parameter names. Keep both green when
-extending the SDK surface.
+against those advertised methods and route parameter names.
+`validate_sdk_jsonl_transport_contract()` checks JSONL dispatch routes and
+transport method specs against the advertised JSONL surface and underlying
+service routes. Keep all three green when extending the SDK surface.
 The `errors.jsonl` section describes each JSONL error code so native clients can
 present stable recovery copy without hard-coding the Python docs. JSONL error
 payloads always include `code`, `message`, and nullable `unavailable_reason`;
