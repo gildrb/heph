@@ -157,41 +157,51 @@ def _deterministic_learning_reply(
     plan: LearningTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> _DeterministicLearningReply | None:
-    if prior_absence_reply := _prior_answer_position_absence_reply(
+    if prior_absence_reply := _prior_answer_absence_deterministic_reply(
         session,
         resolved.turn_contract,
     ):
         return prior_absence_reply
-    if prior_source_object_absence_reply := _prior_answer_source_object_absence_reply(
-        session,
-        resolved.turn_contract,
-    ):
-        return prior_source_object_absence_reply
     if no_evidence_reply := _no_evidence_deterministic_reply(session, plan, resolved):
         return no_evidence_reply
+    if evidence_reply := _evidence_backed_deterministic_reply(session, plan, resolved):
+        return evidence_reply
+    return _overview_followup_deterministic_reply(session, plan, resolved)
+
+
+def _prior_answer_absence_deterministic_reply(
+    session: ChatSession,
+    contract: TurnContract | None,
+) -> _DeterministicLearningReply | None:
+    if position_absence_reply := _prior_answer_position_absence_reply(session, contract):
+        return position_absence_reply
+    return _prior_answer_source_object_absence_reply(session, contract)
+
+
+def _evidence_backed_deterministic_reply(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> _DeterministicLearningReply | None:
     if abstain_reply := _source_qa_deterministic_abstain(plan, resolved):
         return abstain_reply
-    if prior_list_transform_reply := _prior_answer_list_transform_reply(
+    if list_transform_reply := _prior_answer_list_transform_reply(
         resolved.turn_contract,
         resolved.turn_evidence,
     ):
-        return prior_list_transform_reply
-    if prior_target_phrase_reply := _prior_answer_target_phrase_reply(
+        return list_transform_reply
+    if target_phrase_reply := _prior_answer_target_phrase_reply(
         session,
         resolved.turn_contract,
         resolved.turn_evidence,
     ):
-        return prior_target_phrase_reply
-    if prior_single_citation_reply := _prior_answer_single_citation_reply(
+        return target_phrase_reply
+    if single_citation_reply := _prior_answer_single_citation_reply(
         session,
         resolved.turn_contract,
         resolved.turn_evidence,
     ):
-        return prior_single_citation_reply
-    if overview_reply := _overview_followup_deterministic_reply(session, plan, resolved):
-        return overview_reply
-    if resolved.turn_evidence is not None and resolved.turn_evidence.items:
-        return None
+        return single_citation_reply
     return None
 
 
