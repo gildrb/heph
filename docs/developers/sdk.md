@@ -261,7 +261,9 @@ while a stream is active, method availability requirements, and standard
 method-unavailable reason codes.
 The `jsonl.message_specs` section describes the top-level transport envelopes
 (`ready`, `response`, `error`, `stream_start`, `stream_event`, and `stream_end`)
-so native clients can generate wire decoders without scraping examples.
+so native clients can generate wire decoders without scraping examples. The
+stdio server validates outgoing envelopes against those specs before writing
+them to clients.
 The `jsonl.request_spec` section describes the inbound request envelope
 (`id`, `method`, and optional `params`) so transport clients can generate
 encoders and local request validation from the same capability payload.

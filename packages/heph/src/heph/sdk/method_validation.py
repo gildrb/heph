@@ -6,9 +6,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from heph.sdk.methods import (
+    JSONL_MESSAGE_SPECS,
     SDK_EVENT_SPECS,
     SDK_TYPE_SPECS,
     SdkEventSpec,
+    SdkJsonlMessageSpec,
     SdkMethodParameter,
     SdkMethodSpec,
     SdkObjectFieldSpec,
@@ -20,6 +22,7 @@ from heph.sdk.runtime import HephSdkError
 
 _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
+_SDK_EVENT_TYPE = "sdk_event"
 type _TypeMatcher = Callable[[object], bool]
 
 
@@ -93,6 +96,23 @@ def validate_stream_event_payload(
     return payload
 
 
+def validate_jsonl_message_payload(
+    message: Mapping[str, object],
+    *,
+    specs: tuple[SdkJsonlMessageSpec, ...] = JSONL_MESSAGE_SPECS,
+    surface: str = "SDK JSONL",
+    type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
+) -> dict[str, object]:
+    """Validate an outgoing JSONL transport envelope against advertised specs."""
+    payload = _string_keyed_result_object(surface, "message", "payload", message)
+    message_type = _jsonl_message_type(surface, payload)
+    spec = _jsonl_message_spec(message_type, specs)
+    if spec is None:
+        raise HephSdkError(f"{surface} message type '{message_type}' is not advertised.")
+    _validate_jsonl_message_fields(surface, message_type, payload, spec, type_specs)
+    return payload
+
+
 def _normalized_method_params(params: Mapping[str, object] | None) -> dict[str, object]:
     if params is None:
         return {}
@@ -118,6 +138,13 @@ def _stream_spec(method: str, specs: tuple[SdkStreamSpec, ...]) -> SdkStreamSpec
 
 def _event_spec(event_type: str, specs: tuple[SdkEventSpec, ...]) -> SdkEventSpec | None:
     return next((spec for spec in specs if spec.event_type == event_type), None)
+
+
+def _jsonl_message_spec(
+    message_type: str,
+    specs: tuple[SdkJsonlMessageSpec, ...],
+) -> SdkJsonlMessageSpec | None:
+    return next((spec for spec in specs if spec.message_type == message_type), None)
 
 
 def _parameter_names_message(names: tuple[str, ...]) -> str:
@@ -368,6 +395,73 @@ def _event_field_location(event_type: str, field_name: str) -> str:
     return f"event '{event_type}' field '{field_name}'"
 
 
+def _jsonl_message_type(surface: str, payload: Mapping[str, object]) -> str:
+    message_type = payload.get("type")
+    if isinstance(message_type, str) and message_type:
+        return message_type
+    raise HephSdkError(f"{surface} message type must be a non-empty string.")
+
+
+def _validate_jsonl_message_fields(
+    surface: str,
+    message_type: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlMessageSpec,
+    type_specs: tuple[SdkTypeSpec, ...],
+) -> None:
+    type_map = _type_specs_by_name(type_specs)
+    _validate_unknown_jsonl_message_fields(surface, message_type, payload, spec)
+    _validate_required_jsonl_message_fields(surface, message_type, payload, spec)
+    for field in spec.fields:
+        if field.name not in payload:
+            continue
+        value = payload[field.name]
+        if value is None and field.nullable:
+            continue
+        _validate_result_value_type(
+            f"{surface} message",
+            message_type,
+            _jsonl_message_field_location(message_type, field.name),
+            value,
+            field.value_type,
+            type_map,
+        )
+
+
+def _validate_unknown_jsonl_message_fields(
+    surface: str,
+    message_type: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlMessageSpec,
+) -> None:
+    allowed_keys = frozenset(field.name for field in spec.fields)
+    unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} message '{message_type}' does not accept "
+            f"{_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_jsonl_message_fields(
+    surface: str,
+    message_type: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlMessageSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in spec.fields if field.required and field.name not in payload
+    )
+    if missing_keys:
+        raise HephSdkError(
+            f"{surface} message '{message_type}' requires {_field_names_message(missing_keys)}."
+        )
+
+
+def _jsonl_message_field_location(message_type: str, field_name: str) -> str:
+    return f"message '{message_type}' field '{field_name}'"
+
+
 def _type_specs_by_name(type_specs: tuple[SdkTypeSpec, ...]) -> dict[str, SdkTypeSpec]:
     return {spec.type_name: spec for spec in type_specs}
 
@@ -377,7 +471,7 @@ def _result_field_location(path: str) -> str:
 
 
 def _nested_result_field_location(parent: str, field_name: str) -> str:
-    if parent.startswith("event '"):
+    if parent.startswith(("event '", "message '")):
         return f"{parent}.{field_name}"
     return _result_field_location(_nested_result_path(parent, field_name))
 
@@ -408,6 +502,9 @@ def _validate_result_value_type(
     value_type: str,
     type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
+    if value_type == _SDK_EVENT_TYPE:
+        _validate_sdk_event_discriminator(surface, method, location, value)
+        return
     custom_type = type_map.get(value_type)
     if custom_type is not None:
         _validate_custom_result_type(surface, method, location, value, custom_type, type_map)
@@ -420,6 +517,19 @@ def _validate_result_value_type(
     raise HephSdkError(
         f"{surface} method '{method}' {location} must be {_type_message(value_type)}."
     )
+
+
+def _validate_sdk_event_discriminator(
+    surface: str,
+    method: str,
+    location: str,
+    value: object,
+) -> None:
+    payload = _string_keyed_result_object(surface, method, location, value)
+    event_type = payload.get("type")
+    if isinstance(event_type, str) and event_type:
+        return
+    raise HephSdkError(f"{surface} method '{method}' {location}.type must be a string.")
 
 
 def _validate_result_array(
@@ -628,6 +738,7 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
 
 
 __all__ = [
+    "validate_jsonl_message_payload",
     "validate_method_params",
     "validate_result_payload",
     "validate_stream_event_payload",

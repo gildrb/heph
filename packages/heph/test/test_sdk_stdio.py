@@ -16,6 +16,7 @@ from heph.sdk import (
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     HephRuntime,
+    HephSdkError,
     HephSdkOptions,
     HephService,
     JsonlSdkServer,
@@ -250,6 +251,23 @@ def test_jsonl_sdk_server_rejects_result_contract_drift(
     assert payloads[0]["ok"] is False
     assert error["code"] == "sdk_error"
     assert "result field 'capabilities.version' must be an integer" in str(error["message"])
+
+
+def test_jsonl_sdk_server_rejects_outgoing_envelope_drift() -> None:
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=HephService.plain(config=_config()),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"message 'response' field 'ok' must be a boolean",
+    ):
+        server._write({"type": "response", "id": "bad", "ok": "yes", "result": {}})
+
+    assert output.getvalue() == ""
 
 
 def test_jsonl_state_translation_ignores_unknown_stream_availability_records() -> None:

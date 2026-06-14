@@ -69,6 +69,7 @@ from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
 from heph.sdk.method_validation import (
+    validate_jsonl_message_payload,
     validate_method_params,
     validate_result_payload,
     validate_stream_event_payload,
@@ -470,6 +471,38 @@ def test_sdk_stream_event_validation_rejects_contract_drift(
             event,
             sdk_methods.SERVICE_STREAM_SPECS,
         )
+
+
+def test_sdk_jsonl_message_validation_accepts_advertised_envelope_shape() -> None:
+    message: dict[str, object] = {
+        "type": "response",
+        "id": "state-1",
+        "ok": True,
+        "result": {"service": {}},
+    }
+
+    assert validate_jsonl_message_payload(message) == message
+
+
+@pytest.mark.parametrize(
+    ("message", "error"),
+    [
+        (
+            {"type": "response", "id": "bad", "ok": "yes", "result": {}},
+            r"message 'response' field 'ok' must be a boolean",
+        ),
+        (
+            {"type": "stream_end", "id": "done", "ok": False, "error": {"code": "sdk_error"}},
+            "message 'stream_end' field 'error' requires fields: message, unavailable_reason",
+        ),
+    ],
+)
+def test_sdk_jsonl_message_validation_rejects_envelope_drift(
+    message: dict[str, object],
+    error: str,
+) -> None:
+    with pytest.raises(HephSdkError, match=error):
+        validate_jsonl_message_payload(message)
 
 
 def test_sdk_service_call_routes_match_advertised_methods() -> None:

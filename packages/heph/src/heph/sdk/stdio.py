@@ -13,7 +13,11 @@ from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
 from heph.sdk.factory import HephSdkOptions, create_heph_service
-from heph.sdk.method_validation import validate_method_params, validate_result_payload
+from heph.sdk.method_validation import (
+    validate_jsonl_message_payload,
+    validate_method_params,
+    validate_result_payload,
+)
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     JSONL_CALL_METHODS,
@@ -401,8 +405,9 @@ class JsonlSdkServer:
         )
 
     def _write(self, payload: dict[str, object]) -> None:
+        message = validate_jsonl_message_payload(payload)
         with self._write_lock:
-            self.output_stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            self.output_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
             self.output_stream.flush()
 
 
