@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 class EngineError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: EngineErrorCode | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class EngineErrorCode(StrEnum):
+    ACCOUNT_SETUP = "account_setup"
+    PROVIDER_CAPACITY = "provider_capacity"
+    MISSING_CREDENTIALS = "missing_credentials"
+    MISSING_MODEL_SOURCE = "missing_model_source"
+    MISSING_MODEL = "missing_model"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    CIRCUIT_OPEN = "circuit_open"
 
 
 class StreamRecoveryError(EngineError):

@@ -127,11 +127,5 @@ def is_network_error(exc: BaseException) -> bool:
 def offline_message(provider_name: str) -> str:
     return (
         f"Can't reach {provider_name}. "
-        "You're offline — but you can still:\n"
-        "  · Review vocabulary with /vocabulary\n"
-        "  · Browse materials with /materials\n"
-        "  · Export the chat with /export\n"
-        "  · Check /status for session progress\n"
-        "\n"
-        "Heph will reconnect automatically when connectivity returns."
+        "Network connectivity is unavailable; retry when connectivity returns."
     )

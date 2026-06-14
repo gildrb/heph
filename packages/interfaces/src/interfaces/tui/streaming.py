@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 
 from ai.runtime import (
     EngineError,
+    EngineErrorCode,
     StreamRecoveryError,
     is_network_error,
-    offline_message,
 )
 from hephaion.chat.automation import iter_chat_events
 from hephaion.chat.events import (
@@ -448,6 +448,19 @@ class _TurnCallbacks:
     on_activity: Callable[[str], None] | None = None
 
 
+def _offline_notice_text(provider_name: str) -> str:
+    return (
+        f"Can't reach {provider_name}. "
+        "You're offline — but you can still:\n"
+        "  · Review vocabulary with /vocabulary\n"
+        "  · Browse materials with /materials\n"
+        "  · Export the chat with /export\n"
+        "  · Check /status for session progress\n"
+        "\n"
+        "Heph will reconnect automatically when connectivity returns."
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _ActivityTraceConfig:
     show_activity: bool
@@ -573,9 +586,20 @@ def _report_turn_error(
 ) -> None:
     provider = session.config.provider_slug or "the provider"
     if is_network_error(exc):
-        callbacks.on_notice(offline_message(provider))
+        callbacks.on_notice(_offline_notice_text(provider))
     else:
-        callbacks.on_error(str(exc))
+        callbacks.on_error(_turn_error_text(exc))
+
+
+def _turn_error_text(exc: StreamRecoveryError | EngineError) -> str:
+    if exc.code == EngineErrorCode.ACCOUNT_SETUP:
+        return (
+            f"{exc} In Heph, use /login to update provider credentials "
+            "or /models to choose another model."
+        )
+    if exc.code == EngineErrorCode.MISSING_CREDENTIALS:
+        return f"{exc} In Heph, use /login to connect a provider."
+    return str(exc)
 
 
 def run_tui_turn(

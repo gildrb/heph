@@ -12,6 +12,7 @@ from ai.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
+    EngineErrorCode,
     RetryConfig,
     StreamRecoveryError,
     stream_reply,
@@ -309,7 +310,7 @@ class TestStreamReplyRetry:
 
         assert mock_client.chat.completions.create.call_count == 1
 
-    def test_account_setup_rate_limit_raises_immediately_with_hint(self) -> None:
+    def test_account_setup_rate_limit_raises_immediately_with_code(self) -> None:
         """Account/quota 429s need user action, not retry backoff."""
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = _insufficient_balance_error()
@@ -323,9 +324,11 @@ class TestStreamReplyRetry:
 
         msg = str(exc_info.value)
         assert mock_client.chat.completions.create.call_count == 1
+        assert exc_info.value.code == EngineErrorCode.ACCOUNT_SETUP
         assert "Insufficient balance or no resource package. Please recharge." in msg
-        assert "/login" in msg
-        assert "/models" in msg
+        assert "Configure provider credentials and select an available model." in msg
+        assert "/login" not in msg
+        assert "/models" not in msg
         assert "{'error'" not in msg
 
     def test_queue_full_rate_limit_raises_immediately_with_provider_hint(self) -> None:

@@ -14,6 +14,7 @@ from ai.runtime import has_configured_access
 from interfaces.tui.cell_text import cell_width, truncate_with_ellipsis
 
 if TYPE_CHECKING:
+    from ai.runtime import ChatConfig
     from hephaion.chat.session import ChatSession
 
 STATUS_FIELD_GAP = "  "
@@ -179,7 +180,16 @@ def config_error(session: ChatSession) -> str | None:
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not has_configured_access(session.config):
-        from ai.runtime import missing_api_key_message
-
-        return missing_api_key_message(session.config)
+        return _missing_provider_access_text(session.config)
     return None
+
+
+def _missing_provider_access_text(config: ChatConfig) -> str:
+    if config.provider_slug == "openai-codex":
+        return (
+            "OpenAI Codex subscription requires /login OAuth credentials. "
+            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+        )
+    from ai.runtime import missing_api_key_message
+
+    return f"{missing_api_key_message(config)} In Heph, use /login to connect a provider."

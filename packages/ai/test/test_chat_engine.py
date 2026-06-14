@@ -16,6 +16,7 @@ from ai.runtime import (
     CompletionDelta,
     Conversation,
     EngineError,
+    EngineErrorCode,
     Message,
     RetryConfig,
     build_client,
@@ -81,8 +82,9 @@ def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ChatConfig(api_key="", base_url="http://localhost/v1", model="test")
-    with pytest.raises(EngineError, match="No API key found"):
+    with pytest.raises(EngineError, match="No API key found") as exc_info:
         build_client(config)
+    assert exc_info.value.code == EngineErrorCode.MISSING_CREDENTIALS
 
 
 def test_keyless_provider_does_not_resolve_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,8 +134,8 @@ def test_missing_api_key_message_explains_free_openrouter_auth() -> None:
     message = missing_api_key_message(config)
 
     assert "free-priced" in message
-    assert "still requires an API key" in message
-    assert "/login" in message
+    assert "still requires credentials" in message
+    assert "/login" not in message
 
 
 def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:
@@ -142,8 +144,9 @@ def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:
         base_url="https://openrouter.ai/api/v1",
         model="legacy-model",
     )
-    with pytest.raises(EngineError, match="Model unavailable for endpoint"):
+    with pytest.raises(EngineError, match="Model unavailable for endpoint") as exc_info:
         build_client(config)
+    assert exc_info.value.code == EngineErrorCode.MODEL_UNAVAILABLE
 
 
 def test_conversation_add_and_convert() -> None:
@@ -514,7 +517,7 @@ def test_codex_provider_requires_oauth_instead_of_api_key_fallback(
         _provider_slug="openai-codex",
     )
 
-    with pytest.raises(EngineError, match="requires /login OAuth credentials"):
+    with pytest.raises(EngineError, match="requires OAuth credentials") as exc_info:
         list(
             runtime_engine.stream_completion(
                 config,
@@ -522,3 +525,4 @@ def test_codex_provider_requires_oauth_instead_of_api_key_fallback(
                 client_factory=fail_client_factory,
             )
         )
+    assert exc_info.value.code == EngineErrorCode.MISSING_CREDENTIALS

@@ -380,7 +380,7 @@ def is_llama_cpp_endpoint(base_url: str) -> bool:
 
 
 def search_gguf_models(query: str = "", *, limit: int = 20) -> list[LlamaCppCandidate]:
-    """Return curated publisher GGUF models that fit Heph's local resource budget."""
+    """Return curated publisher GGUF models for resource-constrained local use."""
 
     candidates = [_candidate_from_catalog_entry(entry) for entry in _CURATED_GGUF_MODELS]
     terms = query.casefold().split()
@@ -495,7 +495,7 @@ def install_local_model(path: Path, *, model_id: str | None = None) -> LlamaCppI
 def _stop_failed_probe(capability: ToolCapabilityResult) -> None:
     if capability.passed:
         return
-    # The model is not usable by Heph; avoid leaving a large local server resident.
+    # The model is not usable by tool-calling clients; avoid leaving a large local server resident.
     stop_llama_server()
 
 

@@ -41,6 +41,7 @@ from ai.runtime.conversation import Conversation
 from ai.runtime.delta import CompletionDelta
 from ai.runtime.errors import (
     EngineError,
+    EngineErrorCode,
     RetryConfig,
     StreamRecoveryError,
     _RetryOpenAIStreamError,
@@ -149,11 +150,11 @@ _ACCOUNT_SETUP_ERROR_TERMS = (
     "credit",
     "quota exceeded",
 )
-_ACCOUNT_SETUP_HINT = "Use /login to connect a subscription or API key, then /models."
+_ACCOUNT_SETUP_HINT = "Configure provider credentials and select an available model."
 _PROVIDER_CAPACITY_ERROR_TERMS = ("queue full",)
 _PROVIDER_CAPACITY_HINT = (
     "The free model provider is busy or rate-limiting this connection. "
-    "Try again shortly, or use /login to connect your own provider and /models to switch."
+    "Try again shortly, or configure a different provider and model."
 )
 _CODEX_BACKEND_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _CODEX_BACKEND_TIMEOUT_SECONDS = 30
@@ -322,7 +323,11 @@ def _with_hint(message: str, hint: str) -> str:
     return f"{message} {hint}"
 
 
-def _failure_message(exc: Exception, *, stream: bool) -> str:
+def _failure_message_and_code(
+    exc: Exception,
+    *,
+    stream: bool,
+) -> tuple[str, EngineErrorCode | None]:
     account_prefix, capacity_prefix, default_prefix = (
         ("Provider rejected the stream", "Provider stream is busy", "LLM stream failed")
         if stream
@@ -333,10 +338,21 @@ def _failure_message(exc: Exception, *, stream: bool) -> str:
     if len(detail) > _MAX_PROVIDER_DETAIL_CHARS:
         detail = f"{detail[: _MAX_PROVIDER_DETAIL_CHARS - 3].rstrip()}..."
     if _is_account_setup_error(exc):
-        return _with_hint(f"{account_prefix}: {detail}", _ACCOUNT_SETUP_HINT)
+        return (
+            _with_hint(f"{account_prefix}: {detail}", _ACCOUNT_SETUP_HINT),
+            EngineErrorCode.ACCOUNT_SETUP,
+        )
     if _is_provider_capacity_error(exc):
-        return _with_hint(f"{capacity_prefix}: {detail}", _PROVIDER_CAPACITY_HINT)
-    return f"{default_prefix}: {detail}"
+        return (
+            _with_hint(f"{capacity_prefix}: {detail}", _PROVIDER_CAPACITY_HINT),
+            EngineErrorCode.PROVIDER_CAPACITY,
+        )
+    return f"{default_prefix}: {detail}", None
+
+
+def _failure_error(exc: Exception, *, stream: bool) -> EngineError:
+    message, code = _failure_message_and_code(exc, stream=stream)
+    return EngineError(message, code=code)
 
 
 def _log_error_summary(exc: Exception) -> str:
@@ -350,11 +366,14 @@ def build_client(config: ChatConfig) -> OpenAI:
     from openai import OpenAI
 
     if not config.base_url:
-        raise EngineError("No model source configured. Use /login, then /models.")
+        raise EngineError("No model source configured.", code=EngineErrorCode.MISSING_MODEL_SOURCE)
     if not config.model:
-        raise EngineError("No model configured. Use /models to select one.")
+        raise EngineError("No model configured.", code=EngineErrorCode.MISSING_MODEL)
     if not is_supported_model_for_endpoint(config.model, config.base_url):
-        raise EngineError(f"Model unavailable for endpoint: {config.model}")
+        raise EngineError(
+            f"Model unavailable for endpoint: {config.model}",
+            code=EngineErrorCode.MODEL_UNAVAILABLE,
+        )
     return OpenAI(api_key=_api_key_for_config(config), base_url=config.base_url)
 
 
@@ -363,23 +382,22 @@ def _api_key_for_config(config: ChatConfig) -> str:
         return "no-key-required"
     if config.resolved_api_key:
         return config.resolved_api_key
-    raise EngineError(missing_api_key_message(config))
+    raise EngineError(missing_api_key_message(config), code=EngineErrorCode.MISSING_CREDENTIALS)
 
 
 def missing_api_key_message(config: ChatConfig) -> str:
     if config.provider_slug == "openai-codex":
         return (
-            "OpenAI Codex subscription requires /login OAuth credentials. "
-            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+            "OpenAI Codex subscription requires OAuth credentials. "
+            "Use the OpenAI API provider for API-key billing."
         )
     model_info = get_provider_registry().get(config.model)
     if model_info is not None and model_info.is_free:
         return (
             f"{config.model} is free-priced, but {model_info.display_name} is served through "
-            "a provider that still requires an API key. Use /login or set an environment "
-            "variable."
+            "a provider that still requires credentials."
         )
-    return "No API key found. Use /login or set an environment variable."
+    return "No API key found. Configure provider credentials or set an environment variable."
 
 
 def is_retryable_error(exc: Exception) -> bool:
@@ -456,7 +474,10 @@ def _stream_codex_completion(
 ) -> Iterator[CompletionDelta]:
     if not _circuit_breaker.allow_request():
         span.end()
-        raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+        raise EngineError(
+            "LLM provider circuit breaker is open — too many recent failures",
+            code=EngineErrorCode.CIRCUIT_OPEN,
+        )
 
     timer = Timer()
     try:
@@ -673,7 +694,7 @@ def _raise_openai_stream_engine_error(
         _circuit_breaker.record_failure()
     _mark_span_error(span, type(exc).__name__)
     span.end()
-    raise EngineError(_failure_message(exc, stream=True)) from exc
+    raise _failure_error(exc, stream=True) from exc
 
 
 def _log_openai_stream_error(
@@ -762,7 +783,7 @@ def _handle_openai_request_error(
         return _wait_backoff(attempt, retry, abort)
     _mark_span_error(span, type(exc).__name__)
     span.end()
-    raise EngineError(_failure_message(exc, stream=False)) from exc
+    raise _failure_error(exc, stream=False) from exc
 
 
 def _log_openai_request_error(
@@ -787,7 +808,10 @@ def _openai_request_allowed(abort: threading.Event | None, span: _SpanProtocol) 
         span.end()
         return False
     if not _circuit_breaker.allow_request():
-        raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+        raise EngineError(
+            "LLM provider circuit breaker is open — too many recent failures",
+            code=EngineErrorCode.CIRCUIT_OPEN,
+        )
     return True
 
 
@@ -874,12 +898,9 @@ def _raise_openai_attempts_failed(
 ) -> None:
     _mark_span_error(span, "EngineError")
     span.end()
-    message = (
-        _failure_message(last_error, stream=False)
-        if last_error is not None
-        else f"LLM request failed after {retry.max_retries + 1} attempts"
-    )
-    raise EngineError(message) from last_error
+    if last_error is not None:
+        raise _failure_error(last_error, stream=False) from last_error
+    raise EngineError(f"LLM request failed after {retry.max_retries + 1} attempts")
 
 
 def _stream_completion_request(
@@ -1109,8 +1130,9 @@ def stream_completion(
     if config.provider_slug == "openai-codex":
         span.end()
         raise EngineError(
-            "OpenAI Codex subscription requires /login OAuth credentials. "
-            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+            "OpenAI Codex subscription requires OAuth credentials. "
+            "Use the OpenAI API provider for API-key billing.",
+            code=EngineErrorCode.MISSING_CREDENTIALS,
         )
 
     yield from _iter_openai_completion_attempts(

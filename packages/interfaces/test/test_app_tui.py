@@ -17,7 +17,7 @@ import pytest
 from ai.providers.config import ProviderConfig, default_config
 from ai.providers.llama_cpp import LlamaCppCandidate
 from ai.providers.registry import ModelInfo, get_registry
-from ai.runtime import ChatConfig, Conversation
+from ai.runtime import ChatConfig, Conversation, EngineError, EngineErrorCode
 from hephaion._types import is_string_mapping
 from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
 from hephaion.armory.storage import initialize
@@ -3042,6 +3042,44 @@ def test_run_tui_turn_reports_reasoning_activity_without_reply(
     assert progress == ["reading model thinking"]
     assert notices == []
     assert errors == []
+    assert finished == [True]
+
+
+def test_run_tui_turn_adds_heph_hint_for_account_setup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _plain_session()
+
+    def fake_iter_chat_events(
+        _session: ChatSession,
+        _prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> list[object]:
+        assert abort is not None
+        raise EngineError(
+            "Provider rejected the request: billing is inactive.",
+            code=EngineErrorCode.ACCOUNT_SETUP,
+        )
+
+    monkeypatch.setattr(tui_streaming, "iter_chat_events", fake_iter_chat_events)
+    errors: list[str] = []
+    finished: list[bool] = []
+
+    tui_streaming.run_tui_turn(
+        session,
+        "prompt",
+        threading.Event(),
+        on_reply=lambda _reply: None,
+        on_notice=lambda _notice: None,
+        on_error=errors.append,
+        on_finish=lambda: finished.append(True),
+    )
+
+    assert errors == [
+        "Provider rejected the request: billing is inactive. "
+        "In Heph, use /login to update provider credentials or /models to choose another model."
+    ]
     assert finished == [True]
 
 

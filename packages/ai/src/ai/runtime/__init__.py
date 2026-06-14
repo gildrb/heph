@@ -1,4 +1,4 @@
-"""Shared LLM runtime primitives used across Heph packages."""
+"""Shared LLM runtime primitives for workspace packages."""
 
 from ai.providers.endpoints import is_keyless_endpoint
 from ai.runtime._api_types import (
@@ -18,7 +18,7 @@ from ai.runtime.engine import (
     stream_completion,
     stream_reply,
 )
-from ai.runtime.errors import EngineError, RetryConfig, StreamRecoveryError
+from ai.runtime.errors import EngineError, EngineErrorCode, RetryConfig, StreamRecoveryError
 from ai.runtime.messages import api_content_text, message_content_text
 from ai.runtime.resilience import (
     CircuitBreaker,
@@ -50,6 +50,7 @@ __all__ = [
     "ContentPart",
     "Conversation",
     "EngineError",
+    "EngineErrorCode",
     "Message",
     "RetryConfig",
     "StreamRecoveryError",

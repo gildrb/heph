@@ -118,13 +118,11 @@ class TestOfflineMessage:
         msg = offline_message("OpenRouter")
         assert "OpenRouter" in msg
 
-    def test_mentions_offline_features(self) -> None:
+    def test_describes_network_recovery_without_app_commands(self) -> None:
         msg = offline_message("OpenRouter")
-        assert "/vocabulary" in msg
-        assert "/materials" in msg
-        assert "/export" in msg
-        assert "/status" in msg
+        assert "Network connectivity is unavailable" in msg
+        assert "/" not in msg
 
     def test_mentions_reconnect(self) -> None:
         msg = offline_message("OpenRouter")
-        assert "reconnect" in msg.lower()
+        assert "retry" in msg.lower()
