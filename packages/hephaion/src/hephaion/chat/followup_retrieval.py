@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from hephaion.chat.prior_answer import _quoted_followup_target_phrases
 from hephaion.chat.turn_contract import (
     ANSWER_MODE_FROM_EVIDENCE,
@@ -17,9 +19,13 @@ from hephaion.chat.turn_contract import (
 from hephaion.chat.turn_predicates import _contract_followup_target
 from hephaion.chat.turn_query import _same_normalized_text, _semantic_query_specificity
 
-type _RetrievalDecision = tuple[str, str | None]
-
 _BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
+
+
+@dataclass(frozen=True, slots=True)
+class _FollowupRetrievalDecision:
+    strategy: str
+    query: str | None
 
 
 def _stabilized_followup_retrieval(
@@ -28,7 +34,7 @@ def _stabilized_followup_retrieval(
     prior_contract: TurnContract | None,
     retrieval_strategy: str,
     retrieval_query: str | None,
-) -> tuple[str, str | None]:
+) -> _FollowupRetrievalDecision:
     if decision := _prior_answer_direct_followup_retrieval(contract, prior_contract):
         return decision
     if decision := _missing_prior_evidence_followup_retrieval(
@@ -67,30 +73,36 @@ def _stabilized_followup_retrieval(
         retrieval_query=retrieval_query,
     ):
         return decision
-    return retrieval_strategy, retrieval_query
+    return _FollowupRetrievalDecision(retrieval_strategy, retrieval_query)
 
 
 def _prior_answer_direct_followup_retrieval(
     contract: TurnContract,
     prior_contract: TurnContract | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
         return None
     if not contract.prior_answer_reference:
         return None
     if contract.direct_evidence_required and _contract_has_nonliteral_retrieval_surface(contract):
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, _fresh_current_request_query(contract)
+        return _FollowupRetrievalDecision(
+            RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+            _fresh_current_request_query(contract),
+        )
     if contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE:
         target_phrase_query = _followup_target_phrase_query(contract)
         if target_phrase_query:
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, target_phrase_query
+            return _FollowupRetrievalDecision(
+                RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+                target_phrase_query,
+            )
     return None
 
 
 def _prior_answer_reference_followup_retrieval(
     contract: TurnContract,
     prior_contract: TurnContract | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
         return None
     if not contract.prior_answer_reference:
@@ -101,8 +113,8 @@ def _prior_answer_reference_followup_retrieval(
     ):
         semantic_query = _first_non_literal_followup_query(contract, prior_contract)
         if semantic_query:
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-    return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
+            return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
 
 
 def _missing_prior_evidence_followup_retrieval(
@@ -111,16 +123,16 @@ def _missing_prior_evidence_followup_retrieval(
     *,
     retrieval_strategy: str,
     retrieval_query: str | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or prior_contract.evidence_refs or not contract.is_followup:
         return None
     if contract.prior_answer_reference:
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
     if (
         retrieval_strategy in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
         and not retrieval_query
     ):
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
     return None
 
 
@@ -129,7 +141,7 @@ def _overview_reuse_followup_retrieval(
     prior_contract: TurnContract | None,
     *,
     retrieval_strategy: str,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
         return None
     if not (
@@ -141,18 +153,18 @@ def _overview_reuse_followup_retrieval(
         return None
     semantic_query = _first_non_literal_followup_query(contract, prior_contract)
     if semantic_query:
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
     return None
 
 
 def _prior_answer_mode_followup_retrieval(
     contract: TurnContract,
     prior_contract: TurnContract | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
         return None
     if contract.answer_mode in {ANSWER_MODE_TRANSFORM_PRIOR, ANSWER_MODE_REASON_FROM_PRIOR}:
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
     return None
 
 
@@ -161,7 +173,7 @@ def _broad_prior_followup_retrieval(
     prior_contract: TurnContract | None,
     *,
     retrieval_strategy: str,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if prior_contract is None or not contract.is_followup:
         return None
     if not (
@@ -171,7 +183,7 @@ def _broad_prior_followup_retrieval(
         return None
     semantic_query = _first_non_literal_followup_query(contract, prior_contract)
     if semantic_query:
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
     return None
 
 
@@ -180,7 +192,7 @@ def _literal_followup_query_retrieval(
     prior_contract: TurnContract | None,
     *,
     retrieval_query: str | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if not (
         contract.is_followup
         and retrieval_query
@@ -191,8 +203,8 @@ def _literal_followup_query_retrieval(
     if not semantic_query:
         return None
     if prior_contract is not None and prior_contract.evidence_refs:
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-    return RETRIEVAL_STRATEGY_RETRIEVE, semantic_query
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_RETRIEVE, semantic_query)
 
 
 def _prior_retrieve_followup_retrieval(
@@ -201,7 +213,7 @@ def _prior_retrieve_followup_retrieval(
     *,
     retrieval_strategy: str,
     retrieval_query: str | None,
-) -> _RetrievalDecision | None:
+) -> _FollowupRetrievalDecision | None:
     if (
         prior_contract is None
         or not prior_contract.evidence_refs
@@ -213,8 +225,8 @@ def _prior_retrieve_followup_retrieval(
     if _same_normalized_text(retrieval_query, contract.original_user_input):
         semantic_query = _first_non_literal_followup_query(contract, prior_contract)
         if semantic_query:
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-    return RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query
+            return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query)
 
 
 def _contract_has_nonliteral_retrieval_surface(contract: TurnContract) -> bool:

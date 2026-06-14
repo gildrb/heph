@@ -183,12 +183,14 @@ def _heph_command_plan_contract(
 
 
 def _apply_stabilized_followup_retrieval(state: _PlanContractApplication) -> None:
-    state.retrieval_strategy, state.retrieval_query = _stabilized_followup_retrieval(
+    decision = _stabilized_followup_retrieval(
         state.contract,
         prior_contract=state.prior_contract,
         retrieval_strategy=state.retrieval_strategy,
         retrieval_query=state.retrieval_query,
     )
+    state.retrieval_strategy = decision.strategy
+    state.retrieval_query = decision.query
 
 
 def _apply_prior_answer_followup_state(state: _PlanContractApplication) -> None:
