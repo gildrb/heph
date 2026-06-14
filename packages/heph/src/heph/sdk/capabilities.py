@@ -908,21 +908,40 @@ def _field_by_name(
     return next((field for field in fields if field.name == name), None)
 
 
+def _fields_by_name(fields: tuple[SdkObjectFieldSpec, ...]) -> dict[str, SdkObjectFieldSpec]:
+    return {field.name: field for field in fields}
+
+
 def _append_jsonl_request_envelope_issues(
     issues: list[str],
     capabilities: HephSdkCapabilities,
 ) -> None:
-    advertised_names = tuple(field.name for field in capabilities.jsonl_request_spec.fields)
-    expected_names = tuple(field.name for field in _JSONL_REQUEST_ENVELOPE_FIELDS)
+    fields = capabilities.jsonl_request_spec.fields
+    _append_jsonl_request_field_order_issue(issues, fields)
+    _append_jsonl_request_field_shape_issues(issues, _fields_by_name(fields))
+
+
+def _append_jsonl_request_field_order_issue(
+    issues: list[str],
+    fields: tuple[SdkObjectFieldSpec, ...],
+) -> None:
+    advertised_names = tuple(field.name for field in fields)
+    expected_names = _jsonl_request_envelope_field_names()
     if advertised_names != expected_names:
         issues.append("jsonl.request_spec.fields must be exactly: " + ", ".join(expected_names))
-    for expected in _JSONL_REQUEST_ENVELOPE_FIELDS:
-        field = _field_by_name(capabilities.jsonl_request_spec.fields, expected.name)
-        if field is not None:
-            _append_jsonl_request_field_shape_issues(issues, field, expected)
 
 
 def _append_jsonl_request_field_shape_issues(
+    issues: list[str],
+    fields_by_name: dict[str, SdkObjectFieldSpec],
+) -> None:
+    for expected in _JSONL_REQUEST_ENVELOPE_FIELDS:
+        field = fields_by_name.get(expected.name)
+        if field is not None:
+            _append_jsonl_request_field_shape_issue(issues, field, expected)
+
+
+def _append_jsonl_request_field_shape_issue(
     issues: list[str],
     field: SdkObjectFieldSpec,
     expected: SdkObjectFieldSpec,
@@ -932,6 +951,10 @@ def _append_jsonl_request_field_shape_issues(
         issues.append(f"{context} must be {expected.value_type}.")
     if field.required != expected.required or field.nullable != expected.nullable:
         issues.append(f"{context} must be {_required_nullable_message(expected)}.")
+
+
+def _jsonl_request_envelope_field_names() -> tuple[str, ...]:
+    return tuple(field.name for field in _JSONL_REQUEST_ENVELOPE_FIELDS)
 
 
 def _required_nullable_message(field: SdkObjectFieldSpec) -> str:
