@@ -39,16 +39,21 @@ SDK_MUTABLE_APP_SETTINGS = (
     "live_cost_visible",
 )
 _SDK_MUTABLE_APP_SETTINGS = frozenset(SDK_MUTABLE_APP_SETTINGS)
-_STRING_APP_SETTINGS = frozenset(
-    {
-        "theme",
-        "default_armory_path",
-        "activity_trace_mode",
-        "vocab_strictness",
-        "thinking_visibility",
-    }
+SDK_APP_SETTING_VALUE_TYPES = (
+    ("theme", "string"),
+    ("default_armory_path", "string"),
+    ("activity_trace_mode", "string"),
+    ("vocab_strictness", "string"),
+    ("thinking_visibility", "string"),
+    ("live_tokens_visible", "boolean"),
+    ("live_cost_visible", "boolean"),
 )
-_BOOL_APP_SETTINGS = frozenset({"live_tokens_visible", "live_cost_visible"})
+_STRING_APP_SETTINGS = frozenset(
+    name for name, value_type in SDK_APP_SETTING_VALUE_TYPES if value_type == "string"
+)
+_BOOL_APP_SETTINGS = frozenset(
+    name for name, value_type in SDK_APP_SETTING_VALUE_TYPES if value_type == "boolean"
+)
 
 
 class SdkSettingsError(ValueError):
@@ -233,6 +238,7 @@ def _setting_choices(
 
 
 __all__ = [
+    "SDK_APP_SETTING_VALUE_TYPES",
     "SDK_MUTABLE_APP_SETTINGS",
     "PrivacySettingsSummary",
     "SdkAppSettings",

@@ -965,6 +965,36 @@ def test_sdk_service_contract_validator_reports_route_parameter_type_drift(
         HephService(runtime=HephRuntime.plain(config=_config()))
 
 
+def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    config_params = sdk_service._CONFIG_PARAMS
+
+    broken_config_params = tuple(
+        replace(param, value_type="string") if param.name == "max_tokens" else param
+        for param in config_params
+    )
+    broken_setting_value_types = tuple(
+        (name, "string") if name == "live_tokens_visible" else (name, value_type)
+        for name, value_type in sdk_service.SDK_APP_SETTING_VALUE_TYPES
+    )
+
+    monkeypatch.setattr(sdk_service, "_CONFIG_PARAMS", broken_config_params)
+    monkeypatch.setattr(sdk_service, "SDK_APP_SETTING_VALUE_TYPES", broken_setting_value_types)
+
+    issues = validate_sdk_service_contract(service)
+
+    assert (
+        "service.call_routes.update_config params do not match advertised SDK method params."
+    ) in issues
+    assert (
+        "service.call_routes.update_settings params do not match advertised SDK method params."
+    ) in issues
+    with pytest.raises(HephSdkError, match="SDK service contract drift"):
+        HephService(runtime=HephRuntime.plain(config=_config()))
+
+
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [

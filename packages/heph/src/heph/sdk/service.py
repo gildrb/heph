@@ -53,6 +53,7 @@ from heph.sdk.runtime import (
     HephSession,
 )
 from heph.sdk.settings import (
+    SDK_APP_SETTING_VALUE_TYPES,
     SdkAppSettings,
     SdkSettingsError,
     load_sdk_app_settings,
@@ -80,6 +81,13 @@ type _AvailabilityCheck = Callable[[HephRuntime, HephSession | None], bool]
 
 
 @dataclass(frozen=True, slots=True)
+class _RouteParameterContract:
+    name: str
+    value_type: str
+    required: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ServiceCallArgument:
     name: str
     decoder: _ServiceCallArgumentDecoder
@@ -97,6 +105,7 @@ class _ServiceCallRoute:
     arguments: tuple[_ServiceCallArgument, ...] = ()
     keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
     params_as_argument: bool = False
+    parameter_contracts: tuple[_RouteParameterContract, ...] = ()
 
     def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
         if self.params_as_argument:
@@ -124,6 +133,7 @@ class _ServiceStreamRoute:
 class _ServiceConfigParam:
     name: SdkConfigUpdateName
     decoder: _ServiceConfigParamDecoder
+    value_type: str
     keep_none: bool = False
 
     def update_from(self, params: Mapping[str, object]) -> SdkConfigUpdate | None:
@@ -146,13 +156,6 @@ class _RouteAvailability:
             available=self.available,
             unavailable_reason=self.unavailable_reason,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class _RouteParameterContract:
-    name: str
-    value_type: str
-    required: bool
 
 
 @dataclass(slots=True)
@@ -371,8 +374,18 @@ class HephService:
                 "scan_extraction_health",
                 self.scan_extraction_health,
             ),
-            _ServiceCallRoute("update_config", self.update_config, params_as_argument=True),
-            _ServiceCallRoute("update_settings", self.update_settings, params_as_argument=True),
+            _ServiceCallRoute(
+                "update_config",
+                self.update_config,
+                params_as_argument=True,
+                parameter_contracts=_config_param_contracts(),
+            ),
+            _ServiceCallRoute(
+                "update_settings",
+                self.update_settings,
+                params_as_argument=True,
+                parameter_contracts=_app_setting_param_contracts(),
+            ),
         )
 
     def capabilities(self) -> ServicePayload:
@@ -867,7 +880,7 @@ def _append_call_route_parameter_issues(
     specs = _method_specs_by_method(SERVICE_CALL_METHOD_SPECS)
     for route in routes:
         spec = specs.get(route.method)
-        if spec is None or route.params_as_argument:
+        if spec is None:
             continue
         _append_route_parameter_issue(
             issues,
@@ -919,6 +932,8 @@ def _method_spec_param_contracts(spec: SdkMethodSpec) -> tuple[_RouteParameterCo
 
 
 def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[_RouteParameterContract, ...]:
+    if route.params_as_argument:
+        return route.parameter_contracts
     return tuple(
         _RouteParameterContract(argument.name, argument.value_type, argument.required)
         for argument in (*route.arguments, *route.keyword_arguments)
@@ -1199,14 +1214,28 @@ def _optional_float(params: Mapping[str, object], key: str) -> float | None:
 
 
 _CONFIG_PARAMS = (
-    _ServiceConfigParam("base_url", _optional_str),
-    _ServiceConfigParam("model", _optional_str),
-    _ServiceConfigParam("max_tokens", _optional_int),
-    _ServiceConfigParam("rag_context_budget", _optional_int),
-    _ServiceConfigParam("temperature", _optional_float, keep_none=True),
-    _ServiceConfigParam("reasoning_level", _optional_str),
-    _ServiceConfigParam("thinking_visibility", _optional_str),
+    _ServiceConfigParam("base_url", _optional_str, "string"),
+    _ServiceConfigParam("model", _optional_str, "string"),
+    _ServiceConfigParam("max_tokens", _optional_int, "integer"),
+    _ServiceConfigParam("rag_context_budget", _optional_int, "integer"),
+    _ServiceConfigParam("temperature", _optional_float, "number_or_null", keep_none=True),
+    _ServiceConfigParam("reasoning_level", _optional_str, "string"),
+    _ServiceConfigParam("thinking_visibility", _optional_str, "string"),
 )
+
+
+def _config_param_contracts() -> tuple[_RouteParameterContract, ...]:
+    return tuple(
+        _RouteParameterContract(param.name, param.value_type, required=False)
+        for param in _CONFIG_PARAMS
+    )
+
+
+def _app_setting_param_contracts() -> tuple[_RouteParameterContract, ...]:
+    return tuple(
+        _RouteParameterContract(name, value_type, required=False)
+        for name, value_type in SDK_APP_SETTING_VALUE_TYPES
+    )
 
 
 def _availability_specs_by_method(
