@@ -13,7 +13,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 26
+SDK_CAPABILITIES_VERSION = 27
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
@@ -655,6 +655,8 @@ SERVICE_STATE_FIELD_SPECS = (
     SdkFieldSpec("is_busy", "boolean"),
     SdkFieldSpec("available_call_methods", "array<string>"),
     SdkFieldSpec("available_stream_methods", "array<string>"),
+    SdkFieldSpec("call_method_availability", "array<sdk_method_availability>"),
+    SdkFieldSpec("stream_method_availability", "array<sdk_method_availability>"),
 )
 RUNTIME_STATE_FIELD_SPECS = (
     SdkFieldSpec("armory_path", "string", nullable=True),
@@ -723,6 +725,14 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("service", "sdk_service_state"),
             SdkTypeFieldSpec("runtime", "sdk_runtime_state"),
             SdkTypeFieldSpec("session", "sdk_session_state", nullable=True),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_method_availability",
+        (
+            SdkTypeFieldSpec("method", "string"),
+            SdkTypeFieldSpec("available", "boolean"),
+            SdkTypeFieldSpec("unavailable_reason", "string", nullable=True),
         ),
     ),
     SdkTypeSpec("sdk_service_state", _type_fields_from_state_specs(SERVICE_STATE_FIELD_SPECS)),

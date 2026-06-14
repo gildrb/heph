@@ -33,6 +33,9 @@ SwiftUI / GUI / automation client
 - Dynamic service-state availability through `available_call_methods` and
   `available_stream_methods`, so clients can enable controls from state instead
   of duplicating busy, runtime, and session preconditions.
+- Per-method availability records through `call_method_availability` and
+  `stream_method_availability`, including stable unavailable reason codes for
+  disabled controls.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
@@ -225,7 +228,11 @@ The snapshot and payload include a top-level `service` object with
 `is_busy`, `prompt_active`, `active_operation`, `available_call_methods`, and
 `available_stream_methods`, so clients can disable state-changing controls
 without inspecting internal `ChatSession` objects or reimplementing busy-method
-policy.
+policy. The same service object also includes `call_method_availability` and
+`stream_method_availability`: ordered records with `method`, `available`, and
+`unavailable_reason`. Reason codes are machine-readable values such as `busy`,
+`missing_armory`, `missing_session`, `missing_armory_session`, and
+`missing_session_sources`.
 `prompt_active` is true for both service-owned prompt streams and direct streams
 on the active `HephSession`; `active_operation` names non-prompt operation
 streams such as `build_index`. `available_call_methods` lists the call methods
@@ -234,7 +241,8 @@ busy-safe calls during a prompt or operation stream. `available_stream_methods`
 lists only currently valid streams: `prompt` requires an active session, and
 `build_index` requires an open armory. Direct Python state uses service stream
 method names, while JSONL transport state maps those same currently available
-streams to JSONL names such as `build_index_stream`.
+streams and detailed stream availability records to JSONL names such as
+`build_index_stream`.
 Session state includes display settings that can affect rendering for the active
 conversation, including `thinking_visibility`, `live_tokens_visible`, and
 `live_cost_visible`.

@@ -28,6 +28,7 @@ from heph.sdk import (
     HephSdkBusyError,
     HephSdkCapabilities,
     HephSdkError,
+    HephSdkMethodAvailability,
     HephSdkModelError,
     HephSdkOptions,
     HephSdkRuntimeState,
@@ -147,6 +148,14 @@ def _service_call_methods(*methods: str) -> tuple[str, ...]:
 def _service_stream_methods(*methods: str) -> tuple[str, ...]:
     available = set(methods)
     return tuple(method for method in sdk_methods.SERVICE_STREAM_METHODS if method in available)
+
+
+def _availability_by_method(value: object) -> dict[str, dict[str, object]]:
+    records: dict[str, dict[str, object]] = {}
+    for item in _payload_list(value):
+        record = _payload_mapping(item)
+        records[str(record["method"])] = record
+    return records
 
 
 def _isolate_settings_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -467,6 +476,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "extraction_health_summary" in types
     assert "jsonl_error" in types
     assert "sdk_event" in types
+    assert "sdk_method_availability" in types
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -780,6 +790,8 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "is_busy" in service_fields
     assert "available_call_methods" in service_fields
     assert "available_stream_methods" in service_fields
+    assert "call_method_availability" in service_fields
+    assert "stream_method_availability" in service_fields
     assert "provider_slug" in runtime_fields
     assert "reasoning_level" in runtime_fields
     assert "provider_slug" in session_fields
@@ -814,6 +826,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     )
     jsonl_error_type_fields = _payload_mapping(_payload_mapping(types["jsonl_error"])["fields"])
     sdk_event_type_fields = _payload_mapping(_payload_mapping(types["sdk_event"])["fields"])
+    method_availability_type_fields = _payload_mapping(
+        _payload_mapping(types["sdk_method_availability"])["fields"]
+    )
     assert _payload_mapping(sdk_state_fields["session"]) == {
         "type": "sdk_session_state",
         "required": True,
@@ -901,12 +916,33 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": False,
     }
+    assert _payload_mapping(method_availability_type_fields["method"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(method_availability_type_fields["available"]) == {
+        "type": "boolean",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(method_availability_type_fields["unavailable_reason"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": True,
+    }
     service_operation_spec = _payload_mapping(service_field_specs["active_operation"])
     service_available_methods_spec = _payload_mapping(
         service_field_specs["available_call_methods"]
     )
     service_available_stream_methods_spec = _payload_mapping(
         service_field_specs["available_stream_methods"]
+    )
+    service_call_availability_spec = _payload_mapping(
+        service_field_specs["call_method_availability"]
+    )
+    service_stream_availability_spec = _payload_mapping(
+        service_field_specs["stream_method_availability"]
     )
     runtime_armory_spec = _payload_mapping(runtime_field_specs["armory_path"])
     runtime_flags_spec = _payload_mapping(runtime_field_specs["feature_flags"])
@@ -915,6 +951,14 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert service_available_methods_spec == {"type": "array<string>", "nullable": False}
     assert service_available_stream_methods_spec == {
         "type": "array<string>",
+        "nullable": False,
+    }
+    assert service_call_availability_spec == {
+        "type": "array<sdk_method_availability>",
+        "nullable": False,
+    }
+    assert service_stream_availability_spec == {
+        "type": "array<sdk_method_availability>",
         "nullable": False,
     }
     assert runtime_armory_spec == {"type": "string", "nullable": True}
@@ -1710,20 +1754,69 @@ def test_service_state_available_methods_reflect_runtime_and_session(tmp_path: P
 
     assert plain_service["available_call_methods"] == list(_service_call_methods(*base_methods))
     assert plain_service["available_stream_methods"] == []
+    plain_call_availability = _availability_by_method(plain_service["call_method_availability"])
+    plain_stream_availability = _availability_by_method(
+        plain_service["stream_method_availability"]
+    )
+    assert plain_call_availability["state"] == {
+        "method": "state",
+        "available": True,
+        "unavailable_reason": None,
+    }
+    assert plain_call_availability["ask"] == {
+        "method": "ask",
+        "available": False,
+        "unavailable_reason": "missing_session",
+    }
+    assert plain_call_availability["list_materials"] == {
+        "method": "list_materials",
+        "available": False,
+        "unavailable_reason": "missing_armory",
+    }
+    assert plain_stream_availability["prompt"] == {
+        "method": "prompt",
+        "available": False,
+        "unavailable_reason": "missing_session",
+    }
+    assert plain_stream_availability["build_index"] == {
+        "method": "build_index",
+        "available": False,
+        "unavailable_reason": "missing_armory",
+    }
     assert plain_session_service["available_call_methods"] == list(
         _service_call_methods(*base_methods, *session_methods)
     )
     assert plain_session_service["available_stream_methods"] == ["prompt"]
+    plain_session_call_availability = _availability_by_method(
+        plain_session_service["call_method_availability"]
+    )
+    assert plain_session_call_availability["save_session"] == {
+        "method": "save_session",
+        "available": False,
+        "unavailable_reason": "missing_armory_session",
+    }
     assert armory_no_session_service["available_call_methods"] == list(
         _service_call_methods(*base_methods, *armory_methods)
     )
     assert armory_no_session_service["available_stream_methods"] == ["build_index"]
+    armory_no_session_stream_availability = _availability_by_method(
+        armory_no_session_service["stream_method_availability"]
+    )
+    assert armory_no_session_stream_availability["prompt"] == {
+        "method": "prompt",
+        "available": False,
+        "unavailable_reason": "missing_session",
+    }
     assert armory_session_service["available_call_methods"] == list(
         sdk_methods.SERVICE_CALL_METHODS
     )
     assert armory_session_service["available_stream_methods"] == list(
         sdk_methods.SERVICE_STREAM_METHODS
     )
+    armory_session_call_availability = _availability_by_method(
+        armory_session_service["call_method_availability"]
+    )
+    assert all(record["available"] is True for record in armory_session_call_availability.values())
 
 
 def test_service_rejects_unavailable_call_methods_before_dispatch(tmp_path: Path) -> None:
@@ -1870,11 +1963,22 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert empty_snapshot.service.available_stream_methods == _service_stream_methods(
         "build_index"
     )
+    assert all(
+        isinstance(record, HephSdkMethodAvailability)
+        for record in empty_snapshot.service.call_method_availability
+    )
+    empty_call_availability = {
+        record.method: record for record in empty_snapshot.service.call_method_availability
+    }
+    assert empty_call_availability["ask"].unavailable_reason == "missing_session"
+    assert empty_call_availability["list_materials"].available is True
     assert snapshot.service.prompt_active is False
     assert snapshot.service.active_operation is None
     assert snapshot.service.is_busy is False
     assert snapshot.service.available_call_methods == sdk_methods.SERVICE_CALL_METHODS
     assert snapshot.service.available_stream_methods == sdk_methods.SERVICE_STREAM_METHODS
+    assert all(record.available for record in snapshot.service.call_method_availability)
+    assert all(record.available for record in snapshot.service.stream_method_availability)
     assert snapshot.runtime.armory_path == armory_path.resolve()
     assert snapshot.runtime.provider_slug == ""
     assert snapshot.runtime.model == "typed-state-model"
@@ -1905,6 +2009,15 @@ def test_service_state_constructor_derives_busy_flag() -> None:
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
     assert HephSdkServiceState(True).available_stream_methods == ()
+    busy_call_availability = {
+        record.method: record for record in HephSdkServiceState(True).call_method_availability
+    }
+    busy_stream_availability = {
+        record.method: record for record in HephSdkServiceState(True).stream_method_availability
+    }
+    assert busy_call_availability["state"].available is True
+    assert busy_call_availability["ask"].unavailable_reason == "busy"
+    assert busy_stream_availability["prompt"].unavailable_reason == "busy"
     assert (
         HephSdkServiceState(
             True,
@@ -1916,6 +2029,17 @@ def test_service_state_constructor_derives_busy_flag() -> None:
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
     assert HephSdkServiceState(False, "build_index").available_stream_methods == ()
+    custom_availability = (
+        HephSdkMethodAvailability("state", True),
+        HephSdkMethodAvailability("ask", False, "custom_reason"),
+    )
+    assert (
+        HephSdkServiceState(
+            False,
+            call_method_availability=custom_availability,
+        ).call_method_availability
+        == custom_availability
+    )
 
 
 def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
@@ -2180,6 +2304,25 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert active_state["is_busy"] is True
     assert active_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert active_state["available_stream_methods"] == []
+    active_call_availability = _availability_by_method(active_state["call_method_availability"])
+    active_stream_availability = _availability_by_method(
+        active_state["stream_method_availability"]
+    )
+    assert active_call_availability["state"] == {
+        "method": "state",
+        "available": True,
+        "unavailable_reason": None,
+    }
+    assert active_call_availability["ask"] == {
+        "method": "ask",
+        "available": False,
+        "unavailable_reason": "busy",
+    }
+    assert active_stream_availability["prompt"] == {
+        "method": "prompt",
+        "available": False,
+        "unavailable_reason": "busy",
+    }
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
     active_settings = _payload_mapping(service.call("settings")["settings"])

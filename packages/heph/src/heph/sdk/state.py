@@ -109,6 +109,8 @@ class HephSdkServiceState:
     is_busy: bool
     available_call_methods: tuple[str, ...]
     available_stream_methods: tuple[str, ...]
+    call_method_availability: tuple[HephSdkMethodAvailability, ...]
+    stream_method_availability: tuple[HephSdkMethodAvailability, ...]
 
     def __init__(
         self,
@@ -117,20 +119,36 @@ class HephSdkServiceState:
         is_busy: bool = False,
         available_call_methods: tuple[str, ...] | None = None,
         available_stream_methods: tuple[str, ...] | None = None,
+        call_method_availability: tuple[HephSdkMethodAvailability, ...] | None = None,
+        stream_method_availability: tuple[HephSdkMethodAvailability, ...] | None = None,
     ) -> None:
         is_busy = is_busy or prompt_active or active_operation is not None
+        call_methods = _available_call_methods(available_call_methods, is_busy=is_busy)
+        stream_methods = _available_stream_methods(available_stream_methods, is_busy=is_busy)
         object.__setattr__(self, "prompt_active", prompt_active)
         object.__setattr__(self, "active_operation", active_operation)
         object.__setattr__(self, "is_busy", is_busy)
+        object.__setattr__(self, "available_call_methods", call_methods)
+        object.__setattr__(self, "available_stream_methods", stream_methods)
         object.__setattr__(
             self,
-            "available_call_methods",
-            _available_call_methods(available_call_methods, is_busy=is_busy),
+            "call_method_availability",
+            _method_availability(
+                SERVICE_CALL_METHODS,
+                call_methods,
+                call_method_availability,
+                is_busy=is_busy,
+            ),
         )
         object.__setattr__(
             self,
-            "available_stream_methods",
-            _available_stream_methods(available_stream_methods, is_busy=is_busy),
+            "stream_method_availability",
+            _method_availability(
+                SERVICE_STREAM_METHODS,
+                stream_methods,
+                stream_method_availability,
+                is_busy=is_busy,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -140,6 +158,26 @@ class HephSdkServiceState:
             "is_busy": self.is_busy,
             "available_call_methods": list(self.available_call_methods),
             "available_stream_methods": list(self.available_stream_methods),
+            "call_method_availability": [
+                availability.to_dict() for availability in self.call_method_availability
+            ],
+            "stream_method_availability": [
+                availability.to_dict() for availability in self.stream_method_availability
+            ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class HephSdkMethodAvailability:
+    method: str
+    available: bool
+    unavailable_reason: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "method": self.method,
+            "available": self.available,
+            "unavailable_reason": self.unavailable_reason,
         }
 
 
@@ -165,6 +203,39 @@ def _available_stream_methods(
     if configured is not None:
         return configured
     return SERVICE_STREAM_METHODS
+
+
+def _method_availability(
+    all_methods: tuple[str, ...],
+    available_methods: tuple[str, ...],
+    configured: tuple[HephSdkMethodAvailability, ...] | None,
+    *,
+    is_busy: bool,
+) -> tuple[HephSdkMethodAvailability, ...]:
+    if configured is not None:
+        return configured
+    available = frozenset(available_methods)
+    return tuple(
+        HephSdkMethodAvailability(
+            method=method,
+            available=method in available,
+            unavailable_reason=_default_unavailable_reason(method, available, is_busy=is_busy),
+        )
+        for method in all_methods
+    )
+
+
+def _default_unavailable_reason(
+    method: str,
+    available: frozenset[str],
+    *,
+    is_busy: bool,
+) -> str | None:
+    if method in available:
+        return None
+    if is_busy:
+        return "busy"
+    return "unavailable"
 
 
 @dataclass(frozen=True, slots=True)

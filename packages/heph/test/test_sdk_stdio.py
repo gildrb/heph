@@ -70,6 +70,28 @@ def _jsonl_stream_methods(*methods: str) -> tuple[str, ...]:
     return tuple(method for method in sdk_methods.JSONL_STREAM_METHODS if method in available)
 
 
+def _availability_by_method(value: object) -> dict[str, dict[str, object]]:
+    records: dict[str, dict[str, object]] = {}
+    for item in _payload_list(value):
+        record = _payload_mapping(item)
+        records[str(record["method"])] = record
+    return records
+
+
+def _assert_jsonl_operation_busy_service_state(service_state: dict[str, object]) -> None:
+    assert service_state["prompt_active"] is False
+    assert service_state["active_operation"] == "build_index"
+    assert service_state["is_busy"] is True
+    assert service_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert service_state["available_stream_methods"] == []
+    call_availability = _availability_by_method(service_state["call_method_availability"])
+    stream_availability = _availability_by_method(service_state["stream_method_availability"])
+    assert call_availability["state"]["available"] is True
+    assert call_availability["ask"]["unavailable_reason"] == "busy"
+    assert stream_availability["prompt"]["unavailable_reason"] == "busy"
+    assert stream_availability["build_index_stream"]["unavailable_reason"] == "busy"
+
+
 def test_jsonl_sdk_server_handles_state_and_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -180,6 +202,13 @@ def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> No
     assert open_service["available_stream_methods"] == ["build_index_stream"]
     assert "build_index" not in _payload_list(plain_service["available_stream_methods"])
     assert "build_index" not in _payload_list(open_service["available_stream_methods"])
+    open_stream_availability = _availability_by_method(open_service["stream_method_availability"])
+    assert open_stream_availability["build_index_stream"] == {
+        "method": "build_index_stream",
+        "available": True,
+        "unavailable_reason": None,
+    }
+    assert "build_index" not in open_stream_availability
 
 
 def test_jsonl_sdk_server_rejects_unavailable_calls_and_streams_before_start() -> None:
@@ -495,15 +524,19 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
     thread.join(timeout=2.0)
     payloads = _payloads(output.getvalue())
     result = _payload_mapping(payloads[0]["result"])
+    state_service = _payload_mapping(_payload_mapping(result["state"])["service"])
 
     assert result["aborted"] is False
-    assert _payload_mapping(result["state"])["service"] == {
-        "prompt_active": True,
-        "active_operation": None,
-        "is_busy": True,
-        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
-        "available_stream_methods": [],
-    }
+    assert state_service["prompt_active"] is True
+    assert state_service["active_operation"] is None
+    assert state_service["is_busy"] is True
+    assert state_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert state_service["available_stream_methods"] == []
+    call_availability = _availability_by_method(state_service["call_method_availability"])
+    stream_availability = _availability_by_method(state_service["stream_method_availability"])
+    assert call_availability["state"]["available"] is True
+    assert call_availability["ask"]["unavailable_reason"] == "busy"
+    assert stream_availability["prompt"]["unavailable_reason"] == "busy"
     assert not direct_abort_seen.is_set()
     assert prompt_errors == []
     assert not thread.is_alive()
@@ -527,13 +560,17 @@ def test_jsonl_state_marks_pending_prompt_busy() -> None:
 
     payloads = _payloads(output.getvalue())
     result = _payload_mapping(payloads[0]["result"])
-    assert _payload_mapping(result["service"]) == {
-        "prompt_active": True,
-        "active_operation": None,
-        "is_busy": True,
-        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
-        "available_stream_methods": [],
-    }
+    service_state = _payload_mapping(result["service"])
+    assert service_state["prompt_active"] is True
+    assert service_state["active_operation"] is None
+    assert service_state["is_busy"] is True
+    assert service_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert service_state["available_stream_methods"] == []
+    call_availability = _availability_by_method(service_state["call_method_availability"])
+    stream_availability = _availability_by_method(service_state["stream_method_availability"])
+    assert call_availability["state"]["available"] is True
+    assert call_availability["ask"]["unavailable_reason"] == "busy"
+    assert stream_availability["build_index_stream"]["unavailable_reason"] == "busy"
 
 
 def test_jsonl_sdk_server_handles_source_scope_toggle(tmp_path: Path) -> None:
@@ -668,33 +705,15 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         for payload in payloads
         if payload["type"] == "stream_event"
     ]
-    assert immediate_service == {
-        "prompt_active": False,
-        "active_operation": "build_index",
-        "is_busy": True,
-        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
-        "available_stream_methods": [],
-    }
-    assert state_service == {
-        "prompt_active": False,
-        "active_operation": "build_index",
-        "is_busy": True,
-        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
-        "available_stream_methods": [],
-    }
+    _assert_jsonl_operation_busy_service_state(immediate_service)
+    _assert_jsonl_operation_busy_service_state(state_service)
     assert capabilities_response["type"] == "response"
     assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert "settings" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert settings_response["type"] == "response"
     assert settings["theme"] in {"dark", "light"}
     assert abort_result["aborted"] is False
-    assert abort_state_service == {
-        "prompt_active": False,
-        "active_operation": "build_index",
-        "is_busy": True,
-        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
-        "available_stream_methods": [],
-    }
+    _assert_jsonl_operation_busy_service_state(abort_state_service)
     assert prompt_error_payload["code"] == "busy"
     assert events == [
         {
@@ -777,35 +796,39 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
     assert "prompt failed" in str(stream_error["message"])
-    assert service_state == {
-        "prompt_active": False,
-        "active_operation": None,
-        "is_busy": False,
-        "available_call_methods": list(
-            _service_call_methods(
-                "state",
-                "capabilities",
-                "use_plain_runtime",
-                "open_armory",
-                "create_armory",
-                "list_armories",
-                "validate_armory",
-                "new_session",
-                "fork_session",
-                "list_sessions",
-                "messages",
-                "ask",
-                "abort",
-                "settings",
-                "list_providers",
-                "list_model_choices",
-                "switch_model",
-                "update_config",
-                "update_settings",
-            )
-        ),
-        "available_stream_methods": list(_jsonl_stream_methods("prompt")),
-    }
+    assert service_state["prompt_active"] is False
+    assert service_state["active_operation"] is None
+    assert service_state["is_busy"] is False
+    assert service_state["available_call_methods"] == list(
+        _service_call_methods(
+            "state",
+            "capabilities",
+            "use_plain_runtime",
+            "open_armory",
+            "create_armory",
+            "list_armories",
+            "validate_armory",
+            "new_session",
+            "fork_session",
+            "list_sessions",
+            "messages",
+            "ask",
+            "abort",
+            "settings",
+            "list_providers",
+            "list_model_choices",
+            "switch_model",
+            "update_config",
+            "update_settings",
+        )
+    )
+    assert service_state["available_stream_methods"] == list(_jsonl_stream_methods("prompt"))
+    call_availability = _availability_by_method(service_state["call_method_availability"])
+    stream_availability = _availability_by_method(service_state["stream_method_availability"])
+    assert call_availability["ask"]["available"] is True
+    assert call_availability["list_materials"]["unavailable_reason"] == "missing_armory"
+    assert stream_availability["prompt"]["available"] is True
+    assert stream_availability["build_index_stream"]["unavailable_reason"] == "missing_armory"
 
 
 def test_jsonl_sdk_server_reports_engine_error_code_in_prompt_stream(
@@ -913,36 +936,42 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
     assert stream_end["ok"] is False
     assert stream_error["code"] == "internal_error"
     assert "index failed" in str(stream_error["message"])
-    assert service_state == {
-        "prompt_active": False,
-        "active_operation": None,
-        "is_busy": False,
-        "available_call_methods": list(
-            _service_call_methods(
-                "state",
-                "capabilities",
-                "use_plain_runtime",
-                "open_armory",
-                "create_armory",
-                "list_armories",
-                "validate_armory",
-                "new_session",
-                "resume_session",
-                "list_sessions",
-                "settings",
-                "list_providers",
-                "list_model_choices",
-                "switch_model",
-                "list_materials",
-                "import_materials",
-                "build_index",
-                "scan_extraction_health",
-                "update_config",
-                "update_settings",
-            )
-        ),
-        "available_stream_methods": list(_jsonl_stream_methods("build_index_stream")),
-    }
+    assert service_state["prompt_active"] is False
+    assert service_state["active_operation"] is None
+    assert service_state["is_busy"] is False
+    assert service_state["available_call_methods"] == list(
+        _service_call_methods(
+            "state",
+            "capabilities",
+            "use_plain_runtime",
+            "open_armory",
+            "create_armory",
+            "list_armories",
+            "validate_armory",
+            "new_session",
+            "resume_session",
+            "list_sessions",
+            "settings",
+            "list_providers",
+            "list_model_choices",
+            "switch_model",
+            "list_materials",
+            "import_materials",
+            "build_index",
+            "scan_extraction_health",
+            "update_config",
+            "update_settings",
+        )
+    )
+    assert service_state["available_stream_methods"] == list(
+        _jsonl_stream_methods("build_index_stream")
+    )
+    call_availability = _availability_by_method(service_state["call_method_availability"])
+    stream_availability = _availability_by_method(service_state["stream_method_availability"])
+    assert call_availability["resume_session"]["available"] is True
+    assert call_availability["ask"]["unavailable_reason"] == "missing_session"
+    assert stream_availability["build_index_stream"]["available"] is True
+    assert stream_availability["prompt"]["unavailable_reason"] == "missing_session"
 
 
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:

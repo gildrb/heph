@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum, StrEnum, auto
 from pathlib import Path
 
 from ai.runtime import ChatConfig, normalize_thinking_visibility
@@ -43,6 +43,7 @@ from heph.sdk.settings import (
     update_sdk_app_settings,
 )
 from heph.sdk.state import (
+    HephSdkMethodAvailability,
     HephSdkRuntimeState,
     HephSdkServiceState,
     HephSdkSessionState,
@@ -66,6 +67,14 @@ class _ServiceAvailabilityRequirement(Enum):
     SESSION = auto()
     ARMORY_SESSION = auto()
     SESSION_SOURCES = auto()
+
+
+class _ServiceUnavailableReason(StrEnum):
+    BUSY = "busy"
+    MISSING_ARMORY = "missing_armory"
+    MISSING_SESSION = "missing_session"
+    MISSING_ARMORY_SESSION = "missing_armory_session"
+    MISSING_SESSION_SOURCES = "missing_session_sources"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +130,21 @@ class _ServiceConfigParam:
         if value is None and not self.keep_none:
             return None
         return SdkConfigUpdate(self.name, value)
+
+
+@dataclass(frozen=True, slots=True)
+class _RouteAvailability:
+    available: bool
+    unavailable_reason: _ServiceUnavailableReason | None = None
+
+    def to_sdk(self, method: str) -> HephSdkMethodAvailability:
+        return HephSdkMethodAvailability(
+            method=method,
+            available=self.available,
+            unavailable_reason=(
+                self.unavailable_reason.value if self.unavailable_reason is not None else None
+            ),
+        )
 
 
 @dataclass(slots=True)
@@ -363,22 +387,31 @@ class HephService:
 
     def _ensure_call_route_available(self, route: _ServiceCallRoute) -> None:
         with self._prompt_lock:
-            is_busy = self._is_busy_locked()
-            if is_busy:
-                if route.method not in BUSY_ALLOWED_CALL_METHODS:
-                    raise HephSdkBusyError()
-                return
-            is_available = _route_is_available(route, self.runtime, self.session)
-        if not is_available:
-            raise HephSdkUnavailableError(route.method, kind="SDK service call")
+            availability = _call_route_availability(
+                route,
+                self.runtime,
+                self.session,
+                is_busy=self._is_busy_locked(),
+            )
+        _ensure_route_available(
+            route.method,
+            availability,
+            kind="SDK service call",
+        )
 
     def _ensure_stream_route_available(self, route: _ServiceStreamRoute) -> None:
         with self._prompt_lock:
-            if self._is_busy_locked():
-                raise HephSdkBusyError()
-            is_available = _route_is_available(route, self.runtime, self.session)
-        if not is_available:
-            raise HephSdkUnavailableError(route.method, kind="SDK service stream")
+            availability = _stream_route_availability(
+                route,
+                self.runtime,
+                self.session,
+                is_busy=self._is_busy_locked(),
+            )
+        _ensure_route_available(
+            route.method,
+            availability,
+            kind="SDK service stream",
+        )
 
     def _stream_routes(self) -> dict[str, _ServiceStreamRoute]:
         routes = (
@@ -579,18 +612,32 @@ class HephService:
     def _service_state(self) -> HephSdkServiceState:
         prompt_active = self._prompt_is_active_locked()
         is_busy = self._active_operation is not None or prompt_active
+        call_routes = self._call_routes()
+        stream_routes = self._stream_routes()
         return HephSdkServiceState(
             prompt_active=prompt_active,
             active_operation=self._active_operation,
             is_busy=is_busy,
             available_call_methods=_available_call_methods(
-                self._call_routes(),
+                call_routes,
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
             ),
             available_stream_methods=_available_stream_methods(
-                self._stream_routes(),
+                stream_routes,
+                self.runtime,
+                self.session,
+                is_busy=is_busy,
+            ),
+            call_method_availability=_call_method_availability(
+                call_routes,
+                self.runtime,
+                self.session,
+                is_busy=is_busy,
+            ),
+            stream_method_availability=_stream_method_availability(
+                stream_routes,
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
@@ -734,7 +781,7 @@ def _available_call_methods(
         method
         for method in SERVICE_CALL_METHODS
         if (route := routes.get(method)) is not None
-        and _route_is_available(route, runtime, session)
+        and _call_route_availability(route, runtime, session, is_busy=is_busy).available
     )
 
 
@@ -745,33 +792,126 @@ def _available_stream_methods(
     *,
     is_busy: bool,
 ) -> tuple[str, ...]:
-    if is_busy:
-        return ()
-
     return tuple(
         method
         for method in SERVICE_STREAM_METHODS
         if (route := routes.get(method)) is not None
-        and _route_is_available(route, runtime, session)
+        and _stream_route_availability(route, runtime, session, is_busy=is_busy).available
     )
 
 
-def _route_is_available(
+def _call_method_availability(
+    routes: Mapping[str, _ServiceCallRoute],
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> tuple[HephSdkMethodAvailability, ...]:
+    return tuple(
+        _call_route_availability(route, runtime, session, is_busy=is_busy).to_sdk(method)
+        for method in SERVICE_CALL_METHODS
+        if (route := routes.get(method)) is not None
+    )
+
+
+def _stream_method_availability(
+    routes: Mapping[str, _ServiceStreamRoute],
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> tuple[HephSdkMethodAvailability, ...]:
+    return tuple(
+        _stream_route_availability(route, runtime, session, is_busy=is_busy).to_sdk(method)
+        for method in SERVICE_STREAM_METHODS
+        if (route := routes.get(method)) is not None
+    )
+
+
+def _call_route_availability(
+    route: _ServiceCallRoute,
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> _RouteAvailability:
+    if is_busy and route.method not in BUSY_ALLOWED_CALL_METHODS:
+        return _unavailable_route(_ServiceUnavailableReason.BUSY)
+    if is_busy:
+        return _available_route()
+    return _route_availability(route, runtime, session)
+
+
+def _stream_route_availability(
+    route: _ServiceStreamRoute,
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> _RouteAvailability:
+    if is_busy:
+        return _unavailable_route(_ServiceUnavailableReason.BUSY)
+    return _route_availability(route, runtime, session)
+
+
+def _route_availability(
     route: _AvailableRoute,
     runtime: HephRuntime,
     session: HephSession | None,
-) -> bool:
+) -> _RouteAvailability:
     match route.availability:
         case _ServiceAvailabilityRequirement.ALWAYS:
-            return True
+            return _available_route()
         case _ServiceAvailabilityRequirement.ARMORY:
-            return runtime.armory_path is not None
+            return _available_when(
+                runtime.armory_path is not None,
+                _ServiceUnavailableReason.MISSING_ARMORY,
+            )
         case _ServiceAvailabilityRequirement.SESSION:
-            return session is not None
+            return _available_when(
+                session is not None,
+                _ServiceUnavailableReason.MISSING_SESSION,
+            )
         case _ServiceAvailabilityRequirement.ARMORY_SESSION:
-            return session is not None and session.armory_path is not None
+            return _available_when(
+                session is not None and session.armory_path is not None,
+                _ServiceUnavailableReason.MISSING_ARMORY_SESSION,
+            )
         case _ServiceAvailabilityRequirement.SESSION_SOURCES:
-            return session is not None and bool(session.source_files)
+            return _available_when(
+                session is not None and bool(session.source_files),
+                _ServiceUnavailableReason.MISSING_SESSION_SOURCES,
+            )
+
+
+def _ensure_route_available(
+    method: str,
+    availability: _RouteAvailability,
+    *,
+    kind: str,
+) -> None:
+    if availability.available:
+        return
+    if availability.unavailable_reason is _ServiceUnavailableReason.BUSY:
+        raise HephSdkBusyError()
+    raise HephSdkUnavailableError(method, kind=kind)
+
+
+def _available_route() -> _RouteAvailability:
+    return _RouteAvailability(True)
+
+
+def _unavailable_route(reason: _ServiceUnavailableReason) -> _RouteAvailability:
+    return _RouteAvailability(False, reason)
+
+
+def _available_when(
+    available: bool,
+    unavailable_reason: _ServiceUnavailableReason,
+) -> _RouteAvailability:
+    if available:
+        return _available_route()
+    return _unavailable_route(unavailable_reason)
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:

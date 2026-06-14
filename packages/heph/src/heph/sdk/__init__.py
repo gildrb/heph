@@ -74,6 +74,7 @@ from heph.sdk.settings import (
     update_sdk_app_settings,
 )
 from heph.sdk.state import (
+    HephSdkMethodAvailability,
     HephSdkRuntimeState,
     HephSdkServiceState,
     HephSdkSessionState,
@@ -115,6 +116,7 @@ __all__ = [
     "HephSdkBusyError",
     "HephSdkCapabilities",
     "HephSdkError",
+    "HephSdkMethodAvailability",
     "HephSdkModelError",
     "HephSdkOptions",
     "HephSdkRuntimeState",

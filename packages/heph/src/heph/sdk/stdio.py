@@ -16,6 +16,7 @@ from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    JSONL_CALL_METHODS,
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
@@ -546,6 +547,14 @@ def _merge_transport_busy_state(
     merged_service["is_busy"] = True
     merged_service["available_call_methods"] = list(BUSY_ALLOWED_CALL_METHODS)
     merged_service["available_stream_methods"] = []
+    merged_service["call_method_availability"] = _busy_method_availability(
+        JSONL_CALL_METHODS,
+        BUSY_ALLOWED_CALL_METHODS,
+    )
+    merged_service["stream_method_availability"] = _busy_method_availability(
+        JSONL_STREAM_METHODS,
+        (),
+    )
     return merged_service
 
 
@@ -560,6 +569,10 @@ def _state_with_jsonl_stream_methods(state: ServicePayload) -> ServicePayload:
         merged_service["available_stream_methods"] = _jsonl_available_stream_methods(service_state)
     else:
         merged_service["available_stream_methods"] = list(JSONL_STREAM_METHODS)
+    if "stream_method_availability" in service_state:
+        merged_service["stream_method_availability"] = _jsonl_stream_method_availability(
+            service_state
+        )
     merged_state = dict(state)
     merged_state["service"] = merged_service
     return merged_state
@@ -577,6 +590,41 @@ def _jsonl_available_stream_methods(service_state: dict[str, object]) -> list[st
         if jsonl_method is not None:
             methods.append(jsonl_method)
     return methods
+
+
+def _jsonl_stream_method_availability(service_state: dict[str, object]) -> list[dict[str, object]]:
+    availability = service_state.get("stream_method_availability")
+    if not isinstance(availability, list):
+        return []
+    records: list[dict[str, object]] = []
+    for item in availability:
+        if not is_string_mapping(item):
+            continue
+        method = item.get("method")
+        if not isinstance(method, str):
+            continue
+        jsonl_method = jsonl_stream_method_for_service(method)
+        if jsonl_method is None:
+            continue
+        record = dict(item)
+        record["method"] = jsonl_method
+        records.append(record)
+    return records
+
+
+def _busy_method_availability(
+    methods: tuple[str, ...],
+    available_methods: tuple[str, ...],
+) -> list[dict[str, object]]:
+    available = frozenset(available_methods)
+    return [
+        {
+            "method": method,
+            "available": method in available,
+            "unavailable_reason": None if method in available else "busy",
+        }
+        for method in methods
+    ]
 
 
 def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:
