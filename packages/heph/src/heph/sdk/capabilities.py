@@ -78,6 +78,11 @@ _BUILTIN_TYPES = frozenset(
 )
 _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
+_JSONL_REQUEST_ENVELOPE_FIELDS = (
+    SdkObjectFieldSpec("id", "string_or_integer", required=False, nullable=True),
+    SdkObjectFieldSpec("method", "string"),
+    SdkObjectFieldSpec("params", "object", required=False, nullable=True),
+)
 type _DuplicateCheck = tuple[str, tuple[str, ...]]
 type _MismatchCheck = tuple[str, tuple[str, ...], tuple[str, ...]]
 type _AvailabilitySpecReference = tuple[str, SdkMethodAvailabilitySpec]
@@ -257,6 +262,7 @@ def validate_sdk_capabilities(
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
     _append_discriminator_issues(issues, capabilities)
+    _append_jsonl_request_envelope_issues(issues, capabilities)
     return tuple(issues)
 
 
@@ -804,6 +810,38 @@ def _field_by_name(
     name: str,
 ) -> SdkObjectFieldSpec | None:
     return next((field for field in fields if field.name == name), None)
+
+
+def _append_jsonl_request_envelope_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    advertised_names = tuple(field.name for field in capabilities.jsonl_request_spec.fields)
+    expected_names = tuple(field.name for field in _JSONL_REQUEST_ENVELOPE_FIELDS)
+    if advertised_names != expected_names:
+        issues.append("jsonl.request_spec.fields must be exactly: " + ", ".join(expected_names))
+    for expected in _JSONL_REQUEST_ENVELOPE_FIELDS:
+        field = _field_by_name(capabilities.jsonl_request_spec.fields, expected.name)
+        if field is not None:
+            _append_jsonl_request_field_shape_issues(issues, field, expected)
+
+
+def _append_jsonl_request_field_shape_issues(
+    issues: list[str],
+    field: SdkObjectFieldSpec,
+    expected: SdkObjectFieldSpec,
+) -> None:
+    context = f"jsonl.request_spec.{expected.name}"
+    if field.value_type != expected.value_type:
+        issues.append(f"{context} must be {expected.value_type}.")
+    if field.required != expected.required or field.nullable != expected.nullable:
+        issues.append(f"{context} must be {_required_nullable_message(expected)}.")
+
+
+def _required_nullable_message(field: SdkObjectFieldSpec) -> str:
+    required = "required" if field.required else "optional"
+    nullable = "nullable" if field.nullable else "non-null"
+    return f"{required} and {nullable}"
 
 
 def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[_ValueTypeReference, ...]:

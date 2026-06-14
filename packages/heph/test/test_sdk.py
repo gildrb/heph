@@ -1649,6 +1649,39 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "streams.service.prompt completion event is unknown: missing_completion_event" in issues
 
 
+def test_sdk_capabilities_validator_reports_jsonl_request_envelope_drift() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_request_fields = tuple(
+        replace(field, required=True, nullable=False)
+        if field.name == "id"
+        else replace(field, value_type="string_or_integer", nullable=True)
+        if field.name == "method"
+        else replace(field, value_type="array<string>", required=True, nullable=False)
+        if field.name == "params"
+        else field
+        for field in capabilities.jsonl_request_spec.fields
+    )
+    broken_capabilities = replace(
+        capabilities,
+        jsonl_request_spec=replace(
+            capabilities.jsonl_request_spec,
+            fields=(
+                *broken_request_fields,
+                sdk_methods.SdkJsonlMessageFieldSpec("extra", "string", required=False),
+            ),
+        ),
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "jsonl.request_spec.fields must be exactly: id, method, params" in issues
+    assert "jsonl.request_spec.id must be optional and nullable." in issues
+    assert "jsonl.request_spec.method must be string." in issues
+    assert "jsonl.request_spec.method must be required and non-null." in issues
+    assert "jsonl.request_spec.params must be object." in issues
+    assert "jsonl.request_spec.params must be optional and nullable." in issues
+
+
 def test_sdk_capabilities_validator_reports_discriminator_drift() -> None:
     capabilities = get_sdk_capabilities()
     broken_event_specs = tuple(

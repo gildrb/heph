@@ -296,8 +296,8 @@ precondition. Each method maps to a `requirement` value such as `always`,
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
-availability drift, unresolved DTO type references, discriminator drift, and
-stream event drift.
+availability drift, unresolved DTO type references, JSONL request-envelope
+drift, discriminator drift, and stream event drift.
 `validate_sdk_service_contract()` checks the service implementation routes
 against those advertised methods and route parameter names. `HephService` runs
 both checks during construction.
