@@ -2610,6 +2610,25 @@ def test_plain_prior_transform_continues_prior_material_intent() -> None:
     assert resolution.prior_answer_reference is True
 
 
+def test_plain_prior_transform_accepts_explicit_prior_reference() -> None:
+    resolution = _stabilized_followup_intent_resolution(
+        TurnIntentResolution(
+            intent="chat",
+            canonical_request="Shorten the previous assistant response.",
+            followup_target="that",
+            answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
+            prior_answer_reference=True,
+        ),
+        user_input="Shorten that.",
+        prior_intent="material_overview",
+    )
+
+    assert resolution.intent == "material_overview"
+    assert resolution.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
+    assert resolution.is_followup is True
+    assert resolution.prior_answer_reference is True
+
+
 def test_plain_transform_without_prior_anchor_becomes_current_evidence_request() -> None:
     resolution = _stabilized_followup_intent_resolution(
         TurnIntentResolution(
