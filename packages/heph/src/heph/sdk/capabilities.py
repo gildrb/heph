@@ -256,6 +256,7 @@ def validate_sdk_capabilities(
     _append_availability_issues(issues, capabilities)
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
+    _append_discriminator_issues(issues, capabilities)
     return tuple(issues)
 
 
@@ -759,6 +760,50 @@ def _append_unknown_completion_event_issue(
 ) -> None:
     if spec.completion_event is not None and spec.completion_event not in known_events:
         issues.append(f"{context} completion event is unknown: {spec.completion_event}")
+
+
+def _append_discriminator_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    for spec in capabilities.event_specs:
+        _append_object_discriminator_issues(
+            issues,
+            f"events.{spec.event_type}",
+            spec.event_type,
+            spec.fields,
+        )
+    for spec in capabilities.jsonl_message_specs:
+        _append_object_discriminator_issues(
+            issues,
+            f"jsonl.message_specs.{spec.message_type}",
+            spec.message_type,
+            spec.fields,
+        )
+
+
+def _append_object_discriminator_issues(
+    issues: list[str],
+    context: str,
+    discriminator_value: str,
+    fields: tuple[SdkObjectFieldSpec, ...],
+) -> None:
+    field = _field_by_name(fields, "type")
+    if field is None:
+        issues.append(f"{context} must advertise a type discriminator.")
+        return
+    if not field.required or field.nullable:
+        issues.append(f"{context}.type must be required and non-null.")
+    expected_type = f"literal<{discriminator_value}>"
+    if field.value_type != expected_type:
+        issues.append(f"{context}.type must be {expected_type}.")
+
+
+def _field_by_name(
+    fields: tuple[SdkObjectFieldSpec, ...],
+    name: str,
+) -> SdkObjectFieldSpec | None:
+    return next((field for field in fields if field.name == name), None)
 
 
 def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[_ValueTypeReference, ...]:

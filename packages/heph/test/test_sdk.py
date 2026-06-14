@@ -1580,6 +1580,49 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "streams.service.prompt completion event is unknown: missing_completion_event" in issues
 
 
+def test_sdk_capabilities_validator_reports_discriminator_drift() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_event_specs = tuple(
+        replace(
+            spec,
+            fields=tuple(
+                replace(
+                    field,
+                    value_type="literal<wrong_delta>",
+                    required=False,
+                    nullable=True,
+                )
+                if spec.event_type == "assistant_delta" and field.name == "type"
+                else field
+                for field in spec.fields
+            ),
+        )
+        if spec.event_type == "assistant_delta"
+        else spec
+        for spec in capabilities.event_specs
+    )
+    broken_message_specs = tuple(
+        replace(
+            spec,
+            fields=tuple(field for field in spec.fields if field.name != "type"),
+        )
+        if spec.message_type == "response"
+        else spec
+        for spec in capabilities.jsonl_message_specs
+    )
+    broken_capabilities = replace(
+        capabilities,
+        event_specs=broken_event_specs,
+        jsonl_message_specs=broken_message_specs,
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "events.assistant_delta.type must be required and non-null." in issues
+    assert "events.assistant_delta.type must be literal<assistant_delta>." in issues
+    assert "jsonl.message_specs.response must advertise a type discriminator." in issues
+
+
 def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) -> None:
     armory_path = _armory(tmp_path)
     missing_path = tmp_path / "missing-armory"
