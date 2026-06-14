@@ -759,54 +759,88 @@ def _expanded_prior_query_evidence(
     session: ChatSession,
     plan: LearningTurnPlan,
 ) -> TurnEvidence | None:
-    if (
-        plan.retrieval_strategy != RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        or not plan.evidence_refs
-        or not plan.retrieval_query
-    ):
+    if not _can_expand_prior_query(plan):
         return None
+    assert plan.retrieval_query is not None
     try:
-        timer = Timer()
         index = ensure_rag_index(session)
         if index is None:
             return None
-
         if _material_overview_plan(plan):
-            return build_turn_evidence_from_refs(
-                session,
-                list(plan.evidence_refs),
-                max_tokens=max(adaptive_rag_budget(session), _OVERVIEW_CONTEXT_TOKEN_BUDGET),
-            ) or build_turn_evidence_from_overview(session)
-
-        prior_scored = _scored_chunks_from_refs(
-            index,
-            plan.evidence_refs,
-            disabled_sources=session.disabled_source_files,
-        )
-        with timer:
-            query_result = _retrieve_query_scored_chunks(session, plan.retrieval_query, index)
-        if query_result.scored:
-            _record_query_retrieval(
-                session,
-                plan.retrieval_query,
-                query_result,
-                latency_ms=timer.ms,
-            )
-        elif not prior_scored:
-            _log_empty_query_retrieval(plan.retrieval_query, timer.ms)
-            return None
-        query_scored = _source_qa_relevant_query_scored(plan, query_result.scored)
-        scored = _merge_prior_and_query_scored_chunks(prior_scored, query_scored)
-        if not scored:
-            return None
-        return _build_expanded_turn_evidence(
-            scored,
-            prior_refs=plan.evidence_refs,
-            max_tokens=adaptive_rag_budget(session),
-        )
+            return _expanded_prior_overview_evidence(session, plan)
+        return _expanded_prior_retrieval_evidence(session, plan, index)
     except Exception:
         _log.warning("expanded prior evidence build failed", exc_info=True)
         return None
+
+
+def _can_expand_prior_query(plan: LearningTurnPlan) -> bool:
+    return (
+        plan.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        and bool(plan.evidence_refs)
+        and bool(plan.retrieval_query)
+    )
+
+
+def _expanded_prior_overview_evidence(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+) -> TurnEvidence | None:
+    return build_turn_evidence_from_refs(
+        session,
+        list(plan.evidence_refs),
+        max_tokens=max(adaptive_rag_budget(session), _OVERVIEW_CONTEXT_TOKEN_BUDGET),
+    ) or build_turn_evidence_from_overview(session)
+
+
+def _expanded_prior_retrieval_evidence(
+    session: ChatSession,
+    plan: LearningTurnPlan,
+    index: ArmoryIndex,
+) -> TurnEvidence | None:
+    assert plan.retrieval_query is not None
+    prior_scored = _scored_chunks_from_refs(
+        index,
+        plan.evidence_refs,
+        disabled_sources=session.disabled_source_files,
+    )
+    timer = Timer()
+    with timer:
+        query_result = _retrieve_query_scored_chunks(session, plan.retrieval_query, index)
+    if not _expanded_prior_query_can_continue(
+        session,
+        query=plan.retrieval_query,
+        query_result=query_result,
+        prior_scored=prior_scored,
+        latency_ms=timer.ms,
+    ):
+        return None
+    query_scored = _source_qa_relevant_query_scored(plan, query_result.scored)
+    scored = _merge_prior_and_query_scored_chunks(prior_scored, query_scored)
+    if not scored:
+        return None
+    return _build_expanded_turn_evidence(
+        scored,
+        prior_refs=plan.evidence_refs,
+        max_tokens=adaptive_rag_budget(session),
+    )
+
+
+def _expanded_prior_query_can_continue(
+    session: ChatSession,
+    *,
+    query: str,
+    query_result: _QueryRetrievalResult,
+    prior_scored: Sequence[ScoredChunk],
+    latency_ms: float,
+) -> bool:
+    if query_result.scored:
+        _record_query_retrieval(session, query, query_result, latency_ms=latency_ms)
+        return True
+    if prior_scored:
+        return True
+    _log_empty_query_retrieval(query, latency_ms)
+    return False
 
 
 def _source_qa_relevant_query_scored(
