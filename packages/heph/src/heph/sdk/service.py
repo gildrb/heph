@@ -1258,8 +1258,13 @@ def _config_param_contracts() -> tuple[_RouteParameterContract, ...]:
 
 def _app_setting_param_contracts() -> tuple[_RouteParameterContract, ...]:
     return tuple(
-        _RouteParameterContract(name, value_type, required=False, choices=choices)
-        for name, value_type, choices in SDK_APP_SETTING_CONTRACTS
+        _RouteParameterContract(
+            contract.name,
+            contract.value_type,
+            required=False,
+            choices=contract.choices,
+        )
+        for contract in SDK_APP_SETTING_CONTRACTS
     )
 
 

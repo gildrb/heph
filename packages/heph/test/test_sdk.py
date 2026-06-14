@@ -976,8 +976,8 @@ def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
         for param in config_params
     )
     broken_setting_contracts = tuple(
-        (name, value_type, ("neon",)) if name == "theme" else (name, value_type, choices)
-        for name, value_type, choices in sdk_service.SDK_APP_SETTING_CONTRACTS
+        replace(contract, choices=("neon",)) if contract.name == "theme" else contract
+        for contract in sdk_service.SDK_APP_SETTING_CONTRACTS
     )
 
     monkeypatch.setattr(sdk_service, "_CONFIG_PARAMS", broken_config_params)

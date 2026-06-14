@@ -29,19 +29,27 @@ from hephaion.privacy.consent import (
     crash_reports_env_override,
 )
 
+
+@dataclass(frozen=True, slots=True)
+class SdkAppSettingContract:
+    name: str
+    value_type: str
+    choices: tuple[str, ...] = ()
+
+
 SDK_APP_SETTING_CONTRACTS = (
-    ("theme", "string", THEME_PRESETS),
-    ("default_armory_path", "string", ()),
-    ("activity_trace_mode", "string", ACTIVITY_TRACE_MODES),
-    ("vocab_strictness", "string", VOCAB_STRICTNESS_MODES),
-    ("thinking_visibility", "string", THINKING_VISIBILITY_MODES),
-    ("live_tokens_visible", "boolean", ()),
-    ("live_cost_visible", "boolean", ()),
+    SdkAppSettingContract("theme", "string", THEME_PRESETS),
+    SdkAppSettingContract("default_armory_path", "string"),
+    SdkAppSettingContract("activity_trace_mode", "string", ACTIVITY_TRACE_MODES),
+    SdkAppSettingContract("vocab_strictness", "string", VOCAB_STRICTNESS_MODES),
+    SdkAppSettingContract("thinking_visibility", "string", THINKING_VISIBILITY_MODES),
+    SdkAppSettingContract("live_tokens_visible", "boolean"),
+    SdkAppSettingContract("live_cost_visible", "boolean"),
 )
-SDK_MUTABLE_APP_SETTINGS = tuple(name for name, _value_type, _choices in SDK_APP_SETTING_CONTRACTS)
+SDK_MUTABLE_APP_SETTINGS = tuple(contract.name for contract in SDK_APP_SETTING_CONTRACTS)
 _SDK_MUTABLE_APP_SETTINGS = frozenset(SDK_MUTABLE_APP_SETTINGS)
 SDK_APP_SETTING_VALUE_TYPES = tuple(
-    (name, value_type) for name, value_type, _choices in SDK_APP_SETTING_CONTRACTS
+    (contract.name, contract.value_type) for contract in SDK_APP_SETTING_CONTRACTS
 )
 _STRING_APP_SETTINGS = frozenset(
     name for name, value_type in SDK_APP_SETTING_VALUE_TYPES if value_type == "string"
@@ -237,6 +245,7 @@ __all__ = [
     "SDK_APP_SETTING_VALUE_TYPES",
     "SDK_MUTABLE_APP_SETTINGS",
     "PrivacySettingsSummary",
+    "SdkAppSettingContract",
     "SdkAppSettings",
     "SdkSettingsError",
     "SettingChoice",
