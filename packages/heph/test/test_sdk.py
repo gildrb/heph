@@ -68,6 +68,7 @@ from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
+from heph.sdk import value_types as sdk_value_types
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
     validate_jsonl_request_payload,
@@ -2030,6 +2031,31 @@ def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:
     assert "jsonl.request_spec.params has empty map item type." in issues
     assert "results.service_call.state has malformed SDK value type: array<string" in issues
     assert "types.sdk_state.service has empty literal value." in issues
+
+
+def test_sdk_value_type_helpers_resolve_nested_custom_type_references() -> None:
+    builtin_types = frozenset({"string", "boolean"})
+
+    assert sdk_value_types.sdk_custom_type_references(
+        "array<map<widget_summary>>",
+        builtin_types,
+    ) == ("widget_summary",)
+    assert sdk_value_types.sdk_custom_type_references("literal<ready>", builtin_types) == ()
+    assert sdk_value_types.sdk_custom_type_references("array<string>", builtin_types) == ()
+    assert sdk_value_types.sdk_custom_type_references("map<>", builtin_types) == ()
+
+
+@pytest.mark.parametrize(
+    ("value_type", "message"),
+    [
+        ("array<>", "context has empty array item type."),
+        ("map<>", "context has empty map item type."),
+        ("literal<>", "context has empty literal value."),
+        ("array<string", "context has malformed SDK value type: array<string"),
+    ],
+)
+def test_sdk_value_type_helpers_report_shape_issues(value_type: str, message: str) -> None:
+    assert sdk_value_types.sdk_value_type_shape_issue("context", value_type) == message
 
 
 def test_sdk_capabilities_validator_reports_invalid_parameter_choices() -> None:
