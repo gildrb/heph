@@ -550,27 +550,37 @@ def _expanded_prior_followup_query(
     current_semantic_query = _current_turn_semantic_query(contract)
     retrieval_query = _contract_retrieval_query(contract)
     followup_target = _contract_followup_target(contract)
-    if (
-        followup_target
-        and retrieval_query
-        and not _same_normalized_text(retrieval_query, contract.original_user_input)
-        and _query_reuses_surface(retrieval_query, followup_target)
-    ):
-        return retrieval_query
+    target_query = _reusable_nonliteral_query_for_surface(
+        contract,
+        retrieval_query,
+        followup_target,
+    )
+    if target_query:
+        return target_query
     if current_semantic_query:
-        if (
-            retrieval_query
-            and not _same_normalized_text(retrieval_query, contract.original_user_input)
-            and _query_reuses_surface(
-                retrieval_query,
-                current_semantic_query,
-            )
-        ):
-            return retrieval_query
-        return current_semantic_query
+        semantic_query = _reusable_nonliteral_query_for_surface(
+            contract,
+            retrieval_query,
+            current_semantic_query,
+        )
+        return semantic_query or current_semantic_query
     if _current_request_introduces_fresh_content(contract, prior_contract):
         return _current_request_query(contract)
     return retrieval_query or _current_request_query(contract)
+
+
+def _reusable_nonliteral_query_for_surface(
+    contract: TurnContract,
+    retrieval_query: str | None,
+    surface: str | None,
+) -> str | None:
+    if not retrieval_query or not surface:
+        return None
+    if _same_normalized_text(retrieval_query, contract.original_user_input):
+        return None
+    if not _query_reuses_surface(retrieval_query, surface):
+        return None
+    return retrieval_query
 
 
 def _prior_followup_has_literal_direct_requirement(
