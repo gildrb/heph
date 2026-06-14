@@ -83,11 +83,37 @@ _JSONL_REQUEST_ENVELOPE_FIELDS = (
     SdkObjectFieldSpec("method", "string"),
     SdkObjectFieldSpec("params", "object", required=False, nullable=True),
 )
-type _DuplicateCheck = tuple[str, tuple[str, ...]]
-type _MismatchCheck = tuple[str, tuple[str, ...], tuple[str, ...]]
-type _AvailabilitySpecReference = tuple[str, SdkMethodAvailabilitySpec]
-type _StreamSpecReference = tuple[str, SdkStreamSpec]
-type _ValueTypeReference = tuple[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _DuplicateCheck:
+    label: str
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _MismatchCheck:
+    label: str
+    advertised: tuple[str, ...]
+    structured: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _AvailabilitySpecReference:
+    context: str
+    spec: SdkMethodAvailabilitySpec
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamSpecReference:
+    context: str
+    spec: SdkStreamSpec
+
+
+@dataclass(frozen=True, slots=True)
+class _ValueTypeReference:
+    context: str
+    value_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,10 +273,10 @@ def validate_sdk_capabilities(
 ) -> tuple[str, ...]:
     """Return human-readable SDK capability contract issues."""
     issues: list[str] = []
-    for label, names in _duplicate_checks(capabilities):
-        _append_duplicate_issue(issues, label, names)
-    for label, advertised, structured in _mismatch_checks(capabilities):
-        _append_mismatch_issue(issues, label, advertised, structured)
+    for check in _duplicate_checks(capabilities):
+        _append_duplicate_issue(issues, check.label, check.names)
+    for check in _mismatch_checks(capabilities):
+        _append_mismatch_issue(issues, check.label, check.advertised, check.structured)
     _append_subset_issue(
         issues,
         "service.busy_allowed_call_methods",
@@ -272,7 +298,7 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
         *_method_name_duplicate_checks(capabilities),
         *_jsonl_contract_duplicate_checks(capabilities),
         *_availability_duplicate_checks(capabilities),
-        ("types", _type_names(capabilities.type_specs)),
+        _DuplicateCheck("types", _type_names(capabilities.type_specs)),
         *_method_param_duplicate_checks(
             "methods.service_call",
             capabilities.service_call_method_specs,
@@ -308,10 +334,10 @@ def _method_name_duplicate_checks(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_DuplicateCheck, ...]:
     return (
-        ("service.call_methods", capabilities.service_call_methods),
-        ("service.stream_methods", capabilities.service_stream_methods),
-        ("jsonl.call_methods", capabilities.jsonl_call_methods),
-        ("jsonl.stream_methods", capabilities.jsonl_stream_methods),
+        _DuplicateCheck("service.call_methods", capabilities.service_call_methods),
+        _DuplicateCheck("service.stream_methods", capabilities.service_stream_methods),
+        _DuplicateCheck("jsonl.call_methods", capabilities.jsonl_call_methods),
+        _DuplicateCheck("jsonl.stream_methods", capabilities.jsonl_stream_methods),
     )
 
 
@@ -319,12 +345,18 @@ def _jsonl_contract_duplicate_checks(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_DuplicateCheck, ...]:
     return (
-        ("jsonl.request_spec.fields", _jsonl_request_field_names(capabilities)),
-        ("jsonl.message_types", capabilities.jsonl_message_types),
-        ("events.types", capabilities.event_types),
-        ("jsonl.error_codes", capabilities.jsonl_error_codes),
-        ("service.busy_allowed_call_methods", capabilities.busy_allowed_call_methods),
-        ("service.method_unavailable_reasons", capabilities.method_unavailable_reasons),
+        _DuplicateCheck("jsonl.request_spec.fields", _jsonl_request_field_names(capabilities)),
+        _DuplicateCheck("jsonl.message_types", capabilities.jsonl_message_types),
+        _DuplicateCheck("events.types", capabilities.event_types),
+        _DuplicateCheck("jsonl.error_codes", capabilities.jsonl_error_codes),
+        _DuplicateCheck(
+            "service.busy_allowed_call_methods",
+            capabilities.busy_allowed_call_methods,
+        ),
+        _DuplicateCheck(
+            "service.method_unavailable_reasons",
+            capabilities.method_unavailable_reasons,
+        ),
     )
 
 
@@ -332,20 +364,22 @@ def _availability_duplicate_checks(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_DuplicateCheck, ...]:
     return (
-        ("availability.requirements", capabilities.method_availability_requirements),
-        (
+        _DuplicateCheck(
+            "availability.requirements", capabilities.method_availability_requirements
+        ),
+        _DuplicateCheck(
             "availability.service_call",
             _availability_method_names(capabilities.service_call_method_availability_specs),
         ),
-        (
+        _DuplicateCheck(
             "availability.service_stream",
             _availability_method_names(capabilities.service_stream_method_availability_specs),
         ),
-        (
+        _DuplicateCheck(
             "availability.jsonl_call",
             _availability_method_names(capabilities.jsonl_call_method_availability_specs),
         ),
-        (
+        _DuplicateCheck(
             "availability.jsonl_stream",
             _availability_method_names(capabilities.jsonl_stream_method_availability_specs),
         ),
@@ -356,9 +390,15 @@ def _state_field_duplicate_checks(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_DuplicateCheck, ...]:
     return (
-        ("fields.service_state", _field_names(capabilities.service_state_field_specs)),
-        ("fields.runtime_state", _field_names(capabilities.runtime_state_field_specs)),
-        ("fields.session_state", _field_names(capabilities.session_state_field_specs)),
+        _DuplicateCheck(
+            "fields.service_state", _field_names(capabilities.service_state_field_specs)
+        ),
+        _DuplicateCheck(
+            "fields.runtime_state", _field_names(capabilities.runtime_state_field_specs)
+        ),
+        _DuplicateCheck(
+            "fields.session_state", _field_names(capabilities.session_state_field_specs)
+        ),
     )
 
 
@@ -385,7 +425,10 @@ def _method_param_duplicate_checks(
     specs: tuple[SdkMethodSpec, ...],
 ) -> tuple[_DuplicateCheck, ...]:
     return tuple(
-        (f"{context}.{spec.method}.params", tuple(param.name for param in spec.params))
+        _DuplicateCheck(
+            f"{context}.{spec.method}.params",
+            tuple(param.name for param in spec.params),
+        )
         for spec in specs
     )
 
@@ -394,7 +437,10 @@ def _event_field_duplicate_checks(
     specs: tuple[SdkEventSpec, ...],
 ) -> tuple[_DuplicateCheck, ...]:
     return tuple(
-        (f"events.{spec.event_type}.fields", tuple(field.name for field in spec.fields))
+        _DuplicateCheck(
+            f"events.{spec.event_type}.fields",
+            tuple(field.name for field in spec.fields),
+        )
         for spec in specs
     )
 
@@ -403,7 +449,7 @@ def _jsonl_message_field_duplicate_checks(
     specs: tuple[SdkJsonlMessageSpec, ...],
 ) -> tuple[_DuplicateCheck, ...]:
     return tuple(
-        (
+        _DuplicateCheck(
             f"jsonl.message_specs.{spec.message_type}.fields",
             tuple(field.name for field in spec.fields),
         )
@@ -416,7 +462,10 @@ def _result_field_duplicate_checks(
     specs: tuple[SdkResultSpec, ...],
 ) -> tuple[_DuplicateCheck, ...]:
     return tuple(
-        (f"{context}.{spec.method}.fields", tuple(field.name for field in spec.fields))
+        _DuplicateCheck(
+            f"{context}.{spec.method}.fields",
+            tuple(field.name for field in spec.fields),
+        )
         for spec in specs
     )
 
@@ -425,7 +474,10 @@ def _type_field_duplicate_checks(
     specs: tuple[SdkTypeSpec, ...],
 ) -> tuple[_DuplicateCheck, ...]:
     return tuple(
-        (f"types.{spec.type_name}.fields", tuple(field.name for field in spec.fields))
+        _DuplicateCheck(
+            f"types.{spec.type_name}.fields",
+            tuple(field.name for field in spec.fields),
+        )
         for spec in specs
     )
 
@@ -444,22 +496,22 @@ def _mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck,
 
 def _method_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "service.call_methods",
             capabilities.service_call_methods,
             tuple(spec.method for spec in capabilities.service_call_method_specs),
         ),
-        (
+        _MismatchCheck(
             "service.stream_methods",
             capabilities.service_stream_methods,
             tuple(spec.method for spec in capabilities.service_stream_method_specs),
         ),
-        (
+        _MismatchCheck(
             "jsonl.call_methods",
             capabilities.jsonl_call_methods,
             tuple(spec.method for spec in capabilities.jsonl_call_method_specs),
         ),
-        (
+        _MismatchCheck(
             "jsonl.stream_methods",
             capabilities.jsonl_stream_methods,
             tuple(spec.method for spec in capabilities.jsonl_stream_method_specs),
@@ -469,12 +521,12 @@ def _method_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_Mismatc
 
 def _result_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "results.service_call",
             capabilities.service_call_methods,
             tuple(spec.method for spec in capabilities.service_call_result_specs),
         ),
-        (
+        _MismatchCheck(
             "results.jsonl_call",
             capabilities.jsonl_call_methods,
             tuple(spec.method for spec in capabilities.jsonl_call_result_specs),
@@ -484,12 +536,12 @@ def _result_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_Mismatc
 
 def _stream_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "streams.service",
             capabilities.service_stream_methods,
             tuple(spec.method for spec in capabilities.service_stream_specs),
         ),
-        (
+        _MismatchCheck(
             "streams.jsonl",
             capabilities.jsonl_stream_methods,
             tuple(spec.method for spec in capabilities.jsonl_stream_specs),
@@ -501,22 +553,22 @@ def _availability_mismatch_checks(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "availability.service_call",
             capabilities.service_call_methods,
             tuple(spec.method for spec in capabilities.service_call_method_availability_specs),
         ),
-        (
+        _MismatchCheck(
             "availability.service_stream",
             capabilities.service_stream_methods,
             tuple(spec.method for spec in capabilities.service_stream_method_availability_specs),
         ),
-        (
+        _MismatchCheck(
             "availability.jsonl_call",
             capabilities.jsonl_call_methods,
             tuple(spec.method for spec in capabilities.jsonl_call_method_availability_specs),
         ),
-        (
+        _MismatchCheck(
             "availability.jsonl_stream",
             capabilities.jsonl_stream_methods,
             tuple(spec.method for spec in capabilities.jsonl_stream_method_availability_specs),
@@ -526,12 +578,12 @@ def _availability_mismatch_checks(
 
 def _event_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "events.types",
             capabilities.event_types,
             tuple(spec.event_type for spec in capabilities.event_specs),
         ),
-        (
+        _MismatchCheck(
             "jsonl.message_types",
             capabilities.jsonl_message_types,
             tuple(spec.message_type for spec in capabilities.jsonl_message_specs),
@@ -541,17 +593,17 @@ def _event_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_Mismatch
 
 def _state_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "state.service_fields",
             capabilities.service_state_fields,
             tuple(spec.name for spec in capabilities.service_state_field_specs),
         ),
-        (
+        _MismatchCheck(
             "state.runtime_fields",
             capabilities.runtime_state_fields,
             tuple(spec.name for spec in capabilities.runtime_state_field_specs),
         ),
-        (
+        _MismatchCheck(
             "state.session_fields",
             capabilities.session_state_fields,
             tuple(spec.name for spec in capabilities.session_state_field_specs),
@@ -561,7 +613,7 @@ def _state_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_Mismatch
 
 def _error_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck, ...]:
     return (
-        (
+        _MismatchCheck(
             "jsonl.error_codes",
             capabilities.jsonl_error_codes,
             tuple(spec.code for spec in capabilities.jsonl_error_specs),
@@ -617,9 +669,9 @@ def _append_unknown_type_issues(
 ) -> None:
     known_types = frozenset(spec.type_name for spec in capabilities.type_specs)
     issues.extend(
-        f"{context} references unknown SDK type: {type_name}"
-        for context, value_type in _referenced_value_types(capabilities)
-        for type_name in sdk_custom_type_references(value_type, _BUILTIN_TYPES)
+        f"{reference.context} references unknown SDK type: {type_name}"
+        for reference in _referenced_value_types(capabilities)
+        for type_name in sdk_custom_type_references(reference.value_type, _BUILTIN_TYPES)
         if type_name not in known_types
     )
 
@@ -628,11 +680,10 @@ def _append_value_type_shape_issues(
     issues: list[str],
     capabilities: HephSdkCapabilities,
 ) -> None:
-    issues.extend(
-        issue
-        for context, value_type in _referenced_value_types(capabilities)
-        if (issue := sdk_value_type_shape_issue(context, value_type)) is not None
-    )
+    for reference in _referenced_value_types(capabilities):
+        issue = sdk_value_type_shape_issue(reference.context, reference.value_type)
+        if issue is not None:
+            issues.append(issue)
 
 
 def _append_parameter_choice_issues(
@@ -678,15 +729,20 @@ def _append_availability_issues(
 ) -> None:
     known_requirements = frozenset(capabilities.method_availability_requirements)
     known_reasons = frozenset(capabilities.method_unavailable_reasons)
-    for context, spec in _availability_spec_references(capabilities):
+    for reference in _availability_spec_references(capabilities):
         _append_unknown_availability_requirement_issue(
             issues,
-            context,
-            spec,
+            reference.context,
+            reference.spec,
             known_requirements,
         )
-        _append_unknown_unavailable_reason_issue(issues, context, spec, known_reasons)
-        _append_availability_reason_shape_issue(issues, context, spec)
+        _append_unknown_unavailable_reason_issue(
+            issues,
+            reference.context,
+            reference.spec,
+            known_reasons,
+        )
+        _append_availability_reason_shape_issue(issues, reference.context, reference.spec)
 
 
 def _availability_spec_references(
@@ -694,19 +750,19 @@ def _availability_spec_references(
 ) -> tuple[_AvailabilitySpecReference, ...]:
     return (
         *(
-            (f"availability.service_call.{spec.method}", spec)
+            _AvailabilitySpecReference(f"availability.service_call.{spec.method}", spec)
             for spec in capabilities.service_call_method_availability_specs
         ),
         *(
-            (f"availability.service_stream.{spec.method}", spec)
+            _AvailabilitySpecReference(f"availability.service_stream.{spec.method}", spec)
             for spec in capabilities.service_stream_method_availability_specs
         ),
         *(
-            (f"availability.jsonl_call.{spec.method}", spec)
+            _AvailabilitySpecReference(f"availability.jsonl_call.{spec.method}", spec)
             for spec in capabilities.jsonl_call_method_availability_specs
         ),
         *(
-            (f"availability.jsonl_stream.{spec.method}", spec)
+            _AvailabilitySpecReference(f"availability.jsonl_stream.{spec.method}", spec)
             for spec in capabilities.jsonl_stream_method_availability_specs
         ),
     )
@@ -750,16 +806,27 @@ def _append_stream_event_issues(
     capabilities: HephSdkCapabilities,
 ) -> None:
     known_events = frozenset(capabilities.event_types)
-    for context, spec in _stream_spec_references(capabilities):
-        _append_stream_spec_event_issues(issues, context, spec, known_events)
+    for reference in _stream_spec_references(capabilities):
+        _append_stream_spec_event_issues(
+            issues,
+            reference.context,
+            reference.spec,
+            known_events,
+        )
 
 
 def _stream_spec_references(
     capabilities: HephSdkCapabilities,
 ) -> tuple[_StreamSpecReference, ...]:
     return (
-        *((f"streams.service.{spec.method}", spec) for spec in capabilities.service_stream_specs),
-        *((f"streams.jsonl.{spec.method}", spec) for spec in capabilities.jsonl_stream_specs),
+        *(
+            _StreamSpecReference(f"streams.service.{spec.method}", spec)
+            for spec in capabilities.service_stream_specs
+        ),
+        *(
+            _StreamSpecReference(f"streams.jsonl.{spec.method}", spec)
+            for spec in capabilities.jsonl_stream_specs
+        ),
     )
 
 
@@ -920,7 +987,7 @@ def _method_value_type_references(
     specs: tuple[SdkMethodSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
     return tuple(
-        (f"{context}.{spec.method}.{param.name}", param.value_type)
+        _ValueTypeReference(f"{context}.{spec.method}.{param.name}", param.value_type)
         for spec in specs
         for param in spec.params
     )
@@ -930,21 +997,23 @@ def _field_value_type_references(
     context: str,
     specs: tuple[SdkFieldSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
-    return tuple((f"{context}.{spec.name}", spec.value_type) for spec in specs)
+    return tuple(_ValueTypeReference(f"{context}.{spec.name}", spec.value_type) for spec in specs)
 
 
 def _object_field_value_type_references(
     context: str,
     fields: tuple[SdkObjectFieldSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
-    return tuple((f"{context}.{field.name}", field.value_type) for field in fields)
+    return tuple(
+        _ValueTypeReference(f"{context}.{field.name}", field.value_type) for field in fields
+    )
 
 
 def _event_value_type_references(
     specs: tuple[SdkEventSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
     return tuple(
-        (f"events.{spec.event_type}.{field.name}", field.value_type)
+        _ValueTypeReference(f"events.{spec.event_type}.{field.name}", field.value_type)
         for spec in specs
         for field in spec.fields
     )
@@ -954,7 +1023,10 @@ def _jsonl_message_value_type_references(
     specs: tuple[SdkJsonlMessageSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
     return tuple(
-        (f"jsonl.message_specs.{spec.message_type}.{field.name}", field.value_type)
+        _ValueTypeReference(
+            f"jsonl.message_specs.{spec.message_type}.{field.name}",
+            field.value_type,
+        )
         for spec in specs
         for field in spec.fields
     )
@@ -966,9 +1038,10 @@ def _result_value_type_references(
 ) -> tuple[_ValueTypeReference, ...]:
     references: list[_ValueTypeReference] = []
     for spec in specs:
-        references.append((f"{context}.{spec.method}", spec.value_type))
+        references.append(_ValueTypeReference(f"{context}.{spec.method}", spec.value_type))
         references.extend(
-            (f"{context}.{spec.method}.{field.name}", field.value_type) for field in spec.fields
+            _ValueTypeReference(f"{context}.{spec.method}.{field.name}", field.value_type)
+            for field in spec.fields
         )
     return tuple(references)
 
@@ -977,7 +1050,7 @@ def _type_value_type_references(
     specs: tuple[SdkTypeSpec, ...],
 ) -> tuple[_ValueTypeReference, ...]:
     return tuple(
-        (f"types.{spec.type_name}.{field.name}", field.value_type)
+        _ValueTypeReference(f"types.{spec.type_name}.{field.name}", field.value_type)
         for spec in specs
         for field in spec.fields
     )
