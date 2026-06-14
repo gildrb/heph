@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import difflib
 import re
-import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -19,16 +18,17 @@ from hephaion.chat.citation_patterns import (
     _OVERVIEW_CITATION_ID_RE,
     _OVERVIEW_CITATION_TOKEN_RE,
 )
+from hephaion.chat.overview_cues import (
+    _overview_cue_is_useful,
+    _overview_fallback_cue_is_substantive,
+    _overview_starts_with_sentence_fragment,
+)
 from hephaion.chat.overview_topics import (
-    _OVERVIEW_FORMULA_RE,
     _OVERVIEW_LINE_MARKER_RE,
     _clean_overview_line,
     _normalize_overview_topic,
     _overview_content_lines,
     _overview_heading_candidates,
-    _overview_heading_looks_like_metadata,
-    _overview_topic_is_too_short_or_generic,
-    _overview_topic_is_useful,
     _overview_topic_normalization_context,
     _trim_overview_cue,
 )
@@ -45,11 +45,6 @@ from hephaion.chat.turn_contract_checks import (
     _contract_requests_list,
     _contract_requests_table,
     _material_overview_turn,
-)
-from hephaion.chat.turn_query import (
-    _letter_words,
-    _looks_like_name_word,
-    _looks_like_sentence,
 )
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.scoring import tokenize
@@ -730,72 +725,6 @@ def _overview_table_cue_for_item(item: EvidenceChunk) -> str:
     return _overview_cue_for_item(item)
 
 
-def _overview_fallback_cue_is_substantive(cue: str) -> bool:
-    if not _overview_cue_is_useful(cue):
-        return False
-    if (
-        _overview_cue_looks_like_byline(cue)
-        or _overview_cue_is_symbolic_fragment(cue)
-        or _overview_starts_with_sentence_fragment(cue)
-    ):
-        return False
-    words = re.findall(r"\b[\w'-]+\b", cue)
-    if _looks_like_sentence(cue):
-        return len(words) >= 3 and _overview_cue_has_content_word(words)
-    if "," in cue or ";" in cue or any(_overview_symbolic_char(char) for char in cue):
-        return False
-    return len(words) >= 6
-
-
-def _overview_cue_looks_like_byline(cue: str) -> bool:
-    words = _letter_words(cue)
-    if len(words) < 4:
-        return False
-    return _overview_cue_is_name_dense(words) or _overview_cue_has_multiple_name_segments(cue)
-
-
-def _overview_cue_is_name_dense(words: Sequence[str]) -> bool:
-    if len(words) < 6:
-        return False
-    name_like = sum(1 for word in words if _looks_like_name_word(word))
-    return name_like / len(words) >= 0.8
-
-
-def _overview_cue_has_multiple_name_segments(cue: str) -> bool:
-    segments = _overview_name_segments(cue)
-    name_segments = sum(1 for segment in segments if _looks_like_person_name_segment(segment))
-    return bool(segments) and name_segments >= 2 and name_segments / len(segments) >= 0.6
-
-
-def _overview_name_segments(cue: str) -> tuple[tuple[str, ...], ...]:
-    return tuple(
-        tuple(_letter_words(segment)) for segment in re.split(r"[,;/]", cue) if segment.strip()
-    )
-
-
-def _looks_like_person_name_segment(words: Sequence[str]) -> bool:
-    return 1 <= len(words) <= 3 and all(_looks_like_name_word(word) for word in words)
-
-
-def _overview_cue_is_symbolic_fragment(cue: str) -> bool:
-    characters = tuple(char for char in cue if not char.isspace())
-    if not characters:
-        return True
-    symbolic = sum(1 for char in characters if _overview_symbolic_char(char))
-    if symbolic >= 3 and symbolic / len(characters) >= 0.08:
-        return True
-    words = _letter_words(cue)
-    return bool(words) and symbolic >= len(words)
-
-
-def _overview_symbolic_char(char: str) -> bool:
-    return unicodedata.category(char) == "Sm" or char in "<>=|^_{}[]()"
-
-
-def _overview_cue_has_content_word(words: Sequence[str]) -> bool:
-    return any(sum(char.isalpha() for char in word) >= 6 for word in words)
-
-
 def _overview_cue_for_item(item: EvidenceChunk) -> str:
     candidates = (*_overview_content_cue_candidates(item), *_overview_heading_candidates(item))
     for candidate in candidates:
@@ -818,22 +747,6 @@ def _overview_content_cue_candidates(item: EvidenceChunk) -> tuple[str, ...]:
 def _overview_sentence_candidates(text: str) -> tuple[str, ...]:
     parts = tuple(part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip())
     return parts or (text,)
-
-
-def _overview_cue_is_useful(cue: str) -> bool:
-    normalized = " ".join(cue.casefold().split())
-    if not normalized:
-        return False
-    words = normalized.split()
-    if len(words) < 3 and not _overview_topic_is_useful(cue):
-        return False
-    if (
-        _overview_heading_looks_like_metadata(cue)
-        or _overview_topic_is_too_short_or_generic(normalized)
-        or _OVERVIEW_FORMULA_RE.search(cue) is not None
-    ):
-        return False
-    return not _overview_cue_looks_like_byline(cue)
 
 
 def _overview_model_fallback_reply(
@@ -895,30 +808,63 @@ def _overview_model_fallback_candidates(
 ) -> tuple[str, ...]:
     if not reply:
         return ()
-    candidates = [reply]
+    candidates = (
+        reply,
+        *_overview_model_fallback_extra_candidates(
+            reply,
+            allow_table=allow_table,
+            allow_list=allow_list,
+        ),
+    )
+    return _deduped_overview_model_fallback_candidates(candidates)
+
+
+def _overview_model_fallback_extra_candidates(
+    reply: str,
+    *,
+    allow_table: bool,
+    allow_list: bool,
+) -> tuple[str, ...]:
     if allow_table:
-        table = _overview_markdown_table_block(reply) or _overview_pipe_table_as_markdown(reply)
-        if table:
-            candidates.append(_compact_overview_citation_groups(table) or table)
-    elif not allow_list:
-        leading = _leading_overview_synthesis_block(
-            _compact_overview_bracket_citation_groups(reply)
-        )
-        if leading:
-            candidates.extend(_overview_compaction_candidates(leading))
-        compacted = _compact_overview_citation_groups(reply)
-        if compacted:
-            candidates.extend(_overview_compaction_candidates(compacted))
+        return _overview_table_model_fallback_candidates(reply)
+    if allow_list:
+        return ()
+    return _overview_prose_model_fallback_candidates(reply)
+
+
+def _overview_table_model_fallback_candidates(reply: str) -> tuple[str, ...]:
+    table = _overview_markdown_table_block(reply) or _overview_pipe_table_as_markdown(reply)
+    if not table:
+        return ()
+    return (_compact_overview_citation_groups(table) or table,)
+
+
+def _overview_prose_model_fallback_candidates(reply: str) -> tuple[str, ...]:
+    candidates: list[str] = []
+    leading = _leading_overview_synthesis_block(_compact_overview_bracket_citation_groups(reply))
+    if leading:
+        candidates.extend(_overview_compaction_candidates(leading))
+    compacted = _compact_overview_citation_groups(reply)
+    if compacted:
+        candidates.extend(_overview_compaction_candidates(compacted))
+    return tuple(candidates)
+
+
+def _deduped_overview_model_fallback_candidates(candidates: Sequence[str]) -> tuple[str, ...]:
     deduped: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
-        cleaned = _strip_unsolicited_learning_followup(candidate)
-        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        cleaned = _clean_overview_model_fallback_candidate(candidate)
         if not cleaned or cleaned in seen:
             continue
         deduped.append(cleaned)
         seen.add(cleaned)
     return tuple(deduped)
+
+
+def _clean_overview_model_fallback_candidate(candidate: str) -> str:
+    cleaned = _strip_unsolicited_learning_followup(candidate)
+    return re.sub(r"[ \t]+", " ", cleaned).strip()
 
 
 def _overview_fallback_config(config: ChatConfig | None) -> ChatConfig | None:
@@ -1083,11 +1029,6 @@ def _markdown_table_row_count(text: str) -> int:
 
 def _list_item_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+\S", line))
-
-
-def _overview_starts_with_sentence_fragment(text: str) -> bool:
-    first_alpha = next((char for char in text.lstrip() if char.isalpha()), "")
-    return bool(first_alpha) and first_alpha.islower()
 
 
 def _overview_has_inline_list_marker(text: str) -> bool:
