@@ -1773,6 +1773,11 @@ def test_sdk_provider_summaries_are_structured(
     assert providers["deepseek"]["credential_configured"] is False
 
     monkeypatch.setenv("HEPHAION_API_KEY", "global-key")
+
+    def fail_retrieve_key(slug: str) -> str | None:
+        raise AssertionError(f"keychain should not be queried for {slug!r} with global env set")
+
+    monkeypatch.setattr(sdk_providers, "retrieve_key", fail_retrieve_key)
     global_payload = service.call("list_providers")
     global_providers = _payloads_by_slug(global_payload["providers"])
     assert global_providers["deepseek"]["credential_source"] == "global_env"
@@ -1786,6 +1791,32 @@ def test_sdk_provider_summaries_are_structured(
         and _payload_mapping(provider)["provider_slug"] == "pollinations"
         for provider in session_providers
     )
+
+
+def test_sdk_provider_credential_sources_ignore_empty_stored_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _pollinations_config(monkeypatch)
+    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    monkeypatch.setattr(sdk_providers.oauth, "list_providers", lambda: ())
+    monkeypatch.setattr(
+        sdk_providers,
+        "retrieve_key",
+        lambda slug: "" if slug in {"openrouter", "zai"} else None,
+    )
+    monkeypatch.setattr(sdk_providers, "get_volatile", lambda slug: "" if slug == "zai" else None)
+    service = HephService.plain(config=config)
+
+    payload = service.call("list_providers")
+    providers = _payloads_by_slug(payload["providers"])
+    assert providers["openrouter"]["credential_source"] == "provider_env"
+    assert providers["openrouter"]["credential_configured"] is True
+    assert providers["zai"]["credential_source"] == "missing"
+    assert providers["zai"]["credential_configured"] is False
 
 
 def test_sdk_model_choices_and_switching_are_structured(

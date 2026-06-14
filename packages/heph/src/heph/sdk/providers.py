@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ai.providers import oauth
@@ -96,6 +97,12 @@ class _CredentialStatus:
     configured: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _ApiKeyCredentialSourceCheck:
+    source: str
+    configured: Callable[[], bool]
+
+
 def _credential_status(
     provider: Provider,
     *,
@@ -125,15 +132,31 @@ def _api_key_credential_status(provider: Provider) -> _CredentialStatus:
 
 
 def _api_key_credential_source(provider: Provider) -> str:
-    if os.environ.get(GLOBAL_API_KEY_ENV, "").strip():
-        return "global_env"
-    if retrieve_key(provider.slug):
-        return "keychain"
-    if provider.api_key_env and os.environ.get(provider.api_key_env, "").strip():
-        return "provider_env"
-    if get_volatile(provider.slug):
-        return "session"
+    for check in _api_key_credential_source_checks(provider):
+        if check.configured():
+            return check.source
     return "missing"
+
+
+def _api_key_credential_source_checks(
+    provider: Provider,
+) -> tuple[_ApiKeyCredentialSourceCheck, ...]:
+    return (
+        _ApiKeyCredentialSourceCheck("global_env", lambda: _has_env_key(GLOBAL_API_KEY_ENV)),
+        _ApiKeyCredentialSourceCheck("keychain", lambda: bool(retrieve_key(provider.slug))),
+        _ApiKeyCredentialSourceCheck("provider_env", lambda: _has_provider_env_key(provider)),
+        _ApiKeyCredentialSourceCheck("session", lambda: bool(get_volatile(provider.slug))),
+    )
+
+
+def _has_provider_env_key(provider: Provider) -> bool:
+    if not provider.api_key_env:
+        return False
+    return _has_env_key(provider.api_key_env)
+
+
+def _has_env_key(name: str) -> bool:
+    return bool(os.environ.get(name, "").strip())
 
 
 __all__ = [
