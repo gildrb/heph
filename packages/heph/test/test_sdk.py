@@ -892,7 +892,9 @@ def test_sdk_service_contract_validator_reports_route_drift(
 
     broken_open_armory = replace(
         next(route for route in call_routes if route.method == "open_armory"),
-        arguments=(sdk_service._ServiceCallArgument("wrong_path", sdk_service._required_str),),
+        arguments=(
+            sdk_service._ServiceCallArgument("wrong_path", sdk_service._required_str, "string"),
+        ),
     )
 
     def broken_call_route_sequence(_self: HephService):
@@ -913,6 +915,51 @@ def test_sdk_service_contract_validator_reports_route_drift(
     assert "service.call_routes does not match advertised SDK methods." in issues
     assert (
         "service.call_routes.open_armory params do not match advertised SDK method params."
+    ) in issues
+    with pytest.raises(HephSdkError, match="SDK service contract drift"):
+        HephService(runtime=HephRuntime.plain(config=_config()))
+
+
+def test_sdk_service_contract_validator_reports_route_parameter_type_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    call_routes = service._call_route_sequence()
+    stream_routes = service._stream_route_sequence()
+
+    broken_open_armory = replace(
+        next(route for route in call_routes if route.method == "open_armory"),
+        arguments=(
+            sdk_service._ServiceCallArgument("path", sdk_service._required_str, "integer"),
+        ),
+    )
+    broken_prompt = replace(
+        next(route for route in stream_routes if route.method == "prompt"),
+        arguments=(
+            sdk_service._ServiceCallArgument("text", sdk_service._required_str, "integer"),
+        ),
+    )
+
+    def broken_call_route_sequence(_self: HephService):
+        return tuple(
+            broken_open_armory if route.method == "open_armory" else route for route in call_routes
+        )
+
+    def broken_stream_route_sequence(_self: HephService):
+        return tuple(
+            broken_prompt if route.method == "prompt" else route for route in stream_routes
+        )
+
+    monkeypatch.setattr(HephService, "_call_route_sequence", broken_call_route_sequence)
+    monkeypatch.setattr(HephService, "_stream_route_sequence", broken_stream_route_sequence)
+
+    issues = validate_sdk_service_contract(service)
+
+    assert (
+        "service.call_routes.open_armory params do not match advertised SDK method params."
+    ) in issues
+    assert (
+        "service.stream_routes.prompt params do not match advertised SDK stream params."
     ) in issues
     with pytest.raises(HephSdkError, match="SDK service contract drift"):
         HephService(runtime=HephRuntime.plain(config=_config()))

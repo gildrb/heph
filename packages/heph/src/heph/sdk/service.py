@@ -70,7 +70,7 @@ type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
 type _ServiceCallArgumentDecoder = Callable[[Mapping[str, object], str], object]
 type _ServiceCallHandler = Callable[..., ServicePayload]
-type _ServiceStreamHandler = Callable[[dict[str, object]], ServiceStream]
+type _ServiceStreamHandler = Callable[..., ServiceStream]
 type _ServiceConfigParamDecoder = Callable[
     [Mapping[str, object], str],
     SdkConfigUpdateValue | None,
@@ -83,6 +83,8 @@ type _AvailabilityCheck = Callable[[HephRuntime, HephSession | None], bool]
 class _ServiceCallArgument:
     name: str
     decoder: _ServiceCallArgumentDecoder
+    value_type: str
+    required: bool = True
 
     def value_from(self, params: Mapping[str, object]) -> object:
         return self.decoder(params, self.name)
@@ -112,9 +114,10 @@ class _ServiceCallRoute:
 class _ServiceStreamRoute:
     method: str
     handler: _ServiceStreamHandler
+    arguments: tuple[_ServiceCallArgument, ...] = ()
 
     def dispatch(self, params: dict[str, object]) -> ServiceStream:
-        return self.handler(params)
+        return self.handler(*(argument.value_from(params) for argument in self.arguments))
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +146,13 @@ class _RouteAvailability:
             available=self.available,
             unavailable_reason=self.unavailable_reason,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _RouteParameterContract:
+    name: str
+    value_type: str
+    required: bool
 
 
 @dataclass(slots=True)
@@ -272,29 +282,29 @@ class HephService:
             _ServiceCallRoute(
                 "open_armory",
                 self.open_runtime_armory,
-                (_ServiceCallArgument("path", _required_str),),
+                (_ServiceCallArgument("path", _required_str, "string"),),
             ),
             _ServiceCallRoute(
                 "create_armory",
                 self.create_runtime_armory,
-                (_ServiceCallArgument("path", _required_str),),
+                (_ServiceCallArgument("path", _required_str, "string"),),
             ),
             _ServiceCallRoute("list_armories", self.list_armories),
             _ServiceCallRoute(
                 "validate_armory",
                 self.validate_armory,
-                (_ServiceCallArgument("path", _required_str),),
+                (_ServiceCallArgument("path", _required_str, "string"),),
             ),
             _ServiceCallRoute("new_session", self.new_session),
             _ServiceCallRoute(
                 "resume_session",
                 self.resume_session,
-                (_ServiceCallArgument("session_id", _required_str),),
+                (_ServiceCallArgument("session_id", _required_str, "string"),),
             ),
             _ServiceCallRoute(
                 "fork_session",
                 self.fork_session,
-                (_ServiceCallArgument("turn_id", _required_str),),
+                (_ServiceCallArgument("turn_id", _required_str, "string"),),
             ),
             _ServiceCallRoute("list_sessions", self.list_sessions),
             _ServiceCallRoute(
@@ -308,7 +318,7 @@ class HephService:
             _ServiceCallRoute(
                 "ask",
                 self.ask,
-                (_ServiceCallArgument("text", _required_str),),
+                (_ServiceCallArgument("text", _required_str, "string"),),
             ),
             _ServiceCallRoute(
                 "abort",
@@ -320,23 +330,28 @@ class HephService:
                 "list_model_choices",
                 self.list_model_choices,
                 keyword_arguments=(
-                    _ServiceCallArgument("refresh_live", _optional_bool_default_false),
+                    _ServiceCallArgument(
+                        "refresh_live",
+                        _optional_bool_default_false,
+                        "boolean",
+                        required=False,
+                    ),
                 ),
             ),
             _ServiceCallRoute(
                 "switch_model",
                 self.switch_model,
                 (
-                    _ServiceCallArgument("provider_slug", _required_str),
-                    _ServiceCallArgument("model", _required_str),
+                    _ServiceCallArgument("provider_slug", _required_str, "string"),
+                    _ServiceCallArgument("model", _required_str, "string"),
                 ),
             ),
             _ServiceCallRoute(
                 "set_source_enabled",
                 self.set_source_enabled,
                 (
-                    _ServiceCallArgument("source", _required_str),
-                    _ServiceCallArgument("enabled", _required_bool),
+                    _ServiceCallArgument("source", _required_str, "string"),
+                    _ServiceCallArgument("enabled", _required_bool, "boolean"),
                 ),
             ),
             _ServiceCallRoute(
@@ -346,7 +361,7 @@ class HephService:
             _ServiceCallRoute(
                 "import_materials",
                 self.import_materials,
-                (_ServiceCallArgument("source", _required_str),),
+                (_ServiceCallArgument("source", _required_str, "string"),),
             ),
             _ServiceCallRoute(
                 "build_index",
@@ -433,20 +448,14 @@ class HephService:
         return (
             _ServiceStreamRoute(
                 "prompt",
-                self._prompt_stream,
+                self.prompt,
+                (_ServiceCallArgument("text", _required_str, "string"),),
             ),
             _ServiceStreamRoute(
                 "build_index",
-                self._build_index_stream,
+                self.build_index_stream,
             ),
         )
-
-    def _prompt_stream(self, params: dict[str, object]) -> ServiceStream:
-        return self.prompt(_required_str(params, "text"))
-
-    def _build_index_stream(self, params: dict[str, object]) -> ServiceStream:
-        _ = params
-        return self.build_index_stream()
 
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -822,6 +831,7 @@ def validate_sdk_service_contract(service: HephService) -> tuple[str, ...]:
         tuple(route.method for route in stream_routes),
     )
     _append_call_route_parameter_issues(issues, call_routes)
+    _append_stream_route_parameter_issues(issues, stream_routes)
     return tuple(issues)
 
 
@@ -859,25 +869,69 @@ def _append_call_route_parameter_issues(
         spec = specs.get(route.method)
         if spec is None or route.params_as_argument:
             continue
-        expected = _method_spec_param_names(spec)
-        implemented = _call_route_param_names(route)
-        if implemented != expected:
-            issues.append(
-                f"service.call_routes.{route.method} params do not match "
-                "advertised SDK method params."
-            )
+        _append_route_parameter_issue(
+            issues,
+            f"service.call_routes.{route.method}",
+            _method_spec_param_contracts(spec),
+            _call_route_param_contracts(route),
+            "advertised SDK method params",
+        )
+
+
+def _append_stream_route_parameter_issues(
+    issues: list[str],
+    routes: tuple[_ServiceStreamRoute, ...],
+) -> None:
+    specs = _method_specs_by_method(SERVICE_STREAM_METHOD_SPECS)
+    for route in routes:
+        spec = specs.get(route.method)
+        if spec is None:
+            continue
+        _append_route_parameter_issue(
+            issues,
+            f"service.stream_routes.{route.method}",
+            _method_spec_param_contracts(spec),
+            _stream_route_param_contracts(route),
+            "advertised SDK stream params",
+        )
+
+
+def _append_route_parameter_issue(
+    issues: list[str],
+    label: str,
+    expected: tuple[_RouteParameterContract, ...],
+    implemented: tuple[_RouteParameterContract, ...],
+    advertised_label: str,
+) -> None:
+    if implemented != expected:
+        issues.append(f"{label} params do not match {advertised_label}.")
 
 
 def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMethodSpec]:
     return {spec.method: spec for spec in specs}
 
 
-def _method_spec_param_names(spec: SdkMethodSpec) -> tuple[str, ...]:
-    return tuple(param.name for param in spec.params)
+def _method_spec_param_contracts(spec: SdkMethodSpec) -> tuple[_RouteParameterContract, ...]:
+    return tuple(
+        _RouteParameterContract(param.name, param.value_type, param.required)
+        for param in spec.params
+    )
 
 
-def _call_route_param_names(route: _ServiceCallRoute) -> tuple[str, ...]:
-    return tuple(argument.name for argument in (*route.arguments, *route.keyword_arguments))
+def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[_RouteParameterContract, ...]:
+    return tuple(
+        _RouteParameterContract(argument.name, argument.value_type, argument.required)
+        for argument in (*route.arguments, *route.keyword_arguments)
+    )
+
+
+def _stream_route_param_contracts(
+    route: _ServiceStreamRoute,
+) -> tuple[_RouteParameterContract, ...]:
+    return tuple(
+        _RouteParameterContract(argument.name, argument.value_type, argument.required)
+        for argument in route.arguments
+    )
 
 
 def _duplicate_names(names: tuple[str, ...]) -> tuple[str, ...]:
