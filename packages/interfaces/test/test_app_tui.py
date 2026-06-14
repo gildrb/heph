@@ -7723,6 +7723,34 @@ def test_visible_option_height_ignores_stale_full_list_height() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("next_option_count", "current_option_count", "rendered_height", "max_visible_rows", "height"),
+    [
+        (4, 0, 0, 7, 4),
+        (4, 2, 2, 7, 4),
+        (26, 26, 1, 7, 7),
+        (3, 5, 3, 7, 3),
+        (3, 5, 4, 7, 4),
+    ],
+)
+def test_visible_option_height_preserves_stable_rows(
+    next_option_count: int,
+    current_option_count: int,
+    rendered_height: int,
+    max_visible_rows: int,
+    height: int,
+) -> None:
+    assert (
+        visible_option_height(
+            next_option_count=next_option_count,
+            current_option_count=current_option_count,
+            rendered_height=rendered_height,
+            max_visible_rows=max_visible_rows,
+        )
+        == height
+    )
+
+
 def test_command_completion_columns_restore_after_filter_reset() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
