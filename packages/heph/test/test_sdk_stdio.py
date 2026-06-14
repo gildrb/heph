@@ -319,6 +319,20 @@ def test_jsonl_transport_contract_validator_reports_call_route_drift(
     )
 
 
+def test_jsonl_transport_contract_validator_reports_unadvertised_call_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    call_routes = dict(sdk_stdio._JSONL_CALL_ROUTES)
+    call_routes["surprise"] = next(iter(call_routes.values()))
+
+    monkeypatch.setattr(sdk_stdio, "_JSONL_CALL_ROUTES", call_routes)
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.call_routes contains unadvertised routes: surprise",
+    )
+
+
 def test_jsonl_transport_contract_validator_reports_stream_route_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -335,6 +349,20 @@ def test_jsonl_transport_contract_validator_reports_stream_route_drift(
 
     assert validate_sdk_jsonl_transport_contract(service) == (
         "jsonl.stream_routes does not implement advertised JSONL streams: build_index_stream",
+    )
+
+
+def test_jsonl_transport_contract_validator_reports_unadvertised_stream_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    operation_stream_methods = dict(sdk_stdio.JSONL_OPERATION_STREAM_METHODS)
+    operation_stream_methods["surprise_stream"] = "build_index"
+
+    monkeypatch.setattr(sdk_stdio, "JSONL_OPERATION_STREAM_METHODS", operation_stream_methods)
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.stream_routes contains unadvertised routes: surprise_stream",
     )
 
 

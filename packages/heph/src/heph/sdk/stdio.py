@@ -101,6 +101,15 @@ class _JsonlCallRoute:
 
 
 @dataclass(frozen=True, slots=True)
+class _JsonlRouteCoverage:
+    label: str
+    advertised_methods: tuple[str, ...]
+    explicit_route_methods: tuple[str, ...]
+    implemented_methods: tuple[str, ...]
+    missing_methods_label: str
+
+
+@dataclass(frozen=True, slots=True)
 class TransportBusyState:
     prompt_active: bool
     active_operation: str | None
@@ -748,54 +757,93 @@ def _append_jsonl_call_route_issues(
     issues: list[str],
     service_call_methods: tuple[str, ...],
 ) -> None:
-    service_methods = frozenset(service_call_methods)
-    special_routes = frozenset(_JSONL_CALL_ROUTES)
-    unadvertised_routes = tuple(
-        sorted(method for method in special_routes if method not in JSONL_CALL_METHODS)
+    _append_jsonl_route_coverage_issues(
+        issues,
+        _JsonlRouteCoverage(
+            label="jsonl.call_routes",
+            advertised_methods=JSONL_CALL_METHODS,
+            explicit_route_methods=tuple(_JSONL_CALL_ROUTES),
+            implemented_methods=_implemented_jsonl_call_methods(service_call_methods),
+            missing_methods_label="advertised JSONL calls",
+        ),
     )
-    if unadvertised_routes:
-        issues.append(
-            f"jsonl.call_routes contains unadvertised routes: {', '.join(unadvertised_routes)}"
-        )
-    missing_methods = tuple(
-        method
-        for method in JSONL_CALL_METHODS
-        if method not in special_routes and method not in service_methods
-    )
-    if missing_methods:
-        issues.append(
-            "jsonl.call_routes does not implement advertised JSONL calls: "
-            f"{', '.join(missing_methods)}"
-        )
 
 
 def _append_jsonl_stream_route_issues(
     issues: list[str],
     service_stream_methods: tuple[str, ...],
 ) -> None:
-    service_methods = frozenset(service_stream_methods)
+    _append_jsonl_route_coverage_issues(
+        issues,
+        _JsonlRouteCoverage(
+            label="jsonl.stream_routes",
+            advertised_methods=JSONL_STREAM_METHODS,
+            explicit_route_methods=tuple(JSONL_OPERATION_STREAM_METHODS),
+            implemented_methods=_implemented_jsonl_stream_methods(service_stream_methods),
+            missing_methods_label="advertised JSONL streams",
+        ),
+    )
+
+
+def _append_jsonl_route_coverage_issues(
+    issues: list[str],
+    coverage: _JsonlRouteCoverage,
+) -> None:
+    _append_unadvertised_jsonl_route_issues(issues, coverage)
+    _append_missing_jsonl_route_issues(issues, coverage)
+
+
+def _append_unadvertised_jsonl_route_issues(
+    issues: list[str],
+    coverage: _JsonlRouteCoverage,
+) -> None:
+    advertised_methods = frozenset(coverage.advertised_methods)
     unadvertised_routes = tuple(
         sorted(
             method
-            for method in JSONL_OPERATION_STREAM_METHODS
-            if method not in JSONL_STREAM_METHODS
+            for method in coverage.explicit_route_methods
+            if method not in advertised_methods
         )
     )
     if unadvertised_routes:
         issues.append(
-            f"jsonl.stream_routes contains unadvertised routes: {', '.join(unadvertised_routes)}"
+            f"{coverage.label} contains unadvertised routes: {', '.join(unadvertised_routes)}"
         )
+
+
+def _append_missing_jsonl_route_issues(
+    issues: list[str],
+    coverage: _JsonlRouteCoverage,
+) -> None:
+    implemented_methods = frozenset(coverage.implemented_methods)
     missing_methods = tuple(
-        method
-        for method in JSONL_STREAM_METHODS
-        if (service_method := _jsonl_service_stream_method(method)) is None
-        or service_method not in service_methods
+        method for method in coverage.advertised_methods if method not in implemented_methods
     )
     if missing_methods:
         issues.append(
-            "jsonl.stream_routes does not implement advertised JSONL streams: "
+            f"{coverage.label} does not implement {coverage.missing_methods_label}: "
             f"{', '.join(missing_methods)}"
         )
+
+
+def _implemented_jsonl_call_methods(service_call_methods: tuple[str, ...]) -> tuple[str, ...]:
+    service_methods = frozenset(service_call_methods)
+    explicit_routes = frozenset(_JSONL_CALL_ROUTES)
+    return tuple(
+        method
+        for method in JSONL_CALL_METHODS
+        if method in service_methods or method in explicit_routes
+    )
+
+
+def _implemented_jsonl_stream_methods(service_stream_methods: tuple[str, ...]) -> tuple[str, ...]:
+    service_methods = frozenset(service_stream_methods)
+    return tuple(
+        method
+        for method in JSONL_STREAM_METHODS
+        if (service_method := _jsonl_service_stream_method(method)) is not None
+        and service_method in service_methods
+    )
 
 
 def _append_jsonl_call_parameter_issues(issues: list[str]) -> None:
