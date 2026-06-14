@@ -226,7 +226,11 @@ class HephService:
             )
 
     def state(self) -> dict[str, object]:
-        return self.state_snapshot().to_dict()
+        return validate_result_payload(
+            "state",
+            self.state_snapshot().to_dict(),
+            SERVICE_CALL_RESULT_SPECS,
+        )
 
     def validate_call_params(
         self,
@@ -250,8 +254,11 @@ class HephService:
         parameters = self.validate_call_params(method, params)
         if route := self._call_routes().get(method):
             self._ensure_call_route_available(route)
-            result = route.dispatch(parameters)
-            return validate_result_payload(method, result, SERVICE_CALL_RESULT_SPECS)
+            return validate_result_payload(
+                method,
+                route.dispatch(parameters),
+                SERVICE_CALL_RESULT_SPECS,
+            )
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
     def _call_routes(self) -> dict[str, _ServiceCallRoute]:
@@ -354,10 +361,18 @@ class HephService:
         )
 
     def capabilities(self) -> ServicePayload:
-        return {"capabilities": get_sdk_capabilities().to_dict()}
+        return validate_result_payload(
+            "capabilities",
+            {"capabilities": get_sdk_capabilities().to_dict()},
+            SERVICE_CALL_RESULT_SPECS,
+        )
 
     def settings(self) -> ServicePayload:
-        return {"settings": load_sdk_app_settings().to_dict()}
+        return validate_result_payload(
+            "settings",
+            {"settings": load_sdk_app_settings().to_dict()},
+            SERVICE_CALL_RESULT_SPECS,
+        )
 
     def stream(
         self,

@@ -227,7 +227,7 @@ serialization boundary for non-Python clients.
 `HephService` is the intended core for that transport boundary. It maintains an
 active runtime and optional active session. Direct Python clients should use
 `state_snapshot()` for typed `HephSdkState` values, while transports can keep
-calling `state()` for the same JSON-ready dictionary shape.
+calling `state()` for the same contract-validated JSON-ready dictionary shape.
 The snapshot and payload include a top-level `service` object with
 `is_busy`, `prompt_active`, `active_operation`, `available_call_methods`, and
 `available_stream_methods`, so clients can disable state-changing controls

@@ -602,6 +602,75 @@ def test_sdk_service_call_rejects_result_contract_drift(
         service.call("capabilities")
 
 
+def test_sdk_service_direct_introspection_methods_validate_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenState:
+        def to_dict(self) -> dict[str, object]:
+            return {"service": {}, "runtime": {}, "session": None, "unexpected": True}
+
+    class BrokenCapabilities:
+        def to_dict(self) -> dict[str, object]:
+            payload = get_sdk_capabilities().to_dict()
+            payload["version"] = "bad"
+            return payload
+
+    class BrokenSettings:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "theme": "dark",
+                "default_armory_path": "",
+                "last_armory_path": "",
+                "activity_trace_mode": "compact",
+                "vocab_strictness": "normal",
+                "thinking_visibility": "summary",
+                "live_tokens_visible": "yes",
+                "live_cost_visible": False,
+                "privacy": {
+                    "analytics_enabled": False,
+                    "analytics_available": False,
+                    "analytics_env_override": False,
+                    "crash_reports_enabled": False,
+                    "crash_reports_available": False,
+                    "crash_reports_env_override": False,
+                },
+                "choices": {
+                    "themes": [],
+                    "activity_trace_modes": [],
+                    "thinking_visibility_modes": [],
+                    "vocab_strictness_modes": [],
+                },
+                "mutable_keys": [],
+            }
+
+    def broken_state_snapshot(_self: HephService) -> BrokenState:
+        return BrokenState()
+
+    def broken_capabilities() -> BrokenCapabilities:
+        return BrokenCapabilities()
+
+    def broken_settings() -> BrokenSettings:
+        return BrokenSettings()
+
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(HephService, "state_snapshot", broken_state_snapshot)
+    monkeypatch.setattr(sdk_service, "get_sdk_capabilities", broken_capabilities)
+    monkeypatch.setattr(sdk_service, "load_sdk_app_settings", broken_settings)
+
+    with pytest.raises(HephSdkError, match="result does not accept field: unexpected"):
+        service.state()
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'capabilities\.version' must be an integer",
+    ):
+        service.capabilities()
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'settings\.live_tokens_visible' must be a boolean",
+    ):
+        service.settings()
+
+
 def test_sdk_service_call_rejects_nested_result_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
