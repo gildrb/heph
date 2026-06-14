@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from ai.runtime.conversation import Conversation
@@ -100,6 +100,15 @@ _PLAN_CONTRACT_LABEL_BY_ACTION: Mapping[LearningAction, str] = {
 }
 
 
+@dataclass(slots=True)
+class _PlanContractApplication:
+    plan: LearningTurnPlan
+    contract: TurnContract
+    prior_contract: TurnContract | None
+    retrieval_strategy: str
+    retrieval_query: str | None
+
+
 def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
     if plan is None:
         return ""
@@ -122,185 +131,268 @@ def _apply_turn_contract_to_plan(
 ) -> tuple[LearningTurnPlan, TurnContract]:
     contract = _contract_with_default_material_scope(plan, contract)
     if contract.resolved_intent in {"heph_action", "heph_help"}:
-        updated_plan = replace(
-            plan,
-            original_user_input=contract.original_user_input,
-            retrieval_query=None,
-            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
-            evidence_refs=(),
-            requires_direct_evidence=False,
-            uses_overview_sampling=False,
-        )
-        updated_contract = replace(
-            contract,
-            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
-            retrieval_query="",
-            evidence_refs=(),
-            citation_required=False,
-            direct_evidence_required=False,
-        )
-        return updated_plan, updated_contract
-    retrieval_query = _semantic_retrieval_query(plan, contract)
-    retrieval_strategy = contract.retrieval_strategy
-    retrieval_strategy, retrieval_query = _stabilized_followup_retrieval(
-        contract,
+        return _heph_command_plan_contract(plan, contract)
+    state = _PlanContractApplication(
+        plan=plan,
+        contract=contract,
         prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
-        retrieval_query=retrieval_query,
+        retrieval_strategy=contract.retrieval_strategy,
+        retrieval_query=_semantic_retrieval_query(plan, contract),
     )
-    if _prior_followup_should_transform_prior_answer(contract, prior_contract=prior_contract):
-        contract = replace(
-            contract,
+    _apply_stabilized_followup_retrieval(state)
+    _apply_prior_answer_followup_state(state)
+    _apply_current_request_retrieval_state(state)
+    _apply_replayability_state(state)
+    _apply_current_topic_retrieval_state(state)
+    _apply_direct_evidence_state(state)
+    _apply_overview_state(state)
+    _apply_priority_retrieval_state(state)
+    return _finalized_plan_contract(state)
+
+
+def _heph_command_plan_contract(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+) -> tuple[LearningTurnPlan, TurnContract]:
+    updated_plan = replace(
+        plan,
+        original_user_input=contract.original_user_input,
+        retrieval_query=None,
+        retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
+        evidence_refs=(),
+        requires_direct_evidence=False,
+        uses_overview_sampling=False,
+    )
+    updated_contract = replace(
+        contract,
+        retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
+        retrieval_query="",
+        evidence_refs=(),
+        citation_required=False,
+        direct_evidence_required=False,
+    )
+    return updated_plan, updated_contract
+
+
+def _apply_stabilized_followup_retrieval(state: _PlanContractApplication) -> None:
+    state.retrieval_strategy, state.retrieval_query = _stabilized_followup_retrieval(
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
+    )
+
+
+def _apply_prior_answer_followup_state(state: _PlanContractApplication) -> None:
+    if _prior_followup_should_transform_prior_answer(
+        state.contract,
+        prior_contract=state.prior_contract,
+    ):
+        state.contract = replace(
+            state.contract,
             answer_mode=ANSWER_MODE_TRANSFORM_PRIOR,
             prior_answer_reference=True,
             prior_answer_positions=(),
             prior_answer_position_basis="",
         )
-        retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
-        retrieval_query = None
-    retrieval_strategy, retrieval_query = _prior_followup_retrieval_strategy(
-        contract,
-        prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
-        retrieval_query=retrieval_query,
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
+        state.retrieval_query = None
+    state.retrieval_strategy, state.retrieval_query = _prior_followup_retrieval_strategy(
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
     )
+
+
+def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> None:
     if _source_request_needs_current_retrieval(
-        contract,
-        prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
-        retrieval_query=retrieval_query,
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
     ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        retrieval_query = _fresh_current_request_query(contract)
-    contract, retrieval_strategy, retrieval_query = _apply_reasoning_followup_contract(
-        contract,
-        prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
-        retrieval_query=retrieval_query,
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+        state.retrieval_query = _fresh_current_request_query(state.contract)
+    (
+        state.contract,
+        state.retrieval_strategy,
+        state.retrieval_query,
+    ) = _apply_reasoning_followup_contract(
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
     )
     if (
         _expanded_prior_should_use_current_request(
-            contract,
-            prior_contract=prior_contract,
-            retrieval_strategy=retrieval_strategy,
+            state.contract,
+            prior_contract=state.prior_contract,
+            retrieval_strategy=state.retrieval_strategy,
         )
-        and prior_contract is not None
+        and state.prior_contract is not None
     ):
-        retrieval_query = _expanded_prior_followup_query(contract, prior_contract)
+        state.retrieval_query = _expanded_prior_followup_query(
+            state.contract,
+            state.prior_contract,
+        )
     if (
-        retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-        and contract.resolved_intent != "material_overview"
+        state.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+        and state.contract.resolved_intent != "material_overview"
     ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        retrieval_query = contract.retrieval_query or contract.canonical_request or retrieval_query
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+        state.retrieval_query = (
+            state.contract.retrieval_query
+            or state.contract.canonical_request
+            or state.retrieval_query
+        )
+
+
+def _apply_replayability_state(state: _PlanContractApplication) -> None:
     if _followup_lacks_replayable_prior_surface(
-        contract,
-        prior_contract=prior_contract,
+        state.contract,
+        prior_contract=state.prior_contract,
     ):
-        contract = replace(contract, prior_answer_reference=True)
-        retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
-        retrieval_query = None
+        state.contract = replace(state.contract, prior_answer_reference=True)
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
+        state.retrieval_query = None
     elif (
-        prior_contract is not None
-        and not prior_contract.evidence_refs
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and not retrieval_query
+        state.prior_contract is not None
+        and not state.prior_contract.evidence_refs
+        and state.contract.is_followup
+        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and not state.retrieval_query
     ):
-        contract = replace(contract, prior_answer_reference=True)
+        state.contract = replace(state.contract, prior_answer_reference=True)
+
+
+def _apply_current_topic_retrieval_state(state: _PlanContractApplication) -> None:
     current_topic_query = _stabilized_current_topic_query(
-        contract,
-        retrieval_query,
-        retrieval_strategy=retrieval_strategy,
+        state.contract,
+        state.retrieval_query,
+        retrieval_strategy=state.retrieval_strategy,
     )
-    if current_topic_query != retrieval_query:
+    if current_topic_query != state.retrieval_query:
         if (
-            prior_contract is not None
-            and prior_contract.evidence_refs
-            and contract.is_followup
-            and contract.resolved_intent == "source_qa"
+            state.prior_contract is not None
+            and state.prior_contract.evidence_refs
+            and state.contract.is_followup
+            and state.contract.resolved_intent == "source_qa"
         ):
-            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+            state.retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
         else:
-            retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-    retrieval_query = current_topic_query
+            state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+    state.retrieval_query = current_topic_query
+
+
+def _apply_direct_evidence_state(state: _PlanContractApplication) -> None:
     if _prior_followup_has_literal_direct_requirement(
-        contract,
-        prior_contract=prior_contract,
+        state.contract,
+        prior_contract=state.prior_contract,
     ):
-        contract = replace(contract, direct_evidence_required=False)
+        state.contract = replace(state.contract, direct_evidence_required=False)
     if _prior_followup_should_reason_from_prior(
-        contract,
-        prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
     ):
-        contract = replace(
-            contract,
+        state.contract = replace(
+            state.contract,
             answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
             prior_answer_reference=True,
         )
-    if _contract_requires_overview_sampling(contract, prior_contract=prior_contract):
-        if contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
-            contract = replace(
-                contract,
+
+
+def _apply_overview_state(state: _PlanContractApplication) -> None:
+    if _contract_requires_overview_sampling(
+        state.contract,
+        prior_contract=state.prior_contract,
+    ):
+        if state.contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
+            state.contract = replace(
+                state.contract,
                 answer_mode=ANSWER_MODE_FROM_EVIDENCE,
                 prior_answer_reference=False,
                 prior_answer_positions=(),
                 prior_answer_position_basis="",
             )
-        retrieval_strategy = RETRIEVAL_STRATEGY_OVERVIEW
-        retrieval_query = _overview_retrieval_surface(plan, contract, retrieval_query)
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_OVERVIEW
+        state.retrieval_query = _overview_retrieval_surface(
+            state.plan,
+            state.contract,
+            state.retrieval_query,
+        )
     elif (
-        retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-        and _contract_has_specific_material_target(contract)
+        state.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+        and _contract_has_specific_material_target(state.contract)
     ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        retrieval_query = contract.retrieval_query or contract.canonical_request or retrieval_query
-    if (
-        plan.action is LearningAction.PRIORITY
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and not contract.prior_answer_reference
-    ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        retrieval_query = plan.retrieval_query or contract.canonical_request or retrieval_query
-    evidence_refs = _prior_evidence_refs_for_strategy(retrieval_strategy, prior_contract)
-    if evidence_refs and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
-        retrieval_query = None
-    elif retrieval_query and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
-        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-    if (
-        evidence_refs
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.is_followup
-        and contract.direct_evidence_required
-    ):
-        contract = replace(contract, prior_answer_reference=True)
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+        state.retrieval_query = (
+            state.contract.retrieval_query
+            or state.contract.canonical_request
+            or state.retrieval_query
+        )
 
+
+def _apply_priority_retrieval_state(state: _PlanContractApplication) -> None:
+    if (
+        state.plan.action is LearningAction.PRIORITY
+        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and not state.contract.prior_answer_reference
+    ):
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+        state.retrieval_query = (
+            state.plan.retrieval_query or state.contract.canonical_request or state.retrieval_query
+        )
+
+
+def _finalized_plan_contract(
+    state: _PlanContractApplication,
+) -> tuple[LearningTurnPlan, TurnContract]:
+    evidence_refs = _apply_prior_evidence_refs(state)
     requires_direct_evidence = _contract_requires_direct_source_support(
-        plan,
-        contract,
-        retrieval_strategy=retrieval_strategy,
+        state.plan,
+        state.contract,
+        retrieval_strategy=state.retrieval_strategy,
     )
-
     updated_plan = replace(
-        plan,
-        original_user_input=contract.original_user_input,
-        retrieval_query=retrieval_query,
-        retrieval_strategy=retrieval_strategy,
+        state.plan,
+        original_user_input=state.contract.original_user_input,
+        retrieval_query=state.retrieval_query,
+        retrieval_strategy=state.retrieval_strategy,
         evidence_refs=evidence_refs,
         requires_direct_evidence=requires_direct_evidence,
-        uses_overview_sampling=retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW,
+        uses_overview_sampling=state.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW,
     )
     updated_contract = replace(
-        contract,
-        resolved_intent=contract.resolved_intent or _resolved_plan_intent(updated_plan),
-        retrieval_strategy=retrieval_strategy,
-        retrieval_query=retrieval_query or "",
+        state.contract,
+        resolved_intent=state.contract.resolved_intent or _resolved_plan_intent(updated_plan),
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query or "",
         evidence_refs=evidence_refs,
         citation_required=_plan_requires_citations(updated_plan),
         direct_evidence_required=updated_plan.requires_direct_evidence,
     )
     return updated_plan, updated_contract
+
+
+def _apply_prior_evidence_refs(state: _PlanContractApplication) -> tuple[str, ...]:
+    evidence_refs = _prior_evidence_refs_for_strategy(
+        state.retrieval_strategy,
+        state.prior_contract,
+    )
+    if evidence_refs and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+        state.retrieval_query = None
+    elif state.retrieval_query and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+        state.retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+    if (
+        evidence_refs
+        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and state.contract.is_followup
+        and state.contract.direct_evidence_required
+    ):
+        state.contract = replace(state.contract, prior_answer_reference=True)
+    return evidence_refs
 
 
 def _prior_followup_retrieval_strategy(
