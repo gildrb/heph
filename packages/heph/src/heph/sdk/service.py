@@ -36,6 +36,7 @@ from heph.sdk.methods import (
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
     SdkMethodAvailabilitySpec,
+    SdkMethodSpec,
 )
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import (
@@ -176,6 +177,10 @@ class HephService:
     _active_operation: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        issues = validate_sdk_service_contract(self)
+        if issues:
+            message = "SDK service contract drift: " + "; ".join(issues)
+            raise HephSdkError(message)
         if self.session is not None:
             self._attach_session_stream_guard(self.session)
             self._apply_current_app_settings()
@@ -239,7 +244,10 @@ class HephService:
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
     def _call_routes(self) -> dict[str, _ServiceCallRoute]:
-        routes = (
+        return _call_routes_by_method(self._call_route_sequence())
+
+    def _call_route_sequence(self) -> tuple[_ServiceCallRoute, ...]:
+        return (
             _ServiceCallRoute("state", self.state),
             _ServiceCallRoute("capabilities", self.capabilities),
             _ServiceCallRoute("use_plain_runtime", self.use_plain_runtime),
@@ -333,7 +341,6 @@ class HephService:
             _ServiceCallRoute("update_config", self.update_config, params_as_argument=True),
             _ServiceCallRoute("update_settings", self.update_settings, params_as_argument=True),
         )
-        return {route.method: route for route in routes}
 
     def capabilities(self) -> ServicePayload:
         return {"capabilities": get_sdk_capabilities().to_dict()}
@@ -394,7 +401,10 @@ class HephService:
         )
 
     def _stream_routes(self) -> dict[str, _ServiceStreamRoute]:
-        routes = (
+        return _stream_routes_by_method(self._stream_route_sequence())
+
+    def _stream_route_sequence(self) -> tuple[_ServiceStreamRoute, ...]:
+        return (
             _ServiceStreamRoute(
                 "prompt",
                 self._prompt_stream,
@@ -404,7 +414,6 @@ class HephService:
                 self._build_index_stream,
             ),
         )
-        return {route.method: route for route in routes}
 
     def _prompt_stream(self, params: dict[str, object]) -> ServiceStream:
         return self.prompt(_required_str(params, "text"))
@@ -746,6 +755,93 @@ class HephService:
         return self.session is not None and self.session.is_streaming
 
 
+def validate_sdk_service_contract(service: HephService) -> tuple[str, ...]:
+    """Return implementation drift between service routes and advertised SDK specs."""
+    call_routes = service._call_route_sequence()
+    stream_routes = service._stream_route_sequence()
+    issues: list[str] = []
+    _append_route_name_issues(
+        issues,
+        "service.call_routes",
+        SERVICE_CALL_METHODS,
+        tuple(route.method for route in call_routes),
+    )
+    _append_route_name_issues(
+        issues,
+        "service.stream_routes",
+        SERVICE_STREAM_METHODS,
+        tuple(route.method for route in stream_routes),
+    )
+    _append_call_route_parameter_issues(issues, call_routes)
+    return tuple(issues)
+
+
+def _call_routes_by_method(
+    routes: tuple[_ServiceCallRoute, ...],
+) -> dict[str, _ServiceCallRoute]:
+    return {route.method: route for route in routes}
+
+
+def _stream_routes_by_method(
+    routes: tuple[_ServiceStreamRoute, ...],
+) -> dict[str, _ServiceStreamRoute]:
+    return {route.method: route for route in routes}
+
+
+def _append_route_name_issues(
+    issues: list[str],
+    label: str,
+    advertised: tuple[str, ...],
+    implemented: tuple[str, ...],
+) -> None:
+    duplicates = _duplicate_names(implemented)
+    if duplicates:
+        issues.append(f"{label} contains duplicate routes: {', '.join(duplicates)}")
+    if implemented != advertised:
+        issues.append(f"{label} does not match advertised SDK methods.")
+
+
+def _append_call_route_parameter_issues(
+    issues: list[str],
+    routes: tuple[_ServiceCallRoute, ...],
+) -> None:
+    specs = _method_specs_by_method(SERVICE_CALL_METHOD_SPECS)
+    for route in routes:
+        spec = specs.get(route.method)
+        if spec is None or route.params_as_argument:
+            continue
+        expected = _method_spec_param_names(spec)
+        implemented = _call_route_param_names(route)
+        if implemented != expected:
+            issues.append(
+                f"service.call_routes.{route.method} params do not match "
+                "advertised SDK method params."
+            )
+
+
+def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMethodSpec]:
+    return {spec.method: spec for spec in specs}
+
+
+def _method_spec_param_names(spec: SdkMethodSpec) -> tuple[str, ...]:
+    return tuple(param.name for param in spec.params)
+
+
+def _call_route_param_names(route: _ServiceCallRoute) -> tuple[str, ...]:
+    return tuple(argument.name for argument in (*route.arguments, *route.keyword_arguments))
+
+
+def _duplicate_names(names: tuple[str, ...]) -> tuple[str, ...]:
+    counts_by_name: dict[str, int] = {}
+    duplicates: list[str] = []
+    for name in names:
+        count = counts_by_name.get(name, 0) + 1
+        counts_by_name[name] = count
+        if count == 2:
+            duplicates.append(name)
+    return tuple(duplicates)
+
+
 def _available_call_methods(
     routes: Mapping[str, _ServiceCallRoute],
     runtime: HephRuntime,
@@ -1032,4 +1128,5 @@ __all__ = [
     "HephService",
     "ServicePayload",
     "ServiceStream",
+    "validate_sdk_service_contract",
 ]

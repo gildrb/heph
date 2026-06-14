@@ -72,7 +72,12 @@ from heph.sdk.runtime import (
     SessionSummary,
     sdk_error_code_for_engine_error,
 )
-from heph.sdk.service import HephService, ServicePayload, ServiceStream
+from heph.sdk.service import (
+    HephService,
+    ServicePayload,
+    ServiceStream,
+    validate_sdk_service_contract,
+)
 from heph.sdk.settings import (
     SDK_MUTABLE_APP_SETTINGS,
     PrivacySettingsSummary,
@@ -178,4 +183,5 @@ __all__ = [
     "serve_stdio",
     "update_sdk_app_settings",
     "validate_sdk_capabilities",
+    "validate_sdk_service_contract",
 ]

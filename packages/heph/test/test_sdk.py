@@ -61,11 +61,13 @@ from heph.sdk import (
     load_sdk_app_settings,
     update_sdk_app_settings,
     validate_sdk_capabilities,
+    validate_sdk_service_contract,
 )
 from heph.sdk import methods as sdk_methods
 from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
+from heph.sdk import service as sdk_service
 from heph.sdk.method_validation import validate_method_params
 from hephaion.chat.events import (
     AssistantDeltaEvent,
@@ -304,13 +306,57 @@ def test_sdk_method_validation_accepts_advertised_value_types() -> None:
 def test_sdk_service_call_routes_match_advertised_methods() -> None:
     service = HephService.plain(config=_config())
 
-    assert tuple(service._call_routes()) == sdk_methods.SERVICE_CALL_METHODS
+    assert tuple(route.method for route in service._call_route_sequence()) == (
+        sdk_methods.SERVICE_CALL_METHODS
+    )
 
 
 def test_sdk_service_stream_routes_match_advertised_methods() -> None:
     service = HephService.plain(config=_config())
 
-    assert tuple(service._stream_routes()) == sdk_methods.SERVICE_STREAM_METHODS
+    assert tuple(route.method for route in service._stream_route_sequence()) == (
+        sdk_methods.SERVICE_STREAM_METHODS
+    )
+
+
+def test_sdk_service_contract_validator_matches_advertised_routes() -> None:
+    service = HephService.plain(config=_config())
+
+    assert validate_sdk_service_contract(service) == ()
+
+
+def test_sdk_service_contract_validator_reports_route_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    call_routes = service._call_route_sequence()
+
+    broken_open_armory = replace(
+        next(route for route in call_routes if route.method == "open_armory"),
+        arguments=(sdk_service._ServiceCallArgument("wrong_path", sdk_service._required_str),),
+    )
+
+    def broken_call_route_sequence(_self: HephService):
+        return (
+            *(
+                broken_open_armory if route.method == "open_armory" else route
+                for route in call_routes
+                if route.method != "validate_armory"
+            ),
+            call_routes[0],
+        )
+
+    monkeypatch.setattr(HephService, "_call_route_sequence", broken_call_route_sequence)
+
+    issues = validate_sdk_service_contract(service)
+
+    assert "service.call_routes contains duplicate routes: state" in issues
+    assert "service.call_routes does not match advertised SDK methods." in issues
+    assert (
+        "service.call_routes.open_armory params do not match advertised SDK method params."
+    ) in issues
+    with pytest.raises(HephSdkError, match="SDK service contract drift"):
+        HephService(runtime=HephRuntime.plain(config=_config()))
 
 
 @pytest.mark.parametrize(
