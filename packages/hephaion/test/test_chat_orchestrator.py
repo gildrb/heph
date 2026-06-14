@@ -2880,6 +2880,31 @@ def test_blank_classifier_uses_default_overview_plan_request() -> None:
     assert updated_contract.retrieval_query == user_input
 
 
+def test_blank_overview_followup_preserves_specific_material_target() -> None:
+    user_input = "summarize that source"
+    plan = material_overview_plan(user_input)
+    contract = TurnContract(
+        original_user_input=user_input,
+        canonical_request="Summarize the requested topic source.",
+        is_followup=True,
+        followup_target="the requested topic source",
+        retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
+        confidence=0.0,
+    )
+
+    updated_plan, updated_contract = _apply_turn_contract_to_plan(
+        plan,
+        contract,
+        prior_contract=None,
+    )
+
+    assert updated_contract.resolved_intent == "material_overview"
+    assert updated_contract.followup_target == "the requested topic source"
+    assert updated_plan.retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
+    assert updated_plan.retrieval_query == "Summarize the requested topic source."
+    assert updated_contract.retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
+
+
 def test_unicode_math_reply_converts_bare_mathbb_without_touching_paths() -> None:
     reply = r"Use a, b \in \mathbb R and see materials/Folien_2026_04_13.pdf."
     double_struck_r = "\u211d"

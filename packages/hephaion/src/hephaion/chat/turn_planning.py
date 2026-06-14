@@ -75,6 +75,7 @@ from hephaion.chat.turn_query import (
 )
 
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
+_DEFAULT_MATERIAL_OVERVIEW_REQUEST = "Provide a compact overview of the material contents."
 _CONTINUABLE_MATERIAL_INTENTS = frozenset(
     {
         "material_overview",
@@ -655,47 +656,60 @@ def _contract_with_default_material_scope(
     plan: LearningTurnPlan,
     contract: TurnContract,
 ) -> TurnContract:
-    if not _overview_turn(plan):
-        return contract
-    if contract.resolved_intent and contract.resolved_intent != "material_overview":
+    if _default_material_scope_not_applicable(plan, contract):
         return contract
     retrieval_query = _overview_retrieval_surface(plan, contract, plan.retrieval_query)
-    if (
-        plan.buffer_response
-        and contract.answer_format == ANSWER_FORMAT_PLAIN
-        and not contract.is_followup
-    ):
-        return replace(
+    if _overview_plan_should_replace_request(plan, contract):
+        return _default_material_overview_contract(
             contract,
-            resolved_intent="material_overview",
-            canonical_request="Provide a compact overview of the material contents.",
-            followup_target="",
-            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=retrieval_query or "",
-        )
-    if (
-        contract.answer_format == ANSWER_FORMAT_PLAIN
-        and not contract.is_followup
-        and not _contract_has_specific_material_target(contract)
-    ):
-        return replace(
-            contract,
-            resolved_intent="material_overview",
-            canonical_request="Provide a compact overview of the material contents.",
-            followup_target="",
-            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            retrieval_query=retrieval_query or "",
+            retrieval_query=retrieval_query,
+            canonical_request=_DEFAULT_MATERIAL_OVERVIEW_REQUEST,
+            clear_followup_target=True,
         )
     if contract.resolved_intent:
         return contract
-    return replace(
+    return _default_material_overview_contract(
+        contract,
+        retrieval_query=retrieval_query,
+        canonical_request=contract.canonical_request or _DEFAULT_MATERIAL_OVERVIEW_REQUEST,
+    )
+
+
+def _default_material_scope_not_applicable(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+) -> bool:
+    return not _overview_turn(plan) or (
+        bool(contract.resolved_intent) and contract.resolved_intent != "material_overview"
+    )
+
+
+def _overview_plan_should_replace_request(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+) -> bool:
+    if contract.answer_format != ANSWER_FORMAT_PLAIN or contract.is_followup:
+        return False
+    return plan.buffer_response or not _contract_has_specific_material_target(contract)
+
+
+def _default_material_overview_contract(
+    contract: TurnContract,
+    *,
+    retrieval_query: str | None,
+    canonical_request: str,
+    clear_followup_target: bool = False,
+) -> TurnContract:
+    updated_contract = replace(
         contract,
         resolved_intent="material_overview",
-        canonical_request=contract.canonical_request
-        or "Provide a compact overview of the material contents.",
+        canonical_request=canonical_request,
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
         retrieval_query=retrieval_query or "",
     )
+    if clear_followup_target:
+        return replace(updated_contract, followup_target="")
+    return updated_contract
 
 
 def _overview_retrieval_surface(
