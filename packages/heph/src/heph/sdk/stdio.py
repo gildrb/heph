@@ -22,6 +22,7 @@ from heph.sdk.methods import (
     JSONL_STREAM_METHODS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_METHOD_UNAVAILABLE_BUSY,
     jsonl_stream_method_for_service,
     service_stream_method_for_jsonl,
 )
@@ -617,14 +618,24 @@ def _busy_method_availability(
     available_methods: tuple[str, ...],
 ) -> list[dict[str, object]]:
     available = frozenset(available_methods)
-    return [
+    available_records: list[dict[str, object]] = [
         {
             "method": method,
-            "available": method in available,
-            "unavailable_reason": None if method in available else "busy",
+            "available": True,
+            "unavailable_reason": None,
+        }
+        for method in available_methods
+    ]
+    unavailable_records: list[dict[str, object]] = [
+        {
+            "method": method,
+            "available": False,
+            "unavailable_reason": SDK_METHOD_UNAVAILABLE_BUSY,
         }
         for method in methods
+        if method not in available
     ]
+    return [*available_records, *unavailable_records]
 
 
 def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:

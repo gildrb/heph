@@ -10,6 +10,8 @@ from ai.providers.reasoning import DEFAULT_REASONING_LEVEL
 
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    SDK_METHOD_UNAVAILABLE_BUSY,
+    SDK_METHOD_UNAVAILABLE_GENERIC,
     SERVICE_CALL_METHODS,
     SERVICE_STREAM_METHODS,
 )
@@ -214,6 +216,8 @@ def _method_availability(
 ) -> tuple[HephSdkMethodAvailability, ...]:
     if configured is not None:
         return configured
+    if is_busy:
+        return _busy_method_availability(all_methods, available_methods)
     available = frozenset(available_methods)
     return tuple(
         HephSdkMethodAvailability(
@@ -225,6 +229,26 @@ def _method_availability(
     )
 
 
+def _busy_method_availability(
+    all_methods: tuple[str, ...],
+    available_methods: tuple[str, ...],
+) -> tuple[HephSdkMethodAvailability, ...]:
+    available = frozenset(available_methods)
+    available_records = tuple(
+        HephSdkMethodAvailability(method=method, available=True) for method in available_methods
+    )
+    unavailable_records = tuple(
+        HephSdkMethodAvailability(
+            method=method,
+            available=False,
+            unavailable_reason=SDK_METHOD_UNAVAILABLE_BUSY,
+        )
+        for method in all_methods
+        if method not in available
+    )
+    return (*available_records, *unavailable_records)
+
+
 def _default_unavailable_reason(
     method: str,
     available: frozenset[str],
@@ -234,8 +258,8 @@ def _default_unavailable_reason(
     if method in available:
         return None
     if is_busy:
-        return "busy"
-    return "unavailable"
+        return SDK_METHOD_UNAVAILABLE_BUSY
+    return SDK_METHOD_UNAVAILABLE_GENERIC
 
 
 @dataclass(frozen=True, slots=True)

@@ -45,6 +45,7 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
+from heph.sdk.methods import SDK_METHOD_UNAVAILABLE_REASONS
 from heph.sdk.models import ModelChoiceSummary
 from heph.sdk.providers import ProviderSummary
 from heph.sdk.runtime import (
@@ -98,6 +99,7 @@ __all__ = [
     "SDK_ENGINE_ERROR_CODE",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_METHOD_UNAVAILABLE_REASONS",
     "SDK_MUTABLE_APP_SETTINGS",
     "ArmorySummary",
     "ArmoryValidationSummary",

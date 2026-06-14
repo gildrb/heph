@@ -230,8 +230,9 @@ The snapshot and payload include a top-level `service` object with
 without inspecting internal `ChatSession` objects or reimplementing busy-method
 policy. The same service object also includes `call_method_availability` and
 `stream_method_availability`: ordered records with `method`, `available`, and
-`unavailable_reason`. Reason codes are machine-readable values such as `busy`,
-`missing_armory`, `missing_session`, `missing_armory_session`, and
+`unavailable_reason`. Standard SDK-generated reason codes are advertised in
+`capabilities.service.method_unavailable_reasons` and include values such as
+`busy`, `missing_armory`, `missing_session`, `missing_armory_session`, and
 `missing_session_sources`.
 `prompt_active` is true for both service-owned prompt streams and direct streams
 on the active `HephSession`; `active_operation` names non-prompt operation
@@ -251,8 +252,8 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 `HephService.capabilities()`, or the transport `capabilities` method. The JSONL
 server also includes the same capability payload in its initial `ready` message.
 Capabilities list service methods, JSONL method names, stream event types, state
-fields, JSONL message types, JSONL error codes, and calls that remain available
-while a stream is active.
+fields, JSONL message types, JSONL error codes, calls that remain available
+while a stream is active, and standard method-unavailable reason codes.
 The `jsonl.message_specs` section describes the top-level transport envelopes
 (`ready`, `response`, `error`, `stream_start`, `stream_event`, and `stream_end`)
 so native clients can generate wire decoders without scraping examples.

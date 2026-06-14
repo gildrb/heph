@@ -24,6 +24,7 @@ from heph.sdk.methods import (
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_METHOD_UNAVAILABLE_REASONS,
     SDK_TYPE_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
@@ -85,6 +86,7 @@ class HephSdkCapabilities:
     jsonl_call_methods: tuple[str, ...]
     jsonl_stream_methods: tuple[str, ...]
     busy_allowed_call_methods: tuple[str, ...]
+    method_unavailable_reasons: tuple[str, ...]
     event_types: tuple[str, ...]
     service_state_fields: tuple[str, ...]
     runtime_state_fields: tuple[str, ...]
@@ -117,6 +119,7 @@ class HephSdkCapabilities:
                 "call_methods": list(self.service_call_methods),
                 "stream_methods": list(self.service_stream_methods),
                 "busy_allowed_call_methods": list(self.busy_allowed_call_methods),
+                "method_unavailable_reasons": list(self.method_unavailable_reasons),
             },
             "jsonl": {
                 "protocol": self.jsonl_protocol,
@@ -168,6 +171,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_call_methods=JSONL_CALL_METHODS,
     jsonl_stream_methods=JSONL_STREAM_METHODS,
     busy_allowed_call_methods=BUSY_ALLOWED_CALL_METHODS,
+    method_unavailable_reasons=SDK_METHOD_UNAVAILABLE_REASONS,
     event_types=SDK_EVENT_TYPES,
     service_state_fields=SERVICE_STATE_FIELDS,
     runtime_state_fields=RUNTIME_STATE_FIELDS,
@@ -234,6 +238,7 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
         ("events.types", capabilities.event_types),
         ("jsonl.error_codes", capabilities.jsonl_error_codes),
         ("service.busy_allowed_call_methods", capabilities.busy_allowed_call_methods),
+        ("service.method_unavailable_reasons", capabilities.method_unavailable_reasons),
         ("types", tuple(spec.type_name for spec in capabilities.type_specs)),
         *_method_param_duplicate_checks(
             "methods.service_call",

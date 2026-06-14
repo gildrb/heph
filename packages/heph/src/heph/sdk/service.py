@@ -23,6 +23,11 @@ from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    SDK_METHOD_UNAVAILABLE_BUSY,
+    SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION,
+    SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
     SERVICE_STREAM_METHOD_SPECS,
@@ -70,11 +75,11 @@ class _ServiceAvailabilityRequirement(Enum):
 
 
 class _ServiceUnavailableReason(StrEnum):
-    BUSY = "busy"
-    MISSING_ARMORY = "missing_armory"
-    MISSING_SESSION = "missing_session"
-    MISSING_ARMORY_SESSION = "missing_armory_session"
-    MISSING_SESSION_SOURCES = "missing_session_sources"
+    BUSY = SDK_METHOD_UNAVAILABLE_BUSY
+    MISSING_ARMORY = SDK_METHOD_UNAVAILABLE_MISSING_ARMORY
+    MISSING_SESSION = SDK_METHOD_UNAVAILABLE_MISSING_SESSION
+    MISSING_ARMORY_SESSION = SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION
+    MISSING_SESSION_SOURCES = SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,13 +640,17 @@ class HephService:
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
-            ),
+            )
+            if not is_busy
+            else None,
             stream_method_availability=_stream_method_availability(
                 stream_routes,
                 self.runtime,
                 self.session,
                 is_busy=is_busy,
-            ),
+            )
+            if not is_busy
+            else None,
         )
 
     def _runtime_state(self) -> HephSdkRuntimeState:

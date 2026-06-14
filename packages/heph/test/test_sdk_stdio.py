@@ -78,12 +78,23 @@ def _availability_by_method(value: object) -> dict[str, dict[str, object]]:
     return records
 
 
+def _available_method_order(value: object) -> list[str]:
+    return [
+        str(record["method"])
+        for record in (_payload_mapping(item) for item in _payload_list(value))
+        if record["available"] is True
+    ]
+
+
 def _assert_jsonl_operation_busy_service_state(service_state: dict[str, object]) -> None:
     assert service_state["prompt_active"] is False
     assert service_state["active_operation"] == "build_index"
     assert service_state["is_busy"] is True
     assert service_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert service_state["available_stream_methods"] == []
+    assert _available_method_order(service_state["call_method_availability"]) == list(
+        sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    )
     call_availability = _availability_by_method(service_state["call_method_availability"])
     stream_availability = _availability_by_method(service_state["stream_method_availability"])
     assert call_availability["state"]["available"] is True
@@ -532,6 +543,9 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
     assert state_service["is_busy"] is True
     assert state_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert state_service["available_stream_methods"] == []
+    assert _available_method_order(state_service["call_method_availability"]) == list(
+        sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    )
     call_availability = _availability_by_method(state_service["call_method_availability"])
     stream_availability = _availability_by_method(state_service["stream_method_availability"])
     assert call_availability["state"]["available"] is True
@@ -566,6 +580,9 @@ def test_jsonl_state_marks_pending_prompt_busy() -> None:
     assert service_state["is_busy"] is True
     assert service_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert service_state["available_stream_methods"] == []
+    assert _available_method_order(service_state["call_method_availability"]) == list(
+        sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    )
     call_availability = _availability_by_method(service_state["call_method_availability"])
     stream_availability = _availability_by_method(service_state["stream_method_availability"])
     assert call_availability["state"]["available"] is True

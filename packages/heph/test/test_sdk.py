@@ -158,6 +158,14 @@ def _availability_by_method(value: object) -> dict[str, dict[str, object]]:
     return records
 
 
+def _available_method_order(value: object) -> list[str]:
+    return [
+        str(record["method"])
+        for record in (_payload_mapping(item) for item in _payload_list(value))
+        if record["available"] is True
+    ]
+
+
 def _isolate_settings_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_dir = tmp_path / ".config" / "hephaion"
     config_file = config_dir / "config.json"
@@ -436,6 +444,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
+    method_unavailable_reasons = _payload_list(service["method_unavailable_reasons"])
     jsonl_call_methods = _payload_list(jsonl["call_methods"])
     jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
     service_call_specs = _payload_mapping(methods["service_call"])
@@ -480,6 +489,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert method_unavailable_reasons == list(sdk_methods.SDK_METHOD_UNAVAILABLE_REASONS)
     assert jsonl_call_methods == list(sdk_methods.JSONL_CALL_METHODS)
     assert jsonl_stream_methods == list(sdk_methods.JSONL_STREAM_METHODS)
     assert list(service_call_specs) == service_call_methods
@@ -1046,6 +1056,10 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     broken_capabilities = replace(
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
+        method_unavailable_reasons=(
+            *capabilities.method_unavailable_reasons,
+            sdk_methods.SDK_METHOD_UNAVAILABLE_BUSY,
+        ),
         service_call_methods=(*capabilities.service_call_methods, "state"),
         service_call_method_specs=broken_service_call_method_specs,
         service_call_result_specs=broken_service_call_result_specs,
@@ -1069,6 +1083,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         "service.busy_allowed_call_methods contains entries that are not advertised calls: bogus"
         in issues
     )
+    assert "service.method_unavailable_reasons contains duplicate entries: busy" in issues
     assert "jsonl.request_spec.fields contains duplicate entries: id" in issues
     assert "jsonl.message_types does not match its structured specs." in issues
     assert "streams.jsonl does not match its structured specs." in issues
@@ -2015,6 +2030,11 @@ def test_service_state_constructor_derives_busy_flag() -> None:
     busy_stream_availability = {
         record.method: record for record in HephSdkServiceState(True).stream_method_availability
     }
+    assert [
+        record.method
+        for record in HephSdkServiceState(True).call_method_availability
+        if record.available
+    ] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert busy_call_availability["state"].available is True
     assert busy_call_availability["ask"].unavailable_reason == "busy"
     assert busy_stream_availability["prompt"].unavailable_reason == "busy"
@@ -2307,6 +2327,9 @@ def test_service_blocks_state_changes_while_prompt_streams(
     active_call_availability = _availability_by_method(active_state["call_method_availability"])
     active_stream_availability = _availability_by_method(
         active_state["stream_method_availability"]
+    )
+    assert _available_method_order(active_state["call_method_availability"]) == list(
+        sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
     assert active_call_availability["state"] == {
         "method": "state",
