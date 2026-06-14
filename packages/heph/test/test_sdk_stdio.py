@@ -222,6 +222,36 @@ def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> No
     assert "build_index" not in open_stream_availability
 
 
+def test_jsonl_sdk_server_rejects_result_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_capabilities = HephService.capabilities
+
+    def broken_capabilities(self: HephService) -> dict[str, object]:
+        result = original_capabilities(self)
+        capabilities = dict(_payload_mapping(result["capabilities"]))
+        capabilities["version"] = "bad"
+        return {"capabilities": capabilities}
+
+    monkeypatch.setattr(HephService, "capabilities", broken_capabilities)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=HephService.plain(config=_config()),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "caps-drift", "method": "capabilities"})
+
+    payloads = _payloads(output.getvalue())
+    error = _payload_mapping(payloads[0]["error"])
+    assert payloads[0]["type"] == "error"
+    assert payloads[0]["id"] == "caps-drift"
+    assert payloads[0]["ok"] is False
+    assert error["code"] == "sdk_error"
+    assert "result field 'capabilities.version' must be an integer" in str(error["message"])
+
+
 def test_jsonl_state_translation_ignores_unknown_stream_availability_records() -> None:
     raw_state: dict[str, object] = {
         "service": {

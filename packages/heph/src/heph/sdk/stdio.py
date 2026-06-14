@@ -13,10 +13,11 @@ from hephaion._types import is_string_mapping
 from hephaion.armory.storage import ArmoryError
 
 from heph.sdk.factory import HephSdkOptions, create_heph_service
-from heph.sdk.method_validation import validate_method_params
+from heph.sdk.method_validation import validate_method_params, validate_result_payload
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     JSONL_CALL_METHODS,
+    JSONL_CALL_RESULT_SPECS,
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
@@ -183,7 +184,22 @@ class JsonlSdkServer:
     ) -> None:
         if self._stream_is_pending():
             raise HephSdkBusyError()
-        self._write_response(request_id, _jsonl_result_payload(self.service.call(method, params)))
+        self._write_call_response(request_id, method, self.service.call(method, params))
+
+    def _write_call_response(
+        self,
+        request_id: RequestId,
+        method: str,
+        result: ServicePayload,
+        *,
+        translate_state_streams: bool = True,
+    ) -> None:
+        payload = _jsonl_validated_result_payload(
+            method,
+            result,
+            translate_state_streams=translate_state_streams,
+        )
+        self._write_response(request_id, payload)
 
     def _capabilities_payload(self) -> ServicePayload:
         capabilities = self.service.capabilities().get("capabilities")
@@ -439,7 +455,12 @@ def _write_jsonl_abort_call(
     params: dict[str, object],
 ) -> None:
     _ = params
-    server._write_response(request_id, server._abort_active_prompt())
+    server._write_call_response(
+        request_id,
+        "abort",
+        server._abort_active_prompt(),
+        translate_state_streams=False,
+    )
 
 
 def _write_jsonl_state_call(
@@ -448,7 +469,12 @@ def _write_jsonl_state_call(
     params: dict[str, object],
 ) -> None:
     _ = params
-    server._write_response(request_id, server._state_with_transport_busy())
+    server._write_call_response(
+        request_id,
+        "state",
+        server._state_with_transport_busy(),
+        translate_state_streams=False,
+    )
 
 
 def _write_jsonl_capabilities_call(
@@ -457,7 +483,7 @@ def _write_jsonl_capabilities_call(
     params: dict[str, object],
 ) -> None:
     _ = params
-    server._write_response(request_id, server.service.capabilities())
+    server._write_call_response(request_id, "capabilities", server.service.capabilities())
 
 
 def _write_jsonl_settings_call(
@@ -466,7 +492,7 @@ def _write_jsonl_settings_call(
     params: dict[str, object],
 ) -> None:
     _ = params
-    server._write_response(request_id, server.service.settings())
+    server._write_call_response(request_id, "settings", server.service.settings())
 
 
 _JSONL_CALL_ROUTES: dict[str, _JsonlCallRoute] = {
@@ -661,6 +687,21 @@ def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:
     merged_result = dict(result)
     merged_result["state"] = _state_with_jsonl_stream_methods(state_value)
     return merged_result
+
+
+def _jsonl_validated_result_payload(
+    method: str,
+    result: ServicePayload,
+    *,
+    translate_state_streams: bool,
+) -> ServicePayload:
+    payload = _jsonl_result_payload(result) if translate_state_streams else dict(result)
+    return validate_result_payload(
+        method,
+        payload,
+        JSONL_CALL_RESULT_SPECS,
+        surface="SDK JSONL",
+    )
 
 
 def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
