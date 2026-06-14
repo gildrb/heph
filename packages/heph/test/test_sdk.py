@@ -324,6 +324,39 @@ def test_sdk_result_validation_accepts_advertised_result_shape() -> None:
     assert validate_result_payload("check", result, specs) == result
 
 
+def test_sdk_result_validation_accepts_nested_advertised_dto_shape() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("items", "array<widget_item>"),
+            ),
+        ),
+        sdk_methods.SdkTypeSpec(
+            "widget_item",
+            (
+                sdk_methods.SdkTypeFieldSpec("label", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("widget", "widget"),),
+        ),
+    )
+    result: dict[str, object] = {
+        "widget": {
+            "name": "heph",
+            "items": [{"label": "notes", "count": 2}],
+        }
+    }
+
+    assert validate_result_payload("check", result, specs, type_specs=type_specs) == result
+
+
 @pytest.mark.parametrize(
     ("result", "message"),
     [
@@ -355,6 +388,43 @@ def test_sdk_result_validation_rejects_advertised_result_drift(
 
     with pytest.raises(HephSdkError, match=message):
         validate_result_payload("check", result, specs)
+
+
+def test_sdk_result_validation_rejects_nested_advertised_dto_drift() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("items", "array<widget_item>"),
+            ),
+        ),
+        sdk_methods.SdkTypeSpec(
+            "widget_item",
+            (
+                sdk_methods.SdkTypeFieldSpec("label", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("widget", "widget"),),
+        ),
+    )
+    result: dict[str, object] = {
+        "widget": {
+            "name": "heph",
+            "items": [{"label": "notes", "count": "bad"}],
+        }
+    }
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'widget\.items\[0\]\.count' must be an integer",
+    ):
+        validate_result_payload("check", result, specs, type_specs=type_specs)
 
 
 def test_sdk_service_call_routes_match_advertised_methods() -> None:
@@ -389,6 +459,27 @@ def test_sdk_service_call_rejects_result_contract_drift(
     service = HephService.plain(config=_config())
 
     with pytest.raises(HephSdkError, match="result does not accept field: unexpected"):
+        service.call("capabilities")
+
+
+def test_sdk_service_call_rejects_nested_result_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_capabilities = HephService.capabilities
+
+    def broken_capabilities(self: HephService) -> dict[str, object]:
+        result = original_capabilities(self)
+        capabilities = dict(_payload_mapping(result["capabilities"]))
+        capabilities["version"] = "bad"
+        return {"capabilities": capabilities}
+
+    monkeypatch.setattr(HephService, "capabilities", broken_capabilities)
+    service = HephService.plain(config=_config())
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'capabilities\.version' must be an integer",
+    ):
         service.call("capabilities")
 
 

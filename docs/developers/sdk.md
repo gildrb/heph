@@ -276,11 +276,11 @@ trace mode, vocabulary strictness, thinking visibility, and reasoning level.
 The SDK service and JSONL transport enforce the same method specs at runtime:
 unsupported parameters, missing required parameters, wrong JSON value types, and
 values outside advertised `choices` are rejected instead of being ignored.
-The `results` section describes the top-level payload returned by each service
-and JSONL call method, using stable SDK DTO names such as `sdk_state`,
+The `results` section describes the payload returned by each service and JSONL
+call method, using stable SDK DTO names such as `sdk_state`,
 `sdk_session_state`, `provider_summary`, and `index_summary`. Service calls
-validate their top-level result fields against this advertised shape before
-returning to direct or transport callers.
+validate result payloads against the advertised result and reusable DTO field
+specs before returning to direct or transport callers.
 The `streams` section describes the event types each service and JSONL stream
 method can emit, plus the normal completion event such as `turn_complete` for
 prompt streams and `index_complete` for index streams.
