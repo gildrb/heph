@@ -305,8 +305,9 @@ Spec dictionaries use `map<...>` value types, for example
 `map<sdk_method_spec>` and `map<sdk_result_spec>`, so generated clients can
 validate dynamic method-name keys while still checking each value structurally.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
-availability drift, unresolved DTO type references, JSONL request-envelope
-drift, discriminator drift, and stream event drift.
+availability drift, malformed value-type grammar, unresolved DTO type
+references, JSONL request-envelope drift, discriminator drift, and stream event
+drift.
 `validate_sdk_service_contract()` checks the service implementation routes
 against those advertised methods and route parameter contracts. `HephService`
 runs both checks during construction.

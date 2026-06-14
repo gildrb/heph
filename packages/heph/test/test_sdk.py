@@ -1950,6 +1950,58 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "streams.service.prompt completion event is unknown: missing_completion_event" in issues
 
 
+def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_service_call_method_specs = tuple(
+        replace(
+            spec,
+            params=tuple(
+                replace(param, value_type="array<>")
+                if spec.method == "ask" and param.name == "text"
+                else param
+                for param in spec.params
+            ),
+        )
+        if spec.method == "ask"
+        else spec
+        for spec in capabilities.service_call_method_specs
+    )
+    broken_request_fields = tuple(
+        replace(field, value_type="map<>") if field.name == "params" else field
+        for field in capabilities.jsonl_request_spec.fields
+    )
+    broken_result_specs = tuple(
+        replace(spec, value_type="array<string") if spec.method == "state" else spec
+        for spec in capabilities.service_call_result_specs
+    )
+    broken_type_specs = tuple(
+        replace(
+            spec,
+            fields=tuple(
+                replace(field, value_type="literal<>") if field.name == "service" else field
+                for field in spec.fields
+            ),
+        )
+        if spec.type_name == "sdk_state"
+        else spec
+        for spec in capabilities.type_specs
+    )
+    broken_capabilities = replace(
+        capabilities,
+        service_call_method_specs=broken_service_call_method_specs,
+        jsonl_request_spec=replace(capabilities.jsonl_request_spec, fields=broken_request_fields),
+        service_call_result_specs=broken_result_specs,
+        type_specs=broken_type_specs,
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "methods.service_call.ask.text has empty array item type." in issues
+    assert "jsonl.request_spec.params has empty map item type." in issues
+    assert "results.service_call.state has malformed SDK value type: array<string" in issues
+    assert "types.sdk_state.service has empty literal value." in issues
+
+
 def test_sdk_capabilities_validator_reports_jsonl_request_envelope_drift() -> None:
     capabilities = get_sdk_capabilities()
     broken_request_fields = tuple(

@@ -260,6 +260,7 @@ def validate_sdk_capabilities(
     )
     _append_parameter_choice_issues(issues, capabilities)
     _append_availability_issues(issues, capabilities)
+    _append_value_type_shape_issues(issues, capabilities)
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
     _append_discriminator_issues(issues, capabilities)
@@ -624,6 +625,17 @@ def _append_unknown_type_issues(
     )
 
 
+def _append_value_type_shape_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    issues.extend(
+        issue
+        for context, value_type in _referenced_value_types(capabilities)
+        if (issue := _value_type_shape_issue(context, value_type)) is not None
+    )
+
+
 def _append_parameter_choice_issues(
     issues: list[str],
     capabilities: HephSdkCapabilities,
@@ -958,6 +970,8 @@ def _type_value_type_references(
 def _custom_type_references(value_type: str) -> tuple[str, ...]:
     if _is_builtin_value_type(value_type):
         return ()
+    if _value_type_shape_issue("", value_type) is not None:
+        return ()
     if inner_type := _array_inner_type(value_type):
         return _custom_type_references(inner_type)
     if inner_type := _map_inner_type(value_type):
@@ -970,7 +984,53 @@ def _is_builtin_value_type(value_type: str) -> bool:
 
 
 def _is_literal_value_type(value_type: str) -> bool:
-    return _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX) is not None
+    literal_value = _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
+    return literal_value is not None and literal_value != ""
+
+
+def _value_type_shape_issue(context: str, value_type: str) -> str | None:
+    if value_type.startswith(_ARRAY_PREFIX):
+        return _nested_value_type_shape_issue(
+            context,
+            value_type,
+            prefix=_ARRAY_PREFIX,
+            empty_message="empty array item type",
+        )
+    if value_type.startswith(_MAP_PREFIX):
+        return _nested_value_type_shape_issue(
+            context,
+            value_type,
+            prefix=_MAP_PREFIX,
+            empty_message="empty map item type",
+        )
+    if value_type.startswith(_LITERAL_PREFIX):
+        literal_value = _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
+        if literal_value is None:
+            return f"{context} has malformed SDK value type: {value_type}"
+        if literal_value == "":
+            return f"{context} has empty literal value."
+    elif _looks_like_malformed_generic(value_type):
+        return f"{context} has malformed SDK value type: {value_type}"
+    return None
+
+
+def _nested_value_type_shape_issue(
+    context: str,
+    value_type: str,
+    *,
+    prefix: str,
+    empty_message: str,
+) -> str | None:
+    inner_type = _enclosed_type_argument(value_type, prefix=prefix)
+    if inner_type is None:
+        return f"{context} has malformed SDK value type: {value_type}"
+    if inner_type == "":
+        return f"{context} has {empty_message}."
+    return _value_type_shape_issue(context, inner_type)
+
+
+def _looks_like_malformed_generic(value_type: str) -> bool:
+    return "<" in value_type or value_type.endswith(">")
 
 
 def _array_inner_type(value_type: str) -> str | None:
