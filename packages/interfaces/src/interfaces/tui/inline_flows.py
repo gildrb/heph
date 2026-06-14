@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from ai.providers.config import ProviderConfig
@@ -108,6 +108,7 @@ except ImportError:
 if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
     from hephaion.chat.turn_history import TurnSnapshot
+    from rich.text import Text
     from textual import events
 
     from hephaion.chat import storage as chat_storage
@@ -494,6 +495,321 @@ def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], Non
     }
 
 
+def _inline_menu_selected_index(
+    options: Sequence[tuple[str, str]],
+    highlighted: int | None,
+) -> int:
+    if highlighted is None:
+        return 0
+    return min(highlighted, len(options) - 1)
+
+
+def _inline_menu_rendered_height(
+    suggestions: OptionList,
+    option_count: int,
+) -> int:
+    if option_count <= _INLINE_MENU_MAX_VISIBLE_ROWS:
+        return option_count
+    return visible_option_height(
+        next_option_count=option_count,
+        current_option_count=suggestions.option_count,
+        rendered_height=suggestions.size.height,
+        max_visible_rows=_INLINE_MENU_MAX_VISIBLE_ROWS,
+    )
+
+
+def _inline_flow_menu_prompts(
+    host: _InlineFlowHost,
+    suggestions: OptionList,
+    options: list[tuple[str, str]],
+    *,
+    selected: int,
+    rendered_height: int,
+) -> list[str | Text]:
+    if host._inline_flow.name == "sessions":
+        return _session_inline_menu_prompts(host, suggestions, options, selected=selected)
+    if host._inline_flow.name == "local":
+        return _local_inline_menu_prompts(
+            host,
+            suggestions,
+            options,
+            selected=selected,
+            rendered_height=rendered_height,
+        )
+    if _inline_flow_uses_keymap_renderer(host._inline_flow):
+        return _keymap_inline_menu_prompts(
+            options, selected=selected, rendered_height=rendered_height
+        )
+    return _standard_inline_menu_prompts(
+        options, selected=selected, rendered_height=rendered_height
+    )
+
+
+def _session_inline_menu_prompts(
+    host: _InlineFlowHost,
+    suggestions: OptionList,
+    options: list[tuple[str, str]],
+    *,
+    selected: int,
+) -> list[str | Text]:
+    label_width = _inline_menu_label_width(options)
+    prompt_width = _inline_menu_prompt_width(host, suggestions)
+    return [
+        _session_menu_option_text(
+            label,
+            description,
+            selected=index == selected,
+            label_width=label_width,
+            prompt_width=prompt_width,
+        )
+        for index, (label, description) in enumerate(options)
+    ]
+
+
+def _local_inline_menu_prompts(
+    host: _InlineFlowHost,
+    suggestions: OptionList,
+    options: list[tuple[str, str]],
+    *,
+    selected: int,
+    rendered_height: int,
+) -> list[str | Text]:
+    prompt_width = _inline_menu_prompt_width(host, suggestions)
+    metadata_widths = _local_model_visible_metadata_widths(
+        options,
+        highlighted=selected,
+        rendered_height=rendered_height,
+    )
+    return [
+        _local_model_option_text(
+            label,
+            description,
+            selected=index == selected,
+            prompt_width=prompt_width,
+            metadata_widths=metadata_widths,
+        )
+        for index, (label, description) in enumerate(options)
+    ]
+
+
+def _keymap_inline_menu_prompts(
+    options: list[tuple[str, str]],
+    *,
+    selected: int,
+    rendered_height: int,
+) -> list[str | Text]:
+    rendered_options = _keymap_visible_render_options(
+        options,
+        highlighted=selected,
+        rendered_height=rendered_height,
+    )
+    return _standard_inline_menu_prompts(
+        rendered_options,
+        selected=selected,
+        rendered_height=rendered_height,
+    )
+
+
+def _standard_inline_menu_prompts(
+    options: list[tuple[str, str]],
+    *,
+    selected: int,
+    rendered_height: int,
+) -> list[str | Text]:
+    label_width = _inline_menu_visible_label_width(
+        options,
+        highlighted=selected,
+        rendered_height=rendered_height,
+    )
+    return [
+        _inline_menu_option_text(
+            label,
+            description,
+            selected=index == selected,
+            label_width=label_width,
+        )
+        for index, (label, description) in enumerate(options)
+    ]
+
+
+def _inline_menu_empty_prompt(composer: Input) -> str:
+    query = composer.value.strip()
+    suffix = f" for {query}" if query else ""
+    return f"No matches{suffix}"
+
+
+def _inline_menu_highlight_scroll_y(
+    suggestions: OptionList,
+    highlighted: int,
+    option_count: int,
+    *,
+    preserve_scroll: bool,
+) -> int:
+    if preserve_scroll:
+        return int(suggestions.scroll_y)
+    return completion_menu_scroll_y(highlighted, option_count, suggestions.size.height)
+
+
+def _refresh_local_inline_menu_highlight(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
+    *,
+    highlighted: int,
+    preserve_scroll: bool,
+) -> bool:
+    if host._inline_flow.name != "local":
+        return False
+    options = host._inline_flow.options
+    prompt_width = _inline_menu_prompt_width(host, suggestions)
+    scroll_y = _inline_menu_highlight_scroll_y(
+        suggestions,
+        highlighted,
+        len(options),
+        preserve_scroll=preserve_scroll,
+    )
+    metadata_widths = _local_model_scrolled_metadata_widths(
+        options,
+        scroll_y=scroll_y,
+        rendered_height=suggestions.size.height,
+    )
+    prompts = [
+        _local_model_option_text(
+            label,
+            description,
+            selected=option_index == highlighted,
+            prompt_width=prompt_width,
+            metadata_widths=metadata_widths,
+        )
+        for option_index, (label, description) in enumerate(options)
+    ]
+    _replace_inline_menu_prompts(
+        host, suggestions, prompts, highlighted=highlighted, scroll_y=scroll_y
+    )
+    return True
+
+
+def _refresh_keymap_inline_menu_highlight(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
+    *,
+    highlighted: int,
+    preserve_scroll: bool,
+) -> bool:
+    if not _inline_flow_uses_keymap_renderer(host._inline_flow):
+        return False
+    options = host._inline_flow.options
+    scroll_y = _inline_menu_highlight_scroll_y(
+        suggestions,
+        highlighted,
+        len(options),
+        preserve_scroll=preserve_scroll,
+    )
+    rendered_options = _keymap_scrolled_render_options(
+        options,
+        scroll_y=scroll_y,
+        rendered_height=suggestions.size.height,
+    )
+    label_width = _inline_menu_scrolled_label_width(
+        rendered_options,
+        scroll_y=scroll_y,
+        rendered_height=suggestions.size.height,
+    )
+    prompts = [
+        _inline_menu_option_text(
+            label,
+            description,
+            selected=option_index == highlighted,
+            label_width=label_width,
+        )
+        for option_index, (label, description) in enumerate(rendered_options)
+    ]
+    _replace_inline_menu_prompts(
+        host, suggestions, prompts, highlighted=highlighted, scroll_y=scroll_y
+    )
+    return True
+
+
+def _replace_inline_menu_prompts(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
+    prompts: list[str | Text],
+    *,
+    highlighted: int,
+    scroll_y: int,
+) -> None:
+    suggestions.set_options(prompts)
+    suggestions.highlighted = highlighted
+    suggestions.scroll_y = scroll_y
+    host._refresh_completion_position()
+
+
+def _replace_changed_inline_menu_prompts(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
+    *,
+    previous: int | None,
+    highlighted: int,
+) -> None:
+    options = host._inline_flow.options
+    for option_index in changed_highlight_indices(previous, highlighted, len(options)):
+        suggestions.replace_option_prompt_at_index(
+            option_index,
+            _highlighted_inline_menu_prompt(
+                host,
+                suggestions,
+                option_index=option_index,
+                highlighted=highlighted,
+            ),
+        )
+    suggestions.highlighted = highlighted
+    host._refresh_completion_position()
+
+
+def _highlighted_inline_menu_prompt(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
+    *,
+    option_index: int,
+    highlighted: int,
+) -> str | Text:
+    options = host._inline_flow.options
+    label, description = options[option_index]
+    if host._inline_flow.name == "sessions":
+        return _session_menu_option_text(
+            label,
+            description,
+            selected=option_index == highlighted,
+            label_width=_inline_menu_label_width(options),
+            prompt_width=_inline_menu_prompt_width(host, suggestions),
+        )
+    label_width = _inline_menu_scrolled_label_width(
+        options,
+        scroll_y=int(suggestions.scroll_y),
+        rendered_height=suggestions.size.height,
+    )
+    return _inline_menu_option_text(
+        label,
+        description,
+        selected=option_index == highlighted,
+        label_width=label_width,
+    )
+
+
+def _handle_keymap_inline_flow_key(
+    host: _InlineFlowHost,
+    event: events.Key,
+) -> bool | None:
+    if host._inline_flow.name != "keymap":
+        return None
+    if host._inline_flow.step == _KEYMAP_CAPTURE_STEP:
+        return host._handle_keymap_capture(event)
+    if host._inline_flow.step == _KEYMAP_REVIEW_STEP and _handle_keymap_review_key(host, event):
+        return True
+    if host._inline_flow.step == _KEYMAP_MENU_STEP and host._handle_keymap_menu_key(event):
+        return True
+    return None
+
+
 class TuiInlineFlowMixin(
     TuiAuthFlowMixin,
     TuiLocalFlowMixin,
@@ -571,80 +887,15 @@ class TuiInlineFlowMixin(
         suggestions = self.query_one("#suggestions", OptionList)
         composer = self.query_one("#composer", Input)
         if options:
-            selected = 0 if highlighted is None else min(highlighted, len(options) - 1)
-            rendered_height = visible_option_height(
-                next_option_count=len(options),
-                current_option_count=suggestions.option_count,
-                rendered_height=suggestions.size.height,
-                max_visible_rows=_INLINE_MENU_MAX_VISIBLE_ROWS,
+            selected = _inline_menu_selected_index(options, highlighted)
+            rendered_height = _inline_menu_rendered_height(suggestions, len(options))
+            prompts = _inline_flow_menu_prompts(
+                self,
+                suggestions,
+                options,
+                selected=selected,
+                rendered_height=rendered_height,
             )
-            if len(options) <= _INLINE_MENU_MAX_VISIBLE_ROWS:
-                rendered_height = len(options)
-            if self._inline_flow.name == "sessions":
-                label_width = _inline_menu_label_width(options)
-                prompt_width = _inline_menu_prompt_width(self, suggestions)
-                prompts = [
-                    _session_menu_option_text(
-                        label,
-                        description,
-                        selected=index == selected,
-                        label_width=label_width,
-                        prompt_width=prompt_width,
-                    )
-                    for index, (label, description) in enumerate(options)
-                ]
-            elif self._inline_flow.name == "local":
-                prompt_width = _inline_menu_prompt_width(self, suggestions)
-                metadata_widths = _local_model_visible_metadata_widths(
-                    options,
-                    highlighted=selected,
-                    rendered_height=rendered_height,
-                )
-                prompts = [
-                    _local_model_option_text(
-                        label,
-                        description,
-                        selected=index == selected,
-                        prompt_width=prompt_width,
-                        metadata_widths=metadata_widths,
-                    )
-                    for index, (label, description) in enumerate(options)
-                ]
-            elif _inline_flow_uses_keymap_renderer(self._inline_flow):
-                rendered_options = _keymap_visible_render_options(
-                    options,
-                    highlighted=selected,
-                    rendered_height=rendered_height,
-                )
-                label_width = _inline_menu_visible_label_width(
-                    rendered_options,
-                    highlighted=selected,
-                    rendered_height=rendered_height,
-                )
-                prompts = [
-                    _inline_menu_option_text(
-                        label,
-                        description,
-                        selected=index == selected,
-                        label_width=label_width,
-                    )
-                    for index, (label, description) in enumerate(rendered_options)
-                ]
-            else:
-                label_width = _inline_menu_visible_label_width(
-                    options,
-                    highlighted=selected,
-                    rendered_height=rendered_height,
-                )
-                prompts = [
-                    _inline_menu_option_text(
-                        label,
-                        description,
-                        selected=index == selected,
-                        label_width=label_width,
-                    )
-                    for index, (label, description) in enumerate(options)
-                ]
             scroll_y = completion_menu_scroll_y(selected, len(options), rendered_height)
             suggestions.set_options(
                 prompts,
@@ -652,9 +903,7 @@ class TuiInlineFlowMixin(
             suggestions.highlighted = selected
             suggestions.scroll_y = scroll_y
         else:
-            query = composer.value.strip()
-            suffix = f" for {query}" if query else ""
-            suggestions.set_options([f"No matches{suffix}"])
+            suggestions.set_options([_inline_menu_empty_prompt(composer)])
             suggestions.highlighted = None
             suggestions.scroll_y = 0
         suggestions.add_class("inline-menu")
@@ -674,101 +923,26 @@ class TuiInlineFlowMixin(
         previous = suggestions.highlighted
         if previous == highlighted:
             return
-        options = self._inline_flow.options
-        if self._inline_flow.name == "sessions":
-            label_width = _inline_menu_label_width(options)
-            prompt_width = _inline_menu_prompt_width(self, suggestions)
-        elif self._inline_flow.name == "local":
-            prompt_width = _inline_menu_prompt_width(self, suggestions)
-            scroll_y = int(suggestions.scroll_y)
-            if not preserve_scroll:
-                scroll_y = completion_menu_scroll_y(
-                    highlighted,
-                    len(options),
-                    suggestions.size.height,
-                )
-            metadata_widths = _local_model_scrolled_metadata_widths(
-                options,
-                scroll_y=scroll_y,
-                rendered_height=suggestions.size.height,
-            )
-            prompts = [
-                _local_model_option_text(
-                    label,
-                    description,
-                    selected=option_index == highlighted,
-                    prompt_width=prompt_width,
-                    metadata_widths=metadata_widths,
-                )
-                for option_index, (label, description) in enumerate(options)
-            ]
-            suggestions.set_options(prompts)
-            suggestions.highlighted = highlighted
-            suggestions.scroll_y = scroll_y
-            self._refresh_completion_position()
+        if _refresh_local_inline_menu_highlight(
+            self,
+            suggestions,
+            highlighted=highlighted,
+            preserve_scroll=preserve_scroll,
+        ):
             return
-        elif _inline_flow_uses_keymap_renderer(self._inline_flow):
-            scroll_y = int(suggestions.scroll_y)
-            if not preserve_scroll:
-                scroll_y = completion_menu_scroll_y(
-                    highlighted,
-                    len(options),
-                    suggestions.size.height,
-                )
-            rendered_options = _keymap_scrolled_render_options(
-                options,
-                scroll_y=scroll_y,
-                rendered_height=suggestions.size.height,
-            )
-            label_width = _inline_menu_scrolled_label_width(
-                rendered_options,
-                scroll_y=scroll_y,
-                rendered_height=suggestions.size.height,
-            )
-            prompts = [
-                _inline_menu_option_text(
-                    label,
-                    description,
-                    selected=option_index == highlighted,
-                    label_width=label_width,
-                )
-                for option_index, (label, description) in enumerate(rendered_options)
-            ]
-            suggestions.set_options(prompts)
-            suggestions.highlighted = highlighted
-            suggestions.scroll_y = scroll_y
-            self._refresh_completion_position()
+        if _refresh_keymap_inline_menu_highlight(
+            self,
+            suggestions,
+            highlighted=highlighted,
+            preserve_scroll=preserve_scroll,
+        ):
             return
-        else:
-            label_width = _inline_menu_scrolled_label_width(
-                options,
-                scroll_y=int(suggestions.scroll_y),
-                rendered_height=suggestions.size.height,
-            )
-            prompt_width = 0
-        for option_index in changed_highlight_indices(previous, highlighted, len(options)):
-            label, description = options[option_index]
-            if self._inline_flow.name == "sessions":
-                prompt = _session_menu_option_text(
-                    label,
-                    description,
-                    selected=option_index == highlighted,
-                    label_width=label_width,
-                    prompt_width=prompt_width,
-                )
-            else:
-                prompt = _inline_menu_option_text(
-                    label,
-                    description,
-                    selected=option_index == highlighted,
-                    label_width=label_width,
-                )
-            suggestions.replace_option_prompt_at_index(
-                option_index,
-                prompt,
-            )
-        suggestions.highlighted = highlighted
-        self._refresh_completion_position()
+        _replace_changed_inline_menu_prompts(
+            self,
+            suggestions,
+            previous=previous,
+            highlighted=highlighted,
+        )
 
     def _filter_inline_menu_options(self: _InlineFlowHost, query: str) -> None:
         if not self._inline_flow.all_options:
@@ -961,20 +1135,9 @@ class TuiInlineFlowMixin(
         _apply_thinking_visibility_setting(self, visibility)
 
     def _handle_inline_flow_key(self: _InlineFlowHost, event: events.Key) -> bool:
-        if self._inline_flow.name == "keymap" and self._inline_flow.step == _KEYMAP_CAPTURE_STEP:
-            return self._handle_keymap_capture(event)
-        if (
-            self._inline_flow.name == "keymap"
-            and self._inline_flow.step == _KEYMAP_REVIEW_STEP
-            and _handle_keymap_review_key(self, event)
-        ):
-            return True
-        if (
-            self._inline_flow.name == "keymap"
-            and self._inline_flow.step == _KEYMAP_MENU_STEP
-            and self._handle_keymap_menu_key(event)
-        ):
-            return True
+        keymap_result = _handle_keymap_inline_flow_key(self, event)
+        if keymap_result is not None:
+            return keymap_result
         if event.key == "escape":
             self._handle_inline_escape()
             return _consume_inline_key(event)
