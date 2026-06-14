@@ -540,6 +540,16 @@ def test_sdk_jsonl_message_validation_accepts_advertised_envelope_shape() -> Non
     assert validate_jsonl_message_payload(message) == message
 
 
+def test_sdk_jsonl_message_validation_accepts_advertised_stream_event_shape() -> None:
+    message: dict[str, object] = {
+        "type": "stream_event",
+        "id": "turn-1",
+        "event": {"type": "assistant_delta", "delta": "hello"},
+    }
+
+    assert validate_jsonl_message_payload(message) == message
+
+
 @pytest.mark.parametrize(
     ("message", "error"),
     [
@@ -550,6 +560,26 @@ def test_sdk_jsonl_message_validation_accepts_advertised_envelope_shape() -> Non
         (
             {"type": "stream_end", "id": "done", "ok": False, "error": {"code": "sdk_error"}},
             "message 'stream_end' field 'error' requires fields: message, unavailable_reason",
+        ),
+        (
+            {
+                "type": "stream_event",
+                "id": "turn-1",
+                "event": {"type": "assistant_delta", "delta": 7},
+            },
+            r"message 'stream_event' field 'event'\.delta must be a string",
+        ),
+        (
+            {
+                "type": "stream_event",
+                "id": "turn-1",
+                "event": {"type": "assistant_delta", "delta": "hello", "extra": True},
+            },
+            "event 'assistant_delta' does not accept field: extra",
+        ),
+        (
+            {"type": "stream_event", "id": "turn-1", "event": {"type": "assistant_delta"}},
+            "event 'assistant_delta' requires field: delta",
         ),
     ],
 )

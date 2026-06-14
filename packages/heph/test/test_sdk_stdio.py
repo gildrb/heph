@@ -271,6 +271,29 @@ def test_jsonl_sdk_server_rejects_outgoing_envelope_drift() -> None:
     assert output.getvalue() == ""
 
 
+def test_jsonl_sdk_server_rejects_outgoing_stream_event_drift() -> None:
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=HephService.plain(config=_config()),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"message 'stream_event' field 'event'\.delta must be a string",
+    ):
+        server._write(
+            {
+                "type": "stream_event",
+                "id": "turn-1",
+                "event": {"type": "assistant_delta", "delta": 7},
+            }
+        )
+
+    assert output.getvalue() == ""
+
+
 def test_jsonl_transport_contract_validator_matches_advertised_routes() -> None:
     service = HephService.plain(config=_config())
 

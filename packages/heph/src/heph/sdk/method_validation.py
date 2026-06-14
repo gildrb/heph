@@ -700,7 +700,7 @@ def _validate_result_value_type(
     type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
     if value_type == _SDK_EVENT_TYPE:
-        _validate_sdk_event_discriminator(surface, method, location, value)
+        _validate_sdk_event_discriminator(surface, method, location, value, type_map)
         return
     custom_type = type_map.get(value_type)
     if custom_type is not None:
@@ -724,12 +724,87 @@ def _validate_sdk_event_discriminator(
     method: str,
     location: str,
     value: object,
+    type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
     payload = _string_keyed_result_object(surface, method, location, value)
     event_type = payload.get("type")
-    if isinstance(event_type, str) and event_type:
-        return
-    raise HephSdkError(f"{surface} method '{method}' {location}.type must be a string.")
+    if not isinstance(event_type, str) or not event_type:
+        raise HephSdkError(f"{surface} method '{method}' {location}.type must be a string.")
+    event_spec = _event_spec(event_type, SDK_EVENT_SPECS)
+    if event_spec is None:
+        raise HephSdkError(
+            f"{surface} method '{method}' {location} event type '{event_type}' "
+            "has no SDK event spec."
+        )
+    _validate_unknown_sdk_event_fields(surface, method, location, event_type, payload, event_spec)
+    _validate_required_sdk_event_fields(surface, method, location, event_type, payload, event_spec)
+    _validate_supplied_sdk_event_fields(
+        surface,
+        method,
+        location,
+        payload,
+        event_spec,
+        type_map,
+    )
+
+
+def _validate_unknown_sdk_event_fields(
+    surface: str,
+    method: str,
+    location: str,
+    event_type: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+) -> None:
+    allowed_keys = frozenset(field.name for field in spec.fields)
+    unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} method '{method}' {location} event '{event_type}' does not accept "
+            f"{_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_sdk_event_fields(
+    surface: str,
+    method: str,
+    location: str,
+    event_type: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in spec.fields if field.required and field.name not in payload
+    )
+    if missing_keys:
+        raise HephSdkError(
+            f"{surface} method '{method}' {location} event '{event_type}' requires "
+            f"{_field_names_message(missing_keys)}."
+        )
+
+
+def _validate_supplied_sdk_event_fields(
+    surface: str,
+    method: str,
+    location: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    for field in spec.fields:
+        if field.name not in payload:
+            continue
+        field_value = payload[field.name]
+        if field_value is None and field.nullable:
+            continue
+        _validate_result_value_type(
+            surface,
+            method,
+            _nested_result_field_location(location, field.name),
+            field_value,
+            field.value_type,
+            type_map,
+        )
 
 
 def _validate_result_array(
