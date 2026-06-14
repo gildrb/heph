@@ -45,7 +45,16 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
-from heph.sdk.methods import SDK_METHOD_UNAVAILABLE_REASONS
+from heph.sdk.methods import (
+    SDK_METHOD_AVAILABILITY_REQUIREMENTS,
+    SDK_METHOD_REQUIREMENT_ALWAYS,
+    SDK_METHOD_REQUIREMENT_ARMORY,
+    SDK_METHOD_REQUIREMENT_ARMORY_SESSION,
+    SDK_METHOD_REQUIREMENT_SESSION,
+    SDK_METHOD_REQUIREMENT_SESSION_SOURCES,
+    SDK_METHOD_UNAVAILABLE_REASONS,
+    SdkMethodAvailabilitySpec,
+)
 from heph.sdk.models import ModelChoiceSummary
 from heph.sdk.providers import ProviderSummary
 from heph.sdk.runtime import (
@@ -99,6 +108,12 @@ __all__ = [
     "SDK_ENGINE_ERROR_CODE",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_METHOD_AVAILABILITY_REQUIREMENTS",
+    "SDK_METHOD_REQUIREMENT_ALWAYS",
+    "SDK_METHOD_REQUIREMENT_ARMORY",
+    "SDK_METHOD_REQUIREMENT_ARMORY_SESSION",
+    "SDK_METHOD_REQUIREMENT_SESSION",
+    "SDK_METHOD_REQUIREMENT_SESSION_SOURCES",
     "SDK_METHOD_UNAVAILABLE_REASONS",
     "SDK_MUTABLE_APP_SETTINGS",
     "ArmorySummary",
@@ -140,6 +155,7 @@ __all__ = [
     "ProviderSummary",
     "ReasoningDelta",
     "SdkAppSettings",
+    "SdkMethodAvailabilitySpec",
     "SdkProtocolError",
     "SdkSettingsError",
     "ServicePayload",

@@ -65,6 +65,12 @@ class _JsonlRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class _JsonlErrorPayload:
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class _JsonlCallRoute:
     handler: _JsonlCallHandler
 
@@ -135,17 +141,9 @@ class JsonlSdkServer:
             parsed_request = _jsonl_request_from_mapping(request)
             request_id = parsed_request.request_id
             self._dispatch_request(parsed_request)
-        except SdkProtocolError as exc:
-            self._write_error(request_id, exc.code, str(exc))
-        except HephSdkBusyError as exc:
-            self._write_error(request_id, exc.code, str(exc))
-        except HephSdkUnavailableError as exc:
-            self._write_error(request_id, exc.code, str(exc))
-        except (HephSdkError, ArmoryError) as exc:
-            code = exc.code if isinstance(exc, HephSdkError) else "sdk_error"
-            self._write_error(request_id, code, str(exc))
         except Exception as exc:
-            self._write_error(request_id, "internal_error", str(exc))
+            error = _request_error_payload(exc)
+            self._write_error(request_id, error.code, error.message)
 
     def _dispatch_request(self, request: _JsonlRequest) -> None:
         if request.method == "prompt":
@@ -597,20 +595,29 @@ def _jsonl_stream_method_availability(service_state: dict[str, object]) -> list[
     availability = service_state.get("stream_method_availability")
     if not isinstance(availability, list):
         return []
-    records: list[dict[str, object]] = []
-    for item in availability:
-        if not is_string_mapping(item):
-            continue
-        method = item.get("method")
-        if not isinstance(method, str):
-            continue
-        jsonl_method = jsonl_stream_method_for_service(method)
-        if jsonl_method is None:
-            continue
-        record = dict(item)
-        record["method"] = jsonl_method
-        records.append(record)
-    return records
+    return [
+        record
+        for item in availability
+        if (record := _jsonl_stream_availability_record(item)) is not None
+    ]
+
+
+def _jsonl_stream_availability_record(item: object) -> dict[str, object] | None:
+    if not is_string_mapping(item):
+        return None
+    jsonl_method = _jsonl_stream_availability_method(item)
+    if jsonl_method is None:
+        return None
+    record = dict(item)
+    record["method"] = jsonl_method
+    return record
+
+
+def _jsonl_stream_availability_method(item: dict[str, object]) -> str | None:
+    method = item.get("method")
+    if not isinstance(method, str):
+        return None
+    return jsonl_stream_method_for_service(method)
 
 
 def _busy_method_availability(
@@ -646,6 +653,14 @@ def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:
     merged_result = dict(result)
     merged_result["state"] = _state_with_jsonl_stream_methods(state_value)
     return merged_result
+
+
+def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
+    if isinstance(exc, (SdkProtocolError, HephSdkError)):
+        return _JsonlErrorPayload(exc.code, str(exc))
+    if isinstance(exc, ArmoryError):
+        return _JsonlErrorPayload("sdk_error", str(exc))
+    return _JsonlErrorPayload("internal_error", str(exc))
 
 
 def _error(code: str, message: str) -> dict[str, object]:

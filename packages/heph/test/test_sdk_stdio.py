@@ -222,6 +222,34 @@ def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> No
     assert "build_index" not in open_stream_availability
 
 
+def test_jsonl_state_translation_ignores_unknown_stream_availability_records() -> None:
+    raw_state: dict[str, object] = {
+        "service": {
+            "is_busy": False,
+            "available_stream_methods": ["prompt", "build_index", 404, "unknown"],
+            "stream_method_availability": [
+                {"method": "prompt", "available": True, "unavailable_reason": None},
+                {"method": "build_index", "available": False, "unavailable_reason": "busy"},
+                {"method": 404, "available": False, "unavailable_reason": "busy"},
+                ["bad-record"],
+                {"method": "unknown", "available": False, "unavailable_reason": "busy"},
+            ],
+        },
+    }
+
+    translated = sdk_stdio._state_with_jsonl_stream_methods(raw_state)
+
+    service_state = _payload_mapping(translated["service"])
+    stream_availability = _availability_by_method(service_state["stream_method_availability"])
+    assert service_state["available_stream_methods"] == ["prompt", "build_index_stream"]
+    assert list(stream_availability) == ["prompt", "build_index_stream"]
+    assert stream_availability["build_index_stream"] == {
+        "method": "build_index_stream",
+        "available": False,
+        "unavailable_reason": "busy",
+    }
+
+
 def test_jsonl_sdk_server_rejects_unavailable_calls_and_streams_before_start() -> None:
     service = HephService.plain(config=_config())
     output = io.StringIO()

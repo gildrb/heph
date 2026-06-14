@@ -6,7 +6,6 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum, auto
 from pathlib import Path
 
 from ai.runtime import ChatConfig, normalize_thinking_visibility
@@ -23,15 +22,20 @@ from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    SDK_METHOD_REQUIREMENT_ALWAYS,
+    SDK_METHOD_REQUIREMENT_ARMORY,
+    SDK_METHOD_REQUIREMENT_ARMORY_SESSION,
+    SDK_METHOD_REQUIREMENT_SESSION,
+    SDK_METHOD_REQUIREMENT_SESSION_SOURCES,
     SDK_METHOD_UNAVAILABLE_BUSY,
-    SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
-    SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION,
-    SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
-    SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES,
+    SDK_METHOD_UNAVAILABLE_GENERIC,
+    SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
+    SERVICE_STREAM_METHOD_AVAILABILITY_SPECS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
+    SdkMethodAvailabilitySpec,
 )
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import (
@@ -64,22 +68,8 @@ type _ServiceConfigParamDecoder = Callable[
     [Mapping[str, object], str],
     SdkConfigUpdateValue | None,
 ]
-
-
-class _ServiceAvailabilityRequirement(Enum):
-    ALWAYS = auto()
-    ARMORY = auto()
-    SESSION = auto()
-    ARMORY_SESSION = auto()
-    SESSION_SOURCES = auto()
-
-
-class _ServiceUnavailableReason(StrEnum):
-    BUSY = SDK_METHOD_UNAVAILABLE_BUSY
-    MISSING_ARMORY = SDK_METHOD_UNAVAILABLE_MISSING_ARMORY
-    MISSING_SESSION = SDK_METHOD_UNAVAILABLE_MISSING_SESSION
-    MISSING_ARMORY_SESSION = SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION
-    MISSING_SESSION_SOURCES = SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES
+type _MethodAvailabilitySpecsByMethod = Mapping[str, SdkMethodAvailabilitySpec]
+type _AvailabilityCheck = Callable[[HephRuntime, HephSession | None], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +88,6 @@ class _ServiceCallRoute:
     arguments: tuple[_ServiceCallArgument, ...] = ()
     keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
     params_as_argument: bool = False
-    availability: _ServiceAvailabilityRequirement = _ServiceAvailabilityRequirement.ALWAYS
 
     def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
         if self.params_as_argument:
@@ -116,7 +105,6 @@ class _ServiceCallRoute:
 class _ServiceStreamRoute:
     method: str
     handler: _ServiceStreamHandler
-    availability: _ServiceAvailabilityRequirement
 
     def dispatch(self, params: dict[str, object]) -> ServiceStream:
         return self.handler(params)
@@ -140,15 +128,13 @@ class _ServiceConfigParam:
 @dataclass(frozen=True, slots=True)
 class _RouteAvailability:
     available: bool
-    unavailable_reason: _ServiceUnavailableReason | None = None
+    unavailable_reason: str | None = None
 
     def to_sdk(self, method: str) -> HephSdkMethodAvailability:
         return HephSdkMethodAvailability(
             method=method,
             available=self.available,
-            unavailable_reason=(
-                self.unavailable_reason.value if self.unavailable_reason is not None else None
-            ),
+            unavailable_reason=self.unavailable_reason,
         )
 
 
@@ -278,35 +264,29 @@ class HephService:
                 "resume_session",
                 self.resume_session,
                 (_ServiceCallArgument("session_id", _required_str),),
-                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute(
                 "fork_session",
                 self.fork_session,
                 (_ServiceCallArgument("turn_id", _required_str),),
-                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceCallRoute("list_sessions", self.list_sessions),
             _ServiceCallRoute(
                 "save_session",
                 self.save_session,
-                availability=_ServiceAvailabilityRequirement.ARMORY_SESSION,
             ),
             _ServiceCallRoute(
                 "messages",
                 self.messages,
-                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceCallRoute(
                 "ask",
                 self.ask,
                 (_ServiceCallArgument("text", _required_str),),
-                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceCallRoute(
                 "abort",
                 self.abort,
-                availability=_ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceCallRoute("settings", self.settings),
             _ServiceCallRoute("list_providers", self.list_providers),
@@ -332,28 +312,23 @@ class HephService:
                     _ServiceCallArgument("source", _required_str),
                     _ServiceCallArgument("enabled", _required_bool),
                 ),
-                availability=_ServiceAvailabilityRequirement.SESSION_SOURCES,
             ),
             _ServiceCallRoute(
                 "list_materials",
                 self.list_materials,
-                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute(
                 "import_materials",
                 self.import_materials,
                 (_ServiceCallArgument("source", _required_str),),
-                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute(
                 "build_index",
                 self.build_index,
-                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute(
                 "scan_extraction_health",
                 self.scan_extraction_health,
-                availability=_ServiceAvailabilityRequirement.ARMORY,
             ),
             _ServiceCallRoute("update_config", self.update_config, params_as_argument=True),
             _ServiceCallRoute("update_settings", self.update_settings, params_as_argument=True),
@@ -423,12 +398,10 @@ class HephService:
             _ServiceStreamRoute(
                 "prompt",
                 self._prompt_stream,
-                _ServiceAvailabilityRequirement.SESSION,
             ),
             _ServiceStreamRoute(
                 "build_index",
                 self._build_index_stream,
-                _ServiceAvailabilityRequirement.ARMORY,
             ),
         )
         return {route.method: route for route in routes}
@@ -773,9 +746,6 @@ class HephService:
         return self.session is not None and self.session.is_streaming
 
 
-type _AvailableRoute = _ServiceCallRoute | _ServiceStreamRoute
-
-
 def _available_call_methods(
     routes: Mapping[str, _ServiceCallRoute],
     runtime: HephRuntime,
@@ -845,10 +815,14 @@ def _call_route_availability(
     is_busy: bool,
 ) -> _RouteAvailability:
     if is_busy and route.method not in BUSY_ALLOWED_CALL_METHODS:
-        return _unavailable_route(_ServiceUnavailableReason.BUSY)
+        return _unavailable_route(SDK_METHOD_UNAVAILABLE_BUSY)
     if is_busy:
         return _available_route()
-    return _route_availability(route, runtime, session)
+    return _route_availability(
+        _SERVICE_CALL_AVAILABILITY_SPECS_BY_METHOD[route.method],
+        runtime,
+        session,
+    )
 
 
 def _stream_route_availability(
@@ -859,38 +833,23 @@ def _stream_route_availability(
     is_busy: bool,
 ) -> _RouteAvailability:
     if is_busy:
-        return _unavailable_route(_ServiceUnavailableReason.BUSY)
-    return _route_availability(route, runtime, session)
+        return _unavailable_route(SDK_METHOD_UNAVAILABLE_BUSY)
+    return _route_availability(
+        _SERVICE_STREAM_AVAILABILITY_SPECS_BY_METHOD[route.method],
+        runtime,
+        session,
+    )
 
 
 def _route_availability(
-    route: _AvailableRoute,
+    spec: SdkMethodAvailabilitySpec,
     runtime: HephRuntime,
     session: HephSession | None,
 ) -> _RouteAvailability:
-    match route.availability:
-        case _ServiceAvailabilityRequirement.ALWAYS:
-            return _available_route()
-        case _ServiceAvailabilityRequirement.ARMORY:
-            return _available_when(
-                runtime.armory_path is not None,
-                _ServiceUnavailableReason.MISSING_ARMORY,
-            )
-        case _ServiceAvailabilityRequirement.SESSION:
-            return _available_when(
-                session is not None,
-                _ServiceUnavailableReason.MISSING_SESSION,
-            )
-        case _ServiceAvailabilityRequirement.ARMORY_SESSION:
-            return _available_when(
-                session is not None and session.armory_path is not None,
-                _ServiceUnavailableReason.MISSING_ARMORY_SESSION,
-            )
-        case _ServiceAvailabilityRequirement.SESSION_SOURCES:
-            return _available_when(
-                session is not None and bool(session.source_files),
-                _ServiceUnavailableReason.MISSING_SESSION_SOURCES,
-            )
+    check = _AVAILABILITY_CHECKS_BY_REQUIREMENT.get(spec.requirement)
+    if check is None:
+        return _unavailable_route(SDK_METHOD_UNAVAILABLE_GENERIC)
+    return _available_when(check(runtime, session), spec)
 
 
 def _ensure_route_available(
@@ -901,26 +860,79 @@ def _ensure_route_available(
 ) -> None:
     if availability.available:
         return
-    if availability.unavailable_reason is _ServiceUnavailableReason.BUSY:
+    if availability.unavailable_reason == SDK_METHOD_UNAVAILABLE_BUSY:
         raise HephSdkBusyError()
-    raise HephSdkUnavailableError(method, kind=kind)
+    raise HephSdkUnavailableError(
+        method,
+        kind=kind,
+        unavailable_reason=availability.unavailable_reason,
+    )
 
 
 def _available_route() -> _RouteAvailability:
     return _RouteAvailability(True)
 
 
-def _unavailable_route(reason: _ServiceUnavailableReason) -> _RouteAvailability:
+def _unavailable_route(reason: str) -> _RouteAvailability:
     return _RouteAvailability(False, reason)
 
 
 def _available_when(
     available: bool,
-    unavailable_reason: _ServiceUnavailableReason,
+    spec: SdkMethodAvailabilitySpec,
 ) -> _RouteAvailability:
     if available:
         return _available_route()
-    return _unavailable_route(unavailable_reason)
+    return _unavailable_route(spec.unavailable_reason or SDK_METHOD_UNAVAILABLE_GENERIC)
+
+
+def _runtime_is_always_available(
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    _ = runtime, session
+    return True
+
+
+def _runtime_has_armory(
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    _ = session
+    return runtime.armory_path is not None
+
+
+def _session_is_active(
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    _ = runtime
+    return session is not None
+
+
+def _session_has_armory(
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    _ = runtime
+    return session is not None and session.armory_path is not None
+
+
+def _session_has_sources(
+    runtime: HephRuntime,
+    session: HephSession | None,
+) -> bool:
+    _ = runtime
+    return session is not None and bool(session.source_files)
+
+
+_AVAILABILITY_CHECKS_BY_REQUIREMENT: dict[str, _AvailabilityCheck] = {
+    SDK_METHOD_REQUIREMENT_ALWAYS: _runtime_is_always_available,
+    SDK_METHOD_REQUIREMENT_ARMORY: _runtime_has_armory,
+    SDK_METHOD_REQUIREMENT_SESSION: _session_is_active,
+    SDK_METHOD_REQUIREMENT_ARMORY_SESSION: _session_has_armory,
+    SDK_METHOD_REQUIREMENT_SESSION_SOURCES: _session_has_sources,
+}
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:
@@ -995,6 +1007,20 @@ _CONFIG_PARAMS = (
     _ServiceConfigParam("temperature", _optional_float, keep_none=True),
     _ServiceConfigParam("reasoning_level", _optional_str),
     _ServiceConfigParam("thinking_visibility", _optional_str),
+)
+
+
+def _availability_specs_by_method(
+    specs: tuple[SdkMethodAvailabilitySpec, ...],
+) -> dict[str, SdkMethodAvailabilitySpec]:
+    return {spec.method: spec for spec in specs}
+
+
+_SERVICE_CALL_AVAILABILITY_SPECS_BY_METHOD: _MethodAvailabilitySpecsByMethod = (
+    _availability_specs_by_method(SERVICE_CALL_METHOD_AVAILABILITY_SPECS)
+)
+_SERVICE_STREAM_AVAILABILITY_SPECS_BY_METHOD: _MethodAvailabilitySpecsByMethod = (
+    _availability_specs_by_method(SERVICE_STREAM_METHOD_AVAILABILITY_SPECS)
 )
 
 

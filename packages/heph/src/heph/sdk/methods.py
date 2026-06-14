@@ -13,10 +13,22 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 28
+SDK_CAPABILITIES_VERSION = 29
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
+SDK_METHOD_REQUIREMENT_ALWAYS = "always"
+SDK_METHOD_REQUIREMENT_ARMORY = "armory"
+SDK_METHOD_REQUIREMENT_SESSION = "session"
+SDK_METHOD_REQUIREMENT_ARMORY_SESSION = "armory_session"
+SDK_METHOD_REQUIREMENT_SESSION_SOURCES = "session_sources"
+SDK_METHOD_AVAILABILITY_REQUIREMENTS = (
+    SDK_METHOD_REQUIREMENT_ALWAYS,
+    SDK_METHOD_REQUIREMENT_ARMORY,
+    SDK_METHOD_REQUIREMENT_SESSION,
+    SDK_METHOD_REQUIREMENT_ARMORY_SESSION,
+    SDK_METHOD_REQUIREMENT_SESSION_SOURCES,
+)
 SDK_METHOD_UNAVAILABLE_BUSY = "busy"
 SDK_METHOD_UNAVAILABLE_MISSING_ARMORY = "missing_armory"
 SDK_METHOD_UNAVAILABLE_MISSING_SESSION = "missing_session"
@@ -183,6 +195,21 @@ class SdkMethodSpec:
         return {"params": [param.to_dict() for param in self.params]}
 
 
+@dataclass(frozen=True, slots=True)
+class SdkMethodAvailabilitySpec:
+    """A JSON-ready SDK method availability precondition contract."""
+
+    method: str
+    requirement: str = SDK_METHOD_REQUIREMENT_ALWAYS
+    unavailable_reason: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "requirement": self.requirement,
+            "unavailable_reason": self.unavailable_reason,
+        }
+
+
 def _type_fields_from_state_specs(
     specs: tuple[SdkFieldSpec, ...],
 ) -> tuple[SdkObjectFieldSpec, ...]:
@@ -302,6 +329,103 @@ SERVICE_OPERATION_STREAM_METHODS = {
     service_method: jsonl_method
     for jsonl_method, service_method in JSONL_OPERATION_STREAM_METHODS.items()
 }
+SERVICE_CALL_METHOD_AVAILABILITY_SPECS = (
+    SdkMethodAvailabilitySpec("state"),
+    SdkMethodAvailabilitySpec("capabilities"),
+    SdkMethodAvailabilitySpec("use_plain_runtime"),
+    SdkMethodAvailabilitySpec("open_armory"),
+    SdkMethodAvailabilitySpec("create_armory"),
+    SdkMethodAvailabilitySpec("list_armories"),
+    SdkMethodAvailabilitySpec("validate_armory"),
+    SdkMethodAvailabilitySpec("new_session"),
+    SdkMethodAvailabilitySpec(
+        "resume_session",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+    SdkMethodAvailabilitySpec(
+        "fork_session",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec("list_sessions"),
+    SdkMethodAvailabilitySpec(
+        "save_session",
+        SDK_METHOD_REQUIREMENT_ARMORY_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION,
+    ),
+    SdkMethodAvailabilitySpec(
+        "messages",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec(
+        "ask",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec(
+        "abort",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec("settings"),
+    SdkMethodAvailabilitySpec("list_providers"),
+    SdkMethodAvailabilitySpec("list_model_choices"),
+    SdkMethodAvailabilitySpec("switch_model"),
+    SdkMethodAvailabilitySpec(
+        "set_source_enabled",
+        SDK_METHOD_REQUIREMENT_SESSION_SOURCES,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES,
+    ),
+    SdkMethodAvailabilitySpec(
+        "list_materials",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+    SdkMethodAvailabilitySpec(
+        "import_materials",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+    SdkMethodAvailabilitySpec(
+        "build_index",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+    SdkMethodAvailabilitySpec(
+        "scan_extraction_health",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+    SdkMethodAvailabilitySpec("update_config"),
+    SdkMethodAvailabilitySpec("update_settings"),
+)
+SERVICE_STREAM_METHOD_AVAILABILITY_SPECS = (
+    SdkMethodAvailabilitySpec(
+        "prompt",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec(
+        "build_index",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+)
+JSONL_CALL_METHOD_AVAILABILITY_SPECS = SERVICE_CALL_METHOD_AVAILABILITY_SPECS
+JSONL_STREAM_METHOD_AVAILABILITY_SPECS = (
+    SdkMethodAvailabilitySpec(
+        "prompt",
+        SDK_METHOD_REQUIREMENT_SESSION,
+        SDK_METHOD_UNAVAILABLE_MISSING_SESSION,
+    ),
+    SdkMethodAvailabilitySpec(
+        "build_index_stream",
+        SDK_METHOD_REQUIREMENT_ARMORY,
+        SDK_METHOD_UNAVAILABLE_MISSING_ARMORY,
+    ),
+)
 JSONL_REQUEST_SPEC = SdkJsonlRequestSpec(
     fields=(
         SdkJsonlMessageFieldSpec("id", "string_or_integer", required=False, nullable=True),
@@ -718,6 +842,7 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("errors", "object"),
             SdkTypeFieldSpec("results", "object"),
             SdkTypeFieldSpec("streams", "object"),
+            SdkTypeFieldSpec("availability", "object"),
             SdkTypeFieldSpec("fields", "object"),
             SdkTypeFieldSpec("types", "object"),
         ),
@@ -746,6 +871,13 @@ SDK_TYPE_SPECS = (
         (
             SdkTypeFieldSpec("method", "string"),
             SdkTypeFieldSpec("available", "boolean"),
+            SdkTypeFieldSpec("unavailable_reason", "string", nullable=True),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_method_availability_spec",
+        (
+            SdkTypeFieldSpec("requirement", "string"),
             SdkTypeFieldSpec("unavailable_reason", "string", nullable=True),
         ),
     ),
@@ -939,6 +1071,12 @@ def method_specs_to_dict(specs: tuple[SdkMethodSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
+def method_availability_specs_to_dict(
+    specs: tuple[SdkMethodAvailabilitySpec, ...],
+) -> dict[str, object]:
+    return {spec.method: spec.to_dict() for spec in specs}
+
+
 def error_specs_to_dict(specs: tuple[SdkErrorSpec, ...]) -> dict[str, object]:
     return {spec.code: spec.to_dict() for spec in specs}
 
@@ -997,6 +1135,7 @@ __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "INDEX_STREAM_EVENT_TYPES",
     "JSONL_CALL_METHODS",
+    "JSONL_CALL_METHOD_AVAILABILITY_SPECS",
     "JSONL_CALL_METHOD_SPECS",
     "JSONL_CALL_RESULT_SPECS",
     "JSONL_ERROR_CODES",
@@ -1006,6 +1145,7 @@ __all__ = [
     "JSONL_OPERATION_STREAM_METHODS",
     "JSONL_REQUEST_SPEC",
     "JSONL_STREAM_METHODS",
+    "JSONL_STREAM_METHOD_AVAILABILITY_SPECS",
     "JSONL_STREAM_METHOD_SPECS",
     "JSONL_STREAM_SPECS",
     "RUNTIME_STATE_FIELDS",
@@ -1016,6 +1156,12 @@ __all__ = [
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
+    "SDK_METHOD_AVAILABILITY_REQUIREMENTS",
+    "SDK_METHOD_REQUIREMENT_ALWAYS",
+    "SDK_METHOD_REQUIREMENT_ARMORY",
+    "SDK_METHOD_REQUIREMENT_ARMORY_SESSION",
+    "SDK_METHOD_REQUIREMENT_SESSION",
+    "SDK_METHOD_REQUIREMENT_SESSION_SOURCES",
     "SDK_METHOD_UNAVAILABLE_BUSY",
     "SDK_METHOD_UNAVAILABLE_GENERIC",
     "SDK_METHOD_UNAVAILABLE_MISSING_ARMORY",
@@ -1025,12 +1171,14 @@ __all__ = [
     "SDK_METHOD_UNAVAILABLE_REASONS",
     "SDK_TYPE_SPECS",
     "SERVICE_CALL_METHODS",
+    "SERVICE_CALL_METHOD_AVAILABILITY_SPECS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_CALL_RESULT_SPECS",
     "SERVICE_OPERATION_STREAM_METHODS",
     "SERVICE_STATE_FIELDS",
     "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
+    "SERVICE_STREAM_METHOD_AVAILABILITY_SPECS",
     "SERVICE_STREAM_METHOD_SPECS",
     "SERVICE_STREAM_SPECS",
     "SESSION_STATE_FIELDS",
@@ -1043,6 +1191,7 @@ __all__ = [
     "SdkJsonlMessageFieldSpec",
     "SdkJsonlMessageSpec",
     "SdkJsonlRequestSpec",
+    "SdkMethodAvailabilitySpec",
     "SdkMethodParameter",
     "SdkMethodSpec",
     "SdkObjectFieldSpec",
@@ -1059,6 +1208,7 @@ __all__ = [
     "jsonl_message_specs_to_dict",
     "jsonl_request_spec_to_dict",
     "jsonl_stream_method_for_service",
+    "method_availability_specs_to_dict",
     "method_specs_to_dict",
     "result_field_specs_to_dict",
     "result_specs_to_dict",

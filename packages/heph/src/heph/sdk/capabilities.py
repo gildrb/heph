@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
+    JSONL_CALL_METHOD_AVAILABILITY_SPECS,
     JSONL_CALL_METHOD_SPECS,
     JSONL_CALL_METHODS,
     JSONL_CALL_RESULT_SPECS,
@@ -14,6 +15,7 @@ from heph.sdk.methods import (
     JSONL_MESSAGE_SPECS,
     JSONL_MESSAGE_TYPES,
     JSONL_REQUEST_SPEC,
+    JSONL_STREAM_METHOD_AVAILABILITY_SPECS,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
     JSONL_STREAM_SPECS,
@@ -24,13 +26,17 @@ from heph.sdk.methods import (
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_METHOD_AVAILABILITY_REQUIREMENTS,
+    SDK_METHOD_REQUIREMENT_ALWAYS,
     SDK_METHOD_UNAVAILABLE_REASONS,
     SDK_TYPE_SPECS,
+    SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
     SERVICE_CALL_RESULT_SPECS,
     SERVICE_STATE_FIELD_SPECS,
     SERVICE_STATE_FIELDS,
+    SERVICE_STREAM_METHOD_AVAILABILITY_SPECS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
     SERVICE_STREAM_SPECS,
@@ -41,6 +47,7 @@ from heph.sdk.methods import (
     SdkFieldSpec,
     SdkJsonlMessageSpec,
     SdkJsonlRequestSpec,
+    SdkMethodAvailabilitySpec,
     SdkMethodSpec,
     SdkObjectFieldSpec,
     SdkResultSpec,
@@ -51,6 +58,7 @@ from heph.sdk.methods import (
     field_specs_to_dict,
     jsonl_message_specs_to_dict,
     jsonl_request_spec_to_dict,
+    method_availability_specs_to_dict,
     method_specs_to_dict,
     result_specs_to_dict,
     stream_specs_to_dict,
@@ -72,6 +80,7 @@ _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
 type _DuplicateCheck = tuple[str, tuple[str, ...]]
 type _MismatchCheck = tuple[str, tuple[str, ...], tuple[str, ...]]
+type _AvailabilitySpecReference = tuple[str, SdkMethodAvailabilitySpec]
 type _StreamSpecReference = tuple[str, SdkStreamSpec]
 type _ValueTypeReference = tuple[str, str]
 
@@ -87,6 +96,7 @@ class HephSdkCapabilities:
     jsonl_stream_methods: tuple[str, ...]
     busy_allowed_call_methods: tuple[str, ...]
     method_unavailable_reasons: tuple[str, ...]
+    method_availability_requirements: tuple[str, ...]
     event_types: tuple[str, ...]
     service_state_fields: tuple[str, ...]
     runtime_state_fields: tuple[str, ...]
@@ -103,6 +113,10 @@ class HephSdkCapabilities:
     service_stream_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_call_method_specs: tuple[SdkMethodSpec, ...]
     jsonl_stream_method_specs: tuple[SdkMethodSpec, ...]
+    service_call_method_availability_specs: tuple[SdkMethodAvailabilitySpec, ...]
+    service_stream_method_availability_specs: tuple[SdkMethodAvailabilitySpec, ...]
+    jsonl_call_method_availability_specs: tuple[SdkMethodAvailabilitySpec, ...]
+    jsonl_stream_method_availability_specs: tuple[SdkMethodAvailabilitySpec, ...]
     service_call_result_specs: tuple[SdkResultSpec, ...]
     jsonl_call_result_specs: tuple[SdkResultSpec, ...]
     service_stream_specs: tuple[SdkStreamSpec, ...]
@@ -146,6 +160,21 @@ class HephSdkCapabilities:
                 "jsonl_call": method_specs_to_dict(self.jsonl_call_method_specs),
                 "jsonl_stream": method_specs_to_dict(self.jsonl_stream_method_specs),
             },
+            "availability": {
+                "requirements": list(self.method_availability_requirements),
+                "service_call": method_availability_specs_to_dict(
+                    self.service_call_method_availability_specs
+                ),
+                "service_stream": method_availability_specs_to_dict(
+                    self.service_stream_method_availability_specs
+                ),
+                "jsonl_call": method_availability_specs_to_dict(
+                    self.jsonl_call_method_availability_specs
+                ),
+                "jsonl_stream": method_availability_specs_to_dict(
+                    self.jsonl_stream_method_availability_specs
+                ),
+            },
             "errors": {"jsonl": error_specs_to_dict(self.jsonl_error_specs)},
             "results": {
                 "service_call": result_specs_to_dict(self.service_call_result_specs),
@@ -172,6 +201,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     jsonl_stream_methods=JSONL_STREAM_METHODS,
     busy_allowed_call_methods=BUSY_ALLOWED_CALL_METHODS,
     method_unavailable_reasons=SDK_METHOD_UNAVAILABLE_REASONS,
+    method_availability_requirements=SDK_METHOD_AVAILABILITY_REQUIREMENTS,
     event_types=SDK_EVENT_TYPES,
     service_state_fields=SERVICE_STATE_FIELDS,
     runtime_state_fields=RUNTIME_STATE_FIELDS,
@@ -188,6 +218,10 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     service_stream_method_specs=SERVICE_STREAM_METHOD_SPECS,
     jsonl_call_method_specs=JSONL_CALL_METHOD_SPECS,
     jsonl_stream_method_specs=JSONL_STREAM_METHOD_SPECS,
+    service_call_method_availability_specs=SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
+    service_stream_method_availability_specs=SERVICE_STREAM_METHOD_AVAILABILITY_SPECS,
+    jsonl_call_method_availability_specs=JSONL_CALL_METHOD_AVAILABILITY_SPECS,
+    jsonl_stream_method_availability_specs=JSONL_STREAM_METHOD_AVAILABILITY_SPECS,
     service_call_result_specs=SERVICE_CALL_RESULT_SPECS,
     jsonl_call_result_specs=JSONL_CALL_RESULT_SPECS,
     service_stream_specs=SERVICE_STREAM_SPECS,
@@ -219,6 +253,7 @@ def validate_sdk_capabilities(
         capabilities.service_call_methods,
     )
     _append_parameter_choice_issues(issues, capabilities)
+    _append_availability_issues(issues, capabilities)
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
     return tuple(issues)
@@ -226,20 +261,10 @@ def validate_sdk_capabilities(
 
 def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateCheck, ...]:
     return (
-        ("service.call_methods", capabilities.service_call_methods),
-        ("service.stream_methods", capabilities.service_stream_methods),
-        ("jsonl.call_methods", capabilities.jsonl_call_methods),
-        ("jsonl.stream_methods", capabilities.jsonl_stream_methods),
-        (
-            "jsonl.request_spec.fields",
-            tuple(field.name for field in capabilities.jsonl_request_spec.fields),
-        ),
-        ("jsonl.message_types", capabilities.jsonl_message_types),
-        ("events.types", capabilities.event_types),
-        ("jsonl.error_codes", capabilities.jsonl_error_codes),
-        ("service.busy_allowed_call_methods", capabilities.busy_allowed_call_methods),
-        ("service.method_unavailable_reasons", capabilities.method_unavailable_reasons),
-        ("types", tuple(spec.type_name for spec in capabilities.type_specs)),
+        *_method_name_duplicate_checks(capabilities),
+        *_jsonl_contract_duplicate_checks(capabilities),
+        *_availability_duplicate_checks(capabilities),
+        ("types", _type_names(capabilities.type_specs)),
         *_method_param_duplicate_checks(
             "methods.service_call",
             capabilities.service_call_method_specs,
@@ -266,20 +291,85 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
             "results.jsonl_call",
             capabilities.jsonl_call_result_specs,
         ),
-        (
-            "fields.service_state",
-            tuple(spec.name for spec in capabilities.service_state_field_specs),
-        ),
-        (
-            "fields.runtime_state",
-            tuple(spec.name for spec in capabilities.runtime_state_field_specs),
-        ),
-        (
-            "fields.session_state",
-            tuple(spec.name for spec in capabilities.session_state_field_specs),
-        ),
+        *_state_field_duplicate_checks(capabilities),
         *_type_field_duplicate_checks(capabilities.type_specs),
     )
+
+
+def _method_name_duplicate_checks(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_DuplicateCheck, ...]:
+    return (
+        ("service.call_methods", capabilities.service_call_methods),
+        ("service.stream_methods", capabilities.service_stream_methods),
+        ("jsonl.call_methods", capabilities.jsonl_call_methods),
+        ("jsonl.stream_methods", capabilities.jsonl_stream_methods),
+    )
+
+
+def _jsonl_contract_duplicate_checks(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_DuplicateCheck, ...]:
+    return (
+        ("jsonl.request_spec.fields", _jsonl_request_field_names(capabilities)),
+        ("jsonl.message_types", capabilities.jsonl_message_types),
+        ("events.types", capabilities.event_types),
+        ("jsonl.error_codes", capabilities.jsonl_error_codes),
+        ("service.busy_allowed_call_methods", capabilities.busy_allowed_call_methods),
+        ("service.method_unavailable_reasons", capabilities.method_unavailable_reasons),
+    )
+
+
+def _availability_duplicate_checks(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_DuplicateCheck, ...]:
+    return (
+        ("availability.requirements", capabilities.method_availability_requirements),
+        (
+            "availability.service_call",
+            _availability_method_names(capabilities.service_call_method_availability_specs),
+        ),
+        (
+            "availability.service_stream",
+            _availability_method_names(capabilities.service_stream_method_availability_specs),
+        ),
+        (
+            "availability.jsonl_call",
+            _availability_method_names(capabilities.jsonl_call_method_availability_specs),
+        ),
+        (
+            "availability.jsonl_stream",
+            _availability_method_names(capabilities.jsonl_stream_method_availability_specs),
+        ),
+    )
+
+
+def _state_field_duplicate_checks(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_DuplicateCheck, ...]:
+    return (
+        ("fields.service_state", _field_names(capabilities.service_state_field_specs)),
+        ("fields.runtime_state", _field_names(capabilities.runtime_state_field_specs)),
+        ("fields.session_state", _field_names(capabilities.session_state_field_specs)),
+    )
+
+
+def _jsonl_request_field_names(capabilities: HephSdkCapabilities) -> tuple[str, ...]:
+    return tuple(field.name for field in capabilities.jsonl_request_spec.fields)
+
+
+def _availability_method_names(
+    specs: tuple[SdkMethodAvailabilitySpec, ...],
+) -> tuple[str, ...]:
+    return tuple(spec.method for spec in specs)
+
+
+def _field_names(specs: tuple[SdkFieldSpec, ...]) -> tuple[str, ...]:
+    return tuple(spec.name for spec in specs)
+
+
+def _type_names(specs: tuple[SdkTypeSpec, ...]) -> tuple[str, ...]:
+    return tuple(spec.type_name for spec in specs)
 
 
 def _method_param_duplicate_checks(
@@ -337,6 +427,7 @@ def _mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_MismatchCheck,
         *_method_mismatch_checks(capabilities),
         *_result_mismatch_checks(capabilities),
         *_stream_mismatch_checks(capabilities),
+        *_availability_mismatch_checks(capabilities),
         *_event_mismatch_checks(capabilities),
         *_state_mismatch_checks(capabilities),
         *_error_mismatch_checks(capabilities),
@@ -394,6 +485,33 @@ def _stream_mismatch_checks(capabilities: HephSdkCapabilities) -> tuple[_Mismatc
             "streams.jsonl",
             capabilities.jsonl_stream_methods,
             tuple(spec.method for spec in capabilities.jsonl_stream_specs),
+        ),
+    )
+
+
+def _availability_mismatch_checks(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_MismatchCheck, ...]:
+    return (
+        (
+            "availability.service_call",
+            capabilities.service_call_methods,
+            tuple(spec.method for spec in capabilities.service_call_method_availability_specs),
+        ),
+        (
+            "availability.service_stream",
+            capabilities.service_stream_methods,
+            tuple(spec.method for spec in capabilities.service_stream_method_availability_specs),
+        ),
+        (
+            "availability.jsonl_call",
+            capabilities.jsonl_call_methods,
+            tuple(spec.method for spec in capabilities.jsonl_call_method_availability_specs),
+        ),
+        (
+            "availability.jsonl_stream",
+            capabilities.jsonl_stream_methods,
+            tuple(spec.method for spec in capabilities.jsonl_stream_method_availability_specs),
         ),
     )
 
@@ -516,6 +634,79 @@ def _append_parameter_choice_issues(
                         f"{context}.{spec.method}.{param.name}.choices",
                         param.choices,
                     )
+
+
+def _append_availability_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    known_requirements = frozenset(capabilities.method_availability_requirements)
+    known_reasons = frozenset(capabilities.method_unavailable_reasons)
+    for context, spec in _availability_spec_references(capabilities):
+        _append_unknown_availability_requirement_issue(
+            issues,
+            context,
+            spec,
+            known_requirements,
+        )
+        _append_unknown_unavailable_reason_issue(issues, context, spec, known_reasons)
+        _append_availability_reason_shape_issue(issues, context, spec)
+
+
+def _availability_spec_references(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_AvailabilitySpecReference, ...]:
+    return (
+        *(
+            (f"availability.service_call.{spec.method}", spec)
+            for spec in capabilities.service_call_method_availability_specs
+        ),
+        *(
+            (f"availability.service_stream.{spec.method}", spec)
+            for spec in capabilities.service_stream_method_availability_specs
+        ),
+        *(
+            (f"availability.jsonl_call.{spec.method}", spec)
+            for spec in capabilities.jsonl_call_method_availability_specs
+        ),
+        *(
+            (f"availability.jsonl_stream.{spec.method}", spec)
+            for spec in capabilities.jsonl_stream_method_availability_specs
+        ),
+    )
+
+
+def _append_unknown_availability_requirement_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkMethodAvailabilitySpec,
+    known_requirements: frozenset[str],
+) -> None:
+    if spec.requirement not in known_requirements:
+        issues.append(f"{context} references unknown availability requirement: {spec.requirement}")
+
+
+def _append_unknown_unavailable_reason_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkMethodAvailabilitySpec,
+    known_reasons: frozenset[str],
+) -> None:
+    if spec.unavailable_reason is not None and spec.unavailable_reason not in known_reasons:
+        issues.append(
+            f"{context} references unknown unavailable reason: {spec.unavailable_reason}"
+        )
+
+
+def _append_availability_reason_shape_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkMethodAvailabilitySpec,
+) -> None:
+    if spec.requirement == SDK_METHOD_REQUIREMENT_ALWAYS and spec.unavailable_reason is not None:
+        issues.append(f"{context} must not advertise an unavailable reason for always.")
+    elif spec.requirement != SDK_METHOD_REQUIREMENT_ALWAYS and spec.unavailable_reason is None:
+        issues.append(f"{context} must advertise an unavailable reason.")
 
 
 def _append_stream_event_issues(

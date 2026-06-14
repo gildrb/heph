@@ -36,6 +36,9 @@ SwiftUI / GUI / automation client
 - Per-method availability records through `call_method_availability` and
   `stream_method_availability`, including stable unavailable reason codes for
   disabled controls.
+- Capability-advertised method availability requirements so clients can see
+  which methods require an armory, a session, an armory-backed session, or
+  attached source files.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
@@ -253,7 +256,8 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 server also includes the same capability payload in its initial `ready` message.
 Capabilities list service methods, JSONL method names, stream event types, state
 fields, JSONL message types, JSONL error codes, calls that remain available
-while a stream is active, and standard method-unavailable reason codes.
+while a stream is active, method availability requirements, and standard
+method-unavailable reason codes.
 The `jsonl.message_specs` section describes the top-level transport envelopes
 (`ready`, `response`, `error`, `stream_start`, `stream_event`, and `stream_end`)
 so native clients can generate wire decoders without scraping examples.
@@ -277,11 +281,15 @@ and JSONL call method, using stable SDK DTO names such as `sdk_state`,
 The `streams` section describes the event types each service and JSONL stream
 method can emit, plus the normal completion event such as `turn_complete` for
 prompt streams and `index_complete` for index streams.
+The `availability` section describes each service and JSONL method's stable
+precondition. Each method maps to a `requirement` value such as `always`,
+`armory`, `session`, `armory_session`, or `session_sources`, plus the
+`unavailable_reason` that state snapshots use when that requirement is not met.
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
-`validate_sdk_capabilities()` checks the advertised graph for list/spec drift
-unresolved DTO type references, and stream event drift; keep it green when
-extending the SDK surface.
+`validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
+availability drift, unresolved DTO type references, and stream event drift;
+keep it green when extending the SDK surface.
 The `errors.jsonl` section describes each JSONL error code so native clients can
 present stable recovery copy without hard-coding the Python docs.
 The `fields` section describes service, runtime, and session state field types

@@ -439,6 +439,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     errors = _payload_mapping(payload["errors"])
     results = _payload_mapping(payload["results"])
     streams = _payload_mapping(payload["streams"])
+    availability = _payload_mapping(payload["availability"])
     fields = _payload_mapping(payload["fields"])
     types = _payload_mapping(payload["types"])
     service_call_methods = _payload_list(service["call_methods"])
@@ -455,6 +456,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     jsonl_call_results = _payload_mapping(results["jsonl_call"])
     service_stream_contracts = _payload_mapping(streams["service"])
     jsonl_stream_contracts = _payload_mapping(streams["jsonl"])
+    availability_requirements = _payload_list(availability["requirements"])
+    service_call_availability_specs = _payload_mapping(availability["service_call"])
+    service_stream_availability_specs = _payload_mapping(availability["service_stream"])
+    jsonl_call_availability_specs = _payload_mapping(availability["jsonl_call"])
+    jsonl_stream_availability_specs = _payload_mapping(availability["jsonl_stream"])
     jsonl_error_specs = _payload_mapping(errors["jsonl"])
     jsonl_request_spec = _payload_mapping(jsonl["request_spec"])
     jsonl_message_types = _payload_list(jsonl["message_types"])
@@ -486,6 +492,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "jsonl_error" in types
     assert "sdk_event" in types
     assert "sdk_method_availability" in types
+    assert "sdk_method_availability_spec" in types
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -500,6 +507,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(jsonl_call_results) == jsonl_call_methods
     assert list(service_stream_contracts) == service_stream_methods
     assert list(jsonl_stream_contracts) == jsonl_stream_methods
+    assert availability_requirements == list(sdk_methods.SDK_METHOD_AVAILABILITY_REQUIREMENTS)
+    assert list(service_call_availability_specs) == service_call_methods
+    assert list(service_stream_availability_specs) == service_stream_methods
+    assert list(jsonl_call_availability_specs) == jsonl_call_methods
+    assert list(jsonl_stream_availability_specs) == jsonl_stream_methods
     assert "capabilities" in service_call_methods
     assert "validate_armory" in service_call_methods
     assert "list_providers" in service_call_methods
@@ -624,6 +636,30 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         sdk_methods.INDEX_STREAM_EVENT_TYPES
     )
     assert jsonl_index_stream["completion_event"] == "index_complete"
+    assert _payload_mapping(service_call_availability_specs["state"]) == {
+        "requirement": "always",
+        "unavailable_reason": None,
+    }
+    assert _payload_mapping(service_call_availability_specs["ask"]) == {
+        "requirement": "session",
+        "unavailable_reason": "missing_session",
+    }
+    assert _payload_mapping(service_call_availability_specs["save_session"]) == {
+        "requirement": "armory_session",
+        "unavailable_reason": "missing_armory_session",
+    }
+    assert _payload_mapping(service_call_availability_specs["set_source_enabled"]) == {
+        "requirement": "session_sources",
+        "unavailable_reason": "missing_session_sources",
+    }
+    assert _payload_mapping(service_stream_availability_specs["build_index"]) == {
+        "requirement": "armory",
+        "unavailable_reason": "missing_armory",
+    }
+    assert _payload_mapping(jsonl_stream_availability_specs["build_index_stream"]) == {
+        "requirement": "armory",
+        "unavailable_reason": "missing_armory",
+    }
     state_result = _payload_mapping(service_call_results["state"])
     capabilities_result = _payload_mapping(service_call_results["capabilities"])
     capabilities_result_fields = _payload_mapping(capabilities_result["fields"])
@@ -839,12 +875,20 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     method_availability_type_fields = _payload_mapping(
         _payload_mapping(types["sdk_method_availability"])["fields"]
     )
+    method_availability_spec_type_fields = _payload_mapping(
+        _payload_mapping(types["sdk_method_availability_spec"])["fields"]
+    )
     assert _payload_mapping(sdk_state_fields["session"]) == {
         "type": "sdk_session_state",
         "required": True,
         "nullable": True,
     }
     assert _payload_mapping(sdk_capabilities_fields["streams"]) == {
+        "type": "object",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["availability"]) == {
         "type": "object",
         "required": True,
         "nullable": False,
@@ -937,6 +981,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "nullable": False,
     }
     assert _payload_mapping(method_availability_type_fields["unavailable_reason"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": True,
+    }
+    assert _payload_mapping(method_availability_spec_type_fields["requirement"]) == {
+        "type": "string",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(method_availability_spec_type_fields["unavailable_reason"]) == {
         "type": "string",
         "required": True,
         "nullable": True,
@@ -1053,6 +1107,21 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     broken_jsonl_stream_specs = tuple(
         spec for spec in capabilities.jsonl_stream_specs if spec.method != "build_index_stream"
     )
+    broken_service_call_availability_specs = tuple(
+        replace(
+            spec,
+            requirement="missing_availability_requirement",
+            unavailable_reason="missing_unavailable_reason",
+        )
+        if spec.method == "ask"
+        else spec
+        for spec in capabilities.service_call_method_availability_specs
+    )
+    broken_jsonl_stream_availability_specs = tuple(
+        spec
+        for spec in capabilities.jsonl_stream_method_availability_specs
+        if spec.method != "build_index_stream"
+    )
     broken_capabilities = replace(
         capabilities,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
@@ -1060,8 +1129,13 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
             *capabilities.method_unavailable_reasons,
             sdk_methods.SDK_METHOD_UNAVAILABLE_BUSY,
         ),
+        method_availability_requirements=(
+            *capabilities.method_availability_requirements,
+            sdk_methods.SDK_METHOD_REQUIREMENT_ALWAYS,
+        ),
         service_call_methods=(*capabilities.service_call_methods, "state"),
         service_call_method_specs=broken_service_call_method_specs,
+        service_call_method_availability_specs=broken_service_call_availability_specs,
         service_call_result_specs=broken_service_call_result_specs,
         jsonl_request_spec=replace(
             capabilities.jsonl_request_spec,
@@ -1072,6 +1146,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         jsonl_call_result_specs=broken_result_specs,
         service_stream_specs=broken_service_stream_specs,
         jsonl_stream_specs=broken_jsonl_stream_specs,
+        jsonl_stream_method_availability_specs=broken_jsonl_stream_availability_specs,
         type_specs=broken_type_specs,
     )
 
@@ -1084,6 +1159,16 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         in issues
     )
     assert "service.method_unavailable_reasons contains duplicate entries: busy" in issues
+    assert "availability.requirements contains duplicate entries: always" in issues
+    assert "availability.jsonl_stream does not match its structured specs." in issues
+    assert (
+        "availability.service_call.ask references unknown availability requirement: "
+        "missing_availability_requirement" in issues
+    )
+    assert (
+        "availability.service_call.ask references unknown unavailable reason: "
+        "missing_unavailable_reason" in issues
+    )
     assert "jsonl.request_spec.fields contains duplicate entries: id" in issues
     assert "jsonl.message_types does not match its structured specs." in issues
     assert "streams.jsonl does not match its structured specs." in issues
@@ -1837,8 +1922,12 @@ def test_service_state_available_methods_reflect_runtime_and_session(tmp_path: P
 def test_service_rejects_unavailable_call_methods_before_dispatch(tmp_path: Path) -> None:
     service = HephService.plain(config=_config())
 
-    with pytest.raises(HephSdkUnavailableError, match=r"service call 'ask'.*not available"):
+    with pytest.raises(
+        HephSdkUnavailableError,
+        match=r"service call 'ask'.*not available",
+    ) as ask_error:
         service.call("ask", {"text": "hello"})
+    assert ask_error.value.unavailable_reason == "missing_session"
     with pytest.raises(HephSdkUnavailableError, match="service call 'list_materials'"):
         service.call("list_materials")
     with pytest.raises(HephSdkUnavailableError, match="service call 'abort'"):

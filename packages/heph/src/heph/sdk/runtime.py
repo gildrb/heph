@@ -115,11 +115,18 @@ class HephSdkBusyError(HephSdkError):
 class HephSdkUnavailableError(HephSdkError):
     """Raised when an SDK method is valid but unavailable for current state."""
 
-    def __init__(self, method: str, *, kind: str = "SDK method") -> None:
+    def __init__(
+        self,
+        method: str,
+        *,
+        kind: str = "SDK method",
+        unavailable_reason: str | None = None,
+    ) -> None:
         super().__init__(
             f"{kind} '{method}' is not available for the current runtime/session state.",
             code="unavailable",
         )
+        self.unavailable_reason = unavailable_reason
 
 
 @dataclass(frozen=True, slots=True)
