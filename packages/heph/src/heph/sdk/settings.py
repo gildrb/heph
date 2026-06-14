@@ -182,25 +182,40 @@ def load_sdk_app_settings() -> SdkAppSettings:
 
 
 def update_sdk_app_settings(params: Mapping[str, object]) -> SdkAppSettings:
-    unknown = tuple(sorted(key for key in params if key not in _SDK_MUTABLE_APP_SETTINGS))
+    normalized = _normalized_sdk_app_settings(params)
+    _save_sdk_app_settings(normalized)
+    return load_sdk_app_settings()
+
+
+def _normalized_sdk_app_settings(params: Mapping[str, object]) -> dict[str, object]:
+    _raise_for_unsupported_sdk_settings(params)
+    return {key: _normalized_sdk_setting(key, value) for key, value in params.items()}
+
+
+def _raise_for_unsupported_sdk_settings(params: Mapping[str, object]) -> None:
+    unknown = _unsupported_sdk_setting_names(params)
     if unknown:
         names = ", ".join(unknown)
         raise SdkSettingsError(f"Unsupported SDK app setting: {names}")
 
-    normalized: dict[str, object] = {}
-    for key, value in params.items():
-        _validate_sdk_setting_type(key, value)
-        try:
-            normalized[key] = normalize_setting_value(key, value)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise SdkSettingsError(f"Invalid SDK app setting '{key}': {exc}") from exc
 
+def _unsupported_sdk_setting_names(params: Mapping[str, object]) -> tuple[str, ...]:
+    return tuple(sorted(key for key in params if key not in _SDK_MUTABLE_APP_SETTINGS))
+
+
+def _normalized_sdk_setting(key: str, value: object) -> object:
+    _validate_sdk_setting_type(key, value)
+    try:
+        return normalize_setting_value(key, value)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SdkSettingsError(f"Invalid SDK app setting '{key}': {exc}") from exc
+
+
+def _save_sdk_app_settings(normalized: Mapping[str, object]) -> None:
     if normalized:
         raw_settings = load_raw_settings()
         raw_settings.update(normalized)
         save_raw_settings(raw_settings)
-
-    return load_sdk_app_settings()
 
 
 def _validate_sdk_setting_type(key: str, value: object) -> None:
