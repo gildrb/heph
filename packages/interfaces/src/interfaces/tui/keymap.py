@@ -60,6 +60,12 @@ class KeymapSaveResult:
     key: str = ""
 
 
+@dataclass(frozen=True)
+class _ModifierPrefix:
+    modifier: str
+    remaining: str
+
+
 TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
     TuiKeymapAction(
         "command_palette",
@@ -243,35 +249,44 @@ def normalize_key_spec(raw: str) -> str:
     if not key:
         raise ValueError("keybinding cannot be empty")
 
+    modifiers, key_token = _parse_keybinding_parts(key, raw)
+    key_name = _normalize_key_name(key_token, raw)
+    parts = [modifier for modifier in _MODIFIER_ORDER if modifier in modifiers]
+    parts.append(key_name)
+    return "+".join(parts)
+
+
+def _parse_keybinding_parts(key: str, raw: str) -> tuple[set[str], str]:
     modifiers: set[str] = set()
     remaining = key
-    while True:
-        parsed_modifier = False
-        for alias, canonical in _MODIFIER_ALIASES.items():
-            for separator in ("+", "-"):
-                prefix = f"{alias}{separator}"
-                if not remaining.startswith(prefix):
-                    continue
-                if canonical in modifiers:
-                    raise ValueError(f"duplicate modifier in keybinding {raw!r}")
-                modifiers.add(canonical)
-                remaining = remaining[len(prefix) :]
-                parsed_modifier = True
-                break
-            if parsed_modifier:
-                break
-        if not parsed_modifier:
+    while remaining:
+        prefix = _next_modifier_prefix(remaining, modifiers, raw)
+        if prefix is None:
             break
+        modifiers.add(prefix.modifier)
+        remaining = prefix.remaining
 
     if not remaining:
         raise ValueError(f"missing key in keybinding {raw!r}")
     if "+" in remaining:
         raise ValueError(f"invalid keybinding {raw!r}")
+    return modifiers, remaining
 
-    key_name = _normalize_key_name(remaining, raw)
-    parts = [modifier for modifier in _MODIFIER_ORDER if modifier in modifiers]
-    parts.append(key_name)
-    return "+".join(parts)
+
+def _next_modifier_prefix(
+    remaining: str,
+    modifiers: set[str],
+    raw: str,
+) -> _ModifierPrefix | None:
+    for alias, canonical in _MODIFIER_ALIASES.items():
+        for separator in ("+", "-"):
+            prefix = f"{alias}{separator}"
+            if not remaining.startswith(prefix):
+                continue
+            if canonical in modifiers:
+                raise ValueError(f"duplicate modifier in keybinding {raw!r}")
+            return _ModifierPrefix(canonical, remaining.removeprefix(prefix))
+    return None
 
 
 def display_key(key: str) -> str:
@@ -389,26 +404,34 @@ def _load_configured_bindings() -> tuple[dict[str, dict[str, tuple[str, ...]]], 
     configured: dict[str, dict[str, tuple[str, ...]]] = {}
     errors: list[str] = []
     for context, raw_context in raw.items():
-        if context not in _ACTION_CONTEXTS:
-            errors.append(f"Unknown keymap context: {context}")
-            continue
-        if not is_string_mapping(raw_context):
-            errors.append(f"Keymap context {context} must be an object.")
-            continue
-        context_bindings: dict[str, tuple[str, ...]] = {}
-        for action_id, raw_keys in raw_context.items():
-            action = _ACTIONS_BY_ID.get(action_id)
-            if action is None or action.context != context:
-                errors.append(f"Unknown keymap action: {context}.{action_id}")
-                continue
-            keys, key_errors = _configured_keys(action, raw_keys)
-            errors.extend(f"{context}.{action_id}: {error}" for error in key_errors)
-            if key_errors and not keys:
-                continue
-            context_bindings[action_id] = keys
+        context_bindings, context_errors = _configured_context_bindings(context, raw_context)
+        errors.extend(context_errors)
         if context_bindings:
             configured[context] = context_bindings
     return configured, errors
+
+
+def _configured_context_bindings(
+    context: str,
+    raw_context: object,
+) -> tuple[dict[str, tuple[str, ...]], list[str]]:
+    if context not in _ACTION_CONTEXTS:
+        return {}, [f"Unknown keymap context: {context}"]
+    if not is_string_mapping(raw_context):
+        return {}, [f"Keymap context {context} must be an object."]
+
+    context_bindings: dict[str, tuple[str, ...]] = {}
+    errors: list[str] = []
+    for action_id, raw_keys in raw_context.items():
+        action = _ACTIONS_BY_ID.get(action_id)
+        if action is None or action.context != context:
+            errors.append(f"Unknown keymap action: {context}.{action_id}")
+            continue
+        keys, key_errors = _configured_keys(action, raw_keys)
+        errors.extend(f"{context}.{action_id}: {error}" for error in key_errors)
+        if keys or not key_errors:
+            context_bindings[action_id] = keys
+    return context_bindings, errors
 
 
 def _configured_keys(

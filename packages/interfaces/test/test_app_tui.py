@@ -543,6 +543,37 @@ def test_keymap_text_lists_materials_shortcut() -> None:
     assert "ctrl+t" not in text
 
 
+@pytest.mark.parametrize(
+    ("raw_key", "normalized"),
+    [
+        (" Control - Shift - F8 ", "ctrl+shift+f8"),
+        ("option + page-down", "alt+pagedown"),
+        ("esc", "escape"),
+        ("spacebar", "space"),
+    ],
+)
+def test_keymap_normalizes_aliases_and_modifier_order(
+    raw_key: str,
+    normalized: str,
+) -> None:
+    assert keymap.normalize_key_spec(raw_key) == normalized
+
+
+@pytest.mark.parametrize(
+    ("raw_key", "message"),
+    [
+        ("", "keybinding cannot be empty"),
+        ("ctrl-control-a", "duplicate modifier"),
+        ("ctrl+", "missing key"),
+        ("ctrl+a+b", "invalid keybinding"),
+        ("ctrl+moon", "unknown key"),
+    ],
+)
+def test_keymap_normalization_rejects_invalid_specs(raw_key: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        keymap.normalize_key_spec(raw_key)
+
+
 def test_keymap_rejects_terminal_reserved_ctrl_m() -> None:
     result = keymap.save_keymap_binding("open_materials", "ctrl+m")
 
@@ -579,6 +610,34 @@ def test_keymap_ignores_reserved_manual_config_binding() -> None:
 
     assert runtime.keys_for_action("open_materials") == ("ctrl+o",)
     assert any("alt+m is reserved by macOS" in error for error in runtime.errors)
+
+
+def test_keymap_loads_valid_bindings_from_mixed_manual_config() -> None:
+    settings_store.save_raw_settings(
+        {
+            "tui_keymap": {
+                "app": {
+                    "open_materials": ["ctrl+g", "ctrl+g", "ctrl+c", 7],
+                    "open_search": [],
+                    "missing": "ctrl+x",
+                },
+                "composer": "bad",
+                "unknown": {},
+            },
+        }
+    )
+
+    runtime = keymap.load_runtime_keymap()
+
+    assert runtime.keys_for_action("open_materials") == ("ctrl+g",)
+    assert runtime.keys_for_action("open_search") == ()
+    assert any("Unknown keymap action: app.missing" in error for error in runtime.errors)
+    assert any("open_materials: ctrl+c is reserved" in error for error in runtime.errors)
+    assert any(
+        "open_materials: binding list values must be strings" in error for error in runtime.errors
+    )
+    assert any("Keymap context composer must be an object." in error for error in runtime.errors)
+    assert any("Unknown keymap context: unknown" in error for error in runtime.errors)
 
 
 def test_footer_hints_show_api_missing_when_unconfigured() -> None:
