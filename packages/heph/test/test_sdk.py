@@ -882,7 +882,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     capabilities = get_sdk_capabilities()
     broken_result_specs = tuple(
-        replace(spec, value_type="missing_custom_type") if spec.method == "state" else spec
+        replace(spec, value_type="array<array<missing_custom_type>>")
+        if spec.method == "state"
+        else spec
         for spec in capabilities.service_call_result_specs
     )
     broken_message_specs = tuple(

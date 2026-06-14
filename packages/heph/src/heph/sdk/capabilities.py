@@ -71,6 +71,7 @@ _ARRAY_PREFIX = "array<"
 _LITERAL_PREFIX = "literal<"
 type _DuplicateCheck = tuple[str, tuple[str, ...]]
 type _MismatchCheck = tuple[str, tuple[str, ...], tuple[str, ...]]
+type _StreamSpecReference = tuple[str, SdkStreamSpec]
 type _ValueTypeReference = tuple[str, str]
 
 
@@ -428,28 +429,51 @@ def _append_stream_event_issues(
     capabilities: HephSdkCapabilities,
 ) -> None:
     known_events = frozenset(capabilities.event_types)
-    for context, specs in (
-        ("streams.service", capabilities.service_stream_specs),
-        ("streams.jsonl", capabilities.jsonl_stream_specs),
-    ):
-        for spec in specs:
-            _append_duplicate_issue(
-                issues,
-                f"{context}.{spec.method}.event_types",
-                spec.event_types,
-            )
-            unknown_events = tuple(
-                event_type for event_type in spec.event_types if event_type not in known_events
-            )
-            if unknown_events:
-                issues.append(
-                    f"{context}.{spec.method} references unknown SDK events: "
-                    f"{', '.join(unknown_events)}"
-                )
-            if spec.completion_event is not None and spec.completion_event not in known_events:
-                issues.append(
-                    f"{context}.{spec.method} completion event is unknown: {spec.completion_event}"
-                )
+    for context, spec in _stream_spec_references(capabilities):
+        _append_stream_spec_event_issues(issues, context, spec, known_events)
+
+
+def _stream_spec_references(
+    capabilities: HephSdkCapabilities,
+) -> tuple[_StreamSpecReference, ...]:
+    return (
+        *((f"streams.service.{spec.method}", spec) for spec in capabilities.service_stream_specs),
+        *((f"streams.jsonl.{spec.method}", spec) for spec in capabilities.jsonl_stream_specs),
+    )
+
+
+def _append_stream_spec_event_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkStreamSpec,
+    known_events: frozenset[str],
+) -> None:
+    _append_duplicate_issue(issues, f"{context}.event_types", spec.event_types)
+    _append_unknown_stream_event_issue(issues, context, spec, known_events)
+    _append_unknown_completion_event_issue(issues, context, spec, known_events)
+
+
+def _append_unknown_stream_event_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkStreamSpec,
+    known_events: frozenset[str],
+) -> None:
+    unknown_events = tuple(
+        event_type for event_type in spec.event_types if event_type not in known_events
+    )
+    if unknown_events:
+        issues.append(f"{context} references unknown SDK events: {', '.join(unknown_events)}")
+
+
+def _append_unknown_completion_event_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkStreamSpec,
+    known_events: frozenset[str],
+) -> None:
+    if spec.completion_event is not None and spec.completion_event not in known_events:
+        issues.append(f"{context} completion event is unknown: {spec.completion_event}")
 
 
 def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[_ValueTypeReference, ...]:
@@ -563,14 +587,29 @@ def _type_value_type_references(
 
 
 def _custom_type_references(value_type: str) -> tuple[str, ...]:
-    if value_type in _BUILTIN_TYPES:
+    if _is_builtin_value_type(value_type):
         return ()
-    if value_type.startswith(_LITERAL_PREFIX) and value_type.endswith(">"):
-        return ()
-    if value_type.startswith(_ARRAY_PREFIX) and value_type.endswith(">"):
-        inner_type = value_type.removeprefix(_ARRAY_PREFIX).removesuffix(">")
+    if inner_type := _array_inner_type(value_type):
         return _custom_type_references(inner_type)
     return (value_type,)
+
+
+def _is_builtin_value_type(value_type: str) -> bool:
+    return value_type in _BUILTIN_TYPES or _is_literal_value_type(value_type)
+
+
+def _is_literal_value_type(value_type: str) -> bool:
+    return _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX) is not None
+
+
+def _array_inner_type(value_type: str) -> str | None:
+    return _enclosed_type_argument(value_type, prefix=_ARRAY_PREFIX)
+
+
+def _enclosed_type_argument(value_type: str, *, prefix: str) -> str | None:
+    if not value_type.startswith(prefix) or not value_type.endswith(">"):
+        return None
+    return value_type.removeprefix(prefix).removesuffix(">")
 
 
 def _public_constant_exports() -> tuple[str, ...]:
