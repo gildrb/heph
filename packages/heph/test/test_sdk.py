@@ -972,16 +972,16 @@ def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
     config_params = sdk_service._CONFIG_PARAMS
 
     broken_config_params = tuple(
-        replace(param, value_type="string") if param.name == "max_tokens" else param
+        replace(param, choices=("turbo",)) if param.name == "reasoning_level" else param
         for param in config_params
     )
-    broken_setting_value_types = tuple(
-        (name, "string") if name == "live_tokens_visible" else (name, value_type)
-        for name, value_type in sdk_service.SDK_APP_SETTING_VALUE_TYPES
+    broken_setting_contracts = tuple(
+        (name, value_type, ("neon",)) if name == "theme" else (name, value_type, choices)
+        for name, value_type, choices in sdk_service.SDK_APP_SETTING_CONTRACTS
     )
 
     monkeypatch.setattr(sdk_service, "_CONFIG_PARAMS", broken_config_params)
-    monkeypatch.setattr(sdk_service, "SDK_APP_SETTING_VALUE_TYPES", broken_setting_value_types)
+    monkeypatch.setattr(sdk_service, "SDK_APP_SETTING_CONTRACTS", broken_setting_contracts)
 
     issues = validate_sdk_service_contract(service)
 

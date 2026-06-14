@@ -8,7 +8,9 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime import ChatConfig, normalize_thinking_visibility
+from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 
 from heph.sdk.capabilities import get_sdk_capabilities, validate_sdk_capabilities
 from heph.sdk.config import (
@@ -53,7 +55,7 @@ from heph.sdk.runtime import (
     HephSession,
 )
 from heph.sdk.settings import (
-    SDK_APP_SETTING_VALUE_TYPES,
+    SDK_APP_SETTING_CONTRACTS,
     SdkAppSettings,
     SdkSettingsError,
     load_sdk_app_settings,
@@ -85,6 +87,7 @@ class _RouteParameterContract:
     name: str
     value_type: str
     required: bool
+    choices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,7 @@ class _ServiceCallArgument:
     decoder: _ServiceCallArgumentDecoder
     value_type: str
     required: bool = True
+    choices: tuple[str, ...] = ()
 
     def value_from(self, params: Mapping[str, object]) -> object:
         return self.decoder(params, self.name)
@@ -134,6 +138,7 @@ class _ServiceConfigParam:
     name: SdkConfigUpdateName
     decoder: _ServiceConfigParamDecoder
     value_type: str
+    choices: tuple[str, ...] = ()
     keep_none: bool = False
 
     def update_from(self, params: Mapping[str, object]) -> SdkConfigUpdate | None:
@@ -926,7 +931,7 @@ def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMe
 
 def _method_spec_param_contracts(spec: SdkMethodSpec) -> tuple[_RouteParameterContract, ...]:
     return tuple(
-        _RouteParameterContract(param.name, param.value_type, param.required)
+        _RouteParameterContract(param.name, param.value_type, param.required, param.choices)
         for param in spec.params
     )
 
@@ -935,7 +940,12 @@ def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[_RouteParamet
     if route.params_as_argument:
         return route.parameter_contracts
     return tuple(
-        _RouteParameterContract(argument.name, argument.value_type, argument.required)
+        _RouteParameterContract(
+            argument.name,
+            argument.value_type,
+            argument.required,
+            argument.choices,
+        )
         for argument in (*route.arguments, *route.keyword_arguments)
     )
 
@@ -944,7 +954,12 @@ def _stream_route_param_contracts(
     route: _ServiceStreamRoute,
 ) -> tuple[_RouteParameterContract, ...]:
     return tuple(
-        _RouteParameterContract(argument.name, argument.value_type, argument.required)
+        _RouteParameterContract(
+            argument.name,
+            argument.value_type,
+            argument.required,
+            argument.choices,
+        )
         for argument in route.arguments
     )
 
@@ -1219,22 +1234,32 @@ _CONFIG_PARAMS = (
     _ServiceConfigParam("max_tokens", _optional_int, "integer"),
     _ServiceConfigParam("rag_context_budget", _optional_int, "integer"),
     _ServiceConfigParam("temperature", _optional_float, "number_or_null", keep_none=True),
-    _ServiceConfigParam("reasoning_level", _optional_str, "string"),
-    _ServiceConfigParam("thinking_visibility", _optional_str, "string"),
+    _ServiceConfigParam("reasoning_level", _optional_str, "string", choices=REASONING_LEVELS),
+    _ServiceConfigParam(
+        "thinking_visibility",
+        _optional_str,
+        "string",
+        choices=THINKING_VISIBILITY_MODES,
+    ),
 )
 
 
 def _config_param_contracts() -> tuple[_RouteParameterContract, ...]:
     return tuple(
-        _RouteParameterContract(param.name, param.value_type, required=False)
+        _RouteParameterContract(
+            param.name,
+            param.value_type,
+            required=False,
+            choices=param.choices,
+        )
         for param in _CONFIG_PARAMS
     )
 
 
 def _app_setting_param_contracts() -> tuple[_RouteParameterContract, ...]:
     return tuple(
-        _RouteParameterContract(name, value_type, required=False)
-        for name, value_type in SDK_APP_SETTING_VALUE_TYPES
+        _RouteParameterContract(name, value_type, required=False, choices=choices)
+        for name, value_type, choices in SDK_APP_SETTING_CONTRACTS
     )
 
 
