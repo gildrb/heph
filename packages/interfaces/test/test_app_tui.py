@@ -3279,6 +3279,21 @@ def test_status_lines_shrinks_long_armory_name_before_model() -> None:
     assert " mode " not in status
 
 
+def test_status_lines_can_omit_armory_after_cost_shrinks() -> None:
+    session = _plain_session()
+    session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
+    session.config.apply_provider_reference("openai-codex", "OPENAI_CODEX_OAUTH_TOKEN")
+    session.live_cost_visible = True
+    session.usage.estimate_from_chars(400, 80, session.config.model)
+
+    status = tui._status_lines(session, width=50)
+
+    assert cell_width(status) <= 50
+    assert "ARMORY" not in status
+    assert "MODEL test-model" in status
+    assert "COST" in status
+
+
 def test_status_text_styles_only_rendered_labels_when_armory_is_omitted() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
