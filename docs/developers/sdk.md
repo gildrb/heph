@@ -298,7 +298,8 @@ client generators that want typed value objects instead of dictionaries.
 `validate_sdk_capabilities()` checks the advertised graph for list/spec drift,
 availability drift, unresolved DTO type references, and stream event drift.
 `validate_sdk_service_contract()` checks the service implementation routes
-against those advertised methods and route parameter names.
+against those advertised methods and route parameter names. `HephService` runs
+both checks during construction.
 `validate_sdk_jsonl_transport_contract()` checks JSONL dispatch routes and
 transport method specs against the advertised JSONL surface and underlying
 service routes. `JsonlSdkServer` runs this check before serving requests. Keep

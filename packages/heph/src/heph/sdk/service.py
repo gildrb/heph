@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
-from heph.sdk.capabilities import get_sdk_capabilities
+from heph.sdk.capabilities import get_sdk_capabilities, validate_sdk_capabilities
 from heph.sdk.config import (
     SdkConfigUpdate,
     SdkConfigUpdateName,
@@ -183,6 +183,10 @@ class HephService:
     _active_operation: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        capability_issues = validate_sdk_capabilities()
+        if capability_issues:
+            message = "SDK capability contract drift: " + "; ".join(capability_issues)
+            raise HephSdkError(message)
         issues = validate_sdk_service_contract(self)
         if issues:
             message = "SDK service contract drift: " + "; ".join(issues)

@@ -567,6 +567,28 @@ def test_sdk_service_contract_validator_matches_advertised_routes() -> None:
     assert validate_sdk_service_contract(service) == ()
 
 
+def test_sdk_service_rejects_capability_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_validate_sdk_capabilities() -> tuple[str, ...]:
+        return ("jsonl.request_spec.fields contains duplicate entries: id",)
+
+    monkeypatch.setattr(
+        sdk_service,
+        "validate_sdk_capabilities",
+        broken_validate_sdk_capabilities,
+    )
+
+    with pytest.raises(
+        HephSdkError,
+        match=(
+            r"SDK capability contract drift: "
+            r"jsonl\.request_spec\.fields contains duplicate entries: id"
+        ),
+    ):
+        HephService.plain(config=_config())
+
+
 def test_sdk_service_call_rejects_result_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
