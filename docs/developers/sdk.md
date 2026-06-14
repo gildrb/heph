@@ -277,8 +277,9 @@ clients can use those specs to build request validation, disable incomplete
 forms, and keep transport wrappers aligned with the advertised SDK contract.
 Parameter specs use the same SDK value-type language as result DTOs, including
 reusable SDK types, arrays, maps, and literals.
-Enum-like parameters include a `choices` list, for example theme, activity
-trace mode, vocabulary strictness, thinking visibility, and reasoning level.
+Enum-like string parameters include a non-empty `choices` list, for example
+theme, activity trace mode, vocabulary strictness, thinking visibility, and
+reasoning level.
 The SDK service and JSONL transport enforce the same method specs at runtime:
 unsupported parameters, missing required parameters, wrong JSON value types, and
 values outside advertised `choices` are rejected instead of being ignored.

@@ -2002,6 +2002,38 @@ def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:
     assert "types.sdk_state.service has empty literal value." in issues
 
 
+def test_sdk_capabilities_validator_reports_invalid_parameter_choices() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_service_call_method_specs = tuple(
+        replace(
+            spec,
+            params=tuple(
+                replace(param, value_type="boolean", choices=("dark", ""))
+                if spec.method == "update_settings" and param.name == "theme"
+                else param
+                for param in spec.params
+            ),
+        )
+        if spec.method == "update_settings"
+        else spec
+        for spec in capabilities.service_call_method_specs
+    )
+    broken_capabilities = replace(
+        capabilities,
+        service_call_method_specs=broken_service_call_method_specs,
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert (
+        "methods.service_call.update_settings.theme.choices require a string parameter type."
+        in issues
+    )
+    assert "methods.service_call.update_settings.theme.choices must not include empty values." in (
+        issues
+    )
+
+
 def test_sdk_capabilities_validator_reports_jsonl_request_envelope_drift() -> None:
     capabilities = get_sdk_capabilities()
     broken_request_fields = tuple(

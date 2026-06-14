@@ -48,6 +48,7 @@ from heph.sdk.methods import (
     SdkJsonlMessageSpec,
     SdkJsonlRequestSpec,
     SdkMethodAvailabilitySpec,
+    SdkMethodParameter,
     SdkMethodSpec,
     SdkObjectFieldSpec,
     SdkResultSpec,
@@ -649,11 +650,28 @@ def _append_parameter_choice_issues(
         for spec in method_specs:
             for param in spec.params:
                 if param.choices:
-                    _append_duplicate_issue(
-                        issues,
-                        f"{context}.{spec.method}.{param.name}.choices",
-                        param.choices,
-                    )
+                    choice_context = f"{context}.{spec.method}.{param.name}.choices"
+                    _append_duplicate_issue(issues, choice_context, param.choices)
+                    _append_parameter_choice_type_issue(issues, choice_context, param)
+                    _append_empty_parameter_choice_issue(issues, choice_context, param)
+
+
+def _append_parameter_choice_type_issue(
+    issues: list[str],
+    context: str,
+    param: SdkMethodParameter,
+) -> None:
+    if param.value_type != "string":
+        issues.append(f"{context} require a string parameter type.")
+
+
+def _append_empty_parameter_choice_issue(
+    issues: list[str],
+    context: str,
+    param: SdkMethodParameter,
+) -> None:
+    if "" in param.choices:
+        issues.append(f"{context} must not include empty values.")
 
 
 def _append_availability_issues(
