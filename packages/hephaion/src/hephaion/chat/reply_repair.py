@@ -242,35 +242,74 @@ def _repair_structurally_invalid_evidence_output(
     if not _evidence_output_needs_model_repair(plan, reply, evidence, contract=contract):
         return reply
     assert evidence is not None
+    deterministic = _deterministic_structural_evidence_repair(reply, evidence, contract)
+    if deterministic:
+        return deterministic
+    return _model_structural_evidence_repair(
+        reply,
+        evidence,
+        user_input=user_input,
+        config=config,
+    )
+
+
+def _deterministic_structural_evidence_repair(
+    reply: str,
+    evidence: TurnEvidence,
+    contract: TurnContract | None,
+) -> str:
     if _contract_requests_table(contract) and not _contains_markdown_table(reply):
         table = _compact_overview_table_reply(reply, evidence)
         if table:
             return table
-    deterministic = _deterministic_evidence_pointer_repair(reply, evidence)
-    if deterministic:
-        return deterministic
+    if pointer_reply := _deterministic_evidence_pointer_repair(reply, evidence):
+        return pointer_reply
     if len(reply) > _MATERIAL_REPLY_MAX_CHARS:
         compacted = _compact_verified_cited_reply(reply, evidence)
         if compacted:
             return compacted
+    return ""
+
+
+def _model_structural_evidence_repair(
+    reply: str,
+    evidence: TurnEvidence,
+    *,
+    user_input: str,
+    config: ChatConfig,
+) -> str:
     if config.base_url is None or not config.model:
         return reply
+    candidate = _model_repaired_evidence_output(
+        reply,
+        evidence,
+        user_input=user_input,
+        config=config,
+    )
+    if not _valid_repaired_evidence_output(candidate, evidence):
+        return _invalid_model_evidence_output_fallback(reply, evidence)
+    return candidate
+
+
+def _model_repaired_evidence_output(
+    reply: str,
+    evidence: TurnEvidence,
+    *,
+    user_input: str,
+    config: ChatConfig,
+) -> str:
     conversation = Conversation()
     conversation.add("system", _EVIDENCE_OUTPUT_REPAIR_SYSTEM_PROMPT)
     conversation.add(
         "user",
         _evidence_output_repair_context(reply, evidence, user_input=user_input),
     )
-    candidate = _strip_unsolicited_learning_followup(
-        _strip_tool_call_markup(
-            _model_text._stream_one_shot_model_text(config, conversation)
-        ).strip()
-    )
-    if not _valid_repaired_evidence_output(candidate, evidence):
-        return (
-            _deterministic_evidence_pointer_repair(reply, evidence, allow_unbalanced=True) or reply
-        )
-    return candidate
+    repaired = _model_text._stream_one_shot_model_text(config, conversation)
+    return _strip_unsolicited_learning_followup(_strip_tool_call_markup(repaired).strip())
+
+
+def _invalid_model_evidence_output_fallback(reply: str, evidence: TurnEvidence) -> str:
+    return _deterministic_evidence_pointer_repair(reply, evidence, allow_unbalanced=True) or reply
 
 
 def _evidence_output_needs_model_repair(
@@ -330,16 +369,23 @@ def _deterministic_evidence_pointer_repair(
     *,
     allow_unbalanced: bool = False,
 ) -> str:
-    if _reply_has_unbalanced_inline_markup(reply) and not allow_unbalanced:
+    if not _can_use_evidence_pointer_repair(reply, allow_unbalanced=allow_unbalanced):
         return ""
-    if not (
-        _CITATION_ONLY_REPLY_RE.match(reply)
-        or _thin_evidence_pointer(reply)
-        or (allow_unbalanced and _reply_has_unbalanced_inline_markup(reply))
-    ):
-        return ""
+    return _evidence_pointer_repair_for_ids(_reply_evidence_ids(reply), evidence)
+
+
+def _can_use_evidence_pointer_repair(reply: str, *, allow_unbalanced: bool) -> bool:
+    if _reply_has_unbalanced_inline_markup(reply):
+        return allow_unbalanced
+    return bool(_CITATION_ONLY_REPLY_RE.match(reply) or _thin_evidence_pointer(reply))
+
+
+def _evidence_pointer_repair_for_ids(
+    evidence_ids: tuple[str, ...],
+    evidence: TurnEvidence,
+) -> str:
     evidence_by_id = {item.evidence_id.casefold(): item for item in evidence.items}
-    for evidence_id in _reply_evidence_ids(reply):
+    for evidence_id in evidence_ids:
         item = evidence_by_id.get(evidence_id.casefold())
         if item is None:
             continue
