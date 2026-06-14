@@ -241,19 +241,37 @@ def _overview_pipe_table_line_rows(line: str) -> tuple[tuple[str, ...], ...]:
     if len(cells) < 2:
         return ()
     if "" not in cells:
-        return (cells,)
+        return _overview_pipe_table_content_rows((cells,))
+    return _overview_pipe_table_content_rows(_collapsed_pipe_table_rows(cells))
+
+
+def _collapsed_pipe_table_rows(cells: Sequence[str]) -> tuple[tuple[str, ...], ...]:
     rows: list[tuple[str, ...]] = []
     current: list[str] = []
     for cell in cells:
         if cell:
             current.append(cell)
             continue
-        if len(current) >= 2:
-            rows.append(tuple(current))
+        _append_pipe_table_row(rows, current)
         current = []
-    if len(current) >= 2:
-        rows.append(tuple(current))
-    return tuple(row for row in rows if not _markdown_separator_cells(row))
+    _append_pipe_table_row(rows, current)
+    return tuple(rows)
+
+
+def _append_pipe_table_row(rows: list[tuple[str, ...]], cells: Sequence[str]) -> None:
+    if len(cells) >= 2:
+        rows.append(tuple(cells))
+
+
+def _overview_pipe_table_content_rows(
+    rows: Sequence[tuple[str, ...]],
+) -> tuple[tuple[str, ...], ...]:
+    content_rows: list[tuple[str, ...]] = []
+    for row in rows:
+        if _markdown_separator_cells(row):
+            continue
+        content_rows.append(row)
+    return tuple(content_rows)
 
 
 def _markdown_separator_cells(row: Sequence[str]) -> bool:
