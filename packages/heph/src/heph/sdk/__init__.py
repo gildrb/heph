@@ -48,6 +48,7 @@ from heph.sdk.materials import (
 from heph.sdk.models import ModelChoiceSummary
 from heph.sdk.providers import ProviderSummary
 from heph.sdk.runtime import (
+    SDK_ENGINE_ERROR_CODE,
     ArmorySummary,
     ArmoryValidationSummary,
     HephEventListener,
@@ -55,9 +56,11 @@ from heph.sdk.runtime import (
     HephRuntime,
     HephSdkBusyError,
     HephSdkError,
+    HephSdkModelError,
     HephSdkUnavailableError,
     HephSession,
     SessionSummary,
+    sdk_error_code_for_engine_error,
 )
 from heph.sdk.service import HephService, ServicePayload, ServiceStream
 from heph.sdk.settings import (
@@ -91,6 +94,7 @@ __all__ = [
     "JSONL_REQUEST_SPEC",
     "SDK_CAPABILITIES",
     "SDK_CAPABILITIES_VERSION",
+    "SDK_ENGINE_ERROR_CODE",
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "SDK_MUTABLE_APP_SETTINGS",
@@ -111,6 +115,7 @@ __all__ = [
     "HephSdkBusyError",
     "HephSdkCapabilities",
     "HephSdkError",
+    "HephSdkModelError",
     "HephSdkOptions",
     "HephSdkRuntimeState",
     "HephSdkServiceState",
@@ -149,6 +154,7 @@ __all__ = [
     "from_turn_event",
     "get_sdk_capabilities",
     "load_sdk_app_settings",
+    "sdk_error_code_for_engine_error",
     "serve_stdio",
     "update_sdk_app_settings",
     "validate_sdk_capabilities",

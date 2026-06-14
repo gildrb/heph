@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from ai.runtime import ChatConfig
+from ai.runtime import ChatConfig, EngineError, EngineErrorCode
 from heph.cli.main import build_parser, run_argv
 from heph.sdk import (
     JSONL_ERROR_CODES,
@@ -806,6 +806,52 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
         ),
         "available_stream_methods": list(_jsonl_stream_methods("prompt")),
     }
+
+
+def test_jsonl_sdk_server_reports_engine_error_code_in_prompt_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "needs credentials"
+        yield from ()
+        raise EngineError(
+            "OpenAI Codex subscription requires OAuth credentials.",
+            code=EngineErrorCode.MISSING_CREDENTIALS,
+        )
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request(
+        {"id": "prompt-engine-error", "method": "prompt", "params": {"text": "needs credentials"}}
+    )
+    server._wait_for_streams()
+
+    payloads = _payloads(output.getvalue())
+    stream_end = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "prompt-engine-error" and payload["type"] == "stream_end"
+    )
+    stream_error = _payload_mapping(stream_end["error"])
+
+    assert stream_end["ok"] is False
+    assert stream_error["code"] == EngineErrorCode.MISSING_CREDENTIALS.value
+    assert "requires OAuth credentials" in str(stream_error["message"])
 
 
 def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(

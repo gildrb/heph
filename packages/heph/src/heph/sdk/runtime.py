@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ai.logging import get_logger
-from ai.runtime import ChatConfig
+from ai.runtime import ChatConfig, EngineError, EngineErrorCode
 from hephaion.armory.search import (
     load_available_armory_entries,
     remember_armory,
@@ -42,6 +42,7 @@ from heph.sdk.materials import (
     IndexSummary,
     MaterialSummary,
 )
+from heph.sdk.methods import SDK_ENGINE_ERROR_CODE
 from heph.sdk.models import (
     ModelChoiceSummary,
 )
@@ -77,8 +78,26 @@ class _DisplaySettingsSource(Protocol):
     def live_cost_visible(self) -> bool: ...
 
 
+def sdk_error_code_for_engine_error(error: EngineError) -> str:
+    if error.code is None:
+        return SDK_ENGINE_ERROR_CODE
+    return error.code.value
+
+
 class HephSdkError(Exception):
     """Raised when an SDK operation is invalid for the active runtime."""
+
+    def __init__(self, message: str, *, code: str = "sdk_error") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class HephSdkModelError(HephSdkError):
+    """Raised when the model runtime rejects an SDK prompt."""
+
+    def __init__(self, error: EngineError) -> None:
+        super().__init__(str(error), code=sdk_error_code_for_engine_error(error))
+        self.engine_code: EngineErrorCode | None = error.code
 
 
 class HephSdkBusyError(HephSdkError):
@@ -90,7 +109,7 @@ class HephSdkBusyError(HephSdkError):
             "An SDK stream is active; only state, abort, capabilities, and settings are available."
         ),
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, code="busy")
 
 
 class HephSdkUnavailableError(HephSdkError):
@@ -98,7 +117,8 @@ class HephSdkUnavailableError(HephSdkError):
 
     def __init__(self, method: str, *, kind: str = "SDK method") -> None:
         super().__init__(
-            f"{kind} '{method}' is not available for the current runtime/session state."
+            f"{kind} '{method}' is not available for the current runtime/session state.",
+            code="unavailable",
         )
 
 
@@ -279,10 +299,13 @@ class HephSession:
         with self._stream_guard(active_abort):
             self._begin_stream(active_abort)
         try:
-            for event in iter_chat_events(self._session, text, abort=active_abort):
-                sdk_event = from_turn_event(event)
-                self._emit(sdk_event)
-                yield sdk_event
+            try:
+                for event in iter_chat_events(self._session, text, abort=active_abort):
+                    sdk_event = from_turn_event(event)
+                    self._emit(sdk_event)
+                    yield sdk_event
+            except EngineError as exc:
+                raise HephSdkModelError(exc) from exc
         finally:
             try:
                 save_dirty_session_if_needed(self._session)
@@ -605,6 +628,7 @@ def _resolved_validation_path(path: str | Path) -> Path:
 
 
 __all__ = [
+    "SDK_ENGINE_ERROR_CODE",
     "ArmorySummary",
     "ArmoryValidationSummary",
     "ExtractionHealthIssueSummary",
@@ -614,6 +638,7 @@ __all__ = [
     "HephRuntime",
     "HephSdkBusyError",
     "HephSdkError",
+    "HephSdkModelError",
     "HephSdkSessionState",
     "HephSdkUnavailableError",
     "HephSession",
@@ -624,4 +649,5 @@ __all__ = [
     "ModelChoiceSummary",
     "ProviderSummary",
     "SessionSummary",
+    "sdk_error_code_for_engine_error",
 ]

@@ -136,11 +136,12 @@ class JsonlSdkServer:
         except SdkProtocolError as exc:
             self._write_error(request_id, exc.code, str(exc))
         except HephSdkBusyError as exc:
-            self._write_error(request_id, "busy", str(exc))
+            self._write_error(request_id, exc.code, str(exc))
         except HephSdkUnavailableError as exc:
-            self._write_error(request_id, "unavailable", str(exc))
+            self._write_error(request_id, exc.code, str(exc))
         except (HephSdkError, ArmoryError) as exc:
-            self._write_error(request_id, "sdk_error", str(exc))
+            code = exc.code if isinstance(exc, HephSdkError) else "sdk_error"
+            self._write_error(request_id, code, str(exc))
         except Exception as exc:
             self._write_error(request_id, "internal_error", str(exc))
 
@@ -594,11 +595,11 @@ def _error(code: str, message: str) -> dict[str, object]:
 
 def _stream_error(exc: Exception) -> dict[str, object]:
     if isinstance(exc, HephSdkBusyError):
-        return _error("busy", str(exc))
+        return _error(exc.code, str(exc))
     if isinstance(exc, HephSdkUnavailableError):
-        return _error("unavailable", str(exc))
+        return _error(exc.code, str(exc))
     if isinstance(exc, HephSdkError):
-        return _error("sdk_error", str(exc))
+        return _error(exc.code, str(exc))
     return _error("internal_error", str(exc))
 
 

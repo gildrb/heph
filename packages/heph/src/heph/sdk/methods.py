@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ai.providers.reasoning import REASONING_LEVELS
+from ai.runtime import EngineErrorCode
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 from hephaion.parameters.settings import (
     ACTIVITY_TRACE_MODES,
@@ -12,9 +13,10 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 25
+SDK_CAPABILITIES_VERSION = 26
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
+SDK_ENGINE_ERROR_CODE = "engine_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +369,35 @@ JSONL_ERROR_SPECS = (
         "The requested method exists but is not available for the current runtime/session state.",
     ),
     SdkErrorSpec("sdk_error", "The SDK rejected a valid request."),
+    SdkErrorSpec(
+        SDK_ENGINE_ERROR_CODE,
+        "The model runtime rejected a request without a more specific code.",
+    ),
+    SdkErrorSpec(
+        EngineErrorCode.ACCOUNT_SETUP.value,
+        "Provider account setup or billing prevented the model request.",
+    ),
+    SdkErrorSpec(
+        EngineErrorCode.PROVIDER_CAPACITY.value,
+        "Provider capacity or rate limiting prevented the model request.",
+    ),
+    SdkErrorSpec(
+        EngineErrorCode.MISSING_CREDENTIALS.value,
+        "Provider credentials are missing for the selected model.",
+    ),
+    SdkErrorSpec(
+        EngineErrorCode.MISSING_MODEL_SOURCE.value,
+        "No model source is configured.",
+    ),
+    SdkErrorSpec(EngineErrorCode.MISSING_MODEL.value, "No model is configured."),
+    SdkErrorSpec(
+        EngineErrorCode.MODEL_UNAVAILABLE.value,
+        "The selected model is unavailable for the configured provider endpoint.",
+    ),
+    SdkErrorSpec(
+        EngineErrorCode.CIRCUIT_OPEN.value,
+        "The model provider circuit breaker is open after recent failures.",
+    ),
     SdkErrorSpec("internal_error", "An unexpected server-side exception escaped the SDK layer."),
 )
 JSONL_ERROR_CODES = tuple(spec.code for spec in JSONL_ERROR_SPECS)
@@ -956,6 +987,7 @@ __all__ = [
     "RUNTIME_STATE_FIELDS",
     "RUNTIME_STATE_FIELD_SPECS",
     "SDK_CAPABILITIES_VERSION",
+    "SDK_ENGINE_ERROR_CODE",
     "SDK_EVENT_SPECS",
     "SDK_EVENT_TYPES",
     "SDK_JSONL_PROTOCOL",

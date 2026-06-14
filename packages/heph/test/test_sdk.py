@@ -10,7 +10,7 @@ from typing import get_type_hints
 import pytest
 from ai.providers.config import default_config
 from ai.providers.reasoning import REASONING_LEVELS
-from ai.runtime import ChatConfig
+from ai.runtime import ChatConfig, EngineError, EngineErrorCode
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 from heph.sdk import (
     JSONL_ERROR_CODES,
@@ -28,6 +28,7 @@ from heph.sdk import (
     HephSdkBusyError,
     HephSdkCapabilities,
     HephSdkError,
+    HephSdkModelError,
     HephSdkOptions,
     HephSdkRuntimeState,
     HephSdkServiceState,
@@ -734,10 +735,17 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert list(jsonl_error_specs) == jsonl_error_codes
     busy_error_spec = _payload_mapping(jsonl_error_specs["busy"])
     unavailable_error_spec = _payload_mapping(jsonl_error_specs["unavailable"])
+    engine_error_spec = _payload_mapping(jsonl_error_specs[sdk_methods.SDK_ENGINE_ERROR_CODE])
+    missing_credentials_error_spec = _payload_mapping(
+        jsonl_error_specs[EngineErrorCode.MISSING_CREDENTIALS.value]
+    )
     internal_error_spec = _payload_mapping(jsonl_error_specs["internal_error"])
     assert "stream was active" in str(busy_error_spec["description"])
     assert "not available" in str(unavailable_error_spec["description"])
+    assert "model runtime" in str(engine_error_spec["description"])
+    assert "credentials" in str(missing_credentials_error_spec["description"])
     assert "unexpected server-side exception" in str(internal_error_spec["description"])
+    assert all(error_code.value in jsonl_error_codes for error_code in EngineErrorCode)
     assert "reasoning_delta" in event_types
     assert "index_progress" in event_types
     assert "index_complete" in event_types
@@ -1121,6 +1129,34 @@ def test_session_ask_returns_final_text(
     monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
 
     assert session.ask("What changed?") == "Final reply."
+
+
+def test_session_prompt_wraps_engine_errors_with_sdk_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "Needs a model."
+        yield from ()
+        raise EngineError("No API key found.", code=EngineErrorCode.MISSING_CREDENTIALS)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+
+    with pytest.raises(HephSdkModelError, match="No API key found") as exc_info:
+        list(session.prompt("Needs a model."))
+
+    assert exc_info.value.code == EngineErrorCode.MISSING_CREDENTIALS.value
+    assert exc_info.value.engine_code == EngineErrorCode.MISSING_CREDENTIALS
+    assert session.is_streaming is False
 
 
 def test_session_messages_hide_internal_system_prompt(tmp_path: Path) -> None:
