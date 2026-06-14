@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hephaion.rag import chunker as rag_chunker
 from hephaion.rag.chunker import (
     _DOCLING_EXTENSIONS,
     ChunkStrategy,
@@ -24,6 +23,8 @@ from hephaion.rag.chunker import (
     chunk_semantic,
     chunk_text,
 )
+
+from hephaion.rag import chunker as rag_chunker
 
 
 class TestChunkText:

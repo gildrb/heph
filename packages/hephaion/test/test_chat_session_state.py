@@ -21,9 +21,10 @@ from hephaion.chat.turn_contract import (
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
+from hephaion.rag.health import ExtractionHealthIssue
+
 from hephaion.memory import MemoryStore
 from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
-from hephaion.rag.health import ExtractionHealthIssue
 from hephaion.study import (
     LearningFeedbackType,
     LearningPhase,

@@ -8,6 +8,7 @@ from typing import Self
 
 import pytest
 from hephaion.diagnostics.events import capture, get_distinct_id, init_analytics
+
 from hephaion.privacy import consent
 
 

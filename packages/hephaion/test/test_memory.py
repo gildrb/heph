@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 # ---------------------------------------------------------------------------

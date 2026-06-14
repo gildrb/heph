@@ -34,6 +34,7 @@ from hephaion.chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
 from hephaion.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
+
 from hephaion.study import (
     LearningTurnPlan,
     material_overview_plan,

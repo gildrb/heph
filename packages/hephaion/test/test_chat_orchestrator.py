@@ -90,8 +90,10 @@ from hephaion.chat.turn_planning import (
 )
 from hephaion.chat.turn_predicates import _stored_turn_evidence
 from hephaion.chat.turn_query import _semantic_query_specificity
-from hephaion.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
 from hephaion.rag.chunker import ChunkedDocument
+from hephaion.study.schedule import load_recall_schedule
+
+from hephaion.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
 from hephaion.study import (
     LearningAction,
     LearningFeedbackType,
@@ -103,7 +105,6 @@ from hephaion.study import (
     material_topic_presentation_plan,
     plan_turn,
 )
-from hephaion.study.schedule import load_recall_schedule
 
 
 def _chunk(source: str = "notes.md", index: int = 0, text: str = "compactness material") -> Chunk:

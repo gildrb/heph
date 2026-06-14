@@ -71,10 +71,11 @@ from hephaion.learning.training import (
     load_records_from_jsonl,
     train_attempt_policy,
 )
-from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaion.study.policy import EvidenceAssessment
 from hephaion.study.prompt_plans import LearningTurnPlan, material_overview_plan
 from hephaion.study.state import LearningAction, LearningPhase
+
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 
 
 class _FinalizationProbe(TurnFinalizationMixin):
