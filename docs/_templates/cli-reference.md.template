@@ -16,8 +16,11 @@
 
 ## TUI keyboard shortcuts
 
-The `/keymap` slash command opens the editable shortcut map inside Heph. Some
-terminal and desktop shortcuts are reserved, so Heph rejects keys such as
+The `/keymap` slash command opens the editable shortcut map inside Heph. Choose
+an action, then select RECORD or press Enter before typing the new shortcut.
+Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keymap
+list, to restore defaults.
+Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 `ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
 
 [[KEYBOARD_SHORTCUTS_TABLE]]

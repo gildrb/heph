@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from interfaces.terminal import current_palette
+from interfaces.tui.display_text import status_render_width
 from interfaces.tui.flow_state import InlineFlow
 from interfaces.tui.keymap import RuntimeKeymap
 from interfaces.tui.render_state import DirtyRegion
@@ -153,6 +154,8 @@ class _TranscriptHost(Protocol):
     def _update_armory_preview(self) -> None: ...
 
     def _update_materials_sidebar(self) -> None: ...
+
+    def _materials_footer_text(self) -> str: ...
 
     def _update_static_region(
         self,
@@ -698,11 +701,17 @@ class TuiTranscriptMixin:
 
     def _refresh_status(self: _TranscriptHost) -> None:
         tui_module = sys.modules["interfaces.tui"]
+        status = self.query_one("#status", Static)
+        status_width = status_render_width(status.size.width)
         self._update_static_region(
             "#status",
             Static,
             DirtyRegion.STATUS,
-            tui_module._status_text(self.session, title=self._status_title()),
+            tui_module._status_text(
+                self.session,
+                title=self._status_title(),
+                width=status_width,
+            ),
         )
 
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
@@ -720,7 +729,12 @@ class TuiTranscriptMixin:
             )
             return
         if self._materials_inline_active:
-            self._update_static_region("#footer-hints", Static, DirtyRegion.FOOTER, "")
+            self._update_static_region(
+                "#footer-hints",
+                Static,
+                DirtyRegion.FOOTER,
+                self._materials_footer_text(),
+            )
             return
         self._update_static_region(
             "#footer-hints",

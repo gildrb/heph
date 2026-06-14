@@ -44,13 +44,18 @@ performance, privacy, and availability without binding an armory to one vendor.
 
 - **Cost**: Free after you download the model and have the hardware to run it
 - **Account**: No API key required
-- **Models**: Public non-gated GGUF text-generation models, plus local `.gguf`
-  files
+- **Models**: Curated GGUF releases capped at 16 GB recommended RAM,
+  plus local `.gguf` files for advanced installs
 - **Best for**: Privacy-first work where the model must run on your machine
 
 Heph manages an official `llama-server` binary, downloads verified release
 assets into `~/.cache/hephaion/llama.cpp/bin/`, stores model cache under
 `~/.cache/hephaion/llama.cpp/models`, and binds the server to `127.0.0.1`.
+The guided catalog favors publisher-owned releases with specific GGUF quant
+files, including small LiquidAI LFM, Hugging Face SmolLM, Qwen, AllenAI OLMo,
+IBM Granite, Mistral, Microsoft Phi, and Google Gemma options. `/local` shows
+the download size and recommended RAM for each model and asks for confirmation
+before any model is downloaded or started.
 
 Local models are not automatically considered usable. After install, Heph runs a
 deterministic tool-call probe using the OpenAI-compatible `tool_calls` protocol.

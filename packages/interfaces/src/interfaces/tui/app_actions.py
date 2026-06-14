@@ -16,9 +16,11 @@ from interfaces.tui.display_text import armory_home_text as _armory_home_text
 from interfaces.tui.display_text import new_chat_card_text as _new_chat_card_text
 from interfaces.tui.ids import COMPOSER_SELECTOR, TRANSCRIPT_SELECTOR
 from interfaces.tui.routing import TuiInputRoute as _TuiInputRoute
+from interfaces.tui.routing import local_install_target as _local_install_target
 from interfaces.tui.routing import local_picker_query as _local_picker_query
 from interfaces.tui.routing import tui_input_route as _tui_input_route
 from interfaces.tui.search_screen import SearchScreen
+from interfaces.tui.slash_command import command_help as _command_help
 from interfaces.tui.status import config_error as _config_error
 
 try:
@@ -106,6 +108,8 @@ class _AppActionsHost(Protocol):
 
     def _submit_special_route(self, route: _TuiInputRoute, value: str) -> bool: ...
 
+    def _submit_help_route(self, value: str) -> None: ...
+
     def _submit_materials_route(self, value: str) -> None: ...
 
     def _submit_keymap_route(self, value: str) -> None: ...
@@ -183,6 +187,8 @@ class _AppActionsHost(Protocol):
     def _handle_inline_command(self, value: str) -> None: ...
 
     def _open_local_flow(self, query: str = "") -> None: ...
+
+    def _open_local_install_target_flow(self, target: str) -> None: ...
 
     def _open_keymap_flow(self, selected_label: str | None = None) -> None: ...
 
@@ -341,6 +347,7 @@ class TuiAppActionsMixin:
         value: str,
     ) -> bool:
         route_handlers = {
+            _TuiInputRoute.HELP: self._submit_help_route,
             _TuiInputRoute.MATERIALS: self._submit_materials_route,
             _TuiInputRoute.KEYMAP: self._submit_keymap_route,
             _TuiInputRoute.SESSIONS: self._submit_sessions_route,
@@ -361,6 +368,10 @@ class TuiAppActionsMixin:
             return True
         return False
 
+    def _submit_help_route(self: _AppActionsHost, value: str) -> None:
+        self._record_history(value)
+        self._append_plain(_command_help())
+
     def _submit_materials_route(self: _AppActionsHost, value: str) -> None:
         self._record_history(value)
         self._open_materials_inline(value)
@@ -378,6 +389,10 @@ class TuiAppActionsMixin:
         self._handle_turn_command(value)
 
     def _submit_local_route(self: _AppActionsHost, value: str) -> None:
+        target = _local_install_target(value)
+        if target is not None:
+            self._open_local_install_target_flow(target)
+            return
         query = _local_picker_query(value)
         if query is None:
             self._submit_external_value(value)

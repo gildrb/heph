@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from interfaces.tui.display_text import menu_label_value
+
 
 def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str]:
     seen: set[str] = set()
@@ -21,8 +23,13 @@ def _model_flow_option(
     is_duplicate: bool,
     is_current: bool,
 ) -> tuple[str, str]:
-    description_tags = ["free" if is_free else "", "current" if is_current else ""]
-    description = "  ".join(["via " + display_name, *(tag for tag in description_tags if tag)])
+    description_tags = [
+        menu_label_value("cost", "free") if is_free else "",
+        menu_label_value("state", "current") if is_current else "",
+    ]
+    description = "  ".join(
+        [menu_label_value("provider", display_name), *(tag for tag in description_tags if tag)]
+    )
     return _model_choice_label(model, display_name, duplicate=is_duplicate), description
 
 

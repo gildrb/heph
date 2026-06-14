@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, overload
 
 from hephaion.materials import material_display_name
-
 from interfaces.terminal import current_palette
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER, label_value_line
+from interfaces.tui.inline_menu import _inline_selection_prefix
 from interfaces.tui.shortcut_hints import ShortcutHint, shortcut_hint_line
 from interfaces.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from textual.widget import Widget
 
 _MATERIALS_LIST_IDS = ("materials-list", "materials-list-right")
+_MATERIALS_FILTER_PLACEHOLDER = "FILTER materials"
+_MATERIALS_HEADER_LEFT_PADDING = len(_inline_selection_prefix(False))
 _MATERIALS_MIN_TWO_COLUMN_WIDTH = 72
 
 
@@ -161,8 +163,8 @@ def _materials_header_text(
         f"{label_value_line('scope', scope)}  {label_value_line('active', f'{enabled}/{total}')}"
     )
     if query:
-        return f"{header}  {label_value_line('shown', shown)}"
-    return header
+        header = f"{header}  {label_value_line('shown', shown)}"
+    return f"{' ' * _MATERIALS_HEADER_LEFT_PADDING}{header}"
 
 
 def _clamped_material_highlight(
@@ -194,7 +196,7 @@ class TuiMaterialsMixin:
         self._set_sidebar_visible(False)
         composer = self.query_one("#composer", Input)
         composer.value = self._materials_filter
-        composer.placeholder = "Filter materials..."
+        composer.placeholder = _MATERIALS_FILTER_PLACEHOLDER
         self._hide_completions()
         self._refresh_materials_inline()
         self._refresh_status()
@@ -296,15 +298,19 @@ class TuiMaterialsMixin:
         material_list.highlighted = self._materials_local_index(list_id, highlighted)
 
     def _refresh_materials_footer(self: _MaterialsHost, query: str) -> None:
-        footer = self.query_one("#materials-footer", Static)
-        if not self.session.source_files:
-            footer.update("No materials attached.")
-        elif query and not self._materials_entries:
-            footer.update(f"No materials match: {self._materials_filter}")
-        else:
-            footer.update(self._materials_footer_text())
+        del query
+        self.query_one("#materials-footer", Static).update("")
+        self._refresh_footer_hints()
 
     def _materials_footer_text(self: _MaterialsHost) -> str:
+        query = self._materials_filter.strip().lower()
+        if not self.session.source_files:
+            return label_value_line("state", "no materials")
+        if query and not self._materials_entries:
+            return (
+                f"{label_value_line('state', 'no matches')}  "
+                f"{label_value_line('filter', self._materials_filter)}"
+            )
         if self._materials_flow == "toggle":
             return shortcut_hint_line(
                 (
@@ -366,7 +372,7 @@ class TuiMaterialsMixin:
         palette = current_palette()
         enabled_file = file not in self.session.disabled_source_files
         label = material_display_name(file)
-        prefix = "→ " if selected else "  "
+        prefix = _inline_selection_prefix(selected)
         if selected:
             state_color = palette.brand_primary
             marker_color = palette.brand_primary

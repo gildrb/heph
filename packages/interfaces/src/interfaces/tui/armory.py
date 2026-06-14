@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Protocol, overload
 from hephaion.armory.search import remember_armory, set_last_armory
 from hephaion.armory.storage import ArmoryError, initialize
 from hephaion.armory.storage import validate as _validate_armory
-from hephaion.materials import count_material_files
 
+from hephaion.materials import count_material_files
 from interfaces.terminal import current_palette
 from interfaces.tui.armory_browser import (
     _creation_parent_error,
@@ -19,7 +19,11 @@ from interfaces.tui.armory_browser import (
     default_armory_home,
     new_armory_path,
 )
+from interfaces.tui.cell_text import cell_width as _cell_width
+from interfaces.tui.cell_text import pad_cell_right as _pad_cell_right
+from interfaces.tui.cell_text import truncate_with_ellipsis as _truncate_with_ellipsis
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER, label_value_line
+from interfaces.tui.inline_menu import _inline_selection_prefix
 from interfaces.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
 )
@@ -109,6 +113,8 @@ class _ArmoryHost(Protocol):
 
     def _armory_selection_key(self) -> tuple[str, str] | None: ...
 
+    def _current_armory_index(self) -> int | None: ...
+
     def _armory_index_for_key(self, key: tuple[str, str] | None) -> int | None: ...
 
     def _first_selectable_armory_index(self) -> int | None: ...
@@ -140,7 +146,9 @@ def _armory_command_flow(value: str) -> str | None:
 _ARMORY_USAGE_MESSAGE = (
     "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
 )
-_ARMORY_ROW_LEFT_PADDING = 2
+_ARMORY_CREATE_PLACEHOLDER = "CREATE armory name"
+_ARMORY_FILTER_PLACEHOLDER = "FILTER armory paths"
+_ARMORY_ROW_LEFT_PADDING = len(_inline_selection_prefix(False))
 _ARMORY_TRUNCATION_MARKER = "..."
 
 
@@ -209,8 +217,8 @@ def _armory_header_text(
 ) -> str:
     del current_path, filter_query
     count_label = label_value_line("items", _armory_selectable_count(entries))
-    label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
-    return f"{' ' * _ARMORY_ROW_LEFT_PADDING}{count_label:<{label_width}}"
+    label_width = max(label_width, _cell_width(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
+    return f"{' ' * _ARMORY_ROW_LEFT_PADDING}{_pad_cell_right(count_label, label_width)}"
 
 
 def _armory_flow_hint(*, creating: bool) -> str:
@@ -347,7 +355,7 @@ def _armory_label_width(
 ) -> int:
     return max(
         (
-            len(_armory_entry_label(entry))
+            _cell_width(_armory_entry_label(entry))
             for entry in _armory_visible_entries(
                 entries,
                 highlighted=highlighted,
@@ -368,7 +376,7 @@ def _armory_row_width(widget: _ClassableWidget, host: object) -> int:
 
 
 def _armory_description_width(entries: list[_DirEntry]) -> int:
-    return max((len(_armory_entry_description(entry)) for entry in entries), default=0)
+    return max((_cell_width(_armory_entry_description(entry)) for entry in entries), default=0)
 
 
 def _armory_layout_label_width(
@@ -378,12 +386,12 @@ def _armory_layout_label_width(
     entries: list[_DirEntry],
     row_width: int,
 ) -> int:
-    label_width = max(label_width, len(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
+    label_width = max(label_width, _cell_width(count_label) + 2 - _ARMORY_DESCRIPTION_GAP)
     if row_width <= 0:
         return label_width
     description_width = max(
         _armory_description_width(entries),
-        len(label_value_line("files", "-")),
+        _cell_width(label_value_line("files", "-")),
     )
     available = row_width - _ARMORY_ROW_LEFT_PADDING - _ARMORY_DESCRIPTION_GAP
     available -= description_width
@@ -393,11 +401,7 @@ def _armory_layout_label_width(
 
 
 def _clip_armory_label(label: str, width: int) -> str:
-    if width <= 0 or len(label) <= width:
-        return label
-    if width <= len(_ARMORY_TRUNCATION_MARKER):
-        return label[:width]
-    return f"{label[: width - len(_ARMORY_TRUNCATION_MARKER)]}{_ARMORY_TRUNCATION_MARKER}"
+    return _truncate_with_ellipsis(label, width)
 
 
 def _armory_entry_text(
@@ -410,17 +414,20 @@ def _armory_entry_text(
     label = _armory_entry_label(entry)
     description = _armory_entry_description(entry, active=active)
     if _RichText is None:
-        prefix = "→ " if selected else "  "
+        prefix = _inline_selection_prefix(selected)
         if description:
             label = _clip_armory_label(label, label_width)
-            return f"{prefix}{label:<{label_width}}{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
+            return (
+                f"{prefix}{_pad_cell_right(label, label_width)}"
+                f"{' ' * _ARMORY_DESCRIPTION_GAP}{description}"
+            )
         return f"{prefix}{label}"
     if not label:
         return ""
 
     palette = current_palette()
     text = _RichText()
-    prefix = "→ " if selected else "  "
+    prefix = _inline_selection_prefix(selected)
     prefix_style = palette.brand_primary if selected else palette.text_muted
     text.append(prefix, style=prefix_style)
     if entry.is_section:
@@ -428,11 +435,11 @@ def _armory_entry_text(
         return text
     label_style = palette.brand_primary if selected else palette.text_primary
     description_style = palette.text_muted
-    padded_width = max(label_width, len(label))
+    padded_width = max(label_width, _cell_width(label))
     if description:
         label = _clip_armory_label(label, label_width)
         padded_width = label_width
-    text.append(f"{label:<{padded_width}}" if description else label, style=label_style)
+    text.append(_pad_cell_right(label, padded_width) if description else label, style=label_style)
     if description:
         text.append(" " * _ARMORY_DESCRIPTION_GAP, style=description_style)
         text.append(description, style=description_style)
@@ -472,9 +479,13 @@ class TuiArmoryMixin:
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = (
-            "Module or topic name..." if self._armory_creating else "Filter armory paths..."
+            _ARMORY_CREATE_PLACEHOLDER if self._armory_creating else _ARMORY_FILTER_PLACEHOLDER
         )
         self._hide_completions()
+        self._armory_entries = []
+        current = self.query_one("#armory-current-inline", OptionList)
+        current.clear_options()
+        current.highlighted = None
         self._refresh_armory_inline()
         self._refresh_status()
         self._refresh_footer_hints()
@@ -547,9 +558,31 @@ class TuiArmoryMixin:
         previous_key: tuple[str, str] | None,
     ) -> int | None:
         highlighted = self._armory_index_for_key(previous_key)
-        if highlighted is None or not self._armory_entry_selectable(highlighted):
-            return self._first_selectable_armory_index()
-        return highlighted
+        if highlighted is not None and self._armory_entry_selectable(highlighted):
+            return highlighted
+        if previous_key is None:
+            current_index = self._current_armory_index()
+            if current_index is not None:
+                return current_index
+        return self._first_selectable_armory_index()
+
+    def _current_armory_index(self: _ArmoryHost) -> int | None:
+        if self._armory_creating or self.session.armory_path is None:
+            return None
+        try:
+            current_path = self.session.armory_path.resolve(strict=False)
+        except OSError:
+            return None
+        for index, entry in enumerate(self._armory_entries):
+            if entry.path is None or not self._armory_entry_selectable(index):
+                continue
+            try:
+                entry_path = entry.path.resolve(strict=False)
+            except OSError:
+                continue
+            if entry_path == current_path:
+                return index
+        return None
 
     def _armory_entry_selectable(self: _ArmoryHost, index: int) -> bool:
         if index < 0 or index >= len(self._armory_entries):
@@ -699,7 +732,7 @@ class TuiArmoryMixin:
         self._armory_flow = "create"
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = "Module or topic name..."
+        composer.placeholder = _ARMORY_CREATE_PLACEHOLDER
         self._refresh_armory_inline()
         self._refresh_footer_hints()
         composer.focus()
@@ -707,7 +740,7 @@ class TuiArmoryMixin:
     def _create_inline_armory(self: _ArmoryHost, name: str) -> None:
         if not name:
             self._armory_creating = False
-            self.query_one("#composer", Input).placeholder = "Filter armory paths..."
+            self.query_one("#composer", Input).placeholder = _ARMORY_FILTER_PLACEHOLDER
             self._refresh_armory_inline()
             self._refresh_footer_hints()
             return
@@ -782,7 +815,7 @@ class TuiArmoryMixin:
             if self._armory_creating:
                 self._armory_creating = False
                 composer.value = ""
-                composer.placeholder = "Filter armory paths..."
+                composer.placeholder = _ARMORY_FILTER_PLACEHOLDER
                 self._refresh_armory_inline()
                 self._refresh_footer_hints()
             elif composer.value:

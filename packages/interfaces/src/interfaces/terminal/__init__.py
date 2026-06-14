@@ -55,6 +55,7 @@ __all__ = [
     "current_theme_name",
     "direct_input",
     "direct_print",
+    "menu_label_value",
     "print_error",
     "print_info",
     "print_success",
@@ -137,6 +138,14 @@ def print_success(msg: str) -> None:
     print(styled(msg, STYLE_SUCCESS))
 
 
+def menu_label_value(label: str, value: object) -> str:
+    label_text = label.strip().upper()
+    value_text = str(value).strip().casefold()
+    if not value_text:
+        return label_text
+    return f"{label_text} {value_text}"
+
+
 # ---------------------------------------------------------------------------
 # Terminal I/O
 # ---------------------------------------------------------------------------
@@ -199,29 +208,33 @@ def select_option(title: str, options: list[MenuOption]) -> int | None:
         idx = _choice_index(choice)
         if 0 <= idx < len(options):
             return idx
-        direct_print("Unknown option.")
+        direct_print(menu_label_value("state", "unknown option"))
 
 
 def _print_options(title: str, options: list[MenuOption]) -> None:
-    direct_print(styled(title, STYLE_PROMPT))
+    direct_print(styled(menu_label_value("menu", title), STYLE_PROMPT))
     max_label = max(visible_len(option.label) for option in options)
-    for option in options:
-        direct_print(_option_line(option, max_label=max_label))
-    direct_print(f"  {styled('q.', STYLE_DIM)} cancel")
+    index_width = len(f"{len(options)}.")
+    for index, option in enumerate(options, start=1):
+        direct_print(
+            _option_line(option, index=index, index_width=index_width, max_label=max_label)
+        )
+    direct_print(f"  {styled('q.'.rjust(index_width), STYLE_DIM)} CANCEL")
 
 
-def _option_line(option: MenuOption, *, max_label: int) -> str:
-    active = styled("active", STYLE_PROMPT) if option.is_current else ""
+def _option_line(option: MenuOption, *, index: int, index_width: int, max_label: int) -> str:
+    prefix = styled(f"{index}.".rjust(index_width), STYLE_DIM)
+    active = styled("STATE current", STYLE_PROMPT) if option.is_current else ""
     suffix = f"  {active}" if active else ""
     if not option.description:
-        return f"  {styled(option.label, BOLD)}{suffix}"
+        return f"  {prefix} {styled(option.label, BOLD)}{suffix}"
     description = styled(option.description, STYLE_DIM)
-    return f"  {option.label.ljust(max_label)}  {description}{suffix}"
+    return f"  {prefix} {option.label.ljust(max_label)}  {description}{suffix}"
 
 
 def _read_menu_choice() -> str | None:
     try:
-        return direct_input("\n  select > ").strip().lower().removeprefix("/")
+        return direct_input("\n  SELECT > ").strip().lower().removeprefix("/")
     except (KeyboardInterrupt, EOFError):
         return None
 
@@ -235,8 +248,8 @@ def _choice_index(choice: str) -> int:
 
 def confirm(title: str, default: bool = False) -> bool:
     opts = [
-        MenuOption("Yes", "", is_current=default),
-        MenuOption("No", "", is_current=not default),
+        MenuOption("YES", "", is_current=default),
+        MenuOption("NO", "", is_current=not default),
     ]
     selected = select_option(title, opts)
     return selected == 0

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from interfaces.terminal import STYLE_PROMPT, styled
+from interfaces.terminal import STYLE_PROMPT, styled, visible_len
 
 from heph.commands._base import Command, CommandResult, get_registry_lazy
 
@@ -23,24 +23,23 @@ class HelpCommand(Command):
             (f"/{cmd.name}", cmd.description)
             for cmd in sorted(registry.commands, key=lambda c: c.name)
         ]
-        input_entries = [("/help", "Show command reference")]
+        input_entries = [("COMMAND", "/help")]
         shortcut_entries = [
-            ("Up/Down", "Browse input history"),
-            ("Tab", "Autocomplete slash commands"),
-            ("Shift+Enter/Ctrl+J", "Insert newline"),
-            ("Ctrl+C", "Exit Heph"),
-            ("Ctrl+D", "Exit Heph"),
+            ("HISTORY", "up/down"),
+            ("COMPLETE", "tab"),
+            ("NEWLINE", "shift+enter/ctrl+j"),
+            ("EXIT", "ctrl+c"),
+            ("EXIT", "ctrl+d"),
         ]
-        label_width = _help_label_width(command_entries, input_entries, shortcut_entries)
         lines: list[str] = []
-        lines.append(styled("Commands", STYLE_PROMPT))
-        lines.extend(_format_help_entries(command_entries, label_width=label_width))
+        lines.append(_help_section("commands"))
+        lines.extend(_format_help_entries(command_entries))
         lines.append("")
-        lines.append(styled("Input", STYLE_PROMPT))
-        lines.extend(_format_help_entries(input_entries, label_width=label_width))
+        lines.append(_help_section("input"))
+        lines.extend(_format_help_entries(input_entries))
         lines.append("")
-        lines.append(styled("Shortcuts", STYLE_PROMPT))
-        lines.extend(_format_help_entries(shortcut_entries, label_width=label_width))
+        lines.append(_help_section("shortcuts"))
+        lines.extend(_format_help_entries(shortcut_entries))
         lines.append("")
         print("\n".join(lines))
         return CommandResult()
@@ -57,9 +56,26 @@ class ExitCommand(Command):
 
 
 def _help_label_width(*groups: list[_HelpEntry]) -> int:
-    return max((len(label) for group in groups for label, _description in group), default=0)
+    return max(
+        (visible_len(label) for group in groups for label, _description in group),
+        default=0,
+    )
 
 
-def _format_help_entries(entries: list[_HelpEntry], *, label_width: int) -> list[str]:
+def _help_section(label: str) -> str:
+    return styled(label.strip().upper(), STYLE_PROMPT)
+
+
+def _format_help_entries(entries: list[_HelpEntry]) -> list[str]:
+    label_width = _help_label_width(entries)
     gap = " " * _HELP_ENTRY_GAP
-    return [f"  {label:<{label_width}}{gap}{description}" for label, description in entries]
+    return [
+        f"  {_pad_visible(label, label_width)}{gap}{description}" for label, description in entries
+    ]
+
+
+def _pad_visible(value: str, width: int) -> str:
+    padding = width - visible_len(value)
+    if padding <= 0:
+        return value
+    return f"{value}{' ' * padding}"

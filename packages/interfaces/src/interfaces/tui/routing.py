@@ -17,6 +17,7 @@ _LOCAL_COMMAND_ACTIONS = {"search", "install", "status", "revalidate", "stop"}
 
 class TuiInputRoute(Enum):
     EMPTY = "empty"
+    HELP = "help"
     MATERIALS = "materials"
     KEYMAP = "keymap"
     SESSIONS = "sessions"
@@ -33,6 +34,9 @@ class TuiInputRoute(Enum):
 
 
 _INLINE_ROUTES = {
+    "?": TuiInputRoute.HELP,
+    "h": TuiInputRoute.HELP,
+    "help": TuiInputRoute.HELP,
     "materials": TuiInputRoute.MATERIALS,
     "keymap": TuiInputRoute.KEYMAP,
     "sessions": TuiInputRoute.SESSIONS,
@@ -77,6 +81,21 @@ def local_picker_query(value: str) -> str | None:
         return remainder
     if action == "install" and not remainder:
         return ""
+    return None
+
+
+def local_install_target(value: str) -> str | None:
+    stripped = value.strip()
+    if not stripped.startswith("/"):
+        return None
+
+    command, _, args = stripped[1:].partition(" ")
+    if command.lower() != "local":
+        return None
+
+    action, remainder = _split_local_args(args)
+    if action == "install" and remainder:
+        return remainder
     return None
 
 

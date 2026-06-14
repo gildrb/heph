@@ -13,6 +13,7 @@ from interfaces.terminal import (
     MenuOption,
     confirm,
     direct_input,
+    menu_label_value,
     print_error,
     print_info,
     print_success,
@@ -29,12 +30,16 @@ class LoginCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         del args
         options = [
-            MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
-            MenuOption("OpenAI API key", "Use OpenAI API billing and models"),
-            MenuOption("OpenRouter API key", "Unlock OpenRouter models"),
-            MenuOption("Z.AI API key", "Unlock GLM models"),
-            MenuOption("Custom endpoint", "OpenAI-compatible base URL, model, and API key"),
-            MenuOption("DeepSeek API key", "Use DeepSeek's official API and reasoning controls"),
+            MenuOption("CODEX", menu_label_value("account", "chatgpt plus/pro subscription")),
+            MenuOption("OPENAI", menu_label_value("key", "api key")),
+            MenuOption("OPENROUTER", menu_label_value("key", "api key")),
+            MenuOption("Z.AI", menu_label_value("key", "api key")),
+            MenuOption(
+                "CUSTOM",
+                f"{menu_label_value('endpoint', 'openai-compatible base url')}  "
+                f"{menu_label_value('model', 'custom')}",
+            ),
+            MenuOption("DEEPSEEK", menu_label_value("key", "api key")),
         ]
 
         selected = select_option("Login to provider", options)
@@ -130,19 +135,25 @@ class LoginCommand(Command):
 
 def _logout_targets() -> list[tuple[str, str, str]]:
     pc = ProviderConfig.load()
-    targets: list[tuple[str, str, str]] = []
     oauth_providers = set(oauth.list_providers())
-    for slug in sorted(oauth_providers):
-        display = pc.providers[slug].display_name if slug in pc.providers else slug
-        targets.append((slug, "oauth", f"{display} subscription"))
+    targets = [
+        (slug, "oauth", menu_label_value("account", "subscription"))
+        for slug in sorted(oauth_providers)
+    ]
 
-    for slug, provider in pc.providers.items():
+    for slug in pc.providers:
         has_keychain_key = keyring_store.retrieve_key(slug) is not None
         has_volatile_key = get_volatile(slug) is not None
         if not has_keychain_key and not has_volatile_key:
             continue
         source = "keychain" if has_keychain_key else "session-only key"
-        targets.append((slug, "api_key", f"{provider.display_name} API key ({source})"))
+        targets.append(
+            (
+                slug,
+                "api_key",
+                f"{menu_label_value('key', 'api key')}  {menu_label_value('source', source)}",
+            )
+        )
     return targets
 
 
@@ -162,6 +173,18 @@ def _clear_logout_target(slug: str, kind: str) -> None:
         oauth.clear_credentials(slug)
         return
     clear_key(slug)
+
+
+def _provider_menu_label(slug: str, display_name: str) -> str:
+    labels_by_slug = {
+        "custom": "CUSTOM",
+        "deepseek": "DEEPSEEK",
+        "openai": "OPENAI",
+        "openai-codex": "CODEX",
+        "openrouter": "OPENROUTER",
+        "zai": "Z.AI",
+    }
+    return labels_by_slug.get(slug, display_name.strip().upper())
 
 
 def _store_api_key(slug: str, raw_key: str) -> str:
@@ -201,8 +224,11 @@ class LogoutCommand(Command):
                 print_info("Cancelled.")
             return CommandResult()
 
-        options = [MenuOption(slug, description) for slug, _kind, description in credentials]
-        options.append(MenuOption("All", "Clear every stored subscription and API key"))
+        options = [
+            MenuOption(_provider_menu_label(slug, slug), description)
+            for slug, _kind, description in credentials
+        ]
+        options.append(MenuOption("ALL", menu_label_value("action", "clear stored")))
         selected = select_option("Log out of", options)
         if selected is None:
             return CommandResult()

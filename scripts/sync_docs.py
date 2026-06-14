@@ -17,7 +17,6 @@ from heph.cli.main import build_parser
 from heph.commands import get_registry
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.memory.extract import EXTRACTION_MODEL_ENV
-from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
@@ -28,6 +27,8 @@ from hephaion.privacy.consent import (
 from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
+
+from hephaion.parameters import cli as parameters_cli
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -175,10 +176,10 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Export local numeric learning-attempt data to an armory-local "
         "PufferLib Constellation `experiments.json` file."
     ),
-    "heph local search [query]": "Search public non-gated GGUF models on Hugging Face.",
+    "heph local search [query]": "Browse curated GGUF models.",
     "heph local install <repo-or-path>": (
-        "Install a Hugging Face GGUF model or local `.gguf` path, then activate it only if "
-        "it passes Heph's tool-call probe."
+        "Install a curated GGUF model or local `.gguf` path after confirmation, "
+        "then activate it only if it passes Heph's tool-call probe."
     ),
     "heph local status": "Show managed llama.cpp cache, server, and installed-model status.",
     "heph local revalidate <model-id>": "Rerun the tool-call probe for an installed local model.",

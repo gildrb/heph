@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from hephaion.memory import MemoryEntry
-
 from heph.commands._base import Command, CommandResult, ensure_session
 from heph.commands.terminal_text import terminal_safe_text
+from hephaion.memory import MemoryEntry
 
 
 def _format_memory_entry(entry: MemoryEntry) -> str:

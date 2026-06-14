@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 
 import hephaion.chat.storage as chat_storage
@@ -12,8 +12,12 @@ from hephaion.chat.session import (
     resume_session,
     save_session,
 )
+from hephaion.chat.titles import sanitize_title_text
 from hephaion.chat.turn_history import TurnSnapshot
 
+from interfaces.tui.cell_text import cell_width as _cell_width
+from interfaces.tui.cell_text import pad_cell_right as _pad_cell_right
+from interfaces.tui.display_text import label_value_line, menu_label_value
 from interfaces.tui.inline_menu import (
     _session_option_description,
     _turn_option_description,
@@ -37,6 +41,8 @@ _SESSION_LATEST_COMMANDS = {"resume", "last", "latest"}
 _TURN_LIST_COMMANDS = {"list", "history"}
 _TURN_BROWSE_COMMANDS = {"", "browse", "menu"}
 _TURN_LATEST_COMMANDS = {"resume", "last", "latest"}
+_SESSION_LIST_FIELD_GAP = "  "
+_TURN_LIST_PREVIEW_LIMIT = 64
 
 
 class _SessionFlowHost(Protocol):
@@ -202,11 +208,7 @@ class TuiSessionFlowMixin:
         self: _SessionFlowHost,
         sessions: list[chat_storage.SessionRecord],
     ) -> None:
-        lines = [f"Saved sessions for {self.session.armory_path}:"]
-        for entry in sessions:
-            title = entry["title"] or "(untitled)"
-            lines.append(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
-        self._append_plain("\n".join(lines))
+        self._append_plain(_session_records_text(sessions, armory=self.session.armory_path))
 
     def _open_session_menu(
         self: _SessionFlowHost,
@@ -215,7 +217,7 @@ class TuiSessionFlowMixin:
         self._open_inline_menu(
             name="sessions",
             step="menu",
-            title="Sessions  choose a chat to resume",
+            title=f"Sessions  {menu_label_value('action', 'resume')}",
             options=[
                 (
                     entry["session_id"],
@@ -226,11 +228,7 @@ class TuiSessionFlowMixin:
         )
 
     def _show_turn_records(self: _SessionFlowHost, snapshots: list[TurnSnapshot]) -> None:
-        lines = ["Completed turns in this chat:"]
-        lines.extend(
-            f"  {snapshot.turn_id}  {_turn_option_description(snapshot)}" for snapshot in snapshots
-        )
-        self._append_plain("\n".join(lines))
+        self._append_plain(_turn_records_text(snapshots))
 
     def _open_turn_menu(
         self: _SessionFlowHost,
@@ -239,7 +237,7 @@ class TuiSessionFlowMixin:
         self._open_inline_menu(
             name="turn",
             step="menu",
-            title="Turn  choose a message to branch from",
+            title=f"Turn  {menu_label_value('action', 'branch')}",
             options=[
                 (
                     snapshot.turn_id,
@@ -314,3 +312,70 @@ class TuiSessionFlowMixin:
                 self._append_entry(message.content, "user")
             elif message.role == "assistant":
                 self._append_entry(message.content, "markdown")
+
+
+def _session_records_text(
+    sessions: list[chat_storage.SessionRecord],
+    *,
+    armory: object,
+) -> str:
+    rows = [
+        (
+            label_value_line("session", entry["session_id"]),
+            label_value_line("title", _session_record_title(entry)),
+            label_value_line("updated", entry["updated_at"]),
+        )
+        for entry in sessions
+    ]
+    widths = _field_widths(rows)
+    lines = [
+        f"{label_value_line('sessions', len(sessions))}  {label_value_line('armory', armory)}"
+    ]
+    lines.extend(_aligned_record_row(row, widths) for row in rows)
+    return "\n".join(lines)
+
+
+def _turn_records_text(snapshots: list[TurnSnapshot]) -> str:
+    rows = [
+        (
+            label_value_line("turn", snapshot.turn_id),
+            label_value_line("question", _turn_record_question(snapshot)),
+            _turn_record_evidence(snapshot),
+        )
+        for snapshot in snapshots
+    ]
+    widths = _field_widths(rows)
+    lines = [label_value_line("turns", len(snapshots))]
+    lines.extend(_aligned_record_row(row, widths) for row in rows)
+    return "\n".join(lines)
+
+
+def _session_record_title(entry: chat_storage.SessionRecord) -> str:
+    title = sanitize_title_text(entry["title"], max_chars=max(1, len(entry["title"])))
+    return title or "(untitled)"
+
+
+def _turn_record_question(snapshot: TurnSnapshot) -> str:
+    preview = " ".join(snapshot.user_input.split())
+    if len(preview) > _TURN_LIST_PREVIEW_LIMIT:
+        return f"{preview[: _TURN_LIST_PREVIEW_LIMIT - 3]}..."
+    return preview
+
+
+def _turn_record_evidence(snapshot: TurnSnapshot) -> str:
+    evidence_count = len(snapshot.evidence.items) if snapshot.evidence is not None else 0
+    return label_value_line("evidence", evidence_count or "none")
+
+
+def _field_widths(rows: Sequence[Sequence[str]]) -> tuple[int, ...]:
+    if not rows:
+        return ()
+    return tuple(max(_cell_width(row[index]) for row in rows) for index in range(len(rows[0])))
+
+
+def _aligned_record_row(row: Sequence[str], widths: Sequence[int]) -> str:
+    fields = [
+        _pad_cell_right(field, widths[index]) if index + 1 < len(row) else field
+        for index, field in enumerate(row)
+    ]
+    return f"  {_SESSION_LIST_FIELD_GAP.join(fields)}"

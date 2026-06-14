@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
 
+from interfaces.tui.cell_text import cell_width, truncate_with_ellipsis
+
 if TYPE_CHECKING:
     from hephaion.chat.session import ChatSession
 
@@ -20,20 +22,16 @@ _DEFAULT_STATUS_TITLE = "Heph"
 
 
 def status_lines(
-    session: ChatSession, *, draft: str = "", title: str = _DEFAULT_STATUS_TITLE
+    session: ChatSession,
+    *,
+    draft: str = "",
+    title: str = _DEFAULT_STATUS_TITLE,
+    width: int | None = None,
 ) -> str:
     # Draft text is not usage until a provider records the turn.
     _ = draft
     display_title = title.strip() or _DEFAULT_STATUS_TITLE
-    armory = "none"
-    if session.armory_path is not None:
-        try:
-            path = session.armory_path.expanduser().resolve(strict=False)
-            armory = f"~/{path.relative_to(Path.home())}"
-        except ValueError:
-            armory = str(session.armory_path)
-        if len(armory) > 48:
-            armory = f"...{armory[-45:]}"
+    armory = _status_armory(session)
     model = session.config.model or "none"
     fields = [
         ("armory", armory),
@@ -41,9 +39,80 @@ def status_lines(
         ("reasoning", session.config.reasoning_level),
         *_live_usage_fields(session),
     ]
+    if width is not None:
+        fields = _fit_status_fields(display_title, fields, width)
+    return _format_status_fields(display_title, fields)
+
+
+def _format_status_fields(title: str, fields: list[tuple[str, str]]) -> str:
     return STATUS_FIELD_GAP.join(
-        (display_title, *(f"{label.upper()} {value.lower()}" for label, value in fields))
+        (title, *(f"{label.upper()} {value.lower()}" for label, value in fields))
     )
+
+
+def _status_armory(session: ChatSession) -> str:
+    if session.armory_path is None:
+        return "none"
+    try:
+        path = session.armory_path.expanduser().resolve(strict=False)
+        armory = f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        armory = str(session.armory_path)
+    if cell_width(armory) > 48:
+        return f"...{armory[-45:]}"
+    return armory
+
+
+def _fit_status_fields(
+    title: str,
+    fields: list[tuple[str, str]],
+    width: int,
+) -> list[tuple[str, str]]:
+    if width <= 0:
+        return fields
+    fitted = list(fields)
+    for label in ("armory", "model", "tokens", "cost"):
+        fitted = _shrink_status_field(title, fitted, label, width)
+        if cell_width(_format_status_fields(title, fitted)) <= width:
+            return fitted
+    return fitted
+
+
+def _shrink_status_field(
+    title: str,
+    fields: list[tuple[str, str]],
+    label_to_shrink: str,
+    width: int,
+) -> list[tuple[str, str]]:
+    plain = _format_status_fields(title, fields)
+    overflow = cell_width(plain) - width
+    if overflow <= 0:
+        return fields
+    shrunk: list[tuple[str, str]] = []
+    for label, value in fields:
+        if label != label_to_shrink:
+            shrunk.append((label, value))
+            continue
+        value_width = cell_width(value)
+        min_width = _status_field_min_width(label, value)
+        if value_width <= min_width:
+            shrunk.append((label, value))
+            continue
+        next_width = max(min_width, value_width - overflow)
+        shrunk.append((label, truncate_with_ellipsis(value, next_width)))
+    return shrunk
+
+
+def _status_field_min_width(label: str, value: str) -> int:
+    if not value:
+        return 0
+    if label == "cost":
+        return min(cell_width(value), cell_width("$0.000"))
+    if label == "tokens":
+        return cell_width(value)
+    if value == "none":
+        return cell_width(value)
+    return min(cell_width(value), 4)
 
 
 def status_labels(session: ChatSession) -> tuple[str, ...]:

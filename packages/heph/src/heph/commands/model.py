@@ -6,13 +6,14 @@ from collections.abc import Sequence
 
 from ai.providers.config import ProviderConfig
 from ai.providers.endpoints import provider_uses_keyless_access
-from ai.providers.model_choices import configured_model_choices, model_free_description
+from ai.providers.model_choices import configured_model_choices
 from ai.runtime import ChatConfig
 from hephaion.chat.model_selection import switch_model
 from hephaion.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
     STYLE_DIM,
     MenuOption,
+    menu_label_value,
     print_error,
     print_success,
     select_option,
@@ -113,9 +114,11 @@ def _model_option_description(
     is_free: bool,
     is_current: bool,
 ) -> str:
-    parts = [f"via {display_name}"]
+    parts = [menu_label_value("provider", display_name)]
     if is_free:
-        parts.append(model_free_description(pc.providers[slug].endpoint, provider_slug=slug))
+        parts.append(menu_label_value("cost", "free"))
+        if not provider_uses_keyless_access(slug, pc.providers[slug].endpoint):
+            parts.append(menu_label_value("auth", "api key required"))
     if is_current:
-        parts.append("current")
+        parts.append(menu_label_value("state", "current"))
     return "  ".join(parts)

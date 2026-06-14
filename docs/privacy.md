@@ -162,7 +162,8 @@ Hephaion makes network connections only to:
 
 1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
 2. **Hugging Face and llama.cpp release downloads** - only when you use
-   `heph local` or `/local` to search for, install, or update local GGUF models
+   `heph local` or `/local` to browse curated local models, install
+   them, or update local GGUF model support
 3. **Package managers** (uv, pip) - for updates/dependencies
 4. **Web pages requested through the `web_fetch` tool** - only when a model tool
    call asks Heph to fetch a URL because armory material is insufficient

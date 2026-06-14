@@ -492,7 +492,9 @@ class TestHandleInput:
 
         output = capsys.readouterr().out
         assert should_continue is True
-        assert "Commands" in output
+        assert "COMMANDS" in output
+        assert "INPUT" in output
+        assert "SHORTCUTS" in output
         assert "/help" in output
         assert "/status" in output
         columns = {
@@ -500,12 +502,19 @@ class TestHandleInput:
             for line in output.splitlines()
             for description in (
                 "Show available commands",
-                "Show command reference",
-                "Insert newline",
+                "Practice vocabulary translations from your materials",
             )
             if description in line
         }
-        assert columns == {len("  Shift+Enter/Ctrl+J") + 4}
+        shortcut_columns = {
+            line.index(key)
+            for line in output.splitlines()
+            for key in ("up/down", "tab", "shift+enter/ctrl+j", "ctrl+c", "ctrl+d")
+            if key in line
+            and line.strip().split(maxsplit=1)[0] in {"HISTORY", "COMPLETE", "NEWLINE", "EXIT"}
+        }
+        assert columns == {len("  /vocabulary") + 4}
+        assert shortcut_columns == {len("  COMPLETE") + 4}
         assert history.entries[-1] == "/help"
 
 

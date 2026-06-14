@@ -15,6 +15,7 @@ from ai.providers.catalog import LiveProviderCatalog
 from ai.providers.config import Provider, ProviderConfig, default_config
 from ai.providers.llama_cpp import (
     LLAMA_CPP_PROVIDER_SLUG,
+    LlamaCppCandidate,
     LlamaCppInstallResult,
     LlamaCppModelRecord,
     LlamaCppServerState,
@@ -24,17 +25,18 @@ from ai.providers.registry import ModelInfo
 from ai.runtime import ChatConfig, Conversation
 from heph import commands
 from hephaion.armory.storage import initialize
-from hephaion.chat import model_selection as _model_selection
 from hephaion.chat.session import ChatSession, create_plain_session
-from hephaion.memory import MemoryStore
-from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
-from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
 from hephaion.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from hephaion.study.schedule import load_recall_schedule
 from interfaces.terminal import MenuOption
 from interfaces.terminal.source_open import SourceOpenResult
+
+from hephaion.chat import model_selection as _model_selection
+from hephaion.memory import MemoryStore
+from hephaion.parameters import settings as settings_store
+from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
 
 
 class _FakePriorityPdfCompiler:
@@ -566,6 +568,28 @@ def test_stats_command_reports_study_recall_timing(
     assert "Scheduled: 1 item(s)" in out
 
 
+def test_terminal_study_rating_menu_uses_label_value_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    visible_options: list[MenuOption] = []
+
+    def capture_options(_title: str, options: list[MenuOption]) -> int:
+        visible_options.extend(options)
+        return 0
+
+    monkeypatch.setattr(_learning_commands, "select_option", capture_options)
+
+    rating = _learning_commands.TerminalDrillUi().prompt_rating()
+
+    assert rating is _learning_commands.Rating.HARD
+    assert [option.label for option in visible_options] == ["HARD", "GOOD", "EASY"]
+    assert [option.description for option in visible_options] == [
+        "EFFORT had to think",
+        "EFFORT knew it",
+        "EFFORT instant recall",
+    ]
+
+
 def test_command_registry_uses_models_not_model() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
@@ -703,7 +727,9 @@ def test_models_command_shows_live_openrouter_models(
         "poolside/laguna-m.1:free",
         "google/gemini-3-flash-preview",
     ]
-    assert visible_options[0].description == "via OpenRouter  free, API key required"
+    assert (
+        visible_options[0].description == "PROVIDER openrouter  COST free  AUTH api key required"
+    )
 
 
 def test_model_choices_hide_active_openai_codex_without_oauth(
@@ -983,6 +1009,16 @@ def test_local_command_activates_tool_capable_install(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = create_plain_session(ChatConfig(base_url="", model=""))
+    candidate = LlamaCppCandidate(
+        repo_id="acme/model",
+        filename="model-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        downloads=0,
+        likes=0,
+        size_bytes=2_497_280_256,
+        display_name="Acme Model",
+        recommended_ram_gb=8,
+    )
     record = LlamaCppModelRecord(
         model_id="llama-cpp/acme/model:Q4_K_M",
         repo_id="acme/model",
@@ -1002,6 +1038,8 @@ def test_local_command_activates_tool_capable_install(
     )
     activated: list[tuple[str, str]] = []
 
+    monkeypatch.setattr(_commands_local, "find_hf_candidate", lambda _target: candidate)
+    monkeypatch.setattr(_commands_local, "confirm", lambda _title, default=False: True)
     monkeypatch.setattr(_commands_local, "install_local_target", lambda _target: result)
     monkeypatch.setattr(
         _commands_local,
@@ -1016,10 +1054,48 @@ def test_local_command_activates_tool_capable_install(
     assert activated == [(record.model_id, session.session_id)]
 
 
+def test_local_command_search_descriptions_use_label_value_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="", model=""))
+    candidate = LlamaCppCandidate(
+        repo_id="acme/model",
+        filename="model-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        downloads=0,
+        likes=0,
+        size_bytes=2_497_280_256,
+        display_name="Acme Model",
+        recommended_ram_gb=8,
+    )
+    visible_options: list[MenuOption] = []
+
+    def capture_options(_title: str, options: list[MenuOption]) -> None:
+        visible_options.extend(options)
+
+    monkeypatch.setattr(_commands_local, "search_gguf_models", lambda _query, limit: [candidate])
+    monkeypatch.setattr(_commands_local, "select_option", capture_options)
+    monkeypatch.setattr(_commands_local, "print_info", lambda _message: None)
+
+    commands.LocalCommand().handle(session, "qwen")
+
+    assert visible_options[0].description == "QUANT q4_k_m  SIZE 2.3 gb  RAM 8 gb"
+
+
 def test_local_command_keeps_failed_probe_unselectable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = create_plain_session(ChatConfig(base_url="", model=""))
+    candidate = LlamaCppCandidate(
+        repo_id="acme/model",
+        filename="model-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        downloads=0,
+        likes=0,
+        size_bytes=2_497_280_256,
+        display_name="Acme Model",
+        recommended_ram_gb=8,
+    )
     record = LlamaCppModelRecord(
         model_id="llama-cpp/acme/model:Q4_K_M",
         repo_id="acme/model",
@@ -1039,6 +1115,8 @@ def test_local_command_keeps_failed_probe_unselectable(
     )
     messages: list[str] = []
 
+    monkeypatch.setattr(_commands_local, "find_hf_candidate", lambda _target: candidate)
+    monkeypatch.setattr(_commands_local, "confirm", lambda _title, default=False: True)
     monkeypatch.setattr(_commands_local, "install_local_target", lambda _target: result)
     monkeypatch.setattr(
         _commands_local,
@@ -1053,6 +1131,57 @@ def test_local_command_keeps_failed_probe_unselectable(
         "Local model installed but not activated because the tool-call probe failed: "
         "model did not return a tool call"
     ]
+
+
+def test_local_command_cancel_does_not_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="", model=""))
+    candidate = LlamaCppCandidate(
+        repo_id="acme/model",
+        filename="model-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        downloads=0,
+        likes=0,
+        size_bytes=2_497_280_256,
+        display_name="Acme Model",
+        recommended_ram_gb=8,
+    )
+    messages: list[str] = []
+    installs: list[str] = []
+
+    monkeypatch.setattr(_commands_local, "find_hf_candidate", lambda _target: candidate)
+    monkeypatch.setattr(_commands_local, "confirm", lambda _title, default=False: False)
+    monkeypatch.setattr(_commands_local, "install_local_target", installs.append)
+    monkeypatch.setattr(_commands_local, "print_info", messages.append)
+
+    commands.LocalCommand().handle(session, "install acme/model:Q4_K_M")
+
+    assert installs == []
+    assert messages == ["Cancelled."]
+
+
+def test_local_command_status_prints_revalidatable_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(base_url="", model=""))
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M",
+        repo_id="Qwen/Qwen3-4B-GGUF",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+
+    monkeypatch.setattr(_commands_local, "current_server_state", lambda: None)
+    monkeypatch.setattr(_commands_local, "installed_records", lambda: [record])
+
+    commands.LocalCommand().handle(session, "status")
+
+    out = capsys.readouterr().out
+    assert "Qwen3 4B" in out
+    assert "MODEL llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M" in out
 
 
 def test_models_command_reports_no_matching_model(

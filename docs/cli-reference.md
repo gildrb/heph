@@ -19,8 +19,8 @@
 | `heph learning train [path]` | Train a local PufferLib harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
 | `heph learning auto-train [path]` | Run the local learning automation gate; trains with PufferLib only when enough new armory attempts exist. |
 | `heph learning constellation-export [path]` | Export local numeric learning-attempt data to an armory-local PufferLib Constellation `experiments.json` file. |
-| `heph local search [query]` | Search public non-gated GGUF models on Hugging Face. |
-| `heph local install <repo-or-path>` | Install a Hugging Face GGUF model or local `.gguf` path, then activate it only if it passes Heph's tool-call probe. |
+| `heph local search [query]` | Browse curated GGUF models. |
+| `heph local install <repo-or-path>` | Install a curated GGUF model or local `.gguf` path after confirmation, then activate it only if it passes Heph's tool-call probe. |
 | `heph local status` | Show local llama.cpp status. |
 | `heph local revalidate <model-id>` | Rerun the tool-call probe for an installed local model. |
 | `heph local stop` | Stop the managed llama.cpp server. |
@@ -43,7 +43,7 @@
 | /help | Show available commands |
 | /exit | Leave Heph |
 | /login | Authenticate with a subscription or API key |
-| /local | Install and manage private tool-capable llama.cpp models |
+| /local | Install and manage curated local llama.cpp models |
 | /logout | Clear stored subscription or API-key credentials |
 | /status | Show session, usage, armory, and review info |
 | /new | Start a new chat |
@@ -69,8 +69,11 @@
 
 ## TUI keyboard shortcuts
 
-The `/keymap` slash command opens the editable shortcut map inside Heph. Some
-terminal and desktop shortcuts are reserved, so Heph rejects keys such as
+The `/keymap` slash command opens the editable shortcut map inside Heph. Choose
+an action, then select RECORD or press Enter before typing the new shortcut.
+Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keymap
+list, to restore defaults.
+Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 `ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
 
 | Shortcut | Action |

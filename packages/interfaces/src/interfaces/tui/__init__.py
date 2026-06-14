@@ -29,7 +29,10 @@ from interfaces.tui.command_access import (
 from interfaces.tui.command_access import (
     set_command_registry_fn as set_command_registry_fn,
 )
-from interfaces.tui.composer_controls import TuiComposerControlsMixin
+from interfaces.tui.composer_controls import (
+    TuiComposerControlsMixin,
+    _CompletionDisplayWidths,
+)
 from interfaces.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
 )
@@ -291,6 +294,7 @@ class HephTui(
         self._render_cache = TuiRenderCache()
         self._suggestions_mouse_hovering = False
         self._completion_command_column_width = 22
+        self._completion_display_column_widths = _CompletionDisplayWidths()
         self._side_panel_progress = ""
         self._inline_flow = _InlineFlow()
         self._resize_redraw = _ResizeRedrawState()

@@ -203,68 +203,56 @@ def test_state_file_write_falls_back_when_fchmod_is_unavailable(
     assert llama_cpp.installed_model_ids() == ["llama-cpp/acme/windows:Q4_K_M"]
 
 
-def test_search_gguf_models_requests_public_non_gated_text_generation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
+def test_search_gguf_models_returns_curated_catalog() -> None:
+    candidates = llama_cpp.search_gguf_models("", limit=100)
 
-    class _FakeHfApi:
-        def list_models(self, **kwargs: object) -> list[_Model]:
-            captured.update(kwargs)
-            return [
-                _Model(
-                    "acme/tool-model-GGUF",
-                    [
-                        _Sibling("model-Q8_0.gguf", size=8_000),
-                        _Sibling("model-Q4_K_M.gguf", size=4_000),
-                    ],
-                    downloads=42,
-                    likes=7,
-                )
-            ]
-
-    monkeypatch.setattr(llama_cpp, "HfApi", _FakeHfApi)
-
-    candidates = llama_cpp.search_gguf_models("tool", limit=500)
-
-    assert captured["filter"] == "gguf"
-    assert captured["gated"] is False
-    assert captured["pipeline_tag"] == "text-generation"
-    assert captured["limit"] == 100
-    assert captured["token"] is False
-    assert candidates[0].repo_id == "acme/tool-model-GGUF"
-    assert candidates[0].filename == "model-Q4_K_M.gguf"
-    assert candidates[0].model_id == "llama-cpp/acme/tool-model-GGUF:Q4_K_M"
+    assert candidates
+    assert candidates[0].repo_id == "LiquidAI/LFM2-350M-GGUF"
+    assert candidates[0].display_name == "LFM2 350M"
+    assert len(candidates) >= 17
+    assert all(candidate.downloads == 0 for candidate in candidates)
+    assert all(candidate.likes == 0 for candidate in candidates)
+    assert all(0 < candidate.recommended_ram_gb <= 16 for candidate in candidates)
+    assert len([candidate for candidate in candidates if candidate.recommended_ram_gb <= 6]) >= 10
+    assert llama_cpp.search_gguf_models("andycurrent", limit=10) == []
+    assert [
+        candidate.repo_id for candidate in llama_cpp.search_gguf_models("gemma", limit=10)
+    ] == [
+        "google/gemma-4-E2B-it-qat-q4_0-gguf",
+        "google/gemma-4-E4B-it-qat-q4_0-gguf",
+        "google/gemma-4-12B-it-qat-q4_0-gguf",
+    ]
 
 
-def test_find_gguf_model_honors_requested_quant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeHfApi:
-        def list_models(self, **kwargs: object) -> list[_Model]:
-            captured.update(kwargs)
-            return [
-                _Model(
-                    "acme/tool-model-GGUF",
-                    [
-                        _Sibling("model-Q4_K_M.gguf", size=4_000),
-                        _Sibling("model-Q8_0.gguf", size=8_000),
-                    ],
-                    downloads=42,
-                    likes=7,
-                )
-            ]
-
-    monkeypatch.setattr(llama_cpp, "HfApi", _FakeHfApi)
-
-    candidate = llama_cpp.find_gguf_model("acme/tool-model-GGUF", quant="Q8_0")
+def test_find_gguf_model_honors_curated_requested_quant() -> None:
+    candidate = llama_cpp.find_gguf_model("Qwen/Qwen3-4B-GGUF", quant="Q4_K_M")
 
     assert candidate is not None
-    assert captured["search"] == "acme/tool-model-GGUF"
-    assert candidate.filename == "model-Q8_0.gguf"
-    assert candidate.model_id == "llama-cpp/acme/tool-model-GGUF:Q8_0"
+    assert candidate.filename == "Qwen3-4B-Q4_K_M.gguf"
+    assert candidate.model_id == "llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M"
+    assert llama_cpp.find_gguf_model("Qwen/Qwen3-4B-GGUF", quant="Q8_0") is None
+    assert llama_cpp.find_gguf_model("Andyvurrent/Gemma-3-1B-Heretic-GGUF") is None
+
+
+def test_find_hf_candidate_accepts_repo_quant_targets() -> None:
+    candidate = llama_cpp.find_hf_candidate("Qwen/Qwen3-4B-GGUF:Q4_K_M")
+
+    assert candidate is not None
+    assert candidate.filename == "Qwen3-4B-Q4_K_M.gguf"
+    assert llama_cpp.find_hf_candidate(candidate.repo_id) == candidate
+    assert llama_cpp.find_hf_candidate("Andyvurrent/Gemma-3-1B-Heretic-GGUF") is None
+
+
+def test_find_hf_candidate_accepts_ministral_catalog_targets() -> None:
+    three_b = llama_cpp.find_hf_candidate("mistralai/Ministral-3-3B-Instruct-2512-GGUF:Q4_K_M")
+    eight_b = llama_cpp.find_hf_candidate("mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M")
+
+    assert three_b is not None
+    assert three_b.filename == "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
+    assert three_b.hf_ref == "mistralai/Ministral-3-3B-Instruct-2512-GGUF:Q4_K_M"
+    assert eight_b is not None
+    assert eight_b.filename == "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
+    assert eight_b.hf_ref == "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 
 def test_probe_tool_capability_accepts_valid_tool_call(
@@ -488,6 +476,65 @@ def test_server_command_uses_loopback_alias_hf_and_cache_file_selection() -> Non
         "-hff",
         "model-Q4_K_M.gguf",
     ]
+
+
+def test_install_local_target_uses_local_path_and_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "local.gguf"
+    model_path.write_bytes(b"gguf")
+    result = llama_cpp.LlamaCppInstallResult(
+        record=LlamaCppModelRecord(model_id="llama-cpp/custom"),
+        capability=ToolCapabilityResult(True),
+        server=LlamaCppServerState(
+            pid=12345,
+            endpoint=LLAMA_CPP_DEFAULT_BASE_URL,
+            model_id="",
+            started_at=1.0,
+        ),
+    )
+    calls: list[tuple[Path, str | None]] = []
+
+    def fake_install_local_model(
+        path: Path,
+        *,
+        model_id: str | None = None,
+    ) -> llama_cpp.LlamaCppInstallResult:
+        calls.append((path, model_id))
+        return result
+
+    monkeypatch.setattr(llama_cpp, "install_local_model", fake_install_local_model)
+
+    assert llama_cpp.install_local_target(str(model_path), model_id="custom") is result
+    assert calls == [(model_path, "custom")]
+
+
+def test_install_local_target_uses_hf_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+    candidate = llama_cpp.find_hf_candidate("Qwen/Qwen3-4B-GGUF:Q4_K_M")
+    assert candidate is not None
+    result = llama_cpp.LlamaCppInstallResult(
+        record=LlamaCppModelRecord(model_id=candidate.model_id),
+        capability=ToolCapabilityResult(True),
+        server=LlamaCppServerState(
+            pid=12345,
+            endpoint=LLAMA_CPP_DEFAULT_BASE_URL,
+            model_id="",
+            started_at=1.0,
+        ),
+    )
+    calls: list[llama_cpp.LlamaCppCandidate] = []
+
+    def fake_install_hf_model(
+        selected_candidate: llama_cpp.LlamaCppCandidate,
+    ) -> llama_cpp.LlamaCppInstallResult:
+        calls.append(selected_candidate)
+        return result
+
+    monkeypatch.setattr(llama_cpp, "install_hf_model", fake_install_hf_model)
+
+    assert llama_cpp.install_local_target(candidate.hf_ref) is result
+    assert calls == [candidate]
 
 
 def test_install_local_model_namespaces_custom_alias(

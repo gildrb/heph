@@ -19,12 +19,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import certifi
-from huggingface_hub import HfApi
 
 from ai.providers.registry import ModelInfo
 from ai.types import is_object_list, is_string_mapping
@@ -74,6 +73,9 @@ class LlamaCppCandidate:
     downloads: int
     likes: int
     size_bytes: int
+    display_name: str = ""
+    recommended_ram_gb: int = 0
+    summary: str = ""
 
     @property
     def model_id(self) -> str:
@@ -87,6 +89,8 @@ class LlamaCppCandidate:
 
     @property
     def label(self) -> str:
+        if self.display_name:
+            return self.display_name
         quant = f" {self.quant}" if self.quant else ""
         size = _format_bytes(self.size_bytes)
         size_suffix = f" {size}" if size else ""
@@ -137,6 +141,17 @@ class LlamaCppInstallResult:
 
 
 @dataclass(frozen=True, slots=True)
+class _LlamaCppCatalogEntry:
+    repo_id: str
+    filename: str
+    quant: str
+    display_name: str
+    size_bytes: int
+    recommended_ram_gb: int
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
 class _LlamaCppState:
     records: list[LlamaCppModelRecord]
     server: LlamaCppServerState | None = None
@@ -181,6 +196,171 @@ _RELEASE_ASSETS: tuple[LlamaCppReleaseAsset, ...] = (
     ),
 )
 
+_CURATED_GGUF_MODELS: tuple[_LlamaCppCatalogEntry, ...] = (
+    _LlamaCppCatalogEntry(
+        repo_id="LiquidAI/LFM2-350M-GGUF",
+        filename="LFM2-350M-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="LFM2 350M",
+        size_bytes=229_309_376,
+        recommended_ram_gb=4,
+        summary="Liquid AI edge release; tiniest general chat option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
+        filename="smollm2-360m-instruct-q8_0.gguf",
+        quant="Q8_0",
+        display_name="SmolLM2 360M Instruct",
+        size_bytes=386_404_992,
+        recommended_ram_gb=4,
+        summary="Hugging Face TB tiny instruct release; fastest low-resource option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+        filename="qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        quant="Q4_K_M",
+        display_name="Qwen2.5 0.5B Instruct",
+        size_bytes=491_400_032,
+        recommended_ram_gb=4,
+        summary="Qwen release; tiny general instruction model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen3-0.6B-GGUF",
+        filename="Qwen3-0.6B-Q8_0.gguf",
+        quant="Q8_0",
+        display_name="Qwen3 0.6B",
+        size_bytes=639_446_688,
+        recommended_ram_gb=4,
+        summary="official Qwen release; smallest Qwen3 text-generation model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="allenai/OLMo-2-0425-1B-Instruct-GGUF",
+        filename="OLMo-2-0425-1B-Instruct-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="OLMo 2 1B Instruct",
+        size_bytes=935_515_296,
+        recommended_ram_gb=4,
+        summary="official AllenAI release; compact open instruct model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+        filename="smollm2-1.7b-instruct-q4_k_m.gguf",
+        quant="Q4_K_M",
+        display_name="SmolLM2 1.7B Instruct",
+        size_bytes=1_055_609_536,
+        recommended_ram_gb=6,
+        summary="Hugging Face TB small instruct release; low-memory daily use",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        filename="qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        quant="Q4_K_M",
+        display_name="Qwen2.5 1.5B Instruct",
+        size_bytes=1_117_320_736,
+        recommended_ram_gb=6,
+        summary="Qwen release; small general instruction model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+        filename="qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        quant="Q4_K_M",
+        display_name="Qwen2.5 Coder 1.5B Instruct",
+        size_bytes=1_117_320_768,
+        recommended_ram_gb=6,
+        summary="official Qwen coder release; tiny code-oriented option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="ibm-granite/granite-3.3-2b-instruct-GGUF",
+        filename="granite-3.3-2b-instruct-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="Granite 3.3 2B Instruct",
+        size_bytes=1_545_303_328,
+        recommended_ram_gb=6,
+        summary="official IBM Granite release; compact instruction model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen3-1.7B-GGUF",
+        filename="Qwen3-1.7B-Q8_0.gguf",
+        quant="Q8_0",
+        display_name="Qwen3 1.7B",
+        size_bytes=1_834_426_016,
+        recommended_ram_gb=6,
+        summary="official Qwen release; small Qwen3 reasoning model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="mistralai/Ministral-3-3B-Instruct-2512-GGUF",
+        filename="Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="Ministral 3 3B Instruct",
+        size_bytes=2_147_023_008,
+        recommended_ram_gb=8,
+        summary="official Mistral edge release; compact instruction model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="microsoft/Phi-3-mini-4k-instruct-gguf",
+        filename="Phi-3-mini-4k-instruct-q4.gguf",
+        quant="Q4_0",
+        display_name="Phi-3 Mini 4K Instruct",
+        size_bytes=2_393_231_072,
+        recommended_ram_gb=8,
+        summary="official Microsoft release; small reasoning model",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen3-4B-GGUF",
+        filename="Qwen3-4B-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="Qwen3 4B",
+        size_bytes=2_497_280_256,
+        recommended_ram_gb=8,
+        summary="official Qwen release; strong low-cost default",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="google/gemma-4-E2B-it-qat-q4_0-gguf",
+        filename="gemma-4-E2B_q4_0-it.gguf",
+        quant="Q4_0",
+        display_name="Gemma 4 E2B Instruct",
+        size_bytes=3_349_514_112,
+        recommended_ram_gb=8,
+        summary="official Google QAT release; efficient small Gemma option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="google/gemma-4-E4B-it-qat-q4_0-gguf",
+        filename="gemma-4-E4B_q4_0-it.gguf",
+        quant="Q4_0",
+        display_name="Gemma 4 E4B Instruct",
+        size_bytes=5_154_939_136,
+        recommended_ram_gb=12,
+        summary="official Google QAT release; balanced Gemma option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="Qwen/Qwen3-8B-GGUF",
+        filename="Qwen3-8B-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="Qwen3 8B",
+        size_bytes=5_027_783_488,
+        recommended_ram_gb=12,
+        summary="official Qwen release; higher-quality local option",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="mistralai/Ministral-3-8B-Instruct-2512-GGUF",
+        filename="Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        display_name="Ministral 3 8B Instruct",
+        size_bytes=5_198_911_904,
+        recommended_ram_gb=12,
+        summary="official Mistral release; agentic and JSON capable",
+    ),
+    _LlamaCppCatalogEntry(
+        repo_id="google/gemma-4-12B-it-qat-q4_0-gguf",
+        filename="gemma-4-12b-it-qat-q4_0.gguf",
+        quant="Q4_0",
+        display_name="Gemma 4 12B Instruct",
+        size_bytes=6_975_877_728,
+        recommended_ram_gb=16,
+        summary="official Google QAT release; best catalog quality, largest footprint",
+    ),
+)
+
 
 def llama_cpp_cache_dir() -> Path:
     return _CACHE_DIR
@@ -200,40 +380,74 @@ def is_llama_cpp_endpoint(base_url: str) -> bool:
 
 
 def search_gguf_models(query: str = "", *, limit: int = 20) -> list[LlamaCppCandidate]:
-    """Search public non-gated GGUF text-generation models on Hugging Face."""
+    """Return curated publisher GGUF models that fit Heph's local resource budget."""
 
-    models = _list_public_gguf_models(query, limit=limit)
-    return [
-        candidate for model in models if (candidate := _candidate_from_model(model)) is not None
-    ]
+    candidates = [_candidate_from_catalog_entry(entry) for entry in _CURATED_GGUF_MODELS]
+    terms = query.casefold().split()
+    if terms:
+        candidates = [
+            candidate
+            for candidate in candidates
+            if all(_candidate_matches_term(candidate, term) for term in terms)
+        ]
+    return candidates[: max(0, limit)]
 
 
 def find_gguf_model(repo_id: str, *, quant: str = "") -> LlamaCppCandidate | None:
-    """Find an exact public GGUF repo, optionally selecting a requested quantization."""
+    """Find an exact curated publisher GGUF repo and optional quantization."""
 
-    cleaned_repo_id = repo_id.strip()
+    cleaned_repo_id = _normalize_remote_repo_id(repo_id)
     if not cleaned_repo_id:
         return None
     requested_quant = quant.strip().upper()
-    for model in _list_public_gguf_models(cleaned_repo_id, limit=100):
-        if str(getattr(model, "id", "") or "") != cleaned_repo_id:
+    for entry in _CURATED_GGUF_MODELS:
+        if entry.repo_id != cleaned_repo_id:
             continue
-        return _candidate_from_model(model, quant=requested_quant)
+        if requested_quant and entry.quant != requested_quant:
+            return None
+        return _candidate_from_catalog_entry(entry)
     return None
 
 
-def _list_public_gguf_models(query: str, *, limit: int) -> Iterable[object]:
-    api = HfApi()
-    return api.list_models(
-        filter="gguf",
-        gated=False,
-        search=query.strip() or None,
-        pipeline_tag="text-generation",
-        sort="downloads",
-        limit=max(1, min(limit, 100)),
-        full=True,
-        token=False,
-    )
+def find_hf_candidate(target: str) -> LlamaCppCandidate | None:
+    repo_id, quant = _split_hf_target(target)
+    if quant:
+        return find_gguf_model(repo_id, quant=quant)
+    candidate = find_gguf_model(repo_id)
+    if candidate is not None:
+        return candidate
+    candidates = search_gguf_models(repo_id, limit=50)
+    for candidate in candidates:
+        if candidate.repo_id == repo_id:
+            return candidate
+    return None
+
+
+def install_local_target(target: str, *, model_id: str = "") -> LlamaCppInstallResult:
+    path = Path(target).expanduser()
+    if path.is_file() or target.casefold().endswith(".gguf"):
+        return install_local_model(path, model_id=model_id or None)
+    candidate = find_hf_candidate(target)
+    if candidate is None:
+        msg = "No curated GGUF model matched that Hugging Face target."
+        raise RuntimeError(msg)
+    return install_hf_model(candidate)
+
+
+def _split_hf_target(target: str) -> tuple[str, str]:
+    repo_id, separator, quant = target.strip().rpartition(":")
+    if separator and repo_id and quant:
+        return repo_id, quant.upper()
+    return target.strip(), ""
+
+
+def catalog_candidate_for_model_id(model_id: str) -> LlamaCppCandidate | None:
+    normalized = model_id.strip()
+    for entry in _CURATED_GGUF_MODELS:
+        candidate = _candidate_from_catalog_entry(entry)
+        if normalized in {candidate.model_id, candidate.hf_ref, candidate.repo_id}:
+            return candidate
+    return None
 
 
 def install_hf_model(candidate: LlamaCppCandidate) -> LlamaCppInstallResult:
@@ -520,85 +734,33 @@ def probe_tool_capability(endpoint: str, model_id: str) -> ToolCapabilityResult:
     return _tool_capability_from_response(response)
 
 
-def _candidate_from_model(model: object, *, quant: str = "") -> LlamaCppCandidate | None:
-    repo_id = str(getattr(model, "id", "") or "")
-    if not repo_id:
-        return None
-    sibling = _gguf_sibling(getattr(model, "siblings", None), quant=quant)
-    if sibling is None:
-        return None
-    filename = str(getattr(sibling, "rfilename", "") or "")
+def _candidate_from_catalog_entry(entry: _LlamaCppCatalogEntry) -> LlamaCppCandidate:
     return LlamaCppCandidate(
-        repo_id=repo_id,
-        filename=filename,
-        quant=_quant_from_filename(filename),
-        downloads=_int_attr(model, "downloads"),
-        likes=_int_attr(model, "likes"),
-        size_bytes=_sibling_size(sibling),
+        repo_id=entry.repo_id,
+        filename=entry.filename,
+        quant=entry.quant,
+        downloads=0,
+        likes=0,
+        size_bytes=entry.size_bytes,
+        display_name=entry.display_name,
+        recommended_ram_gb=entry.recommended_ram_gb,
+        summary=entry.summary,
     )
 
 
-def _gguf_sibling(siblings: object, *, quant: str) -> object | None:
-    if quant:
-        return _gguf_sibling_for_quant(siblings, quant)
-    return _best_gguf_sibling(siblings)
-
-
-def _gguf_sibling_for_quant(siblings: object, quant: str) -> object | None:
-    return next(
-        (
-            sibling
-            for sibling in _gguf_siblings(siblings)
-            if _quant_from_filename(str(getattr(sibling, "rfilename", "") or "")) == quant
-        ),
-        None,
+def _candidate_matches_term(candidate: LlamaCppCandidate, term: str) -> bool:
+    fields = (
+        candidate.display_name,
+        candidate.repo_id,
+        candidate.filename,
+        candidate.quant,
+        candidate.summary,
     )
+    return any(term in field.casefold() for field in fields)
 
 
-def _best_gguf_sibling(siblings: object) -> object | None:
-    ggufs = _gguf_siblings(siblings)
-    if not ggufs:
-        return None
-    return sorted(ggufs, key=_gguf_sibling_sort_key)[0]
-
-
-def _gguf_siblings(siblings: object) -> list[object]:
-    if not isinstance(siblings, Iterable):
-        return []
-    return [
-        sibling
-        for sibling in siblings
-        if str(getattr(sibling, "rfilename", "") or "").lower().endswith(".gguf")
-    ]
-
-
-def _gguf_sibling_sort_key(sibling: object) -> tuple[int, str]:
-    filename = str(getattr(sibling, "rfilename", "") or "")
-    quant = _quant_from_filename(filename)
-    preference = {
-        "Q4_K_M": 0,
-        "Q5_K_M": 1,
-        "Q6_K": 2,
-        "Q8_0": 3,
-        "Q4_0": 4,
-    }
-    return preference.get(quant, 20), filename.lower()
-
-
-def _int_attr(item: object, attr: str) -> int:
-    value = getattr(item, attr, 0)
-    return value if isinstance(value, int) else 0
-
-
-def _sibling_size(sibling: object) -> int:
-    value = getattr(sibling, "size", 0)
-    if isinstance(value, int):
-        return value
-    lfs = getattr(sibling, "lfs", None)
-    if is_string_mapping(lfs):
-        lfs_size = lfs.get("size")
-        return lfs_size if isinstance(lfs_size, int) else 0
-    return 0
+def _normalize_remote_repo_id(repo_id: str) -> str:
+    return repo_id.strip().removeprefix(f"{LLAMA_CPP_PROVIDER_SLUG}/")
 
 
 def _quant_from_filename(filename: str) -> str:
@@ -615,6 +777,8 @@ def _quant_from_filename(filename: str) -> str:
 
 
 def _display_name_for_record(record: LlamaCppModelRecord) -> str:
+    if candidate := catalog_candidate_for_model_id(record.model_id):
+        return candidate.label
     if record.repo_id:
         quant = f" {record.quant}" if record.quant else ""
         return f"{record.repo_id}{quant}".strip()

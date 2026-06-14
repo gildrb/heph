@@ -34,6 +34,7 @@ from interfaces.palette import TRANSPARENT
 from interfaces.terminal import current_palette, set_theme
 from interfaces.tui.auth_flows import TuiAuthFlowMixin
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER
+from interfaces.tui.display_text import label_value_line as menu_label_value
 from interfaces.tui.flow_state import InlineFlow
 from interfaces.tui.ids import COMPLETION_MENU_CLASS
 from interfaces.tui.inline_menu import (
@@ -46,6 +47,8 @@ from interfaces.tui.inline_menu import (
     _inline_menu_visible_label_width,
     _inline_option_index,
     _local_model_option_text,
+    _local_model_scrolled_metadata_widths,
+    _local_model_visible_metadata_widths,
     _prompt_width,
     _selected_inline_label,
     _session_menu_option_text,
@@ -68,6 +71,7 @@ from interfaces.tui.model_flow import (
     _model_choice_label,
 )
 from interfaces.tui.model_flows import TuiModelFlowMixin
+from interfaces.tui.option_list_layout import visible_option_height
 from interfaces.tui.render_state import DirtyRegion, TuiRenderCache
 from interfaces.tui.session_flows import TuiSessionFlowMixin
 from interfaces.tui.session_state import TuiRuntimeState
@@ -75,6 +79,7 @@ from interfaces.tui.shortcut_hints import ShortcutHint, shortcut_hint_line
 from interfaces.tui.slash_completion import (
     changed_highlight_indices,
     completion_menu_scroll_y,
+    completion_menu_visible_slice,
 )
 from interfaces.tui.style import _tui_css
 
@@ -119,10 +124,16 @@ _INLINE_MENU_PLACEHOLDER_HINTS = shortcut_hint_line(
 )
 _KEYMAP_MENU_PLACEHOLDER_HINTS = shortcut_hint_line(
     (
+        ShortcutHint("Review", "enter"),
+        ShortcutHint("Filter", "type"),
+        ShortcutHint("Close", "esc"),
+    )
+)
+_KEYMAP_REVIEW_PLACEHOLDER_HINTS = shortcut_hint_line(
+    (
         ShortcutHint("Record", "enter"),
         ShortcutHint("Reset", "r"),
-        ShortcutHint("Defaults", "d"),
-        ShortcutHint("Close", "esc"),
+        ShortcutHint("Back", "esc"),
     )
 )
 _KEYMAP_CAPTURE_PLACEHOLDER_HINTS = shortcut_hint_line(
@@ -131,6 +142,15 @@ _KEYMAP_CAPTURE_PLACEHOLDER_HINTS = shortcut_hint_line(
         ShortcutHint("Cancel", "esc"),
     )
 )
+_KEYMAP_MENU_STEP = "menu"
+_KEYMAP_REVIEW_STEP = "review"
+_KEYMAP_CAPTURE_STEP = "capture"
+_KEYMAP_RESET_ALL_STEP = "reset-all"
+_KEYMAP_RESET_ALL_LABEL = "RESET ALL KEYBINDS"
+_KEYMAP_RESET_ALL_CONFIRM_LABEL = "RESET ALL"
+_KEYMAP_CANCEL_LABEL = "CANCEL"
+_KEYMAP_OPTION_SEPARATOR = "\t"
+_INLINE_MENU_MAX_VISIBLE_ROWS = 7
 _INLINE_MENU_WIDTH_REFRESH_DELAY_SECONDS = 0.01
 
 _ACTIVITY_TRACE_CYCLE = (
@@ -182,6 +202,15 @@ class _StylesheetObject(Protocol):
         read_from: tuple[str, str],
         is_default_css: bool,
     ) -> None: ...
+
+
+class _InlineMenuHighlightHost(Protocol):
+    _inline_flow: InlineFlow
+    _transcript_render_width: int | None
+
+    def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
+
+    def _refresh_completion_position(self) -> None: ...
 
 
 class _InlineFlowHost(Protocol):
@@ -543,7 +572,14 @@ class TuiInlineFlowMixin(
         composer = self.query_one("#composer", Input)
         if options:
             selected = 0 if highlighted is None else min(highlighted, len(options) - 1)
-            rendered_height = suggestions.size.height
+            rendered_height = visible_option_height(
+                next_option_count=len(options),
+                current_option_count=suggestions.option_count,
+                rendered_height=suggestions.size.height,
+                max_visible_rows=_INLINE_MENU_MAX_VISIBLE_ROWS,
+            )
+            if len(options) <= _INLINE_MENU_MAX_VISIBLE_ROWS:
+                rendered_height = len(options)
             if self._inline_flow.name == "sessions":
                 label_width = _inline_menu_label_width(options)
                 prompt_width = _inline_menu_prompt_width(self, suggestions)
@@ -559,14 +595,40 @@ class TuiInlineFlowMixin(
                 ]
             elif self._inline_flow.name == "local":
                 prompt_width = _inline_menu_prompt_width(self, suggestions)
+                metadata_widths = _local_model_visible_metadata_widths(
+                    options,
+                    highlighted=selected,
+                    rendered_height=rendered_height,
+                )
                 prompts = [
                     _local_model_option_text(
                         label,
                         description,
                         selected=index == selected,
                         prompt_width=prompt_width,
+                        metadata_widths=metadata_widths,
                     )
                     for index, (label, description) in enumerate(options)
+                ]
+            elif _inline_flow_uses_keymap_renderer(self._inline_flow):
+                rendered_options = _keymap_visible_render_options(
+                    options,
+                    highlighted=selected,
+                    rendered_height=rendered_height,
+                )
+                label_width = _inline_menu_visible_label_width(
+                    rendered_options,
+                    highlighted=selected,
+                    rendered_height=rendered_height,
+                )
+                prompts = [
+                    _inline_menu_option_text(
+                        label,
+                        description,
+                        selected=index == selected,
+                        label_width=label_width,
+                    )
+                    for index, (label, description) in enumerate(rendered_options)
                 ]
             else:
                 label_width = _inline_menu_visible_label_width(
@@ -601,9 +663,11 @@ class TuiInlineFlowMixin(
         self._refresh_footer_hints()
 
     def _highlight_inline_menu_option(
-        self: _InlineFlowHost,
+        self: _InlineMenuHighlightHost,
         highlighted: int,
         suggestions: OptionList | None = None,
+        *,
+        preserve_scroll: bool = False,
     ) -> None:
         if suggestions is None:
             suggestions = self.query_one("#suggestions", OptionList)
@@ -615,8 +679,66 @@ class TuiInlineFlowMixin(
             label_width = _inline_menu_label_width(options)
             prompt_width = _inline_menu_prompt_width(self, suggestions)
         elif self._inline_flow.name == "local":
-            label_width = 0
             prompt_width = _inline_menu_prompt_width(self, suggestions)
+            scroll_y = int(suggestions.scroll_y)
+            if not preserve_scroll:
+                scroll_y = completion_menu_scroll_y(
+                    highlighted,
+                    len(options),
+                    suggestions.size.height,
+                )
+            metadata_widths = _local_model_scrolled_metadata_widths(
+                options,
+                scroll_y=scroll_y,
+                rendered_height=suggestions.size.height,
+            )
+            prompts = [
+                _local_model_option_text(
+                    label,
+                    description,
+                    selected=option_index == highlighted,
+                    prompt_width=prompt_width,
+                    metadata_widths=metadata_widths,
+                )
+                for option_index, (label, description) in enumerate(options)
+            ]
+            suggestions.set_options(prompts)
+            suggestions.highlighted = highlighted
+            suggestions.scroll_y = scroll_y
+            self._refresh_completion_position()
+            return
+        elif _inline_flow_uses_keymap_renderer(self._inline_flow):
+            scroll_y = int(suggestions.scroll_y)
+            if not preserve_scroll:
+                scroll_y = completion_menu_scroll_y(
+                    highlighted,
+                    len(options),
+                    suggestions.size.height,
+                )
+            rendered_options = _keymap_scrolled_render_options(
+                options,
+                scroll_y=scroll_y,
+                rendered_height=suggestions.size.height,
+            )
+            label_width = _inline_menu_scrolled_label_width(
+                rendered_options,
+                scroll_y=scroll_y,
+                rendered_height=suggestions.size.height,
+            )
+            prompts = [
+                _inline_menu_option_text(
+                    label,
+                    description,
+                    selected=option_index == highlighted,
+                    label_width=label_width,
+                )
+                for option_index, (label, description) in enumerate(rendered_options)
+            ]
+            suggestions.set_options(prompts)
+            suggestions.highlighted = highlighted
+            suggestions.scroll_y = scroll_y
+            self._refresh_completion_position()
+            return
         else:
             label_width = _inline_menu_scrolled_label_width(
                 options,
@@ -632,13 +754,6 @@ class TuiInlineFlowMixin(
                     description,
                     selected=option_index == highlighted,
                     label_width=label_width,
-                    prompt_width=prompt_width,
-                )
-            elif self._inline_flow.name == "local":
-                prompt = _local_model_option_text(
-                    label,
-                    description,
-                    selected=option_index == highlighted,
                     prompt_width=prompt_width,
                 )
             else:
@@ -846,11 +961,17 @@ class TuiInlineFlowMixin(
         _apply_thinking_visibility_setting(self, visibility)
 
     def _handle_inline_flow_key(self: _InlineFlowHost, event: events.Key) -> bool:
-        if self._inline_flow.name == "keymap" and self._inline_flow.step == "capture":
+        if self._inline_flow.name == "keymap" and self._inline_flow.step == _KEYMAP_CAPTURE_STEP:
             return self._handle_keymap_capture(event)
         if (
             self._inline_flow.name == "keymap"
-            and self._inline_flow.step == "menu"
+            and self._inline_flow.step == _KEYMAP_REVIEW_STEP
+            and _handle_keymap_review_key(self, event)
+        ):
+            return True
+        if (
+            self._inline_flow.name == "keymap"
+            and self._inline_flow.step == _KEYMAP_MENU_STEP
             and self._handle_keymap_menu_key(event)
         ):
             return True
@@ -877,6 +998,14 @@ class TuiInlineFlowMixin(
             return
         if self._inline_flow.name == "settings" and self._inline_flow.step != "menu":
             self._open_settings_flow(selected_label=self._inline_flow.slug)
+            return
+        if self._inline_flow.name == "keymap" and self._inline_flow.step != _KEYMAP_MENU_STEP:
+            if self._inline_flow.step == _KEYMAP_RESET_ALL_STEP:
+                self._open_keymap_flow(selected_label=_KEYMAP_RESET_ALL_LABEL)
+                return
+            action = keymap_action(self._inline_flow.slug)
+            selected_label = _keymap_action_label(action) if action is not None else None
+            self._open_keymap_flow(selected_label=selected_label)
             return
         self._close_inline_flow()
 
@@ -910,19 +1039,23 @@ class TuiInlineFlowMixin(
             action(label)
 
     def _handle_keymap_choice(self: _InlineFlowHost, label: str) -> None:
+        if self._inline_flow.step == _KEYMAP_REVIEW_STEP:
+            action = keymap_action(self._inline_flow.slug)
+            if action is None:
+                self._close_inline_flow("Keymap action disappeared.")
+                return
+            _handle_keymap_review_choice(self, action, label)
+            return
+        if self._inline_flow.step == _KEYMAP_RESET_ALL_STEP:
+            _handle_keymap_reset_all_choice(self, label)
+            return
+        if _is_keymap_reset_all_label(label):
+            _open_keymap_reset_all_flow(self)
+            return
         action = _keymap_action_for_label(label)
         if action is None:
             return
-        current = "/".join(display_key(key) for key in self._keymap.keys_for_action(action.id))
-        self._open_inline_menu(
-            name="keymap",
-            step="capture",
-            title=f"Keymap  {action.label}",
-            options=[("Press shortcut", f"ACTION {action.label}  CURRENT {current or 'unbound'}")],
-        )
-        self._inline_flow.slug = action.id
-        composer = self.query_one("#composer", Input)
-        composer.placeholder = f"Keymap  {action.label}  {_KEYMAP_CAPTURE_PLACEHOLDER_HINTS}"
+        _open_keymap_action_flow(self, action)
 
     def _handle_keymap_capture(self: _InlineFlowHost, event: events.Key) -> bool:
         action = keymap_action(self._inline_flow.slug)
@@ -930,39 +1063,22 @@ class TuiInlineFlowMixin(
             self._close_inline_flow("Keymap action disappeared.")
             return _consume_inline_key(event)
         if event.key == "escape":
-            self._open_keymap_flow(selected_label=action.label)
+            _open_keymap_action_flow(self, action)
             return _consume_inline_key(event)
 
         result = save_keymap_binding(action.id, event.key)
         if result.saved:
             self._keymap = load_runtime_keymap()
             self._replace_last_notice(result.message)
-            self._open_keymap_flow(selected_label=action.label)
+            self._open_keymap_flow(selected_label=_keymap_action_label(action))
         else:
             self._replace_last_notice(result.message)
         self._refresh_footer_hints()
         return _consume_inline_key(event)
 
     def _handle_keymap_menu_key(self: _InlineFlowHost, event: events.Key) -> bool:
-        if event.key == "d":
-            result = reset_keymap()
-            self._keymap = load_runtime_keymap()
-            self._replace_last_notice(result.message)
-            self._open_keymap_flow()
-            return _consume_inline_key(event)
-        if event.key != "r":
-            return False
-        label = _highlighted_inline_label(self)
-        if label is None:
-            return _consume_inline_key(event)
-        action = _keymap_action_for_label(label)
-        if action is None:
-            return _consume_inline_key(event)
-        result = reset_keymap_action(action.id)
-        self._keymap = load_runtime_keymap()
-        self._replace_last_notice(result.message)
-        self._open_keymap_flow(selected_label=action.label)
-        return _consume_inline_key(event)
+        _ = event
+        return False
 
     def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
         settings = load_app_settings()
@@ -1074,7 +1190,7 @@ def _highlighted_inline_label(host: _InlineFlowHost) -> str | None:
     return host._inline_flow.options[highlighted][0]
 
 
-def _inline_menu_prompt_width(host: _InlineFlowHost, suggestions: OptionList) -> int:
+def _inline_menu_prompt_width(host: _InlineMenuHighlightHost, suggestions: OptionList) -> int:
     width = suggestions.size.width
     if width <= 0:
         stack = host.query_one("#completion-stack", Widget)
@@ -1082,23 +1198,319 @@ def _inline_menu_prompt_width(host: _InlineFlowHost, suggestions: OptionList) ->
     return _prompt_width(width, host._transcript_render_width)
 
 
+def _inline_flow_uses_keymap_renderer(flow: InlineFlow) -> bool:
+    return flow.name == "keymap" and flow.step == _KEYMAP_MENU_STEP
+
+
 def _keymap_options(keymap: RuntimeKeymap) -> list[tuple[str, str]]:
     options: list[tuple[str, str]] = []
     for action in TUI_KEYMAP_ACTIONS:
-        keys = "/".join(display_key(key) for key in keymap.keys_for_action(action.id))
-        if not keys:
-            keys = "unbound"
-        state = "custom" if action.id in keymap.configured_actions else "default"
-        options.append((action.label, f"KEY {keys}  STATE {state}  {action.description}"))
+        keys = _keymap_action_keys_text(action, keymap)
+        state = _keymap_action_state(action, keymap)
+        options.append(
+            (
+                _keymap_action_label(action),
+                _keymap_raw_description(keys, action.context, state),
+            )
+        )
+    options.append((_KEYMAP_RESET_ALL_LABEL, menu_label_value("action", "restore all defaults")))
     return options
+
+
+def _keymap_visible_render_options(
+    options: list[tuple[str, str]],
+    *,
+    highlighted: int,
+    rendered_height: int,
+) -> list[tuple[str, str]]:
+    visible_options = _visible_inline_options(
+        options,
+        highlighted=highlighted,
+        rendered_height=rendered_height,
+    )
+    return _keymap_render_options(options, visible_options)
+
+
+def _keymap_scrolled_render_options(
+    options: list[tuple[str, str]],
+    *,
+    scroll_y: int,
+    rendered_height: int,
+) -> list[tuple[str, str]]:
+    visible_options = _scrolled_inline_options(
+        options,
+        scroll_y=scroll_y,
+        rendered_height=rendered_height,
+    )
+    return _keymap_render_options(options, visible_options)
+
+
+def _visible_inline_options(
+    options: list[tuple[str, str]],
+    *,
+    highlighted: int,
+    rendered_height: int,
+) -> list[tuple[str, str]]:
+    if rendered_height <= 0:
+        rendered_height = min(len(options), _INLINE_MENU_MAX_VISIBLE_ROWS)
+    if rendered_height <= 0:
+        return list(options)
+    visible_options = options[
+        completion_menu_visible_slice(
+            max(0, highlighted),
+            len(options),
+            rendered_height,
+        )
+    ]
+    return list(visible_options) if visible_options else list(options)
+
+
+def _scrolled_inline_options(
+    options: list[tuple[str, str]],
+    *,
+    scroll_y: int,
+    rendered_height: int,
+) -> list[tuple[str, str]]:
+    if not options:
+        return []
+    if rendered_height <= 0:
+        rendered_height = min(len(options), _INLINE_MENU_MAX_VISIBLE_ROWS)
+    if rendered_height <= 0:
+        return list(options)
+    visible_count = len(
+        options[
+            completion_menu_visible_slice(
+                0,
+                len(options),
+                rendered_height,
+            )
+        ]
+    )
+    if visible_count <= 0:
+        return list(options)
+    return list(options[scroll_y : scroll_y + visible_count])
+
+
+def _keymap_render_options(
+    options: list[tuple[str, str]],
+    visible_options: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    key_width = 0
+    scope_width = 0
+    state_width = 0
+    for _label, description in visible_options:
+        fields = _keymap_description_fields(description)
+        if fields is None:
+            continue
+        keys, scope, state = fields
+        key_width = max(key_width, len(keys))
+        scope_width = max(scope_width, len(scope))
+        state_width = max(state_width, len(state))
+    return [
+        (
+            label,
+            _keymap_render_description(
+                description,
+                key_width=key_width,
+                scope_width=scope_width,
+                state_width=state_width,
+            ),
+        )
+        for label, description in options
+    ]
+
+
+def _keymap_render_description(
+    description: str,
+    *,
+    key_width: int,
+    scope_width: int,
+    state_width: int,
+) -> str:
+    fields = _keymap_description_fields(description)
+    if fields is None:
+        return description
+    keys, scope, state = fields
+    return (
+        f"{menu_label_value('key', keys):<{len('KEY ') + key_width}}  "
+        f"{menu_label_value('scope', scope):<{len('SCOPE ') + scope_width}}  "
+        f"{menu_label_value('state', state):<{len('STATE ') + state_width}}"
+    ).rstrip()
+
+
+def _keymap_description_fields(description: str) -> tuple[str, str, str] | None:
+    parts = description.split(_KEYMAP_OPTION_SEPARATOR)
+    if len(parts) != 3:
+        return None
+    keys, scope, state = (part.strip() for part in parts)
+    if not keys or not scope or not state:
+        return None
+    return keys, scope, state
+
+
+def _keymap_raw_description(keys: str, scope: str, state: str) -> str:
+    return _KEYMAP_OPTION_SEPARATOR.join((keys, scope, state))
+
+
+def _is_keymap_reset_all_label(label: str) -> bool:
+    return label.strip().casefold() == _KEYMAP_RESET_ALL_LABEL.casefold()
+
+
+def _reset_all_keymap_bindings(host: _InlineFlowHost) -> None:
+    result = reset_keymap()
+    host._keymap = load_runtime_keymap()
+    host._replace_last_notice(result.message)
+    host._open_keymap_flow(selected_label=_KEYMAP_RESET_ALL_LABEL)
 
 
 def _keymap_action_for_label(label: str) -> TuiKeymapAction | None:
     normalized = label.strip().casefold()
     for action in TUI_KEYMAP_ACTIONS:
-        if action.label.casefold() == normalized:
+        labels = (action.label.casefold(), _keymap_action_label(action).casefold())
+        if normalized in labels:
             return action
     return None
+
+
+def _keymap_action_title(action: TuiKeymapAction) -> str:
+    return f"Keymap  {menu_label_value('action', action.label.casefold())}"
+
+
+def _open_keymap_action_flow(host: _InlineFlowHost, action: TuiKeymapAction) -> None:
+    title = _keymap_action_title(action)
+    host._open_inline_menu(
+        name="keymap",
+        step=_KEYMAP_REVIEW_STEP,
+        title=title,
+        options=_keymap_review_options(action, host._keymap),
+    )
+    host._inline_flow.slug = action.id
+    composer = host.query_one("#composer", Input)
+    composer.placeholder = f"{title}  {_KEYMAP_REVIEW_PLACEHOLDER_HINTS}"
+
+
+def _open_keymap_reset_all_flow(host: _InlineFlowHost) -> None:
+    title = f"Keymap  {menu_label_value('action', 'reset all')}"
+    host._open_inline_menu(
+        name="keymap",
+        step=_KEYMAP_RESET_ALL_STEP,
+        title=title,
+        options=[
+            (
+                _KEYMAP_RESET_ALL_CONFIRM_LABEL,
+                menu_label_value("action", "restore all defaults"),
+            ),
+            (_KEYMAP_CANCEL_LABEL, ""),
+        ],
+    )
+    host._inline_flow.slug = _KEYMAP_RESET_ALL_LABEL
+    confirm_hints = shortcut_hint_line(
+        (
+            ShortcutHint("Confirm", "enter"),
+            ShortcutHint("Back", "esc"),
+        )
+    )
+    composer = host.query_one("#composer", Input)
+    composer.placeholder = f"{title}  {confirm_hints}"
+
+
+def _open_keymap_capture_flow(host: _InlineFlowHost, action: TuiKeymapAction) -> None:
+    title = _keymap_action_title(action)
+    host._open_inline_menu(
+        name="keymap",
+        step=_KEYMAP_CAPTURE_STEP,
+        title=title,
+        options=_keymap_capture_options(action, host._keymap),
+    )
+    host._inline_flow.slug = action.id
+    composer = host.query_one("#composer", Input)
+    composer.placeholder = f"{title}  {_KEYMAP_CAPTURE_PLACEHOLDER_HINTS}"
+
+
+def _handle_keymap_review_choice(
+    host: _InlineFlowHost,
+    action: TuiKeymapAction,
+    label: str,
+) -> None:
+    normalized = label.strip().casefold()
+    if normalized == "record":
+        _open_keymap_capture_flow(host, action)
+        return
+    if normalized != "reset":
+        return
+    result = reset_keymap_action(action.id)
+    host._keymap = load_runtime_keymap()
+    host._replace_last_notice(result.message)
+    _open_keymap_action_flow(host, action)
+
+
+def _handle_keymap_reset_all_choice(host: _InlineFlowHost, label: str) -> None:
+    if label.strip().casefold() != _KEYMAP_RESET_ALL_CONFIRM_LABEL.casefold():
+        host._open_keymap_flow(selected_label=_KEYMAP_RESET_ALL_LABEL)
+        return
+    _reset_all_keymap_bindings(host)
+
+
+def _handle_keymap_review_key(host: _InlineFlowHost, event: events.Key) -> bool:
+    if event.key in ("escape", "enter", "up", "down"):
+        return False
+    if event.key != "r":
+        return _consume_inline_key(event)
+    action = keymap_action(host._inline_flow.slug)
+    if action is None:
+        host._close_inline_flow("Keymap action disappeared.")
+        return _consume_inline_key(event)
+    result = reset_keymap_action(action.id)
+    host._keymap = load_runtime_keymap()
+    host._replace_last_notice(result.message)
+    _open_keymap_action_flow(host, action)
+    return _consume_inline_key(event)
+
+
+def _keymap_review_options(
+    action: TuiKeymapAction,
+    keymap: RuntimeKeymap,
+) -> list[tuple[str, str]]:
+    current = _keymap_action_keys_text(action, keymap)
+    default = "/".join(display_key(key) for key in action.default_keys) or "unbound"
+    state = _keymap_action_state(action, keymap)
+    return [
+        (
+            "RECORD",
+            f"{menu_label_value('key', 'enter')}  {menu_label_value('current', current)}",
+        ),
+        (
+            "RESET",
+            f"{menu_label_value('key', 'r')}  {menu_label_value('default', default)}  "
+            f"{menu_label_value('state', state)}",
+        ),
+    ]
+
+
+def _keymap_capture_options(
+    action: TuiKeymapAction,
+    keymap: RuntimeKeymap,
+) -> list[tuple[str, str]]:
+    current = _keymap_action_keys_text(action, keymap)
+    return [
+        (
+            "PRESS KEY",
+            f"{menu_label_value('action', action.label.casefold())}  "
+            f"{menu_label_value('current', current)}",
+        )
+    ]
+
+
+def _keymap_action_keys_text(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
+    return "/".join(display_key(key) for key in keymap.keys_for_action(action.id)) or "unbound"
+
+
+def _keymap_action_state(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
+    return "custom" if action.id in keymap.configured_actions else "default"
+
+
+def _keymap_action_label(action: TuiKeymapAction) -> str:
+    return action.label.strip().upper()
 
 
 def _command_arg(value: str) -> str:

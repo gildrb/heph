@@ -148,15 +148,21 @@ RichLog {{
 #armory-current-inline {{
     width: 1fr;
     height: 100%;
-    padding: 0 1;
+    padding: 0 0;
     background: {bg};
     color: {p.text_primary};
     scrollbar-size: 0 0;
+}}
+#armory-current-inline > .option-list--option,
+#materials-list > .option-list--option,
+#materials-list-right > .option-list--option {{
+    padding: 0 0;
 }}
 #armory-current-inline > .option-list--option-highlighted {{
     background: {bg};
     color: {p.brand_primary};
     text-style: not bold;
+    padding: 0 0;
 }}
 #armory-preview-inline {{
     display: none;
@@ -202,7 +208,7 @@ RichLog {{
     height: 1fr;
     min-height: 0;
     width: 1fr;
-    padding: 0 1;
+    padding: 0 0;
     background: {bg};
     color: {p.text_primary};
     scrollbar-size: 0 0;
@@ -220,6 +226,7 @@ RichLog {{
     background: {bg};
     color: {p.brand_primary};
     text-style: not bold;
+    padding: 0 0;
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
 #materials-list.material-disabled:focus > .option-list--option-highlighted,
@@ -228,11 +235,14 @@ RichLog {{
     background: {bg};
     color: {p.brand_primary};
     text-style: not bold;
+    padding: 0 0;
 }}
 #materials-footer {{
-    height: 1;
+    height: 0;
+    max-height: 0;
     color: {p.text_muted};
     background: {bg};
+    display: none;
 }}
 #transcript RichLog {{
     color: {p.text_primary};

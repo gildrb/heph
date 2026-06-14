@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import hephaion.rag.health as rag_health
 import pytest
+from ai.providers.llama_cpp import LlamaCppCandidate, LlamaCppModelRecord
 from ai.runtime import ChatConfig
 from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
 from heph.cli.main import main as cli_main
@@ -16,7 +17,6 @@ from heph.cli.main import sys as cli_sys
 from hephaion.agent.dispatch import iter_agent_events
 from hephaion.armory.search import remember_armory
 from hephaion.armory.storage import initialize
-from hephaion.chat import cli as chat_cli
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -27,6 +27,8 @@ from hephaion.chat.session import create_session
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from hephaion.rag.index import load_or_build
 from interfaces.tui import TuiDependencyError
+
+from hephaion.chat import cli as chat_cli
 
 cli_main_module = sys.modules[cli_main.__module__]
 
@@ -326,6 +328,60 @@ def test_tui_command_launches_tui_without_path() -> None:
         run_argv(parser, ["tui"])
 
     assert called
+
+
+def test_local_search_prints_installable_hf_ref(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    candidate = LlamaCppCandidate(
+        repo_id="Qwen/Qwen3-4B-GGUF",
+        filename="Qwen3-4B-Q4_K_M.gguf",
+        quant="Q4_K_M",
+        downloads=100,
+        likes=20,
+        size_bytes=2_497_280_256,
+        display_name="Qwen3 4B",
+        recommended_ram_gb=8,
+        summary="official Qwen release",
+    )
+
+    def fake_search(query: str, *, limit: int) -> list[LlamaCppCandidate]:
+        assert query == "qwen"
+        assert limit == 1
+        return [candidate]
+
+    monkeypatch.setattr("ai.providers.llama_cpp.search_gguf_models", fake_search)
+
+    run_argv(parser, ["local", "search", "--limit", "1", "qwen"])
+
+    out = capsys.readouterr().out
+    assert "Qwen3 4B" in out
+    assert "install Qwen/Qwen3-4B-GGUF:Q4_K_M" in out
+
+
+def test_local_status_prints_revalidatable_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    record = LlamaCppModelRecord(
+        model_id="llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M",
+        repo_id="Qwen/Qwen3-4B-GGUF",
+        quant="Q4_K_M",
+        tool_capable=True,
+        endpoint="http://127.0.0.1:18123/v1",
+    )
+
+    monkeypatch.setattr("ai.providers.llama_cpp.current_server_state", lambda: None)
+    monkeypatch.setattr("ai.providers.llama_cpp.installed_records", lambda: [record])
+
+    run_argv(parser, ["local", "status"])
+
+    out = capsys.readouterr().out
+    assert "Qwen3 4B" in out
+    assert "MODEL llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M" in out
 
 
 def test_tui_command_with_path_launches_tui_with_path(

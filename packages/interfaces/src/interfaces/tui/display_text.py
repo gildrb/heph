@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-from hephaion.materials import material_display_name
 
+from hephaion.materials import material_display_name
 from interfaces.terminal import current_palette
 from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
 from interfaces.tui.keybinds import footer_keybind_hints
@@ -31,6 +31,7 @@ _INFO_PANEL_VISIBLE_WIDTH = 38
 _INFO_PANEL_SCOPE = "scope"
 _INFO_PANEL_EVIDENCE = "evidence"
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
+_STATUS_SIDEBAR_GUTTER = len(STATUS_FIELD_GAP)
 
 
 @dataclass(frozen=True)
@@ -54,9 +55,27 @@ def label_value_line(label: str, value: object) -> str:
     return f"{label_text} {value_text}"
 
 
-def status_text(session: ChatSession, *, draft: str = "", title: str = "Heph") -> Text:
+def menu_label_value(label: str, value: object) -> str:
+    label_text = label.strip().upper()
+    value_text = menu_value_text(value)
+    if not value_text:
+        return label_text
+    return f"{label_text} {value_text}"
+
+
+def menu_value_text(value: object) -> str:
+    return str(value).strip().casefold()
+
+
+def status_text(
+    session: ChatSession,
+    *,
+    draft: str = "",
+    title: str = "Heph",
+    width: int | None = None,
+) -> Text:
     display_title = title.strip() or "Heph"
-    plain = status_lines(session, draft=draft, title=display_title)
+    plain = status_lines(session, draft=draft, title=display_title, width=width)
     palette = current_palette()
 
     text_cls = require_rich_text()
@@ -65,6 +84,12 @@ def status_text(session: ChatSession, *, draft: str = "", title: str = "Heph") -
     _stylize_status_labels(text, plain, status_labels(session))
     _stylize_status_values(text, plain, status_labels(session))
     return text
+
+
+def status_render_width(widget_width: int) -> int | None:
+    if widget_width <= 0:
+        return None
+    return max(1, widget_width - _STATUS_SIDEBAR_GUTTER)
 
 
 def _stylize_status_labels(text: Text, plain: str, labels: Sequence[str]) -> None:
@@ -198,7 +223,12 @@ def _count_label(count: int, singular: str, plural: str | None = None) -> str:
 
 
 def _info_panel_label_line(label: str, value: str) -> _InfoPanelLine:
-    return _InfoPanelLine(label_value_line(label, value), label=label)
+    label_text = label.strip().upper()
+    return _InfoPanelLine(label_value_line(label_text, value), label=label_text)
+
+
+def _info_panel_more_line(count: int) -> _InfoPanelLine:
+    return _info_panel_label_line("more", f"+{count}")
 
 
 def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
@@ -211,16 +241,15 @@ def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
         ),
     ]
     if not visible_materials:
-        material_lines.append(_InfoPanelLine("no materials attached"))
+        material_lines.append(_info_panel_label_line("state", "no materials"))
         return material_lines
 
     material_lines.extend(
         _InfoPanelLine(f"@{_material_panel_display_name(name)}") for name in visible_materials
     )
     if len(session.source_files) > len(visible_materials):
-        material_lines.append(
-            _InfoPanelLine(f"+{len(session.source_files) - len(visible_materials)} more")
-        )
+        hidden_count = len(session.source_files) - len(visible_materials)
+        material_lines.append(_info_panel_more_line(hidden_count))
     return material_lines
 
 
@@ -253,12 +282,18 @@ def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLi
             _info_panel_evidence_id_summary(evidence),
         ),
         _InfoPanelLine(
-            f"{_count_label(len(evidence.items), 'excerpt')}, "
-            f"{_info_panel_source_scope(sampled_sources, total_sources)}"
+            f"{label_value_line('excerpts', len(evidence.items))}  "
+            f"{
+                label_value_line(
+                    'sources',
+                    _info_panel_source_scope(sampled_sources, total_sources),
+                )
+            }",
+            label="EXCERPTS",
         ),
     ]
     lines.extend(_info_panel_evidence_item_lines(evidence))
-    lines.append(_InfoPanelLine("f8 /evidence"))
+    lines.append(_info_panel_label_line("open", "f8 /evidence"))
     return lines
 
 
@@ -271,8 +306,8 @@ def _info_panel_evidence_id_summary(evidence: TurnEvidence) -> str:
 
 def _info_panel_source_scope(sampled_sources: int, total_sources: int) -> str:
     if total_sources > sampled_sources:
-        return f"{sampled_sources}/{total_sources} sources"
-    return _count_label(sampled_sources, "source")
+        return f"{sampled_sources}/{total_sources}"
+    return str(sampled_sources)
 
 
 def _info_panel_evidence_item_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
@@ -283,7 +318,7 @@ def _info_panel_evidence_item_lines(evidence: TurnEvidence) -> list[_InfoPanelLi
     ]
     remaining = len(evidence.items) - len(visible_items)
     if remaining > 0:
-        lines.append(_InfoPanelLine(f"+{remaining} more"))
+        lines.append(_info_panel_more_line(remaining))
     return lines
 
 
@@ -378,7 +413,7 @@ def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession)
     if not hidden_material_count:
         return
     palette = current_palette()
-    detail = f"+{hidden_material_count} more"
+    detail = label_value_line("more", f"+{hidden_material_count}")
     detail_start = plain.index(detail)
     text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
 
@@ -402,22 +437,20 @@ def info_panel_default_text(
 def startup_card_text() -> str:
     return "\n".join(
         [
-            "  Tips",
-            "    Add files to materials/.",
-            "    Use exact armory names and paths.",
-            "    Use @file for focus.",
-            "    Ask for summaries or gaps.",
-            "    /priority finds next steps.",
-            "    /evidence shows sources.",
+            label_value_line("materials", "materials/"),
+            label_value_line("armory", "exact names or paths"),
+            label_value_line("focus", "@file"),
+            label_value_line("review", "summaries or gaps"),
+            label_value_line("priority", "/priority"),
+            label_value_line("evidence", "/evidence"),
             "",
-            "  Warnings",
-            "    Verify important claims.",
+            label_value_line("verify", "important claims"),
         ]
     )
 
 
 def new_chat_card_text() -> str:
-    return "Tip: use @file for focused document analysis; inspect citations with /evidence."
+    return f"{label_value_line('focus', '@file')}  {label_value_line('evidence', '/evidence')}"
 
 
 def armory_home_text(keymap: RuntimeKeymap | None = None) -> str:
@@ -425,8 +458,10 @@ def armory_home_text(keymap: RuntimeKeymap | None = None) -> str:
     if not open_key:
         open_key = armory_shortcut_key()
     hints = [
-        f"Open: {open_key}, or type exact armory name",
-        "Saved in ~/.armories; docs in materials/",
+        label_value_line("open", open_key),
+        label_value_line("open", "exact armory name"),
+        label_value_line("scope", "~/.armories"),
+        label_value_line("materials", "materials/"),
     ]
     return "\n".join(hints)
 

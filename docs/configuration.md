@@ -86,18 +86,22 @@ The `/settings` TUI controls and direct status-bar toggles such as `/cost`
 update the same config file, so model-thinking and status-bar usage visibility
 are remembered across TUI restarts.
 
-Use `heph local` or `/local` for private local llama.cpp models:
+Use `heph local` or `/local` for private local llama.cpp models from the curated
+catalog:
 
 ```bash
-heph local search qwen
+heph local search gemma
 heph local install <owner>/<repo>:Q4_K_M
 heph local status
 heph local revalidate llama-cpp/<owner>/<repo>:Q4_K_M
 heph local stop
 ```
 
-Heph downloads the managed `llama-server` binary into
-`~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
+The guided `/local` list only shows publisher-owned GGUF releases selected for
+laptops and capped at 16 GB recommended RAM. Each entry shows the download size
+and RAM guidance before loading, and Heph asks for confirmation before it
+downloads or starts a model. Heph downloads the managed `llama-server` binary
+into `~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
 `~/.cache/hephaion/llama.cpp/models`, and persists local model validation state
 in the user config directory. Local models appear in `/models` only after the
 tool-call probe passes.
@@ -140,8 +144,10 @@ export ZAI_API_KEY="sk-..."
 ### Local llama.cpp
 
 No API key is required. Use `/local` for a guided install or `heph local` for
-CLI management. Heph binds the managed server to `127.0.0.1` and never falls
-back to a hosted provider for a local model.
+CLI management. The built-in catalog is limited to low-footprint publisher GGUF
+releases, while advanced users can still install a local `.gguf` file by path.
+Heph binds the managed server to `127.0.0.1` and never falls back to a hosted
+provider for a local model.
 
 ### Custom Endpoint
 

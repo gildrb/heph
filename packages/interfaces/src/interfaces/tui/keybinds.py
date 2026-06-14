@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from interfaces.terminal import menu_label_value
+from interfaces.tui.cell_text import cell_width as _cell_width
+from interfaces.tui.cell_text import pad_cell_right as _pad_cell_right
 from interfaces.tui.keymap import (
     TUI_KEYMAP_ACTIONS,
     RuntimeKeymap,
@@ -72,14 +75,28 @@ def keybind_keys_text(spec: TuiKeybind) -> str:
 
 
 def keymap_text(keymap: RuntimeKeymap | None = None) -> str:
-    specs = tui_keybinds(keymap)
-    key_width = max((len(keybind_keys_text(spec)) for spec in specs), default=0)
-    label_width = max((len(spec.label) for spec in specs), default=0)
-    lines = ["Keyboard shortcuts"]
+    runtime = keymap or default_runtime_keymap()
+    specs = tui_keybinds(runtime)
+    key_width = max((_cell_width(keybind_keys_text(spec)) for spec in specs), default=0)
+    label_width = max((_cell_width(_keybind_label(spec)) for spec in specs), default=0)
+    lines = [menu_label_value("keymap", "shortcuts")]
     for spec in specs:
         keys = keybind_keys_text(spec)
-        lines.append(f"  {keys:<{key_width}}  {spec.label:<{label_width}}  {spec.description}")
+        label = _pad_cell_right(_keybind_label(spec), label_width)
+        key_text = _pad_cell_right(keys, key_width)
+        state = menu_label_value("state", _keybind_state(spec, runtime))
+        lines.append(f"  {label}  {key_text}  {state}")
     return "\n".join(lines)
+
+
+def _keybind_label(spec: TuiKeybind) -> str:
+    return spec.label.strip().upper()
+
+
+def _keybind_state(spec: TuiKeybind, keymap: RuntimeKeymap) -> str:
+    if spec.action == "quit":
+        return "builtin"
+    return "custom" if spec.action in keymap.configured_actions else "default"
 
 
 def footer_keybind_hints(keymap: RuntimeKeymap | None = None) -> tuple[FooterKeybindHint, ...]:

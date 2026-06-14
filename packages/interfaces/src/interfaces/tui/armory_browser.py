@@ -12,20 +12,20 @@ from hephaion.armory.search import (
     load_remembered_armory_entries,
 )
 from hephaion.armory.storage import MARKER_FILE
+
 from hephaion.matching import ranked_matches
 from hephaion.materials import count_material_files
-
 from interfaces.tui.display_text import label_value_line
 from interfaces.tui.startup_discovery import discover_available_armories
 
-_NEW_ARMORY_LABEL = "+ new"
-_DIR_PREFIX = "  "
+_NEW_ARMORY_LABEL = label_value_line("create", "new")
+_DIR_PREFIX = ""
 _ARMORY_BADGE = ""
-_RECENT_PREFIX = "  "
-_RECENT_HEADING = "recent"
-_ALL_HEADING = "all"
-_EMPTY_RECENT_LABEL = "  no recent items"
-_EMPTY_ALL_LABEL = "  none found"
+_RECENT_PREFIX = ""
+_RECENT_HEADING = label_value_line("group", "recent")
+_ALL_HEADING = label_value_line("group", "all")
+_EMPTY_RECENT_LABEL = label_value_line("state", "no recent")
+_EMPTY_ALL_LABEL = label_value_line("state", "none found")
 _DEFAULT_ARMORY_HOME_ENV = "HEPHAION_ARMORY_HOME"
 
 

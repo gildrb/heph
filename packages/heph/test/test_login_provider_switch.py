@@ -9,6 +9,30 @@ from ai.providers.oauth import OAuthCredentials
 from ai.runtime import ChatConfig, Conversation
 from heph import commands
 from hephaion.chat.session import ChatSession
+from interfaces.terminal import MenuOption
+
+
+def test_login_menu_uses_label_value_provider_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    visible_options: list[MenuOption] = []
+
+    def capture_options(_title: str, options: list[MenuOption]) -> None:
+        visible_options.extend(options)
+
+    monkeypatch.setattr(_commands_auth, "select_option", capture_options)
+
+    commands.LoginCommand().handle(object(), "")
+
+    assert [option.label for option in visible_options] == [
+        "CODEX",
+        "OPENAI",
+        "OPENROUTER",
+        "Z.AI",
+        "CUSTOM",
+        "DEEPSEEK",
+    ]
+    assert visible_options[0].description == "ACCOUNT chatgpt plus/pro subscription"
+    assert visible_options[1].description == "KEY api key"
+    assert visible_options[4].description == "ENDPOINT openai-compatible base url  MODEL custom"
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -379,3 +403,29 @@ def test_logout_all_providers_clears_everything(monkeypatch: pytest.MonkeyPatch)
 
     assert cleared == [("openai-codex", "oauth"), ("openrouter", "api_key")]
     assert success == ["Logged out of all stored providers."]
+
+
+def test_logout_menu_uses_label_value_provider_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    visible_options: list[MenuOption] = []
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "_logout_targets",
+        lambda: [
+            ("openai-codex", "oauth", "ACCOUNT subscription"),
+            ("openrouter", "api_key", "KEY api key  SOURCE keychain"),
+        ],
+    )
+    monkeypatch.setattr(_commands_auth, "_env_only_targets", list)
+
+    def capture_options(_title: str, options: list[MenuOption]) -> None:
+        visible_options.extend(options)
+
+    monkeypatch.setattr(_commands_auth, "select_option", capture_options)
+
+    commands.LogoutCommand().handle(None, "")
+
+    assert [option.label for option in visible_options] == ["CODEX", "OPENROUTER", "ALL"]
+    assert visible_options[0].description == "ACCOUNT subscription"
+    assert visible_options[1].description == "KEY api key  SOURCE keychain"
+    assert visible_options[2].description == "ACTION clear stored"

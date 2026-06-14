@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaion.armory.search import remember_armory, set_last_armory
-from hephaion.chat import storage as chat_storage
 from hephaion.chat.cli import resolve_armory_session as chat_resolve_armory_session
 from hephaion.chat.session import (
     ChatSession,
@@ -23,6 +22,7 @@ from hephaion.diagnostics.events import capture as capture_analytics
 from hephaion.parameters.cli import load_config
 from hephaion.parameters.settings import load_app_settings
 
+from hephaion.chat import storage as chat_storage
 from interfaces.terminal import current_palette, print_error, print_info, set_theme
 from interfaces.terminal.history import InputHistory
 from interfaces.terminal.input import handle_input

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from ai.providers.endpoints import provider_uses_keyless_access
 from ai.runtime import has_configured_access
-from hephaion.chat import storage as chat_storage
 from hephaion.chat.session import (
     ChatSession,
     SessionError,
@@ -32,6 +31,7 @@ from heph.commands._base import (
     format_duration,
     pct,
 )
+from hephaion.chat import storage as chat_storage
 
 
 def _session_status(session: ChatSession) -> str:

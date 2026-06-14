@@ -288,10 +288,13 @@ def _cmd_local_search(args: argparse.Namespace) -> None:
     query = " ".join(args.query).strip()
     candidates = llama_cpp.search_gguf_models(query, limit=args.limit)
     if not candidates:
-        print("No public non-gated GGUF models matched that search.")
+        print("No curated local models matched that search.")
         return
     for index, candidate in enumerate(candidates, start=1):
         details = _local_candidate_details(candidate)
+        target = _local_candidate_install_target(candidate)
+        if target:
+            details = f"install {target}; {details}" if details else f"install {target}"
         suffix = f"  {details}" if details else ""
         print(f"{index}. {candidate.label}{suffix}")
 
@@ -304,6 +307,15 @@ def _cmd_local_install(args: argparse.Namespace) -> None:
         )
         raise SystemExit(2)
     local_llm = importlib.import_module("heph.local_llm")
+    candidate = None
+    if not _local_target_is_file(args.target):
+        candidate = local_llm.find_hf_candidate(args.target)
+        if candidate is None:
+            print("error: no curated local model matched that target", file=sys.stderr)
+            raise SystemExit(1)
+    if not args.yes and not _confirm_cli_local_load(args.target, candidate):
+        print("Cancelled.")
+        return
     try:
         result = local_llm.install_local_target(args.target, model_id=args.model_id or "")
     except Exception as exc:
@@ -338,7 +350,13 @@ def _cmd_local_status() -> None:
     print("  installed:")
     for record in records:
         status = "tool-capable" if record.tool_capable else "not selectable"
-        print(f"  - {record.model_id} ({status})")
+        candidate = llama_cpp.catalog_candidate_for_model_id(record.model_id)
+        label = candidate.label if candidate is not None else record.model_id
+        resource = _local_candidate_details(candidate) if candidate is not None else ""
+        details = [status, f"MODEL {record.model_id}"]
+        if resource:
+            details.append(resource)
+        print(f"  - {label} ({'; '.join(details)})")
 
 
 def _cmd_local_revalidate(args: argparse.Namespace) -> None:
@@ -367,13 +385,57 @@ def _cmd_local_stop() -> None:
 
 def _local_candidate_details(candidate: object) -> str:
     details: list[str] = []
-    downloads = getattr(candidate, "downloads", 0)
-    likes = getattr(candidate, "likes", 0)
-    if isinstance(downloads, int) and downloads:
-        details.append(f"{downloads:,} downloads")
-    if isinstance(likes, int) and likes:
-        details.append(f"{likes:,} likes")
+    quant = getattr(candidate, "quant", "")
+    if isinstance(quant, str) and quant:
+        details.append(quant)
+    size_bytes = getattr(candidate, "size_bytes", 0)
+    if isinstance(size_bytes, int):
+        size = _format_local_size(size_bytes)
+        if size:
+            details.append(f"{size} download")
+    recommended_ram_gb = getattr(candidate, "recommended_ram_gb", 0)
+    if isinstance(recommended_ram_gb, int) and recommended_ram_gb:
+        details.append(f"needs {recommended_ram_gb} GB RAM")
     return ", ".join(details)
+
+
+def _local_candidate_install_target(candidate: object) -> str:
+    hf_ref = getattr(candidate, "hf_ref", "")
+    if isinstance(hf_ref, str) and hf_ref:
+        return hf_ref
+    repo_id = getattr(candidate, "repo_id", "")
+    return repo_id if isinstance(repo_id, str) else ""
+
+
+def _local_target_is_file(target: str) -> bool:
+    path = Path(target).expanduser()
+    return path.is_file() or target.lower().endswith(".gguf")
+
+
+def _confirm_cli_local_load(target: str, candidate: object | None) -> bool:
+    terminal = importlib.import_module("interfaces.terminal")
+    if candidate is not None:
+        label = getattr(candidate, "label", target)
+        details = _local_candidate_details(candidate)
+        return bool(terminal.confirm(f"Load {label}? {details}.", default=False))
+
+    path = Path(target).expanduser()
+    size = _format_local_size(path.stat().st_size) if path.is_file() else "unknown size"
+    return bool(
+        terminal.confirm(
+            f"Load local GGUF {path.name}? {size} download; RAM depends on the file.",
+            default=False,
+        )
+    )
+
+
+def _format_local_size(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return ""
+    size_gb = size_bytes / 1024**3
+    if size_gb < 0.05:
+        return "<0.1 GB"
+    return f"{size_gb:.1f} GB"
 
 
 def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
@@ -531,28 +593,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Manage private local llama.cpp models.",
     )
     local_sub = local.add_subparsers(dest="local_command", required=True)
-    local_search = local_sub.add_parser("search", help="Search public non-gated GGUF models.")
+    local_search = local_sub.add_parser(
+        "search",
+        help="Browse curated GGUF models.",
+    )
     local_search.add_argument(
         "query",
         nargs="*",
-        help="Search terms or a Hugging Face owner/repo.",
+        help="Catalog terms or a Hugging Face owner/repo.",
     )
     local_search.add_argument("--limit", type=int, default=20, help="Maximum results to show.")
     local_search.set_defaults(handler=_cmd_local)
 
     local_install = local_sub.add_parser(
         "install",
-        help="Install a Hugging Face GGUF model or local .gguf path.",
+        help="Install a curated GGUF model or local .gguf path.",
     )
     local_install.add_argument(
         "target",
         nargs="?",
-        help="Hugging Face repo[:quant] or .gguf path.",
+        help="Curated Hugging Face repo[:quant] or .gguf path.",
     )
     local_install.add_argument(
         "--model-id",
         default="",
         help="Model id alias for a local .gguf path.",
+    )
+    local_install.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the local model load confirmation.",
     )
     local_install.set_defaults(handler=_cmd_local)
 

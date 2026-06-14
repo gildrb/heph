@@ -8,6 +8,7 @@ from ai.providers.model_choices import configured_model_choices
 from hephaion.chat.model_selection import switch_model
 from hephaion.diagnostics.events import capture as capture_analytics
 
+from interfaces.tui.display_text import menu_label_value
 from interfaces.tui.flow_state import InlineFlow
 from interfaces.tui.model_flow import (
     _duplicate_model_names,
@@ -107,7 +108,7 @@ class TuiModelFlowMixin:
         self._open_inline_menu(
             name="models",
             step="menu",
-            title=f"Models  current: {self.session.config.model}",
+            title=f"Models  {menu_label_value('model', self.session.config.model)}",
             options=self._model_flow_options(pc, choices),
         )
         self.run_worker(self._refresh_models_flow_worker, thread=True)

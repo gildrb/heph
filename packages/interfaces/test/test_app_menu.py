@@ -20,8 +20,53 @@ def test_select_option_uses_prompt_fallback(
 
     out = capsys.readouterr().out
     assert selected == 1
+    assert "MENU armory" in out
+    assert "1." in out
+    assert "2." in out
+    assert "q." in out
+    assert "CANCEL" in out
     assert "Open existing armory" in out
     assert "Create new armory" in out
+    assert " cancel" not in out
+
+
+def test_select_option_prints_current_state_marker(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("interfaces.terminal.direct_input", lambda _prompt="": "q")
+
+    selected = menu.select_option(
+        "Model",
+        [
+            MenuOption("gpt-5.5", is_current=True),
+            MenuOption("local", "installed"),
+        ],
+    )
+
+    out = capsys.readouterr().out
+    assert selected is None
+    assert "STATE current" in out
+
+
+def test_select_option_reports_invalid_choice_as_label_value_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    choices = iter(("wat", "q"))
+    prompts: list[str] = []
+
+    def read_choice(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return next(choices)
+
+    monkeypatch.setattr("interfaces.terminal.direct_input", read_choice)
+
+    selected = menu.select_option("Model", [MenuOption("gpt-5.5")])
+
+    out = capsys.readouterr().out
+    assert selected is None
+    assert "STATE unknown option" in out
+    assert prompts == ["\n  SELECT > ", "\n  SELECT > "]
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from ai.providers.catalog import prefetch_provider_model_catalogs
@@ -11,7 +12,11 @@ from ai.providers.reasoning import next_reasoning_level, reasoning_levels_for_mo
 
 import interfaces.tui.widgets as _tui_widgets
 from interfaces.terminal.theme_state import current_palette
+from interfaces.tui.cell_text import cell_width as _cell_width
+from interfaces.tui.cell_text import pad_cell_right as _pad_cell_right
 from interfaces.tui.display_text import footer_hints_text as _footer_hints_text
+from interfaces.tui.display_text import menu_label_value
+from interfaces.tui.display_text import status_render_width as _status_render_width
 from interfaces.tui.display_text import status_text as _status_text
 from interfaces.tui.ids import (
     COMPLETION_MENU_CLASS,
@@ -22,6 +27,7 @@ from interfaces.tui.ids import (
     SUGGESTIONS_SELECTOR,
 )
 from interfaces.tui.keymap import RuntimeKeymap
+from interfaces.tui.option_list_layout import visible_option_height
 from interfaces.tui.slash_command import tui_command_suggestions as _tui_command_suggestions
 from interfaces.tui.slash_completion import (
     CompletionCandidate,
@@ -64,6 +70,14 @@ _COMPLETION_SELECTED_PREFIX = "→ "
 _COMPLETION_UNSELECTED_PREFIX = "  "
 
 
+@dataclass(frozen=True, slots=True)
+class _CompletionDisplayWidths:
+    provider: int = 0
+    model: int = 0
+    source: int = 0
+    state: int = 0
+
+
 class _ComposerControlsHost(Protocol):
     session: ChatSession
     state: TuiRuntimeState
@@ -71,6 +85,7 @@ class _ComposerControlsHost(Protocol):
     completion_engine: SlashCompletionEngine
     completion_candidates: list[CompletionCandidate]
     _inline_flow: InlineFlow
+    _transcript_render_width: int | None
     _armory_inline_active: bool
     _armory_creating: bool
     _armory_filter: str
@@ -78,6 +93,7 @@ class _ComposerControlsHost(Protocol):
     _materials_filter: str
     _suggestions_mouse_hovering: bool
     _completion_command_column_width: int
+    _completion_display_column_widths: _CompletionDisplayWidths
     _keymap: RuntimeKeymap
 
     def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
@@ -176,7 +192,13 @@ class _ComposerControlsHost(Protocol):
 
     def _set_completion_options(self, *, highlighted: int | None) -> None: ...
 
-    def _completion_command_width(self, highlighted: int | None, _rendered_height: int) -> int: ...
+    def _completion_command_width(self, highlighted: int | None, rendered_height: int) -> int: ...
+
+    def _completion_display_widths(
+        self,
+        highlighted: int | None,
+        rendered_height: int,
+    ) -> _CompletionDisplayWidths: ...
 
     def _format_completion_candidate(
         self,
@@ -184,6 +206,7 @@ class _ComposerControlsHost(Protocol):
         *,
         selected: bool = False,
         command_width: int = 22,
+        display_widths: _CompletionDisplayWidths | None = None,
     ) -> str | Text: ...
 
     def _completion_preview(self, candidate: CompletionCandidate) -> str: ...
@@ -240,6 +263,8 @@ class _ComposerControlsHost(Protocol):
         self,
         highlighted: int,
         suggestions: OptionList | None = None,
+        *,
+        preserve_scroll: bool = False,
     ) -> None: ...
 
     def _refresh_completion_position(self) -> None: ...
@@ -268,6 +293,7 @@ class TuiComposerControlsMixin:
     _materials_filter: str
     _suggestions_mouse_hovering: bool
     _completion_command_column_width: int
+    _completion_display_column_widths: _CompletionDisplayWidths
 
     def on_key(self: _ComposerControlsHost, event: events.Key) -> None:
         composer = self.query_one(COMPOSER_SELECTOR, Input)
@@ -478,7 +504,7 @@ class TuiComposerControlsMixin:
         if suggestions.highlighted == option_index:
             return
         if self._inline_flow.active:
-            self._highlight_inline_menu_option(option_index, suggestions)
+            self._highlight_inline_menu_option(option_index, suggestions, preserve_scroll=True)
         else:
             self._highlight_completion_option(option_index, suggestions)
 
@@ -540,7 +566,11 @@ class TuiComposerControlsMixin:
         if previous == highlighted:
             return
         command_width = self._completion_command_width(highlighted, suggestions.size.height)
-        if command_width != self._completion_command_column_width:
+        display_widths = self._completion_display_widths(highlighted, suggestions.size.height)
+        if (
+            command_width != self._completion_command_column_width
+            or display_widths != self._completion_display_column_widths
+        ):
             self._set_completion_options(highlighted=highlighted)
         else:
             for option_index in _changed_highlight_indices(
@@ -554,6 +584,7 @@ class TuiComposerControlsMixin:
                         self.completion_candidates[option_index],
                         selected=option_index == highlighted,
                         command_width=command_width,
+                        display_widths=display_widths,
                     ),
                 )
         suggestions.highlighted = highlighted
@@ -586,8 +617,13 @@ class TuiComposerControlsMixin:
             levels=levels,
         )
         self.session.dirty = True
-        self.query_one("#status", Static).update(
-            _status_text(self.session, title=self._status_title())
+        status = self.query_one("#status", Static)
+        status.update(
+            _status_text(
+                self.session,
+                title=self._status_title(),
+                width=_status_render_width(status.size.width),
+            )
         )
         self.query_one(FOOTER_HINTS_SELECTOR, Static).update(
             _footer_hints_text(self.session, keymap=self._keymap)
@@ -603,8 +639,14 @@ class TuiComposerControlsMixin:
         if not self.session.live_tokens_visible:
             return
         chat_draft = "" if draft.lstrip().startswith("/") else draft
-        self.query_one("#status", Static).update(
-            _status_text(self.session, draft=chat_draft, title=self._status_title())
+        status = self.query_one("#status", Static)
+        status.update(
+            _status_text(
+                self.session,
+                draft=chat_draft,
+                title=self._status_title(),
+                width=_status_render_width(status.size.width),
+            )
         )
 
     def _completion_menu_visible(self: _ComposerControlsHost) -> bool:
@@ -689,8 +731,16 @@ class TuiComposerControlsMixin:
         highlighted: int | None,
     ) -> None:
         suggestions = self.query_one(SUGGESTIONS_SELECTOR, OptionList)
-        command_width = self._completion_command_width(highlighted, suggestions.size.height)
+        rendered_height = visible_option_height(
+            next_option_count=len(self.completion_candidates),
+            current_option_count=suggestions.option_count,
+            rendered_height=suggestions.size.height,
+            max_visible_rows=_COMPLETION_MENU_MAX_VISIBLE_ROWS,
+        )
+        command_width = self._completion_command_width(highlighted, rendered_height)
+        display_widths = self._completion_display_widths(highlighted, rendered_height)
         self._completion_command_column_width = command_width
+        self._completion_display_column_widths = display_widths
         suggestions.add_class(COMPLETION_MENU_CLASS)
         suggestions.set_options(
             [
@@ -698,6 +748,7 @@ class TuiComposerControlsMixin:
                     candidate,
                     selected=index == highlighted,
                     command_width=command_width,
+                    display_widths=display_widths,
                 )
                 for index, candidate in enumerate(self.completion_candidates)
             ]
@@ -706,22 +757,70 @@ class TuiComposerControlsMixin:
     def _completion_command_width(
         self: _ComposerControlsHost,
         highlighted: int | None,
-        _rendered_height: int,
+        rendered_height: int,
     ) -> int:
         candidates = self.completion_candidates
         if not candidates:
             return 0
         highlighted_index = highlighted if highlighted is not None else 0
-        # OptionList height can lag one refresh behind after filtering narrows the menu.
         visible_slice = _completion_menu_visible_slice(
             highlighted_index,
             len(candidates),
-            min(len(candidates), _COMPLETION_MENU_MAX_VISIBLE_ROWS),
+            rendered_height,
         )
         visible_candidates = candidates[visible_slice]
         return max(
-            (len(self._completion_preview(candidate).strip()) for candidate in visible_candidates),
+            (
+                _cell_width(self._completion_preview(candidate).strip())
+                for candidate in visible_candidates
+            ),
             default=0,
+        )
+
+    def _completion_display_widths(
+        self: _ComposerControlsHost,
+        highlighted: int | None,
+        rendered_height: int,
+    ) -> _CompletionDisplayWidths:
+        candidates = self.completion_candidates
+        if not candidates:
+            return _CompletionDisplayWidths()
+        highlighted_index = highlighted if highlighted is not None else 0
+        visible_slice = _completion_menu_visible_slice(
+            highlighted_index,
+            len(candidates),
+            rendered_height,
+        )
+        visible_candidates = candidates[visible_slice]
+        return _CompletionDisplayWidths(
+            provider=max(
+                (
+                    _cell_width(_completion_display_provider(candidate))
+                    for candidate in visible_candidates
+                ),
+                default=0,
+            ),
+            model=max(
+                (
+                    _cell_width(_completion_display_model(candidate))
+                    for candidate in visible_candidates
+                ),
+                default=0,
+            ),
+            source=max(
+                (
+                    _cell_width(_completion_display_source(candidate))
+                    for candidate in visible_candidates
+                ),
+                default=0,
+            ),
+            state=max(
+                (
+                    _cell_width(_completion_display_state(candidate))
+                    for candidate in visible_candidates
+                ),
+                default=0,
+            ),
         )
 
     def _format_completion_candidate(
@@ -730,20 +829,17 @@ class TuiComposerControlsMixin:
         *,
         selected: bool = False,
         command_width: int = 22,
+        display_widths: _CompletionDisplayWidths | None = None,
     ) -> str | Text:
         prefix = _COMPLETION_SELECTED_PREFIX if selected else _COMPLETION_UNSELECTED_PREFIX
         if candidate.display_provider:
-            return (
-                f"{prefix}{candidate.display_provider:<14} "
-                f"{candidate.display_model:<34} "
-                f"{candidate.display_source:<16} "
-                f"{candidate.display_tags}  "
-            )
+            display_widths = display_widths or _completion_display_widths_for_candidate(candidate)
+            return f"{prefix}{_completion_display_text(candidate, display_widths)}  "
         value = self._completion_preview(candidate).strip()
         if _RichText is None:
             if candidate.description:
                 return (
-                    f"{prefix}{value:<{command_width}}"
+                    f"{prefix}{_pad_cell_right(value, command_width)}"
                     f"{' ' * _COMPLETION_DESCRIPTION_GAP}{candidate.description}  "
                 )
             return f"{prefix}{value}  "
@@ -755,7 +851,7 @@ class TuiComposerControlsMixin:
         text.append(prefix, style=prefix_style)
         if candidate.description:
             text.append(
-                f"{value:<{command_width}}{' ' * _COMPLETION_DESCRIPTION_GAP}",
+                f"{_pad_cell_right(value, command_width)}{' ' * _COMPLETION_DESCRIPTION_GAP}",
                 style=command_style,
             )
             text.append(f"{candidate.description}  ", style=description_style)
@@ -771,3 +867,52 @@ class TuiComposerControlsMixin:
         before_cursor = composer.value[: composer.cursor_position]
         replacement_start = len(before_cursor) + candidate.start_position
         return before_cursor[:replacement_start] + candidate.text
+
+
+def _completion_display_provider(candidate: CompletionCandidate) -> str:
+    if not candidate.display_provider:
+        return ""
+    return menu_label_value("provider", candidate.display_provider)
+
+
+def _completion_display_model(candidate: CompletionCandidate) -> str:
+    return menu_label_value("model", candidate.display_model) if candidate.display_model else ""
+
+
+def _completion_display_source(candidate: CompletionCandidate) -> str:
+    return menu_label_value("source", candidate.display_source) if candidate.display_source else ""
+
+
+def _completion_display_state(candidate: CompletionCandidate) -> str:
+    return menu_label_value("state", candidate.display_tags) if candidate.display_tags else ""
+
+
+def _completion_display_widths_for_candidate(
+    candidate: CompletionCandidate,
+) -> _CompletionDisplayWidths:
+    return _CompletionDisplayWidths(
+        provider=_cell_width(_completion_display_provider(candidate)),
+        model=_cell_width(_completion_display_model(candidate)),
+        source=_cell_width(_completion_display_source(candidate)),
+        state=_cell_width(_completion_display_state(candidate)),
+    )
+
+
+def _completion_display_text(
+    candidate: CompletionCandidate,
+    widths: _CompletionDisplayWidths,
+) -> str:
+    fields = (
+        (_completion_display_provider(candidate), widths.provider),
+        (_completion_display_model(candidate), widths.model),
+        (_completion_display_source(candidate), widths.source),
+        (_completion_display_state(candidate), widths.state),
+    )
+    last_visible = max(
+        (index for index, (field, width) in enumerate(fields) if field or width > 0),
+        default=-1,
+    )
+    parts: list[str] = []
+    for field, width in fields[: last_visible + 1]:
+        parts.append(_pad_cell_right(field, width) if width else field)
+    return "  ".join(parts).rstrip()
