@@ -13,6 +13,15 @@ from hephaion.chat.citation_patterns import (
 )
 from hephaion.chat.evidence import ResolvedTurnPlan
 from hephaion.chat.evidence import evidence_refs as _evidence_refs
+from hephaion.chat.followup_retrieval import (
+    _contract_has_empty_retrieval_query,
+    _contract_has_nonliteral_retrieval_surface,
+    _contract_retrieval_query,
+    _current_request_query,
+    _current_turn_semantic_query,
+    _fresh_current_request_query,
+    _stabilized_followup_retrieval,
+)
 from hephaion.chat.material_state import (
     _EVIDENCE_REQUIRED_ACTIONS,
 )
@@ -48,7 +57,6 @@ from hephaion.chat.conversation_context import (
 from hephaion.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
     _evidence_item_ref,
-    _quoted_followup_target_phrases,
 )
 from hephaion.chat.reply_repair import _reply_evidence_ids
 from hephaion.chat.turn_contract_checks import (
@@ -66,7 +74,6 @@ from hephaion.chat.turn_query import (
     _semantic_query_specificity,
 )
 
-_BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
 _CONTINUABLE_MATERIAL_INTENTS = frozenset(
     {
@@ -481,27 +488,6 @@ def _prior_followup_has_literal_direct_requirement(
     )
 
 
-def _contract_has_nonliteral_retrieval_surface(contract: TurnContract) -> bool:
-    query = _contract_retrieval_query(contract)
-    return bool(query) and not _same_normalized_text(query, contract.original_user_input)
-
-
-def _fresh_current_request_query(contract: TurnContract) -> str:
-    return (
-        _contract_retrieval_query(contract)
-        or contract.canonical_request.strip()
-        or contract.original_user_input.strip()
-    )
-
-
-def _current_request_query(contract: TurnContract) -> str:
-    return (
-        contract.canonical_request.strip()
-        or contract.original_user_input.strip()
-        or _contract_retrieval_query(contract)
-    )
-
-
 def _source_request_needs_current_retrieval(
     contract: TurnContract,
     *,
@@ -675,122 +661,6 @@ def _contract_requires_overview_sampling(
     )
 
 
-def _stabilized_followup_retrieval(
-    contract: TurnContract,
-    *,
-    prior_contract: TurnContract | None,
-    retrieval_strategy: str,
-    retrieval_query: str | None,
-) -> tuple[str, str | None]:
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and contract.prior_answer_reference
-        and contract.direct_evidence_required
-        and _contract_has_nonliteral_retrieval_surface(contract)
-    ):
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, _fresh_current_request_query(contract)
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and contract.prior_answer_reference
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and (target_phrase_query := _followup_target_phrase_query(contract))
-    ):
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, target_phrase_query
-    if (
-        prior_contract is not None
-        and not prior_contract.evidence_refs
-        and contract.is_followup
-        and (
-            contract.prior_answer_reference
-            or (
-                retrieval_strategy
-                in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
-                and not retrieval_query
-            )
-        )
-    ):
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and _contract_is_material_overview(prior_contract)
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and not contract.direct_evidence_required
-    ):
-        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-        if semantic_query:
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and contract.prior_answer_reference
-    ):
-        if (
-            contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR
-            and contract.resolved_intent == "material_overview"
-            and (semantic_query := _first_non_literal_followup_query(contract, prior_contract))
-        ):
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and contract.answer_mode in {ANSWER_MODE_TRANSFORM_PRIOR, ANSWER_MODE_REASON_FROM_PRIOR}
-    ):
-        return RETRIEVAL_STRATEGY_REUSE_PRIOR, None
-    if (
-        prior_contract is not None
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and len(prior_contract.evidence_refs) > _BROAD_PRIOR_EVIDENCE_REF_COUNT
-    ):
-        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-        if semantic_query:
-            return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-    if (
-        contract.is_followup
-        and retrieval_query
-        and _same_normalized_text(retrieval_query, contract.original_user_input)
-    ):
-        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-        if semantic_query:
-            if prior_contract is not None and prior_contract.evidence_refs:
-                return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-            return RETRIEVAL_STRATEGY_RETRIEVE, semantic_query
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
-        and retrieval_query
-    ):
-        if _same_normalized_text(retrieval_query, contract.original_user_input):
-            semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-            if semantic_query:
-                return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-        return RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query
-    if (
-        prior_contract is None
-        or not prior_contract.evidence_refs
-        or not contract.is_followup
-        or retrieval_strategy != RETRIEVAL_STRATEGY_RETRIEVE
-        or not retrieval_query
-        or not _same_normalized_text(retrieval_query, contract.original_user_input)
-    ):
-        return retrieval_strategy, retrieval_query
-
-    semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-    return RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query
-
-
 def _stabilized_current_topic_query(
     contract: TurnContract,
     retrieval_query: str | None,
@@ -859,65 +729,6 @@ def _best_current_request_query(
         if not _same_normalized_text(scored_candidate[2], original_text)
     ]
     return max(semantic_candidates)[2] if semantic_candidates else best
-
-
-def _first_non_literal_followup_query(
-    contract: TurnContract,
-    prior_contract: TurnContract | None,
-) -> str | None:
-    if semantic_current_query := _current_turn_semantic_query(contract):
-        return semantic_current_query
-    prior_candidates = [
-        prior_contract.canonical_request if prior_contract is not None else "",
-        prior_contract.retrieval_query if prior_contract is not None else "",
-    ]
-    semantic_candidates = [
-        candidate
-        for candidate in prior_candidates
-        if candidate and not _same_normalized_text(candidate, contract.original_user_input)
-    ]
-    if not semantic_candidates:
-        return None
-    return max(semantic_candidates, key=_semantic_query_specificity)
-
-
-def _current_turn_semantic_query(contract: TurnContract) -> str | None:
-    current_candidates = [
-        _contract_followup_target(contract),
-        contract.canonical_request,
-    ]
-    semantic_current_candidates = [
-        candidate
-        for candidate in current_candidates
-        if candidate and not _same_normalized_text(candidate, contract.original_user_input)
-    ]
-    if not semantic_current_candidates:
-        return None
-    return max(semantic_current_candidates, key=_semantic_query_specificity)
-
-
-def _followup_target_phrase_query(contract: TurnContract) -> str:
-    phrases = _quoted_followup_target_phrases(contract)
-    if not phrases:
-        return ""
-    return max(phrases, key=_semantic_query_specificity)
-
-
-def _contract_retrieval_query(contract: TurnContract) -> str:
-    if _contract_has_empty_retrieval_query(contract):
-        return ""
-    return contract.retrieval_query.strip()
-
-
-def _contract_has_empty_retrieval_query(contract: TurnContract) -> bool:
-    return contract.retrieval_query.strip().casefold() == RETRIEVAL_STRATEGY_NONE
-
-
-def _contract_is_material_overview(contract: TurnContract) -> bool:
-    return (
-        contract.resolved_intent == "material_overview"
-        or contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-    )
 
 
 def _semantic_retrieval_query(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
