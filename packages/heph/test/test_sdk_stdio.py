@@ -759,6 +759,7 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
             "{broken\n"
             "[]\n"
             f"{json.dumps({'id': 'extra-field', 'method': 'state', 'extra': True})}\n"
+            f"{json.dumps({'id': True, 'method': 'state'})}\n"
             f"{json.dumps({'id': 'state-after-protocol-errors', 'method': 'state'})}\n"
         ),
         output_stream=output,
@@ -772,6 +773,7 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
         "invalid_json",
         "invalid_request",
         "invalid_request",
+        "invalid_request",
     ]
     extra_field_error = next(
         payload
@@ -782,6 +784,12 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     assert "does not accept field: extra" in str(
         _payload_mapping(extra_field_error["error"])["message"]
     )
+    invalid_id_error = next(
+        payload
+        for payload in errors
+        if "request id must be" in str(_payload_mapping(payload["error"])["message"])
+    )
+    assert invalid_id_error["id"] is None
     state_response = next(
         payload for payload in payloads if payload.get("id") == "state-after-protocol-errors"
     )
