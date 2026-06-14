@@ -21,10 +21,12 @@ from heph.sdk.methods import (
     SdkTypeSpec,
 )
 from heph.sdk.runtime import HephSdkError
+from heph.sdk.value_types import (
+    sdk_array_item_type,
+    sdk_literal_value,
+    sdk_map_item_type,
+)
 
-_ARRAY_PREFIX = "array<"
-_LITERAL_PREFIX = "literal<"
-_MAP_PREFIX = "map<"
 _SDK_EVENT_TYPE = "sdk_event"
 type _TypeMatcher = Callable[[object], bool]
 
@@ -551,10 +553,10 @@ def _validate_input_value_type(
     if custom_type is not None:
         _validate_custom_input_type(surface, location, value, custom_type, type_map)
         return
-    if item_type := _array_item_type(value_type):
+    if item_type := sdk_array_item_type(value_type):
         _validate_input_array(surface, location, value, item_type, type_map)
         return
-    if item_type := _map_item_type(value_type):
+    if item_type := sdk_map_item_type(value_type):
         _validate_input_map(surface, location, value, item_type, type_map)
         return
     if _value_matches_type(value, value_type):
@@ -719,10 +721,10 @@ def _validate_result_value_type(
     if custom_type is not None:
         _validate_custom_result_type(surface, method, location, value, custom_type, type_map)
         return
-    if item_type := _array_item_type(value_type):
+    if item_type := sdk_array_item_type(value_type):
         _validate_result_array(surface, method, location, value, item_type, type_map)
         return
-    if item_type := _map_item_type(value_type):
+    if item_type := sdk_map_item_type(value_type):
         _validate_result_map(surface, method, location, value, item_type, type_map)
         return
     if _value_matches_type(value, value_type):
@@ -955,32 +957,14 @@ def _validate_supplied_type_fields(
 def _value_matches_type(value: object, value_type: str) -> bool:
     if rule := _TYPE_RULES.get(value_type):
         return rule.matches(value)
-    if item_type := _array_item_type(value_type):
+    if item_type := sdk_array_item_type(value_type):
         return _value_is_array_of_type(value, item_type)
-    if item_type := _map_item_type(value_type):
+    if item_type := sdk_map_item_type(value_type):
         return _value_is_map_of_type(value, item_type)
-    literal_value = _literal_value(value_type)
+    literal_value = sdk_literal_value(value_type)
     if literal_value is not None:
         return value == literal_value
     return False
-
-
-def _array_item_type(value_type: str) -> str | None:
-    return _enclosed_type_argument(value_type, prefix=_ARRAY_PREFIX)
-
-
-def _map_item_type(value_type: str) -> str | None:
-    return _enclosed_type_argument(value_type, prefix=_MAP_PREFIX)
-
-
-def _literal_value(value_type: str) -> str | None:
-    return _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
-
-
-def _enclosed_type_argument(value_type: str, *, prefix: str) -> str | None:
-    if value_type.startswith(prefix) and value_type.endswith(">"):
-        return value_type.removeprefix(prefix).removesuffix(">")
-    return None
 
 
 def _value_is_array_of_type(value: object, item_type: str) -> bool:
@@ -1029,11 +1013,11 @@ def _is_json_object(value: object) -> bool:
 def _type_message(value_type: str) -> str:
     if rule := _TYPE_RULES.get(value_type):
         return rule.message
-    if _array_item_type(value_type) is not None:
+    if sdk_array_item_type(value_type) is not None:
         return "an array"
-    if _map_item_type(value_type) is not None:
+    if sdk_map_item_type(value_type) is not None:
         return "an object map"
-    literal_value = _literal_value(value_type)
+    literal_value = sdk_literal_value(value_type)
     if literal_value is not None:
         return f"literal value '{literal_value}'"
     return f"SDK type '{value_type}'"

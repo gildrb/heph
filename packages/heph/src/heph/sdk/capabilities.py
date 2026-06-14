@@ -65,6 +65,7 @@ from heph.sdk.methods import (
     stream_specs_to_dict,
     type_specs_to_dict,
 )
+from heph.sdk.value_types import sdk_custom_type_references, sdk_value_type_shape_issue
 
 _BUILTIN_TYPES = frozenset(
     {
@@ -77,9 +78,6 @@ _BUILTIN_TYPES = frozenset(
         "string_or_integer",
     }
 )
-_ARRAY_PREFIX = "array<"
-_LITERAL_PREFIX = "literal<"
-_MAP_PREFIX = "map<"
 _JSONL_REQUEST_ENVELOPE_FIELDS = (
     SdkObjectFieldSpec("id", "string_or_integer", required=False, nullable=True),
     SdkObjectFieldSpec("method", "string"),
@@ -621,7 +619,7 @@ def _append_unknown_type_issues(
     issues.extend(
         f"{context} references unknown SDK type: {type_name}"
         for context, value_type in _referenced_value_types(capabilities)
-        for type_name in _custom_type_references(value_type)
+        for type_name in sdk_custom_type_references(value_type, _BUILTIN_TYPES)
         if type_name not in known_types
     )
 
@@ -633,7 +631,7 @@ def _append_value_type_shape_issues(
     issues.extend(
         issue
         for context, value_type in _referenced_value_types(capabilities)
-        if (issue := _value_type_shape_issue(context, value_type)) is not None
+        if (issue := sdk_value_type_shape_issue(context, value_type)) is not None
     )
 
 
@@ -983,86 +981,6 @@ def _type_value_type_references(
         for spec in specs
         for field in spec.fields
     )
-
-
-def _custom_type_references(value_type: str) -> tuple[str, ...]:
-    if _is_builtin_value_type(value_type):
-        return ()
-    if _value_type_shape_issue("", value_type) is not None:
-        return ()
-    if inner_type := _array_inner_type(value_type):
-        return _custom_type_references(inner_type)
-    if inner_type := _map_inner_type(value_type):
-        return _custom_type_references(inner_type)
-    return (value_type,)
-
-
-def _is_builtin_value_type(value_type: str) -> bool:
-    return value_type in _BUILTIN_TYPES or _is_literal_value_type(value_type)
-
-
-def _is_literal_value_type(value_type: str) -> bool:
-    literal_value = _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
-    return literal_value is not None and literal_value != ""
-
-
-def _value_type_shape_issue(context: str, value_type: str) -> str | None:
-    if value_type.startswith(_ARRAY_PREFIX):
-        return _nested_value_type_shape_issue(
-            context,
-            value_type,
-            prefix=_ARRAY_PREFIX,
-            empty_message="empty array item type",
-        )
-    if value_type.startswith(_MAP_PREFIX):
-        return _nested_value_type_shape_issue(
-            context,
-            value_type,
-            prefix=_MAP_PREFIX,
-            empty_message="empty map item type",
-        )
-    if value_type.startswith(_LITERAL_PREFIX):
-        literal_value = _enclosed_type_argument(value_type, prefix=_LITERAL_PREFIX)
-        if literal_value is None:
-            return f"{context} has malformed SDK value type: {value_type}"
-        if literal_value == "":
-            return f"{context} has empty literal value."
-    elif _looks_like_malformed_generic(value_type):
-        return f"{context} has malformed SDK value type: {value_type}"
-    return None
-
-
-def _nested_value_type_shape_issue(
-    context: str,
-    value_type: str,
-    *,
-    prefix: str,
-    empty_message: str,
-) -> str | None:
-    inner_type = _enclosed_type_argument(value_type, prefix=prefix)
-    if inner_type is None:
-        return f"{context} has malformed SDK value type: {value_type}"
-    if inner_type == "":
-        return f"{context} has {empty_message}."
-    return _value_type_shape_issue(context, inner_type)
-
-
-def _looks_like_malformed_generic(value_type: str) -> bool:
-    return "<" in value_type or value_type.endswith(">")
-
-
-def _array_inner_type(value_type: str) -> str | None:
-    return _enclosed_type_argument(value_type, prefix=_ARRAY_PREFIX)
-
-
-def _map_inner_type(value_type: str) -> str | None:
-    return _enclosed_type_argument(value_type, prefix=_MAP_PREFIX)
-
-
-def _enclosed_type_argument(value_type: str, *, prefix: str) -> str | None:
-    if not value_type.startswith(prefix) or not value_type.endswith(">"):
-        return None
-    return value_type.removeprefix(prefix).removesuffix(">")
 
 
 def _public_constant_exports() -> tuple[str, ...]:
