@@ -49,6 +49,16 @@ from hephaion.chat.turn_outputs import _DeterministicLearningReply
 from hephaion.chat.turn_query import _normalized_query_text
 
 _PRIOR_ANSWER_CONTEXT_LIMIT = 500
+_PRIOR_CONTEXT_REASON_FROM_PRIOR_INSTRUCTION = (
+    "Use this to identify the referenced claim. Answer the user's reasoning/application "
+    "request directly; cite current evidence IDs and keep concise inference separate."
+)
+_PRIOR_CONTEXT_TRANSFORM_PRIOR_INSTRUCTION = (
+    "If this is a pure rewrite, preserve claims and citations and add no facts."
+)
+_PRIOR_CONTEXT_DEFAULT_INSTRUCTION = (
+    "Use this only to resolve references. Cite only current evidence IDs."
+)
 
 
 def _isolated_recall_conversation(
@@ -190,43 +200,49 @@ def _prior_answer_prompt_context(
 ) -> str:
     if contract is None or not _should_include_prior_answer_context(contract):
         return ""
-    recent_assistant = _prior_answer_context_messages(
+    context_messages = _prior_answer_context_messages(
         conversation,
         user_input,
         contract=contract,
     )
-    if not recent_assistant:
+    if not context_messages:
         return ""
-    context_lines: list[str] = ["Prior assistant reply (reference context only):"]
-    for index, message in enumerate(recent_assistant, start=1):
-        excerpt = _prior_answer_context_excerpt(message.content)
-        if not excerpt:
-            continue
-        context_lines.extend((f"Answer {index}:", excerpt))
-    if len(context_lines) == 1:
+    context_lines = _prior_answer_excerpt_context_lines(context_messages)
+    if not context_lines:
         return ""
-    last_assistant = recent_assistant[-1]
-    structure = (
-        _prior_answer_structure_context(last_assistant.content)
-        if contract.prior_answer_reference or contract.prior_answer_positions
-        else ""
-    )
-    if structure:
-        context_lines.extend(("Prior answer structure:", structure))
-    if contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR:
-        context_lines.append(
-            "Use this to identify the referenced claim. Answer the user's reasoning/application "
-            "request directly; cite current evidence IDs and keep concise inference separate."
-        )
-    elif contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
-        context_lines.append(
-            "If this is a pure rewrite, preserve claims and citations and add no facts."
-        )
-    else:
-        context_lines.append(
-            "Use this only to resolve references. Cite only current evidence IDs."
-        )
+    context_lines = ["Prior assistant reply (reference context only):", *context_lines]
+    context_lines.extend(_prior_answer_structure_context_lines(context_messages[-1], contract))
+    context_lines.append(_prior_context_instruction_for_contract(contract))
     return "\n".join(context_lines)
+
+
+def _prior_answer_excerpt_context_lines(messages: Sequence[Message]) -> list[str]:
+    context_lines: list[str] = []
+    for index, message in enumerate(messages, start=1):
+        excerpt = _prior_answer_context_excerpt(message.content)
+        if excerpt:
+            context_lines.extend((f"Answer {index}:", excerpt))
+    return context_lines
+
+
+def _prior_answer_structure_context_lines(
+    message: Message,
+    contract: TurnContract,
+) -> tuple[str, ...]:
+    if not (contract.prior_answer_reference or contract.prior_answer_positions):
+        return ()
+    structure = _prior_answer_structure_context(message.content)
+    if not structure:
+        return ()
+    return ("Prior answer structure:", structure)
+
+
+def _prior_context_instruction_for_contract(contract: TurnContract) -> str:
+    if contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR:
+        return _PRIOR_CONTEXT_REASON_FROM_PRIOR_INSTRUCTION
+    if contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
+        return _PRIOR_CONTEXT_TRANSFORM_PRIOR_INSTRUCTION
+    return _PRIOR_CONTEXT_DEFAULT_INSTRUCTION
 
 
 def _prior_answer_context_excerpt(content: str) -> str:
@@ -372,39 +388,30 @@ def _prior_answer_position_absence_reply(
     session: ChatSession,
     contract: TurnContract | None,
 ) -> _DeterministicLearningReply | None:
-    if (
-        contract is None
-        or not contract.prior_answer_reference
-        or contract.prior_answer_position_basis not in {"cited_claims", "list_items"}
-    ):
+    if not _contract_can_report_missing_prior_positions(contract):
         return None
-    requested_positions = contract.prior_answer_positions or _implicit_prior_answer_positions(
-        contract,
-    )
+    assert contract is not None
+    requested_positions = _requested_prior_answer_positions(contract)
     if not requested_positions:
         return None
-    recent_assistant = _recent_assistant_messages(
-        session.conversation,
-        contract.original_user_input,
-        limit=5,
-    )
-    selected_answer = _prior_answer_message_for_contract(recent_assistant, contract)
+    selected_answer = _selected_prior_answer(session, contract)
     if selected_answer is None:
         return None
     available_count = _prior_answer_position_basis_count(
         selected_answer.content,
         basis=contract.prior_answer_position_basis,
     )
-    missing_positions = tuple(
-        position for position in requested_positions if position > available_count
+    if _prior_answer_cited_claims_cover_list_positions(
+        selected_answer.content,
+        requested_positions,
+        available_count=available_count,
+        basis=contract.prior_answer_position_basis,
+    ):
+        return None
+    missing_positions = _missing_prior_answer_positions(
+        requested_positions,
+        available_count=available_count,
     )
-    if available_count == 0 and contract.prior_answer_position_basis == "list_items":
-        cited_claim_count = len(_prior_answer_cited_claims(selected_answer.content))
-        cited_claims_cover_positions = all(
-            position <= cited_claim_count for position in requested_positions
-        )
-        if cited_claim_count and cited_claims_cover_positions:
-            return None
     if not missing_positions:
         return None
     reply = _prior_missing_position_text(
@@ -413,6 +420,41 @@ def _prior_answer_position_absence_reply(
         basis=contract.prior_answer_position_basis,
     )
     return _DeterministicLearningReply(reply, citation_required=False)
+
+
+def _contract_can_report_missing_prior_positions(contract: TurnContract | None) -> bool:
+    return (
+        contract is not None
+        and contract.prior_answer_reference
+        and contract.prior_answer_position_basis in {"cited_claims", "list_items"}
+    )
+
+
+def _requested_prior_answer_positions(contract: TurnContract) -> tuple[int, ...]:
+    return contract.prior_answer_positions or _implicit_prior_answer_positions(contract)
+
+
+def _missing_prior_answer_positions(
+    requested_positions: Sequence[int],
+    *,
+    available_count: int,
+) -> tuple[int, ...]:
+    return tuple(position for position in requested_positions if position > available_count)
+
+
+def _prior_answer_cited_claims_cover_list_positions(
+    content: str,
+    requested_positions: Sequence[int],
+    *,
+    available_count: int,
+    basis: str,
+) -> bool:
+    if available_count != 0 or basis != "list_items":
+        return False
+    cited_claim_count = len(_prior_answer_cited_claims(content))
+    if not cited_claim_count:
+        return False
+    return all(position <= cited_claim_count for position in requested_positions)
 
 
 def _prior_answer_source_object_absence_reply(
@@ -469,30 +511,45 @@ def _prior_answer_target_phrase_reply(
     contract: TurnContract | None,
     evidence: TurnEvidence | None,
 ) -> _DeterministicLearningReply | None:
-    if (
-        contract is None
-        or not contract.prior_answer_reference
-        or contract.answer_mode not in {ANSWER_MODE_FROM_EVIDENCE, ANSWER_MODE_REASON_FROM_PRIOR}
-        or evidence is None
-        or not evidence.items
-    ):
+    if not _contract_can_use_prior_target_phrase(contract) or not _has_evidence_items(evidence):
         return None
+    assert contract is not None
+    assert evidence is not None
     selected_answer = _selected_prior_answer(session, contract)
     if selected_answer is None:
         return None
-    for phrase in _quoted_followup_target_phrases(contract):
-        if not _normalized_text_contains(selected_answer.content, phrase):
-            continue
-        item = _evidence_item_containing_text(evidence, phrase)
-        if item is None:
-            continue
-        excerpt = _evidence_pointer_excerpt(item)
-        if not excerpt:
-            continue
+    item = _target_phrase_evidence_item(
+        selected_answer.content,
+        _quoted_followup_target_phrases(contract),
+        evidence,
+    )
+    if item is not None and (excerpt := _evidence_pointer_excerpt(item)):
         return _DeterministicLearningReply(
             f"“{excerpt}” [{item.evidence_id}].",
             source_refs=_evidence_refs(evidence),
         )
+    return None
+
+
+def _contract_can_use_prior_target_phrase(contract: TurnContract | None) -> bool:
+    return (
+        contract is not None
+        and contract.prior_answer_reference
+        and contract.answer_mode in {ANSWER_MODE_FROM_EVIDENCE, ANSWER_MODE_REASON_FROM_PRIOR}
+    )
+
+
+def _target_phrase_evidence_item(
+    prior_answer: str,
+    phrases: Sequence[str],
+    evidence: TurnEvidence,
+) -> EvidenceChunk | None:
+    for phrase in phrases:
+        if not _normalized_text_contains(prior_answer, phrase):
+            continue
+        item = _evidence_item_containing_text(evidence, phrase)
+        if item is not None:
+            return item
     return None
 
 
@@ -501,27 +558,18 @@ def _prior_answer_single_citation_reply(
     contract: TurnContract | None,
     evidence: TurnEvidence | None,
 ) -> _DeterministicLearningReply | None:
-    if (
-        contract is None
-        or not contract.prior_answer_reference
-        or contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE
-        or contract.prior_answer_positions
-        or not contract.citation_required
-        or _quoted_followup_target_phrases(contract)
-        or evidence is None
-        or not evidence.items
-    ):
+    if not _contract_can_use_single_prior_citation(contract) or not _has_evidence_items(evidence):
         return None
+    assert contract is not None
+    assert evidence is not None
     selected_answer = _selected_prior_answer(session, contract)
     if selected_answer is None:
         return None
-    cited_refs = _prior_answer_citation_refs(
+    item = _single_prior_cited_evidence_item(
         selected_answer.content,
         session.last_turn_contract,
+        evidence,
     )
-    if len(cited_refs) != 1:
-        return None
-    item = _evidence_item_by_ref(evidence, cited_refs[0])
     if item is None:
         return None
     excerpt = _evidence_pointer_excerpt(item)
@@ -531,6 +579,32 @@ def _prior_answer_single_citation_reply(
         f"“{excerpt}” [{item.evidence_id}].",
         source_refs=_evidence_refs(evidence),
     )
+
+
+def _contract_can_use_single_prior_citation(contract: TurnContract | None) -> bool:
+    return (
+        contract is not None
+        and contract.prior_answer_reference
+        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+        and not contract.prior_answer_positions
+        and contract.citation_required
+        and not _quoted_followup_target_phrases(contract)
+    )
+
+
+def _has_evidence_items(evidence: TurnEvidence | None) -> bool:
+    return evidence is not None and bool(evidence.items)
+
+
+def _single_prior_cited_evidence_item(
+    content: str,
+    prior_contract: TurnContract | None,
+    evidence: TurnEvidence,
+) -> EvidenceChunk | None:
+    cited_refs = _prior_answer_citation_refs(content, prior_contract)
+    if len(cited_refs) != 1:
+        return None
+    return _evidence_item_by_ref(evidence, cited_refs[0])
 
 
 def _selected_prior_answer(session: ChatSession, contract: TurnContract) -> Message | None:
