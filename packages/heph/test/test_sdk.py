@@ -68,7 +68,7 @@ from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
-from heph.sdk.method_validation import validate_method_params
+from heph.sdk.method_validation import validate_method_params, validate_result_payload
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -303,6 +303,60 @@ def test_sdk_method_validation_accepts_advertised_value_types() -> None:
     assert validate_method_params("check", params, specs) == params
 
 
+def test_sdk_result_validation_accepts_advertised_result_shape() -> None:
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(
+                sdk_methods.SdkResultFieldSpec("name", "string"),
+                sdk_methods.SdkResultFieldSpec("items", "array<string>"),
+                sdk_methods.SdkResultFieldSpec("maybe", "string", nullable=True),
+                sdk_methods.SdkResultFieldSpec("optional", "boolean", required=False),
+            ),
+        ),
+    )
+    result: dict[str, object] = {
+        "name": "heph",
+        "items": ["a", "b"],
+        "maybe": None,
+    }
+
+    assert validate_result_payload("check", result, specs) == result
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        ({"items": []}, "result requires field: name"),
+        ({"name": "heph", "items": [], "extra": True}, "result does not accept field: extra"),
+        ({"name": "heph", "items": "bad"}, "result field 'items' must be an array"),
+        ({"name": "heph", "items": [], "maybe": 7}, "result field 'maybe' must be a string"),
+    ],
+)
+def test_sdk_result_validation_rejects_advertised_result_drift(
+    result: dict[str, object],
+    message: str,
+) -> None:
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(
+                sdk_methods.SdkResultFieldSpec("name", "string"),
+                sdk_methods.SdkResultFieldSpec("items", "array<string>"),
+                sdk_methods.SdkResultFieldSpec(
+                    "maybe",
+                    "string",
+                    nullable=True,
+                    required=False,
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(HephSdkError, match=message):
+        validate_result_payload("check", result, specs)
+
+
 def test_sdk_service_call_routes_match_advertised_methods() -> None:
     service = HephService.plain(config=_config())
 
@@ -323,6 +377,19 @@ def test_sdk_service_contract_validator_matches_advertised_routes() -> None:
     service = HephService.plain(config=_config())
 
     assert validate_sdk_service_contract(service) == ()
+
+
+def test_sdk_service_call_rejects_result_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_capabilities(_self: HephService) -> dict[str, object]:
+        return {"unexpected": True}
+
+    monkeypatch.setattr(HephService, "capabilities", broken_capabilities)
+    service = HephService.plain(config=_config())
+
+    with pytest.raises(HephSdkError, match="result does not accept field: unexpected"):
+        service.call("capabilities")
 
 
 def test_sdk_service_contract_validator_reports_route_drift(

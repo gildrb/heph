@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from heph.sdk.methods import SdkMethodParameter, SdkMethodSpec
+from heph.sdk.methods import SdkMethodParameter, SdkMethodSpec, SdkObjectFieldSpec, SdkResultSpec
 from heph.sdk.runtime import HephSdkError
 
 _ARRAY_PREFIX = "array<"
@@ -37,6 +37,25 @@ def validate_method_params(
     return parameters
 
 
+def validate_result_payload(
+    method: str,
+    result: Mapping[str, object],
+    specs: tuple[SdkResultSpec, ...],
+    *,
+    surface: str = "SDK service",
+) -> dict[str, object]:
+    """Validate a service result against an advertised result spec."""
+    payload = dict(result)
+    spec = _result_spec(method, specs)
+    if spec is None:
+        return payload
+    _validate_result_type(surface, method, payload, spec.value_type)
+    _validate_unknown_result_fields(surface, method, payload, spec)
+    _validate_required_result_fields(surface, method, payload, spec)
+    _validate_supplied_result_fields(surface, method, payload, spec)
+    return payload
+
+
 def _normalized_method_params(params: Mapping[str, object] | None) -> dict[str, object]:
     if params is None:
         return {}
@@ -52,9 +71,18 @@ def _method_spec(method: str, specs: tuple[SdkMethodSpec, ...]) -> SdkMethodSpec
     return next((spec for spec in specs if spec.method == method), None)
 
 
+def _result_spec(method: str, specs: tuple[SdkResultSpec, ...]) -> SdkResultSpec | None:
+    return next((spec for spec in specs if spec.method == method), None)
+
+
 def _parameter_names_message(names: tuple[str, ...]) -> str:
     joined = ", ".join(names)
     return f"parameter: {joined}" if len(names) == 1 else f"parameters: {joined}"
+
+
+def _field_names_message(names: tuple[str, ...]) -> str:
+    joined = ", ".join(names)
+    return f"field: {joined}" if len(names) == 1 else f"fields: {joined}"
 
 
 def _validate_unknown_parameters(
@@ -120,6 +148,76 @@ def _validate_parameter_type(
         return
     raise HephSdkError(
         f"{surface} method '{method}' parameter '{name}' must be {_type_message(value_type)}."
+    )
+
+
+def _validate_result_type(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+    value_type: str,
+) -> None:
+    if _value_matches_type(payload, value_type):
+        return
+    raise HephSdkError(f"{surface} method '{method}' result must be {_type_message(value_type)}.")
+
+
+def _validate_unknown_result_fields(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+    spec: SdkResultSpec,
+) -> None:
+    if not spec.fields:
+        return
+    allowed_keys = frozenset(field.name for field in spec.fields)
+    unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} method '{method}' result does not accept "
+            f"{_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_result_fields(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+    spec: SdkResultSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in spec.fields if field.required and field.name not in payload
+    )
+    if missing_keys:
+        raise HephSdkError(
+            f"{surface} method '{method}' result requires {_field_names_message(missing_keys)}."
+        )
+
+
+def _validate_supplied_result_fields(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+    spec: SdkResultSpec,
+) -> None:
+    for field in spec.fields:
+        if field.name in payload:
+            _validate_supplied_result_field(surface, method, field, payload[field.name])
+
+
+def _validate_supplied_result_field(
+    surface: str,
+    method: str,
+    field: SdkObjectFieldSpec,
+    value: object,
+) -> None:
+    if value is None and field.nullable:
+        return
+    if _value_matches_type(value, field.value_type):
+        return
+    raise HephSdkError(
+        f"{surface} method '{method}' result field '{field.name}' must be "
+        f"{_type_message(field.value_type)}."
     )
 
 
@@ -216,4 +314,4 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
 }
 
 
-__all__ = ["validate_method_params"]
+__all__ = ["validate_method_params", "validate_result_payload"]

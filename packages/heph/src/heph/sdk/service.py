@@ -19,7 +19,7 @@ from heph.sdk.config import (
 )
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
-from heph.sdk.method_validation import validate_method_params
+from heph.sdk.method_validation import validate_method_params, validate_result_payload
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     SDK_METHOD_REQUIREMENT_ALWAYS,
@@ -32,6 +32,7 @@ from heph.sdk.methods import (
     SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
+    SERVICE_CALL_RESULT_SPECS,
     SERVICE_STREAM_METHOD_AVAILABILITY_SPECS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
@@ -240,7 +241,8 @@ class HephService:
         parameters = self.validate_call_params(method, params)
         if route := self._call_routes().get(method):
             self._ensure_call_route_available(route)
-            return route.dispatch(parameters)
+            result = route.dispatch(parameters)
+            return validate_result_payload(method, result, SERVICE_CALL_RESULT_SPECS)
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
     def _call_routes(self) -> dict[str, _ServiceCallRoute]:
