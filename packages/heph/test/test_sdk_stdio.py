@@ -1217,7 +1217,8 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     invalid_id_error = next(
         payload
         for payload in errors
-        if "request id must be" in str(_payload_mapping(payload["error"])["message"])
+        if "request field 'id' must be a string or integer"
+        in str(_payload_mapping(payload["error"])["message"])
     )
     assert invalid_id_error["id"] is None
     state_response = next(

@@ -70,6 +70,7 @@ from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
+    validate_jsonl_request_payload,
     validate_method_params,
     validate_result_payload,
     validate_stream_event_payload,
@@ -503,6 +504,45 @@ def test_sdk_jsonl_message_validation_rejects_envelope_drift(
 ) -> None:
     with pytest.raises(HephSdkError, match=error):
         validate_jsonl_message_payload(message)
+
+
+def test_sdk_jsonl_request_validation_accepts_advertised_envelope_shape() -> None:
+    request: dict[str, object] = {
+        "id": "state-1",
+        "method": "state",
+        "params": {},
+    }
+
+    assert validate_jsonl_request_payload(request) == request
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (
+            {"id": "extra-field", "method": "state", "extra": True},
+            "request does not accept field: extra",
+        ),
+        (
+            {"id": True, "method": "state"},
+            r"request field 'id' must be a string or integer",
+        ),
+        (
+            {"params": {}},
+            "request requires field: method",
+        ),
+        (
+            {"method": "state", "params": []},
+            r"request field 'params' must be an object",
+        ),
+    ],
+)
+def test_sdk_jsonl_request_validation_rejects_envelope_drift(
+    payload: dict[str, object],
+    error: str,
+) -> None:
+    with pytest.raises(HephSdkError, match=error):
+        validate_jsonl_request_payload(payload)
 
 
 def test_sdk_service_call_routes_match_advertised_methods() -> None:

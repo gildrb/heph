@@ -7,10 +7,12 @@ from dataclasses import dataclass
 
 from heph.sdk.methods import (
     JSONL_MESSAGE_SPECS,
+    JSONL_REQUEST_SPEC,
     SDK_EVENT_SPECS,
     SDK_TYPE_SPECS,
     SdkEventSpec,
     SdkJsonlMessageSpec,
+    SdkJsonlRequestSpec,
     SdkMethodParameter,
     SdkMethodSpec,
     SdkObjectFieldSpec,
@@ -110,6 +112,19 @@ def validate_jsonl_message_payload(
     if spec is None:
         raise HephSdkError(f"{surface} message type '{message_type}' is not advertised.")
     _validate_jsonl_message_fields(surface, message_type, payload, spec, type_specs)
+    return payload
+
+
+def validate_jsonl_request_payload(
+    request: Mapping[str, object],
+    *,
+    spec: SdkJsonlRequestSpec = JSONL_REQUEST_SPEC,
+    surface: str = "SDK JSONL",
+    type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
+) -> dict[str, object]:
+    """Validate an incoming JSONL request envelope against the advertised spec."""
+    payload = _string_keyed_json_object(surface, "request", request)
+    _validate_jsonl_request_fields(surface, payload, spec, type_specs)
     return payload
 
 
@@ -462,8 +477,162 @@ def _jsonl_message_field_location(message_type: str, field_name: str) -> str:
     return f"message '{message_type}' field '{field_name}'"
 
 
+def _validate_jsonl_request_fields(
+    surface: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlRequestSpec,
+    type_specs: tuple[SdkTypeSpec, ...],
+) -> None:
+    type_map = _type_specs_by_name(type_specs)
+    _validate_unknown_jsonl_request_fields(surface, payload, spec)
+    _validate_required_jsonl_request_fields(surface, payload, spec)
+    for field in spec.fields:
+        if field.name not in payload:
+            continue
+        value = payload[field.name]
+        if value is None and field.nullable:
+            continue
+        _validate_jsonl_request_value_type(
+            surface,
+            f"request field '{field.name}'",
+            value,
+            field.value_type,
+            type_map,
+        )
+
+
+def _validate_unknown_jsonl_request_fields(
+    surface: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlRequestSpec,
+) -> None:
+    allowed_keys = frozenset(field.name for field in spec.fields)
+    unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} request does not accept {_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_jsonl_request_fields(
+    surface: str,
+    payload: Mapping[str, object],
+    spec: SdkJsonlRequestSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in spec.fields if field.required and field.name not in payload
+    )
+    if missing_keys:
+        raise HephSdkError(f"{surface} request requires {_field_names_message(missing_keys)}.")
+
+
+def _validate_jsonl_request_value_type(
+    surface: str,
+    location: str,
+    value: object,
+    value_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    custom_type = type_map.get(value_type)
+    if custom_type is not None:
+        _validate_custom_jsonl_request_type(surface, location, value, custom_type, type_map)
+        return
+    if item_type := _array_item_type(value_type):
+        _validate_jsonl_request_array(surface, location, value, item_type, type_map)
+        return
+    if _value_matches_type(value, value_type):
+        return
+    raise HephSdkError(f"{surface} {location} must be {_type_message(value_type)}.")
+
+
+def _validate_jsonl_request_array(
+    surface: str,
+    location: str,
+    value: object,
+    item_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+        raise HephSdkError(f"{surface} {location} must be an array.")
+    for index, item in enumerate(value):
+        _validate_jsonl_request_value_type(
+            surface,
+            f"{location}[{index}]",
+            item,
+            item_type,
+            type_map,
+        )
+
+
+def _validate_custom_jsonl_request_type(
+    surface: str,
+    location: str,
+    value: object,
+    type_spec: SdkTypeSpec,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> None:
+    fields = _string_keyed_json_object(surface, location, value)
+    _validate_unknown_jsonl_request_type_fields(surface, location, fields, type_spec)
+    _validate_required_jsonl_request_type_fields(surface, location, fields, type_spec)
+    for field in type_spec.fields:
+        if field.name not in fields:
+            continue
+        value = fields[field.name]
+        if value is None and field.nullable:
+            continue
+        _validate_jsonl_request_value_type(
+            surface,
+            f"{location}.{field.name}",
+            value,
+            field.value_type,
+            type_map,
+        )
+
+
+def _validate_unknown_jsonl_request_type_fields(
+    surface: str,
+    location: str,
+    value: Mapping[str, object],
+    type_spec: SdkTypeSpec,
+) -> None:
+    allowed_keys = frozenset(field.name for field in type_spec.fields)
+    unknown_keys = tuple(sorted(key for key in value if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} {location} does not accept {_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_jsonl_request_type_fields(
+    surface: str,
+    location: str,
+    value: Mapping[str, object],
+    type_spec: SdkTypeSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in type_spec.fields if field.required and field.name not in value
+    )
+    if missing_keys:
+        raise HephSdkError(f"{surface} {location} requires {_field_names_message(missing_keys)}.")
+
+
 def _type_specs_by_name(type_specs: tuple[SdkTypeSpec, ...]) -> dict[str, SdkTypeSpec]:
     return {spec.type_name: spec for spec in type_specs}
+
+
+def _string_keyed_json_object(
+    surface: str,
+    location: str,
+    value: object,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise HephSdkError(f"{surface} {location} must be an object.")
+    fields: dict[str, object] = {}
+    for key, field_value in value.items():
+        if not isinstance(key, str):
+            raise HephSdkError(f"{surface} {location} must use string keys.")
+        fields[key] = field_value
+    return fields
 
 
 def _result_field_location(path: str) -> str:
@@ -739,6 +908,7 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
 
 __all__ = [
     "validate_jsonl_message_payload",
+    "validate_jsonl_request_payload",
     "validate_method_params",
     "validate_result_payload",
     "validate_stream_event_payload",

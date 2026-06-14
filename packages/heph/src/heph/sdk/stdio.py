@@ -15,6 +15,7 @@ from hephaion.armory.storage import ArmoryError
 from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
+    validate_jsonl_request_payload,
     validate_method_params,
     validate_result_payload,
 )
@@ -24,7 +25,6 @@ from heph.sdk.methods import (
     JSONL_CALL_METHODS,
     JSONL_CALL_RESULT_SPECS,
     JSONL_OPERATION_STREAM_METHODS,
-    JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_METHODS,
     SDK_JSONL_PROTOCOL,
@@ -43,8 +43,6 @@ type RequestId = str | int | None
 type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
 type JsonlStreamCleanup = Callable[[], None]
 type _JsonlCallHandler = Callable[["JsonlSdkServer", RequestId, dict[str, object]], None]
-
-_REQUEST_FIELDS = frozenset(field.name for field in JSONL_REQUEST_SPEC.fields)
 
 
 class SdkProtocolError(Exception):
@@ -444,8 +442,10 @@ def _parse_request(line: str) -> dict[str, object]:
         raise SdkProtocolError("invalid_json", f"Invalid JSON request: {exc.msg}") from exc
     if not is_string_mapping(parsed):
         raise SdkProtocolError("invalid_request", "SDK requests must be JSON objects.")
-    _validate_request_fields(parsed)
-    return parsed
+    try:
+        return validate_jsonl_request_payload(parsed)
+    except HephSdkError as exc:
+        raise SdkProtocolError("invalid_request", str(exc)) from exc
 
 
 def _jsonl_request_from_mapping(request: dict[str, object]) -> _JsonlRequest:
@@ -526,20 +526,6 @@ _JSONL_CALL_ROUTES: dict[str, _JsonlCallRoute] = {
     "capabilities": _JsonlCallRoute(_write_jsonl_capabilities_call),
     "settings": _JsonlCallRoute(_write_jsonl_settings_call),
 }
-
-
-def _validate_request_fields(request: dict[str, object]) -> None:
-    unknown_fields = tuple(sorted(field for field in request if field not in _REQUEST_FIELDS))
-    if unknown_fields:
-        raise SdkProtocolError(
-            "invalid_request",
-            f"SDK request envelope does not accept {_field_names_message(unknown_fields)}.",
-        )
-
-
-def _field_names_message(names: tuple[str, ...]) -> str:
-    joined = ", ".join(names)
-    return f"field: {joined}" if len(names) == 1 else f"fields: {joined}"
 
 
 def _request_id(value: object) -> RequestId:
