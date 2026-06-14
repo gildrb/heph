@@ -6,6 +6,7 @@ import difflib
 import re
 import unicodedata
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from ai.runtime.config import ChatConfig
 from ai.runtime.conversation import Conversation
@@ -86,6 +87,14 @@ Place citations next to the topic, method, or example they support; omit specifi
 matching citation.
 Do not discuss retrieval, validation, truncation, or sampling, and do not add offers or next steps.
 """.strip()
+
+
+@dataclass(frozen=True, slots=True)
+class _OverviewShapeMetrics:
+    citation_ids: tuple[str, ...]
+    words: tuple[str, ...]
+    has_table: bool
+    max_chars: int
 
 
 def _overview_fallback_reply(
@@ -941,25 +950,68 @@ def _overview_answer_has_bad_shape(
     allow_table: bool = False,
 ) -> bool:
     """Reject overview replies that are too thin, too noisy, or under-grounded."""
-    citation_ids = _overview_citation_ids(raw_reply)
-    words = re.findall(r"\b[\w'-]+\b", raw_reply)
+    metrics = _overview_shape_metrics(raw_reply, allow_table=allow_table)
+    if _overview_table_requirement_is_bad(metrics, allow_table=allow_table):
+        return True
+    if _overview_length_budget_is_bad(raw_reply, metrics):
+        return True
+    if _overview_layout_limits_are_bad(raw_reply, metrics, evidence):
+        return True
+    return _overview_grounding_requirements_are_bad(metrics, evidence)
+
+
+def _overview_shape_metrics(raw_reply: str, *, allow_table: bool) -> _OverviewShapeMetrics:
     has_table = _contains_markdown_table(raw_reply)
-    if allow_table and not has_table:
-        return True
     max_chars = _OVERVIEW_MAX_TABLE_CHARS if has_table and allow_table else _OVERVIEW_MAX_CHARS
-    if len(raw_reply) > max_chars:
+    return _OverviewShapeMetrics(
+        citation_ids=_overview_citation_ids(raw_reply),
+        words=tuple(re.findall(r"\b[\w'-]+\b", raw_reply)),
+        has_table=has_table,
+        max_chars=max_chars,
+    )
+
+
+def _overview_table_requirement_is_bad(
+    metrics: _OverviewShapeMetrics,
+    *,
+    allow_table: bool,
+) -> bool:
+    return allow_table and not metrics.has_table
+
+
+def _overview_length_budget_is_bad(raw_reply: str, metrics: _OverviewShapeMetrics) -> bool:
+    return len(raw_reply) > metrics.max_chars
+
+
+def _overview_layout_limits_are_bad(
+    raw_reply: str,
+    metrics: _OverviewShapeMetrics,
+    evidence: TurnEvidence | None,
+) -> bool:
+    if not metrics.has_table and _plain_overview_shape_is_bad(
+        raw_reply,
+        metrics.words,
+        metrics.citation_ids,
+        evidence,
+    ):
         return True
-    if not has_table and _plain_overview_shape_is_bad(raw_reply, words, citation_ids, evidence):
+    if metrics.has_table and _markdown_table_row_count(raw_reply) > _OVERVIEW_MAX_TABLE_ROWS:
         return True
-    if has_table and _markdown_table_row_count(raw_reply) > _OVERVIEW_MAX_TABLE_ROWS:
+    return _list_item_count(raw_reply) > _OVERVIEW_MAX_LIST_ITEMS
+
+
+def _overview_grounding_requirements_are_bad(
+    metrics: _OverviewShapeMetrics,
+    evidence: TurnEvidence | None,
+) -> bool:
+    if len(metrics.citation_ids) < _OVERVIEW_MIN_CITATIONS:
         return True
-    if _list_item_count(raw_reply) > _OVERVIEW_MAX_LIST_ITEMS:
+    if not metrics.has_table and len(metrics.words) < _OVERVIEW_MIN_WORDS:
         return True
-    if len(citation_ids) < _OVERVIEW_MIN_CITATIONS:
-        return True
-    if not has_table and len(words) < _OVERVIEW_MIN_WORDS:
-        return True
-    return evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence)
+    return evidence is not None and not _overview_covers_enough_sources(
+        metrics.citation_ids,
+        evidence,
+    )
 
 
 def _plain_overview_shape_is_bad(
