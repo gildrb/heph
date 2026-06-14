@@ -76,6 +76,13 @@ from hephaion.chat.turn_query import (
 
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
 _DEFAULT_MATERIAL_OVERVIEW_REQUEST = "Provide a compact overview of the material contents."
+_CURRENT_TOPIC_QUERY_INTENTS = frozenset({"source_qa", "topic_presentation"})
+_CURRENT_TOPIC_QUERY_BLOCKED_STRATEGIES = frozenset(
+    {
+        RETRIEVAL_STRATEGY_NONE,
+        RETRIEVAL_STRATEGY_REUSE_PRIOR,
+    }
+)
 _CONTINUABLE_MATERIAL_INTENTS = frozenset(
     {
         "material_overview",
@@ -773,21 +780,54 @@ def _stabilized_current_topic_query(
     *,
     retrieval_strategy: str,
 ) -> str | None:
-    if (
+    if _expanded_prior_source_query_should_stay(
+        contract,
+        retrieval_query,
+        retrieval_strategy=retrieval_strategy,
+    ):
+        return retrieval_query
+    if not _contract_can_choose_current_topic_query(
+        contract,
+        retrieval_strategy=retrieval_strategy,
+    ):
+        return retrieval_query
+    return _current_topic_query_for_contract(contract, retrieval_query)
+
+
+def _expanded_prior_source_query_should_stay(
+    contract: TurnContract,
+    retrieval_query: str | None,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    return (
         contract.resolved_intent == "source_qa"
         and retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        and retrieval_query
+        and bool(retrieval_query)
         and not _same_normalized_text(retrieval_query, contract.original_user_input)
-    ):
-        return retrieval_query
-    if (
-        not contract.is_followup
-        or contract.resolved_intent not in {"source_qa", "topic_presentation"}
-        or contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE
-        or contract.prior_answer_reference
-        or retrieval_strategy in {RETRIEVAL_STRATEGY_NONE, RETRIEVAL_STRATEGY_REUSE_PRIOR}
-    ):
-        return retrieval_query
+    )
+
+
+def _contract_can_choose_current_topic_query(
+    contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    if not contract.is_followup:
+        return False
+    if contract.resolved_intent not in _CURRENT_TOPIC_QUERY_INTENTS:
+        return False
+    if contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE:
+        return False
+    if contract.prior_answer_reference:
+        return False
+    return retrieval_strategy not in _CURRENT_TOPIC_QUERY_BLOCKED_STRATEGIES
+
+
+def _current_topic_query_for_contract(
+    contract: TurnContract,
+    retrieval_query: str | None,
+) -> str | None:
     current_query = contract.canonical_request
     if not current_query:
         return retrieval_query
