@@ -46,6 +46,8 @@ _PID_STOP_GRACE_SECONDS = 5.0
 _PID_STOP_KILL_GRACE_SECONDS = 2.0
 _PID_STOP_POLL_SECONDS = 0.1
 _DEFAULT_CONTEXT_TOKENS = 8192
+_PROBE_TOOL_NAME = "heph_probe_echo"
+_PROBE_TOOL_ARGUMENT_VALUE = "ready"
 _STATE_DIR_MODE = 0o700
 _STATE_FILE_MODE = 0o600
 _MANAGED_SERVER_PROCESS: subprocess.Popen[bytes] | None = None
@@ -723,7 +725,7 @@ def probe_tool_capability(endpoint: str, model_id: str) -> ToolCapabilityResult:
             {"role": "user", "content": "Call heph_probe_echo now."},
         ],
         "tools": [_probe_tool_schema()],
-        "tool_choice": {"type": "function", "function": {"name": "heph_probe_echo"}},
+        "tool_choice": {"type": "function", "function": {"name": _PROBE_TOOL_NAME}},
         "temperature": 0,
         "stream": False,
         "max_tokens": 64,
@@ -1166,7 +1168,7 @@ def _probe_tool_schema() -> dict[str, object]:
     return {
         "type": "function",
         "function": {
-            "name": "heph_probe_echo",
+            "name": _PROBE_TOOL_NAME,
             "description": "Return the requested validation marker.",
             "parameters": {
                 "type": "object",
@@ -1179,29 +1181,61 @@ def _probe_tool_schema() -> dict[str, object]:
 
 
 def _tool_capability_from_response(response: dict[str, object]) -> ToolCapabilityResult:
+    choice, reason = _first_probe_choice(response)
+    if choice is None:
+        return ToolCapabilityResult(False, reason)
+    message, reason = _probe_choice_message(choice)
+    if message is None:
+        return ToolCapabilityResult(False, reason)
+    call, reason = _first_probe_tool_call(message)
+    if call is None:
+        return ToolCapabilityResult(False, reason)
+    function, reason = _probe_tool_call_function(call)
+    if function is None:
+        return ToolCapabilityResult(False, reason)
+    return _tool_capability_from_function(function)
+
+
+def _first_probe_choice(response: dict[str, object]) -> tuple[dict[str, object] | None, str]:
     choices = response.get("choices")
     if not is_object_list(choices):
-        return ToolCapabilityResult(False, "probe response did not include choices")
+        return None, "probe response did not include choices"
     if not choices:
-        return ToolCapabilityResult(False, "probe response did not include choices")
+        return None, "probe response did not include choices"
     first = choices[0]
     if not is_string_mapping(first):
-        return ToolCapabilityResult(False, "probe choice was malformed")
-    message = first.get("message")
+        return None, "probe choice was malformed"
+    return first, ""
+
+
+def _probe_choice_message(choice: dict[str, object]) -> tuple[dict[str, object] | None, str]:
+    message = choice.get("message")
     if not is_string_mapping(message):
-        return ToolCapabilityResult(False, "probe choice did not include a message")
+        return None, "probe choice did not include a message"
+    return message, ""
+
+
+def _first_probe_tool_call(message: dict[str, object]) -> tuple[dict[str, object] | None, str]:
     tool_calls = message.get("tool_calls")
     if not is_object_list(tool_calls):
-        return ToolCapabilityResult(False, "model did not return a tool call")
+        return None, "model did not return a tool call"
     if not tool_calls:
-        return ToolCapabilityResult(False, "model did not return a tool call")
+        return None, "model did not return a tool call"
     call = tool_calls[0]
     if not is_string_mapping(call):
-        return ToolCapabilityResult(False, "tool call was malformed")
+        return None, "tool call was malformed"
+    return call, ""
+
+
+def _probe_tool_call_function(call: dict[str, object]) -> tuple[dict[str, object] | None, str]:
     function = call.get("function")
     if not is_string_mapping(function):
-        return ToolCapabilityResult(False, "tool call did not include a function")
-    if function.get("name") != "heph_probe_echo":
+        return None, "tool call did not include a function"
+    return function, ""
+
+
+def _tool_capability_from_function(function: dict[str, object]) -> ToolCapabilityResult:
+    if function.get("name") != _PROBE_TOOL_NAME:
         return ToolCapabilityResult(False, "tool call used the wrong function")
     raw_arguments = function.get("arguments")
     if not isinstance(raw_arguments, str):
@@ -1210,7 +1244,7 @@ def _tool_capability_from_response(response: dict[str, object]) -> ToolCapabilit
         arguments = json.loads(raw_arguments)
     except json.JSONDecodeError:
         return ToolCapabilityResult(False, "tool call arguments were not valid JSON")
-    if not is_string_mapping(arguments) or arguments.get("value") != "ready":
+    if not is_string_mapping(arguments) or arguments.get("value") != _PROBE_TOOL_ARGUMENT_VALUE:
         return ToolCapabilityResult(False, "tool call arguments failed validation")
     return ToolCapabilityResult(True)
 

@@ -56,19 +56,35 @@ def request_profile_for_config(config: ProviderProfileConfig) -> ProviderRequest
     slug = config.provider_slug
     endpoint = _normalize_endpoint(config.base_url)
     model = config.model.strip().lower()
-    if slug == LLAMA_CPP_PROVIDER_SLUG:
+    if _uses_neutral_profile(slug):
         return _NO_REASONING_PROFILE
-    if slug == "deepseek" or endpoint in _DEEPSEEK_ENDPOINTS:
+    if _uses_deepseek_profile(slug, endpoint, model):
         return _DEEPSEEK_PROFILE
-    if slug == "openrouter" or endpoint == _OPENROUTER_ENDPOINT:
+    if _uses_openrouter_profile(slug, endpoint):
         return _OPENROUTER_PROFILE
-    if slug in {"openai", "openai-codex"} or endpoint == _OPENAI_ENDPOINT:
+    if _uses_openai_compatible_profile(slug, endpoint):
         return _GENERIC_OPENAI_COMPATIBLE_PROFILE
-    if model.startswith("deepseek-") and "deepseek.com" in endpoint:
-        return _DEEPSEEK_PROFILE
-    if slug == "pollinations":
-        return _NO_REASONING_PROFILE
     return _GENERIC_OPENAI_COMPATIBLE_PROFILE
+
+
+def _uses_neutral_profile(slug: str) -> bool:
+    return slug in {LLAMA_CPP_PROVIDER_SLUG, "pollinations"}
+
+
+def _uses_deepseek_profile(slug: str, endpoint: str, model: str) -> bool:
+    return (
+        slug == "deepseek"
+        or endpoint in _DEEPSEEK_ENDPOINTS
+        or (model.startswith("deepseek-") and "deepseek.com" in endpoint)
+    )
+
+
+def _uses_openrouter_profile(slug: str, endpoint: str) -> bool:
+    return slug == "openrouter" or endpoint == _OPENROUTER_ENDPOINT
+
+
+def _uses_openai_compatible_profile(slug: str, endpoint: str) -> bool:
+    return slug in {"openai", "openai-codex"} or endpoint == _OPENAI_ENDPOINT
 
 
 def reasoning_payload_for_profile(

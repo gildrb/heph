@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import certifi
 
 from ai.logging import get_logger
-from ai.providers.config import ProviderConfig
+from ai.providers.config import Provider, ProviderConfig
 from ai.providers.llama_cpp import (
     LLAMA_CPP_PROVIDER_SLUG,
     installed_tool_capable_records,
@@ -67,16 +67,36 @@ def hydrate_provider_models(
     allow_network: bool = False,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    if provider_slugs is None or LLAMA_CPP_PROVIDER_SLUG in provider_slugs:
+    if _provider_selected(LLAMA_CPP_PROVIDER_SLUG, provider_slugs):
         _hydrate_llama_cpp_models(config)
 
-    if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
+    if _live_catalog_disabled():
         return
 
     _hydrate_models_dev_metadata(allow_network=allow_network)
+    _hydrate_live_provider_models(
+        config,
+        allow_network=allow_network,
+        provider_slugs=provider_slugs,
+    )
 
+
+def _provider_selected(slug: str, provider_slugs: set[str] | None) -> bool:
+    return provider_slugs is None or slug in provider_slugs
+
+
+def _live_catalog_disabled() -> bool:
+    return bool(os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip())
+
+
+def _hydrate_live_provider_models(
+    config: ProviderConfig,
+    *,
+    allow_network: bool,
+    provider_slugs: set[str] | None,
+) -> None:
     for slug, provider in config.providers.items():
-        if provider_slugs is not None and slug not in provider_slugs:
+        if not _provider_selected(slug, provider_slugs):
             continue
         if slug == LLAMA_CPP_PROVIDER_SLUG:
             continue
@@ -87,12 +107,20 @@ def hydrate_provider_models(
         )
         if catalog is None or not catalog.models:
             continue
-        provider.models = catalog.models
-        if provider.current_model and provider.current_model not in provider.models:
-            provider.current_model = ""
-        registry = get_registry()
-        for info in catalog.metadata:
-            registry.register(info)
+        _apply_live_provider_catalog(provider, catalog)
+
+
+def _apply_live_provider_catalog(provider: Provider, catalog: LiveProviderCatalog) -> None:
+    provider.models = catalog.models
+    if provider.current_model and provider.current_model not in provider.models:
+        provider.current_model = ""
+    _register_model_infos(catalog.metadata)
+
+
+def _register_model_infos(metadata: list[ModelInfo]) -> None:
+    registry = get_registry()
+    for info in metadata:
+        registry.register(info)
 
 
 def _hydrate_llama_cpp_models(config: ProviderConfig) -> None:
@@ -115,13 +143,13 @@ def prefetch_provider_model_catalogs(
     *,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
+    if _live_catalog_disabled():
         return
 
     _schedule_models_dev_refresh()
 
     for slug, provider in config.providers.items():
-        if provider_slugs is not None and slug not in provider_slugs:
+        if not _provider_selected(slug, provider_slugs):
             continue
         _schedule_live_catalog_refresh(slug, provider.endpoint)
 
