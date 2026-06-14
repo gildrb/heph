@@ -309,6 +309,32 @@ def test_sdk_method_validation_accepts_advertised_value_types() -> None:
     assert validate_method_params("check", params, specs) == params
 
 
+def test_sdk_method_validation_accepts_nested_advertised_parameter_shape() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (sdk_methods.SdkMethodParameter("widgets", "map<widget>", True),),
+        ),
+    )
+    params: dict[str, object] = {
+        "widgets": {
+            "primary": {"name": "heph", "count": 1},
+            "secondary": {"name": "hephaion", "count": 2},
+        }
+    }
+
+    assert validate_method_params("check", params, specs, type_specs=type_specs) == params
+
+
 def test_sdk_result_validation_accepts_advertised_result_shape() -> None:
     specs = (
         sdk_methods.SdkResultSpec(
@@ -903,7 +929,7 @@ def test_sdk_service_contract_validator_reports_route_drift(
         ("identity", False, "a string or integer"),
         ("payload", [], "an object"),
         ("items", "not an array", "an array"),
-        ("items", [1], "an array"),
+        ("items", [1], r"parameter 'items'\[0\] must be a string"),
         ("status", "waiting", "literal value 'ready'"),
     ],
 )
@@ -931,6 +957,50 @@ def test_sdk_method_validation_rejects_advertised_value_type_mismatch(
 
     with pytest.raises(HephSdkError, match=message):
         validate_method_params("check", {name: value}, specs)
+
+
+def test_sdk_method_validation_rejects_nested_advertised_parameter_drift() -> None:
+    type_specs = (
+        sdk_methods.SdkTypeSpec(
+            "widget",
+            (
+                sdk_methods.SdkTypeFieldSpec("name", "string"),
+                sdk_methods.SdkTypeFieldSpec("count", "integer"),
+            ),
+        ),
+    )
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (sdk_methods.SdkMethodParameter("widgets", "map<widget>", True),),
+        ),
+    )
+    params: dict[str, object] = {
+        "widgets": {
+            "primary": {"name": "heph", "count": "bad"},
+        }
+    }
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"parameter 'widgets'\.primary\.count must be an integer",
+    ):
+        validate_method_params("check", params, specs, type_specs=type_specs)
+
+
+def test_sdk_method_validation_rejects_unknown_advertised_parameter_type() -> None:
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (sdk_methods.SdkMethodParameter("widget", "missing_widget", True),),
+        ),
+    )
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"parameter 'widget' must be SDK type 'missing_widget'",
+    ):
+        validate_method_params("check", {"widget": {"name": "heph"}}, specs)
 
 
 def test_sdk_app_settings_snapshot_and_update_are_structured(

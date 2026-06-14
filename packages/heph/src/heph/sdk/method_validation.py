@@ -41,15 +41,17 @@ def validate_method_params(
     specs: tuple[SdkMethodSpec, ...],
     *,
     surface: str = "SDK service",
+    type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
 ) -> dict[str, object]:
     """Validate request parameters against an advertised method spec."""
     parameters = _normalized_method_params(params)
     spec = _method_spec(method, specs)
     if spec is None:
         return parameters
+    type_map = _type_specs_by_name(type_specs)
     _validate_unknown_parameters(surface, method, parameters, spec)
     _validate_required_parameters(surface, method, parameters, spec)
-    _validate_supplied_parameters(surface, method, parameters, spec)
+    _validate_supplied_parameters(surface, method, parameters, spec, type_map)
     return parameters
 
 
@@ -208,10 +210,17 @@ def _validate_supplied_parameters(
     method: str,
     parameters: Mapping[str, object],
     spec: SdkMethodSpec,
+    type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
     for param in spec.params:
         if param.name in parameters:
-            _validate_supplied_parameter(surface, method, param, parameters[param.name])
+            _validate_supplied_parameter(
+                surface,
+                method,
+                param,
+                parameters[param.name],
+                type_map,
+            )
 
 
 def _validate_supplied_parameter(
@@ -219,8 +228,9 @@ def _validate_supplied_parameter(
     method: str,
     param: SdkMethodParameter,
     value: object,
+    type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
-    _validate_parameter_type(surface, method, param.name, value, param.value_type)
+    _validate_parameter_type(surface, method, param.name, value, param.value_type, type_map)
     if param.choices:
         _validate_parameter_choice(surface, method, param.name, value, param.choices)
 
@@ -231,11 +241,14 @@ def _validate_parameter_type(
     name: str,
     value: object,
     value_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
-    if _value_matches_type(value, value_type):
-        return
-    raise HephSdkError(
-        f"{surface} method '{method}' parameter '{name}' must be {_type_message(value_type)}."
+    _validate_input_value_type(
+        f"{surface} method '{method}'",
+        f"parameter '{name}'",
+        value,
+        value_type,
+        type_map,
     )
 
 
@@ -493,7 +506,7 @@ def _validate_jsonl_request_fields(
         value = payload[field.name]
         if value is None and field.nullable:
             continue
-        _validate_jsonl_request_value_type(
+        _validate_input_value_type(
             surface,
             f"request field '{field.name}'",
             value,
@@ -527,7 +540,7 @@ def _validate_required_jsonl_request_fields(
         raise HephSdkError(f"{surface} request requires {_field_names_message(missing_keys)}.")
 
 
-def _validate_jsonl_request_value_type(
+def _validate_input_value_type(
     surface: str,
     location: str,
     value: object,
@@ -536,20 +549,20 @@ def _validate_jsonl_request_value_type(
 ) -> None:
     custom_type = type_map.get(value_type)
     if custom_type is not None:
-        _validate_custom_jsonl_request_type(surface, location, value, custom_type, type_map)
+        _validate_custom_input_type(surface, location, value, custom_type, type_map)
         return
     if item_type := _array_item_type(value_type):
-        _validate_jsonl_request_array(surface, location, value, item_type, type_map)
+        _validate_input_array(surface, location, value, item_type, type_map)
         return
     if item_type := _map_item_type(value_type):
-        _validate_jsonl_request_map(surface, location, value, item_type, type_map)
+        _validate_input_map(surface, location, value, item_type, type_map)
         return
     if _value_matches_type(value, value_type):
         return
     raise HephSdkError(f"{surface} {location} must be {_type_message(value_type)}.")
 
 
-def _validate_jsonl_request_array(
+def _validate_input_array(
     surface: str,
     location: str,
     value: object,
@@ -559,7 +572,7 @@ def _validate_jsonl_request_array(
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         raise HephSdkError(f"{surface} {location} must be an array.")
     for index, item in enumerate(value):
-        _validate_jsonl_request_value_type(
+        _validate_input_value_type(
             surface,
             f"{location}[{index}]",
             item,
@@ -568,7 +581,7 @@ def _validate_jsonl_request_array(
         )
 
 
-def _validate_jsonl_request_map(
+def _validate_input_map(
     surface: str,
     location: str,
     value: object,
@@ -577,7 +590,7 @@ def _validate_jsonl_request_map(
 ) -> None:
     fields = _string_keyed_json_object(surface, location, value)
     for key, item in fields.items():
-        _validate_jsonl_request_value_type(
+        _validate_input_value_type(
             surface,
             f"{location}.{key}",
             item,
@@ -586,7 +599,7 @@ def _validate_jsonl_request_map(
         )
 
 
-def _validate_custom_jsonl_request_type(
+def _validate_custom_input_type(
     surface: str,
     location: str,
     value: object,
@@ -594,15 +607,15 @@ def _validate_custom_jsonl_request_type(
     type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
     fields = _string_keyed_json_object(surface, location, value)
-    _validate_unknown_jsonl_request_type_fields(surface, location, fields, type_spec)
-    _validate_required_jsonl_request_type_fields(surface, location, fields, type_spec)
+    _validate_unknown_input_type_fields(surface, location, fields, type_spec)
+    _validate_required_input_type_fields(surface, location, fields, type_spec)
     for field in type_spec.fields:
         if field.name not in fields:
             continue
         value = fields[field.name]
         if value is None and field.nullable:
             continue
-        _validate_jsonl_request_value_type(
+        _validate_input_value_type(
             surface,
             f"{location}.{field.name}",
             value,
@@ -611,7 +624,7 @@ def _validate_custom_jsonl_request_type(
         )
 
 
-def _validate_unknown_jsonl_request_type_fields(
+def _validate_unknown_input_type_fields(
     surface: str,
     location: str,
     value: Mapping[str, object],
@@ -625,7 +638,7 @@ def _validate_unknown_jsonl_request_type_fields(
         )
 
 
-def _validate_required_jsonl_request_type_fields(
+def _validate_required_input_type_fields(
     surface: str,
     location: str,
     value: Mapping[str, object],
@@ -949,7 +962,7 @@ def _value_matches_type(value: object, value_type: str) -> bool:
     literal_value = _literal_value(value_type)
     if literal_value is not None:
         return value == literal_value
-    return True
+    return False
 
 
 def _array_item_type(value_type: str) -> str | None:
