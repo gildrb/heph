@@ -390,16 +390,18 @@ def _overview_lead_prefix_within_budget(lead: str) -> str:
         return ""
     if not _lead_exceeds_overview_budget(normalized):
         return normalized
+    return (
+        _overview_sentence_lead_prefix(normalized)
+        or _overview_clause_lead_prefix(normalized)
+        or _overview_word_lead_prefix(normalized)
+    )
 
-    selected = ""
-    for sentence in _overview_sentence_candidates(normalized):
-        candidate = f"{selected} {sentence}".strip() if selected else sentence
-        if _lead_exceeds_overview_budget(candidate):
-            break
-        selected = candidate
-    if _overview_lead_is_substantive(selected):
-        return selected
 
+def _overview_sentence_lead_prefix(normalized: str) -> str:
+    return _overview_substantive_lead_prefix(_overview_sentence_candidates(normalized))
+
+
+def _overview_clause_lead_prefix(normalized: str) -> str:
     selected = ""
     for clause in re.split(r"(?<=[,;:])\s+", normalized):
         if selected and not _overview_clause_is_substantive(clause):
@@ -410,15 +412,21 @@ def _overview_lead_prefix_within_budget(lead: str) -> str:
         selected = candidate
     if _overview_lead_is_substantive(selected):
         return selected
+    return ""
 
+
+def _overview_word_lead_prefix(normalized: str) -> str:
     words = re.findall(r"\S+", normalized)
-    selected_words: list[str] = []
-    for word in words:
-        candidate = " ".join((*selected_words, word))
+    return _overview_substantive_lead_prefix(words)
+
+
+def _overview_substantive_lead_prefix(segments: Sequence[str]) -> str:
+    selected = ""
+    for segment in segments:
+        candidate = f"{selected} {segment}".strip() if selected else segment
         if _lead_exceeds_overview_budget(candidate):
             break
-        selected_words.append(word)
-    selected = " ".join(selected_words).strip()
+        selected = candidate
     if _overview_lead_is_substantive(selected):
         return selected
     return ""
