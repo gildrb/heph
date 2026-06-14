@@ -182,6 +182,51 @@ def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> No
     assert "build_index" not in _payload_list(open_service["available_stream_methods"])
 
 
+def test_jsonl_sdk_server_rejects_unavailable_calls_and_streams_before_start() -> None:
+    service = HephService.plain(config=_config())
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            _jsonl(
+                {"id": "ask-plain", "method": "ask", "params": {"text": "hello"}},
+                {"id": "prompt-plain", "method": "prompt", "params": {"text": "hello"}},
+                {"id": "index-plain", "method": "build_index_stream"},
+                {"id": "state-after-unavailable", "method": "state"},
+            )
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    ask_error = _payload_mapping(
+        next(payload for payload in payloads if payload.get("id") == "ask-plain")["error"]
+    )
+    prompt_error = _payload_mapping(
+        next(payload for payload in payloads if payload.get("id") == "prompt-plain")["error"]
+    )
+    index_error = _payload_mapping(
+        next(payload for payload in payloads if payload.get("id") == "index-plain")["error"]
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-unavailable"
+    )
+    state_service = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+
+    assert ask_error["code"] == "unavailable"
+    assert "ask" in str(ask_error["message"])
+    assert prompt_error["code"] == "unavailable"
+    assert "prompt" in str(prompt_error["message"])
+    assert index_error["code"] == "unavailable"
+    assert "build_index" in str(index_error["message"])
+    assert [payload for payload in payloads if payload["type"] == "stream_start"] == []
+    assert [payload for payload in payloads if payload["type"] == "stream_end"] == []
+    assert state_service["is_busy"] is False
+    assert state_service["available_stream_methods"] == []
+
+
 def test_jsonl_sdk_server_abort_reaches_active_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

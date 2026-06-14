@@ -28,7 +28,13 @@ from heph.sdk.methods import (
     SERVICE_STREAM_METHODS,
 )
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
-from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
+from heph.sdk.runtime import (
+    HephRuntime,
+    HephSdkBusyError,
+    HephSdkError,
+    HephSdkUnavailableError,
+    HephSession,
+)
 from heph.sdk.settings import (
     SdkAppSettings,
     SdkSettingsError,
@@ -225,9 +231,8 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServicePayload:
         parameters = self.validate_call_params(method, params)
-        if self._is_busy() and method not in BUSY_ALLOWED_CALL_METHODS:
-            raise HephSdkBusyError()
         if route := self._call_routes().get(method):
+            self.ensure_call_available(method)
             return route.dispatch(parameters)
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
@@ -322,6 +327,9 @@ class HephService:
         params: Mapping[str, object] | None = None,
     ) -> ServiceStream:
         parameters = self.validate_stream_params(method, params)
+        if method not in SERVICE_STREAM_METHODS:
+            raise HephSdkError(f"Unknown SDK service stream method: {method}")
+        self.ensure_stream_available(method)
         if method == "prompt":
             yield from self.prompt(_required_str(parameters, "text"))
             return
@@ -329,6 +337,33 @@ class HephService:
             yield from self.build_index_stream()
             return
         raise HephSdkError(f"Unknown SDK service stream method: {method}")
+
+    def ensure_call_available(self, method: str) -> None:
+        with self._prompt_lock:
+            is_busy = self._is_busy_locked()
+            if is_busy:
+                if method not in BUSY_ALLOWED_CALL_METHODS:
+                    raise HephSdkBusyError()
+                return
+            available_methods = _available_call_methods(
+                self.runtime,
+                self.session,
+                is_busy=False,
+            )
+        if method not in available_methods:
+            raise HephSdkUnavailableError(method, kind="SDK service call")
+
+    def ensure_stream_available(self, method: str) -> None:
+        with self._prompt_lock:
+            if self._is_busy_locked():
+                raise HephSdkBusyError()
+            available_methods = _available_stream_methods(
+                self.runtime,
+                self.session,
+                is_busy=False,
+            )
+        if method not in available_methods:
+            raise HephSdkUnavailableError(method, kind="SDK service stream")
 
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -489,6 +524,7 @@ class HephService:
             summary = self.runtime.build_index(progress=record_progress)
             return {"type": "index_complete", "index": summary.to_dict()}
 
+        self.ensure_stream_available("build_index")
         self._begin_operation("build_index")
         try:
             yield from iter_operation_stream(thread_name="heph-sdk-build-index", worker=build)

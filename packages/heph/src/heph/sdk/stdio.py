@@ -24,7 +24,7 @@ from heph.sdk.methods import (
     jsonl_stream_method_for_service,
     service_stream_method_for_jsonl,
 )
-from heph.sdk.runtime import HephSdkBusyError, HephSdkError
+from heph.sdk.runtime import HephSdkBusyError, HephSdkError, HephSdkUnavailableError
 from heph.sdk.service import HephService, ServicePayload
 
 type RequestId = str | int | None
@@ -137,6 +137,8 @@ class JsonlSdkServer:
             self._write_error(request_id, exc.code, str(exc))
         except HephSdkBusyError as exc:
             self._write_error(request_id, "busy", str(exc))
+        except HephSdkUnavailableError as exc:
+            self._write_error(request_id, "unavailable", str(exc))
         except (HephSdkError, ArmoryError) as exc:
             self._write_error(request_id, "sdk_error", str(exc))
         except Exception as exc:
@@ -180,6 +182,7 @@ class JsonlSdkServer:
 
     def _start_prompt_stream(self, request_id: RequestId, params: dict[str, object]) -> None:
         text = _required_string(params, "text")
+        self.service.ensure_stream_available("prompt")
         active_prompt = ActivePrompt(request_id=request_id, abort=threading.Event())
         with self._state_lock:
             if self._active_prompt is not None or self._active_operation is not None:
@@ -209,6 +212,7 @@ class JsonlSdkServer:
         service_method: str,
         params: dict[str, object],
     ) -> None:
+        self.service.ensure_stream_available(service_method)
         active_operation = ActiveOperation(
             request_id=request_id,
             active_operation=service_method,
@@ -591,6 +595,8 @@ def _error(code: str, message: str) -> dict[str, object]:
 def _stream_error(exc: Exception) -> dict[str, object]:
     if isinstance(exc, HephSdkBusyError):
         return _error("busy", str(exc))
+    if isinstance(exc, HephSdkUnavailableError):
+        return _error("unavailable", str(exc))
     if isinstance(exc, HephSdkError):
         return _error("sdk_error", str(exc))
     return _error("internal_error", str(exc))

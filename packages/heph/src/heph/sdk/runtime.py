@@ -93,6 +93,15 @@ class HephSdkBusyError(HephSdkError):
         super().__init__(message)
 
 
+class HephSdkUnavailableError(HephSdkError):
+    """Raised when an SDK method is valid but unavailable for current state."""
+
+    def __init__(self, method: str, *, kind: str = "SDK method") -> None:
+        super().__init__(
+            f"{kind} '{method}' is not available for the current runtime/session state."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ArmorySummary:
     path: Path
@@ -606,6 +615,7 @@ __all__ = [
     "HephSdkBusyError",
     "HephSdkError",
     "HephSdkSessionState",
+    "HephSdkUnavailableError",
     "HephSession",
     "ImportMaterialsSummary",
     "IndexProgressEvent",

@@ -12,7 +12,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 24
+SDK_CAPABILITIES_VERSION = 25
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -362,6 +362,10 @@ JSONL_ERROR_SPECS = (
         "A request envelope, id, method, or params shape was invalid.",
     ),
     SdkErrorSpec("busy", "The service rejected a request while a stream was active."),
+    SdkErrorSpec(
+        "unavailable",
+        "The requested method exists but is not available for the current runtime/session state.",
+    ),
     SdkErrorSpec("sdk_error", "The SDK rejected a valid request."),
     SdkErrorSpec("internal_error", "An unexpected server-side exception escaped the SDK layer."),
 )

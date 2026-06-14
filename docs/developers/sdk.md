@@ -327,11 +327,11 @@ from `service.available_call_methods` and stream controls from
 an active session therefore advertises no streams, an active plain session
 advertises `prompt`, an open armory without a session advertises index
 operations, and an armory-backed session advertises both prompt and index
-streams. This lifecycle rule is
-enforced by `HephService` itself, so it applies to both direct Python embeddings
-and JSONL transport clients. In Python, this raises `HephSdkBusyError`, a
-subclass of `HephSdkError`. In JSONL, the same condition is reported with error
-code `"busy"`.
+streams. This lifecycle rule is enforced by `HephService` itself, so it applies
+to both direct Python embeddings and JSONL transport clients. In Python, busy
+requests raise `HephSdkBusyError`, while valid methods that are unavailable for
+the current runtime/session state raise `HephSdkUnavailableError`. In JSONL,
+those conditions are reported with error codes `"busy"` and `"unavailable"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a
@@ -446,8 +446,10 @@ The JSONL error codes advertised through capabilities are:
   shape.
 - `busy`: a state-changing request was rejected while a prompt or operation
   stream was active.
+- `unavailable`: a valid method is not available for the current runtime/session
+  state.
 - `sdk_error`: the SDK rejected a valid request, such as opening a missing
-  armory or prompting without an active session.
+  armory.
 - `internal_error`: an unexpected server-side exception escaped the SDK layer.
 
 ## Boundary Rules

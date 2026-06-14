@@ -33,6 +33,7 @@ from heph.sdk import (
     HephSdkServiceState,
     HephSdkSessionState,
     HephSdkState,
+    HephSdkUnavailableError,
     HephService,
     HephSession,
     ImportMaterialsSummary,
@@ -726,8 +727,10 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert jsonl_error_codes == list(JSONL_ERROR_CODES)
     assert list(jsonl_error_specs) == jsonl_error_codes
     busy_error_spec = _payload_mapping(jsonl_error_specs["busy"])
+    unavailable_error_spec = _payload_mapping(jsonl_error_specs["unavailable"])
     internal_error_spec = _payload_mapping(jsonl_error_specs["internal_error"])
     assert "stream was active" in str(busy_error_spec["description"])
+    assert "not available" in str(unavailable_error_spec["description"])
     assert "unexpected server-side exception" in str(internal_error_spec["description"])
     assert "reasoning_delta" in event_types
     assert "index_progress" in event_types
@@ -1651,6 +1654,54 @@ def test_service_state_available_methods_reflect_runtime_and_session(tmp_path: P
     assert armory_session_service["available_stream_methods"] == list(
         sdk_methods.SERVICE_STREAM_METHODS
     )
+
+
+def test_service_rejects_unavailable_call_methods_before_dispatch(tmp_path: Path) -> None:
+    service = HephService.plain(config=_config())
+
+    with pytest.raises(HephSdkUnavailableError, match=r"service call 'ask'.*not available"):
+        service.call("ask", {"text": "hello"})
+    with pytest.raises(HephSdkUnavailableError, match="service call 'list_materials'"):
+        service.call("list_materials")
+    with pytest.raises(HephSdkUnavailableError, match="service call 'abort'"):
+        service.call("abort")
+
+    service.new_session()
+
+    with pytest.raises(HephSdkUnavailableError, match="service call 'save_session'"):
+        service.call("save_session")
+    with pytest.raises(HephSdkUnavailableError, match="service call 'set_source_enabled'"):
+        service.call(
+            "set_source_enabled",
+            {"source": "materials/missing.md", "enabled": False},
+        )
+    assert _payload_mapping(service.call("messages"))["messages"] == []
+
+    armory_service = HephService.open_armory(_armory(tmp_path), config=_config())
+
+    with pytest.raises(HephSdkUnavailableError, match="service call 'ask'"):
+        armory_service.call("ask", {"text": "hello"})
+    assert "materials" in armory_service.call("list_materials")
+
+
+def test_service_rejects_unavailable_stream_methods_before_start(tmp_path: Path) -> None:
+    service = HephService.plain(config=_config())
+
+    with pytest.raises(HephSdkUnavailableError, match="service stream 'prompt'"):
+        list(service.stream("prompt", {"text": "hello"}))
+    with pytest.raises(HephSdkUnavailableError, match="service stream 'build_index'"):
+        list(service.stream("build_index"))
+    with pytest.raises(HephSdkUnavailableError, match="service stream 'build_index'"):
+        list(service.build_index_stream())
+    assert _payload_mapping(service.state()["service"])["is_busy"] is False
+
+    service.new_session()
+    armory_service = HephService.open_armory(_armory(tmp_path), config=_config())
+
+    with pytest.raises(HephSdkUnavailableError, match="service stream 'build_index'"):
+        list(service.stream("build_index"))
+    with pytest.raises(HephSdkUnavailableError, match="service stream 'prompt'"):
+        list(armory_service.stream("prompt", {"text": "hello"}))
 
 
 def test_service_manages_runtime_session_and_streams_json_events(

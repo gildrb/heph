@@ -55,6 +55,7 @@ from heph.sdk.runtime import (
     HephRuntime,
     HephSdkBusyError,
     HephSdkError,
+    HephSdkUnavailableError,
     HephSession,
     SessionSummary,
 )
@@ -115,6 +116,7 @@ __all__ = [
     "HephSdkServiceState",
     "HephSdkSessionState",
     "HephSdkState",
+    "HephSdkUnavailableError",
     "HephService",
     "HephSession",
     "ImportMaterialsSummary",
