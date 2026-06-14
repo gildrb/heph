@@ -60,6 +60,16 @@ def _payload_list(value: object) -> list[object]:
     return result
 
 
+def _service_call_methods(*methods: str) -> tuple[str, ...]:
+    available = set(methods)
+    return tuple(method for method in sdk_methods.SERVICE_CALL_METHODS if method in available)
+
+
+def _jsonl_stream_methods(*methods: str) -> tuple[str, ...]:
+    available = set(methods)
+    return tuple(method for method in sdk_methods.JSONL_STREAM_METHODS if method in available)
+
+
 def test_jsonl_sdk_server_handles_state_and_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -122,7 +132,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert "settings" in ready_call_methods
     assert "update_settings" in ready_call_methods
     assert "build_index_stream" in ready_stream_methods
-    assert ready_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert ready_service["available_stream_methods"] == ["prompt"]
     assert ready_message_types == list(JSONL_MESSAGE_TYPES)
     assert ready_error_codes == list(JSONL_ERROR_CODES)
     assert payloads[1]["type"] == "response"
@@ -166,8 +176,8 @@ def test_jsonl_sdk_server_translates_stateful_call_results(tmp_path: Path) -> No
     plain_service = _payload_mapping(plain_result["service"])
     open_service = _payload_mapping(open_result["service"])
 
-    assert plain_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
-    assert open_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert plain_service["available_stream_methods"] == []
+    assert open_service["available_stream_methods"] == ["build_index_stream"]
     assert "build_index" not in _payload_list(plain_service["available_stream_methods"])
     assert "build_index" not in _payload_list(open_service["available_stream_methods"])
 
@@ -726,8 +736,30 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
         "prompt_active": False,
         "active_operation": None,
         "is_busy": False,
-        "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
-        "available_stream_methods": list(sdk_methods.JSONL_STREAM_METHODS),
+        "available_call_methods": list(
+            _service_call_methods(
+                "state",
+                "capabilities",
+                "use_plain_runtime",
+                "open_armory",
+                "create_armory",
+                "list_armories",
+                "validate_armory",
+                "new_session",
+                "fork_session",
+                "list_sessions",
+                "messages",
+                "ask",
+                "abort",
+                "settings",
+                "list_providers",
+                "list_model_choices",
+                "switch_model",
+                "update_config",
+                "update_settings",
+            )
+        ),
+        "available_stream_methods": list(_jsonl_stream_methods("prompt")),
     }
 
 
@@ -794,8 +826,31 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
         "prompt_active": False,
         "active_operation": None,
         "is_busy": False,
-        "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
-        "available_stream_methods": list(sdk_methods.JSONL_STREAM_METHODS),
+        "available_call_methods": list(
+            _service_call_methods(
+                "state",
+                "capabilities",
+                "use_plain_runtime",
+                "open_armory",
+                "create_armory",
+                "list_armories",
+                "validate_armory",
+                "new_session",
+                "resume_session",
+                "list_sessions",
+                "settings",
+                "list_providers",
+                "list_model_choices",
+                "switch_model",
+                "list_materials",
+                "import_materials",
+                "build_index",
+                "scan_extraction_health",
+                "update_config",
+                "update_settings",
+            )
+        ),
+        "available_stream_methods": list(_jsonl_stream_methods("build_index_stream")),
     }
 
 

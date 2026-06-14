@@ -137,6 +137,16 @@ def _payloads_by_slug(items: object) -> dict[str, dict[str, object]]:
     return providers
 
 
+def _service_call_methods(*methods: str) -> tuple[str, ...]:
+    available = set(methods)
+    return tuple(method for method in sdk_methods.SERVICE_CALL_METHODS if method in available)
+
+
+def _service_stream_methods(*methods: str) -> tuple[str, ...]:
+    available = set(methods)
+    return tuple(method for method in sdk_methods.SERVICE_STREAM_METHODS if method in available)
+
+
 def _isolate_settings_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_dir = tmp_path / ".config" / "hephaion"
     config_file = config_dir / "config.json"
@@ -476,6 +486,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert sdk_methods.service_stream_method_for_jsonl("build_index_stream") == "build_index"
     assert sdk_methods.service_stream_method_for_jsonl("prompt") is None
     assert sdk_methods.service_stream_method_for_jsonl("unknown") is None
+    assert sdk_methods.jsonl_stream_method_for_service("build_index") == "build_index_stream"
+    assert sdk_methods.jsonl_stream_method_for_service("prompt") == "prompt"
+    assert sdk_methods.jsonl_stream_method_for_service("unknown") is None
     request_fields = _payload_mapping(jsonl_request_spec["fields"])
     assert list(request_fields) == [field.name for field in JSONL_REQUEST_SPEC.fields]
     assert _payload_mapping(request_fields["id"]) == {
@@ -1586,6 +1599,60 @@ def test_plain_runtime_rejects_material_operations(tmp_path: Path) -> None:
         runtime.scan_extraction_health()
 
 
+def test_service_state_available_methods_reflect_runtime_and_session(tmp_path: Path) -> None:
+    base_methods = (
+        "state",
+        "capabilities",
+        "use_plain_runtime",
+        "open_armory",
+        "create_armory",
+        "list_armories",
+        "validate_armory",
+        "new_session",
+        "list_sessions",
+        "settings",
+        "list_providers",
+        "list_model_choices",
+        "switch_model",
+        "update_config",
+        "update_settings",
+    )
+    session_methods = ("fork_session", "messages", "ask", "abort")
+    armory_methods = (
+        "resume_session",
+        "list_materials",
+        "import_materials",
+        "build_index",
+        "scan_extraction_health",
+    )
+    service = HephService.plain(config=_config())
+
+    plain_service = _payload_mapping(service.state()["service"])
+    service.new_session()
+    plain_session_service = _payload_mapping(service.state()["service"])
+    armory_service = HephService.open_armory(_armory(tmp_path), config=_config())
+    armory_no_session_service = _payload_mapping(armory_service.state()["service"])
+    armory_service.new_session()
+    armory_session_service = _payload_mapping(armory_service.state()["service"])
+
+    assert plain_service["available_call_methods"] == list(_service_call_methods(*base_methods))
+    assert plain_service["available_stream_methods"] == []
+    assert plain_session_service["available_call_methods"] == list(
+        _service_call_methods(*base_methods, *session_methods)
+    )
+    assert plain_session_service["available_stream_methods"] == ["prompt"]
+    assert armory_no_session_service["available_call_methods"] == list(
+        _service_call_methods(*base_methods, *armory_methods)
+    )
+    assert armory_no_session_service["available_stream_methods"] == ["build_index"]
+    assert armory_session_service["available_call_methods"] == list(
+        sdk_methods.SERVICE_CALL_METHODS
+    )
+    assert armory_session_service["available_stream_methods"] == list(
+        sdk_methods.SERVICE_STREAM_METHODS
+    )
+
+
 def test_service_manages_runtime_session_and_streams_json_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1657,8 +1724,31 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert isinstance(empty_snapshot.runtime, HephSdkRuntimeState)
     assert empty_snapshot.session is None
     assert empty_snapshot.service.is_busy is False
-    assert empty_snapshot.service.available_call_methods == sdk_methods.SERVICE_CALL_METHODS
-    assert empty_snapshot.service.available_stream_methods == sdk_methods.SERVICE_STREAM_METHODS
+    assert empty_snapshot.service.available_call_methods == _service_call_methods(
+        "state",
+        "capabilities",
+        "use_plain_runtime",
+        "open_armory",
+        "create_armory",
+        "list_armories",
+        "validate_armory",
+        "new_session",
+        "resume_session",
+        "list_sessions",
+        "settings",
+        "list_providers",
+        "list_model_choices",
+        "switch_model",
+        "list_materials",
+        "import_materials",
+        "build_index",
+        "scan_extraction_health",
+        "update_config",
+        "update_settings",
+    )
+    assert empty_snapshot.service.available_stream_methods == _service_stream_methods(
+        "build_index"
+    )
     assert snapshot.service.prompt_active is False
     assert snapshot.service.active_operation is None
     assert snapshot.service.is_busy is False
@@ -2469,8 +2559,31 @@ def test_service_streams_build_index_clears_operation_on_error(
     }
     assert idle_service["active_operation"] is None
     assert idle_service["is_busy"] is False
-    assert idle_service["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
-    assert idle_service["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
+    assert idle_service["available_call_methods"] == list(
+        _service_call_methods(
+            "state",
+            "capabilities",
+            "use_plain_runtime",
+            "open_armory",
+            "create_armory",
+            "list_armories",
+            "validate_armory",
+            "new_session",
+            "resume_session",
+            "list_sessions",
+            "settings",
+            "list_providers",
+            "list_model_choices",
+            "switch_model",
+            "list_materials",
+            "import_materials",
+            "build_index",
+            "scan_extraction_health",
+            "update_config",
+            "update_settings",
+        )
+    )
+    assert idle_service["available_stream_methods"] == ["build_index"]
 
 
 def test_service_streams_build_index_with_file_timeout(

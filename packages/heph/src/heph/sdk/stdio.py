@@ -21,6 +21,7 @@ from heph.sdk.methods import (
     JSONL_STREAM_METHODS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    jsonl_stream_method_for_service,
     service_stream_method_for_jsonl,
 )
 from heph.sdk.runtime import HephSdkBusyError, HephSdkError
@@ -550,11 +551,27 @@ def _state_with_jsonl_stream_methods(state: ServicePayload) -> ServicePayload:
     merged_service = dict(service_state)
     if service_state.get("is_busy") is True:
         merged_service["available_stream_methods"] = []
+    elif "available_stream_methods" in service_state:
+        merged_service["available_stream_methods"] = _jsonl_available_stream_methods(service_state)
     else:
         merged_service["available_stream_methods"] = list(JSONL_STREAM_METHODS)
     merged_state = dict(state)
     merged_state["service"] = merged_service
     return merged_state
+
+
+def _jsonl_available_stream_methods(service_state: dict[str, object]) -> list[str]:
+    available = service_state.get("available_stream_methods")
+    if not isinstance(available, list):
+        return []
+    methods: list[str] = []
+    for method in available:
+        if not isinstance(method, str):
+            continue
+        jsonl_method = jsonl_stream_method_for_service(method)
+        if jsonl_method is not None:
+            methods.append(jsonl_method)
+    return methods
 
 
 def _jsonl_result_payload(result: ServicePayload) -> ServicePayload:

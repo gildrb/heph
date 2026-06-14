@@ -23,7 +23,9 @@ from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     SERVICE_CALL_METHOD_SPECS,
+    SERVICE_CALL_METHODS,
     SERVICE_STREAM_METHOD_SPECS,
+    SERVICE_STREAM_METHODS,
 )
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
 from heph.sdk.runtime import HephRuntime, HephSdkBusyError, HephSdkError, HephSession
@@ -48,6 +50,40 @@ type _ServiceConfigParamDecoder = Callable[
     [Mapping[str, object], str],
     SdkConfigUpdateValue | None,
 ]
+
+_BASE_AVAILABLE_CALL_METHODS = frozenset(
+    {
+        "state",
+        "capabilities",
+        "use_plain_runtime",
+        "open_armory",
+        "create_armory",
+        "list_armories",
+        "validate_armory",
+        "new_session",
+        "list_sessions",
+        "settings",
+        "list_providers",
+        "list_model_choices",
+        "switch_model",
+        "update_config",
+        "update_settings",
+    }
+)
+_ARMORY_AVAILABLE_CALL_METHODS = frozenset(
+    {
+        "resume_session",
+        "list_materials",
+        "import_materials",
+        "build_index",
+        "scan_extraction_health",
+    }
+)
+_SESSION_AVAILABLE_CALL_METHODS = frozenset({"fork_session", "messages", "ask", "abort"})
+_ARMORY_SESSION_AVAILABLE_CALL_METHODS = frozenset({"save_session"})
+_SESSION_SOURCE_AVAILABLE_CALL_METHODS = frozenset({"set_source_enabled"})
+_SESSION_AVAILABLE_STREAM_METHODS = frozenset({"prompt"})
+_ARMORY_AVAILABLE_STREAM_METHODS = frozenset({"build_index"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -469,10 +505,21 @@ class HephService:
 
     def _service_state(self) -> HephSdkServiceState:
         prompt_active = self._prompt_is_active_locked()
+        is_busy = self._active_operation is not None or prompt_active
         return HephSdkServiceState(
             prompt_active=prompt_active,
             active_operation=self._active_operation,
-            is_busy=self._active_operation is not None or prompt_active,
+            is_busy=is_busy,
+            available_call_methods=_available_call_methods(
+                self.runtime,
+                self.session,
+                is_busy=is_busy,
+            ),
+            available_stream_methods=_available_stream_methods(
+                self.runtime,
+                self.session,
+                is_busy=is_busy,
+            ),
         )
 
     def _runtime_state(self) -> HephSdkRuntimeState:
@@ -593,6 +640,51 @@ class HephService:
         if self._active_prompt_abort is not None:
             return True
         return self.session is not None and self.session.is_streaming
+
+
+def _available_call_methods(
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> tuple[str, ...]:
+    if is_busy:
+        return BUSY_ALLOWED_CALL_METHODS
+
+    available = set(_BASE_AVAILABLE_CALL_METHODS)
+    if runtime.armory_path is not None:
+        available.update(_ARMORY_AVAILABLE_CALL_METHODS)
+    if session is not None:
+        available.update(_SESSION_AVAILABLE_CALL_METHODS)
+        if session.armory_path is not None:
+            available.update(_ARMORY_SESSION_AVAILABLE_CALL_METHODS)
+        if session.source_files:
+            available.update(_SESSION_SOURCE_AVAILABLE_CALL_METHODS)
+    return _ordered_available_methods(SERVICE_CALL_METHODS, available)
+
+
+def _available_stream_methods(
+    runtime: HephRuntime,
+    session: HephSession | None,
+    *,
+    is_busy: bool,
+) -> tuple[str, ...]:
+    if is_busy:
+        return ()
+
+    available: set[str] = set()
+    if session is not None:
+        available.update(_SESSION_AVAILABLE_STREAM_METHODS)
+    if runtime.armory_path is not None:
+        available.update(_ARMORY_AVAILABLE_STREAM_METHODS)
+    return _ordered_available_methods(SERVICE_STREAM_METHODS, available)
+
+
+def _ordered_available_methods(
+    advertised_methods: tuple[str, ...],
+    available_methods: set[str],
+) -> tuple[str, ...]:
+    return tuple(method for method in advertised_methods if method in available_methods)
 
 
 def _required_str(params: Mapping[str, object], key: str) -> str:

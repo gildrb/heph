@@ -12,7 +12,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 23
+SDK_CAPABILITIES_VERSION = 24
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -282,6 +282,10 @@ SERVICE_STREAM_METHODS = tuple(spec.method for spec in SERVICE_STREAM_METHOD_SPE
 JSONL_CALL_METHODS = SERVICE_CALL_METHODS
 JSONL_STREAM_METHODS = tuple(spec.method for spec in JSONL_STREAM_METHOD_SPECS)
 JSONL_OPERATION_STREAM_METHODS = {"build_index_stream": "build_index"}
+SERVICE_OPERATION_STREAM_METHODS = {
+    service_method: jsonl_method
+    for jsonl_method, service_method in JSONL_OPERATION_STREAM_METHODS.items()
+}
 JSONL_REQUEST_SPEC = SdkJsonlRequestSpec(
     fields=(
         SdkJsonlMessageFieldSpec("id", "string_or_integer", required=False, nullable=True),
@@ -863,6 +867,15 @@ def service_stream_method_for_jsonl(method: str) -> str | None:
     return JSONL_OPERATION_STREAM_METHODS[method]
 
 
+def jsonl_stream_method_for_service(method: str) -> str | None:
+    """Return the JSONL stream method for an available SDK service stream."""
+    if method in SERVICE_OPERATION_STREAM_METHODS:
+        return SERVICE_OPERATION_STREAM_METHODS[method]
+    if method in SERVICE_STREAM_METHODS and method in JSONL_STREAM_METHODS:
+        return method
+    return None
+
+
 def method_specs_to_dict(specs: tuple[SdkMethodSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
@@ -947,6 +960,7 @@ __all__ = [
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_SPECS",
     "SERVICE_CALL_RESULT_SPECS",
+    "SERVICE_OPERATION_STREAM_METHODS",
     "SERVICE_STATE_FIELDS",
     "SERVICE_STATE_FIELD_SPECS",
     "SERVICE_STREAM_METHODS",
@@ -977,6 +991,7 @@ __all__ = [
     "jsonl_message_field_specs_to_dict",
     "jsonl_message_specs_to_dict",
     "jsonl_request_spec_to_dict",
+    "jsonl_stream_method_for_service",
     "method_specs_to_dict",
     "result_field_specs_to_dict",
     "result_specs_to_dict",

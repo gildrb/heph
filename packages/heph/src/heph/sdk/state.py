@@ -102,26 +102,35 @@ class _SessionStateSource(Protocol):
     def is_disposed(self) -> bool: ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class HephSdkServiceState:
     prompt_active: bool
-    active_operation: str | None = None
-    is_busy: bool = False
-    available_call_methods: tuple[str, ...] = ()
-    available_stream_methods: tuple[str, ...] = ()
+    active_operation: str | None
+    is_busy: bool
+    available_call_methods: tuple[str, ...]
+    available_stream_methods: tuple[str, ...]
 
-    def __post_init__(self) -> None:
-        is_busy = self.is_busy or self.prompt_active or self.active_operation is not None
+    def __init__(
+        self,
+        prompt_active: bool,
+        active_operation: str | None = None,
+        is_busy: bool = False,
+        available_call_methods: tuple[str, ...] | None = None,
+        available_stream_methods: tuple[str, ...] | None = None,
+    ) -> None:
+        is_busy = is_busy or prompt_active or active_operation is not None
+        object.__setattr__(self, "prompt_active", prompt_active)
+        object.__setattr__(self, "active_operation", active_operation)
         object.__setattr__(self, "is_busy", is_busy)
         object.__setattr__(
             self,
             "available_call_methods",
-            _available_call_methods(self.available_call_methods, is_busy=is_busy),
+            _available_call_methods(available_call_methods, is_busy=is_busy),
         )
         object.__setattr__(
             self,
             "available_stream_methods",
-            _available_stream_methods(self.available_stream_methods, is_busy=is_busy),
+            _available_stream_methods(available_stream_methods, is_busy=is_busy),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -134,18 +143,26 @@ class HephSdkServiceState:
         }
 
 
-def _available_call_methods(configured: tuple[str, ...], *, is_busy: bool) -> tuple[str, ...]:
-    if configured:
+def _available_call_methods(
+    configured: tuple[str, ...] | None,
+    *,
+    is_busy: bool,
+) -> tuple[str, ...]:
+    if configured is not None:
         return configured
     if is_busy:
         return BUSY_ALLOWED_CALL_METHODS
     return SERVICE_CALL_METHODS
 
 
-def _available_stream_methods(configured: tuple[str, ...], *, is_busy: bool) -> tuple[str, ...]:
+def _available_stream_methods(
+    configured: tuple[str, ...] | None,
+    *,
+    is_busy: bool,
+) -> tuple[str, ...]:
     if is_busy:
         return ()
-    if configured:
+    if configured is not None:
         return configured
     return SERVICE_STREAM_METHODS
 
