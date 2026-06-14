@@ -6,11 +6,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from heph.sdk.methods import (
+    SDK_EVENT_SPECS,
     SDK_TYPE_SPECS,
+    SdkEventSpec,
     SdkMethodParameter,
     SdkMethodSpec,
     SdkObjectFieldSpec,
     SdkResultSpec,
+    SdkStreamSpec,
     SdkTypeSpec,
 )
 from heph.sdk.runtime import HephSdkError
@@ -65,6 +68,31 @@ def validate_result_payload(
     return payload
 
 
+def validate_stream_event_payload(
+    method: str,
+    event: Mapping[str, object],
+    stream_specs: tuple[SdkStreamSpec, ...],
+    *,
+    event_specs: tuple[SdkEventSpec, ...] = SDK_EVENT_SPECS,
+    surface: str = "SDK service",
+    type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
+) -> dict[str, object]:
+    """Validate a stream event against advertised stream and event specs."""
+    payload = _string_keyed_result_object(f"{surface} stream", method, "event", event)
+    stream_spec = _stream_spec(method, stream_specs)
+    if stream_spec is None:
+        return payload
+    event_type = _stream_event_type(surface, method, payload)
+    _validate_stream_event_allowed(surface, method, event_type, stream_spec)
+    event_spec = _event_spec(event_type, event_specs)
+    if event_spec is None:
+        raise HephSdkError(
+            f"{surface} stream '{method}' event type '{event_type}' has no SDK event spec."
+        )
+    _validate_event_fields(surface, method, event_type, payload, event_spec, type_specs)
+    return payload
+
+
 def _normalized_method_params(params: Mapping[str, object] | None) -> dict[str, object]:
     if params is None:
         return {}
@@ -82,6 +110,14 @@ def _method_spec(method: str, specs: tuple[SdkMethodSpec, ...]) -> SdkMethodSpec
 
 def _result_spec(method: str, specs: tuple[SdkResultSpec, ...]) -> SdkResultSpec | None:
     return next((spec for spec in specs if spec.method == method), None)
+
+
+def _stream_spec(method: str, specs: tuple[SdkStreamSpec, ...]) -> SdkStreamSpec | None:
+    return next((spec for spec in specs if spec.method == method), None)
+
+
+def _event_spec(event_type: str, specs: tuple[SdkEventSpec, ...]) -> SdkEventSpec | None:
+    return next((spec for spec in specs if spec.event_type == event_type), None)
 
 
 def _parameter_names_message(names: tuple[str, ...]) -> str:
@@ -246,6 +282,92 @@ def _validate_supplied_result_field(
     )
 
 
+def _stream_event_type(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+) -> str:
+    event_type = payload.get("type")
+    if isinstance(event_type, str) and event_type:
+        return event_type
+    raise HephSdkError(f"{surface} stream '{method}' event type must be a non-empty string.")
+
+
+def _validate_stream_event_allowed(
+    surface: str,
+    method: str,
+    event_type: str,
+    spec: SdkStreamSpec,
+) -> None:
+    if event_type in spec.event_types:
+        return
+    raise HephSdkError(f"{surface} stream '{method}' does not advertise event type: {event_type}.")
+
+
+def _validate_event_fields(
+    surface: str,
+    method: str,
+    event_type: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+    type_specs: tuple[SdkTypeSpec, ...],
+) -> None:
+    type_map = _type_specs_by_name(type_specs)
+    _validate_unknown_event_fields(surface, method, event_type, payload, spec)
+    _validate_required_event_fields(surface, method, event_type, payload, spec)
+    for field in spec.fields:
+        if field.name not in payload:
+            continue
+        value = payload[field.name]
+        if value is None and field.nullable:
+            continue
+        _validate_result_value_type(
+            f"{surface} stream",
+            method,
+            _event_field_location(event_type, field.name),
+            value,
+            field.value_type,
+            type_map,
+        )
+
+
+def _validate_unknown_event_fields(
+    surface: str,
+    method: str,
+    event_type: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+) -> None:
+    allowed_keys = frozenset(field.name for field in spec.fields)
+    unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
+    if unknown_keys:
+        raise HephSdkError(
+            f"{surface} stream '{method}' event '{event_type}' does not accept "
+            f"{_field_names_message(unknown_keys)}."
+        )
+
+
+def _validate_required_event_fields(
+    surface: str,
+    method: str,
+    event_type: str,
+    payload: Mapping[str, object],
+    spec: SdkEventSpec,
+) -> None:
+    missing_keys = tuple(
+        field.name for field in spec.fields if field.required and field.name not in payload
+    )
+    if missing_keys:
+        raise HephSdkError(
+            f"{surface} stream '{method}' event '{event_type}' requires "
+            f"{_field_names_message(missing_keys)}."
+        )
+
+
+def _event_field_location(event_type: str, field_name: str) -> str:
+    return f"event '{event_type}' field '{field_name}'"
+
+
 def _type_specs_by_name(type_specs: tuple[SdkTypeSpec, ...]) -> dict[str, SdkTypeSpec]:
     return {spec.type_name: spec for spec in type_specs}
 
@@ -255,6 +377,8 @@ def _result_field_location(path: str) -> str:
 
 
 def _nested_result_field_location(parent: str, field_name: str) -> str:
+    if parent.startswith("event '"):
+        return f"{parent}.{field_name}"
     return _result_field_location(_nested_result_path(parent, field_name))
 
 
@@ -503,4 +627,8 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
 }
 
 
-__all__ = ["validate_method_params", "validate_result_payload"]
+__all__ = [
+    "validate_method_params",
+    "validate_result_payload",
+    "validate_stream_event_payload",
+]

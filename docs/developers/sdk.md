@@ -283,7 +283,9 @@ transport-shaped JSONL responses validate result payloads against the advertised
 result and reusable DTO field specs before returning to clients.
 The `streams` section describes the event types each service and JSONL stream
 method can emit, plus the normal completion event such as `turn_complete` for
-prompt streams and `index_complete` for index streams.
+prompt streams and `index_complete` for index streams. Service stream events are
+validated against those advertised event specs before reaching direct Python or
+transport clients.
 The `availability` section describes each service and JSONL method's stable
 precondition. Each method maps to a `requirement` value such as `always`,
 `armory`, `session`, `armory_session`, or `session_sources`, plus the

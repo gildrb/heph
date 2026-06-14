@@ -68,7 +68,11 @@ from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
-from heph.sdk.method_validation import validate_method_params, validate_result_payload
+from heph.sdk.method_validation import (
+    validate_method_params,
+    validate_result_payload,
+    validate_stream_event_payload,
+)
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -427,6 +431,47 @@ def test_sdk_result_validation_rejects_nested_advertised_dto_drift() -> None:
         validate_result_payload("check", result, specs, type_specs=type_specs)
 
 
+def test_sdk_stream_event_validation_accepts_advertised_event_shape() -> None:
+    event: dict[str, object] = {
+        "type": "assistant_delta",
+        "delta": "hello",
+    }
+
+    assert (
+        validate_stream_event_payload(
+            "prompt",
+            event,
+            sdk_methods.SERVICE_STREAM_SPECS,
+        )
+        == event
+    )
+
+
+@pytest.mark.parametrize(
+    ("event", "message"),
+    [
+        (
+            {"type": "index_progress", "action": "reading", "detail": "notes.md"},
+            "does not advertise event type: index_progress",
+        ),
+        (
+            {"type": "assistant_delta", "delta": 7},
+            r"event 'assistant_delta' field 'delta' must be a string",
+        ),
+    ],
+)
+def test_sdk_stream_event_validation_rejects_contract_drift(
+    event: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(HephSdkError, match=message):
+        validate_stream_event_payload(
+            "prompt",
+            event,
+            sdk_methods.SERVICE_STREAM_SPECS,
+        )
+
+
 def test_sdk_service_call_routes_match_advertised_methods() -> None:
     service = HephService.plain(config=_config())
 
@@ -481,6 +526,34 @@ def test_sdk_service_call_rejects_nested_result_contract_drift(
         match=r"result field 'capabilities\.version' must be an integer",
     ):
         service.call("capabilities")
+
+
+def test_sdk_service_prompt_rejects_stream_event_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, prompt, abort
+        yield AssistantDeltaEvent("hello")
+
+    def broken_event_to_dict(_event: object) -> dict[str, object]:
+        return {"type": "assistant_delta", "delta": 7}
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    monkeypatch.setattr(sdk_service, "event_to_dict", broken_event_to_dict)
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"event 'assistant_delta' field 'delta' must be a string",
+    ):
+        list(service.prompt("hello"))
 
 
 def test_sdk_service_contract_validator_reports_route_drift(

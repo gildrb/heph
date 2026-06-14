@@ -19,7 +19,11 @@ from heph.sdk.config import (
 )
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
-from heph.sdk.method_validation import validate_method_params, validate_result_payload
+from heph.sdk.method_validation import (
+    validate_method_params,
+    validate_result_payload,
+    validate_stream_event_payload,
+)
 from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     SDK_METHOD_REQUIREMENT_ALWAYS,
@@ -36,6 +40,7 @@ from heph.sdk.methods import (
     SERVICE_STREAM_METHOD_AVAILABILITY_SPECS,
     SERVICE_STREAM_METHOD_SPECS,
     SERVICE_STREAM_METHODS,
+    SERVICE_STREAM_SPECS,
     SdkMethodAvailabilitySpec,
     SdkMethodSpec,
 )
@@ -358,7 +363,7 @@ class HephService:
         parameters = self.validate_stream_params(method, params)
         if route := self._stream_routes().get(method):
             self._ensure_stream_route_available(route)
-            yield from route.dispatch(parameters)
+            yield from self._validated_stream(method, route.dispatch(parameters))
             return
         raise HephSdkError(f"Unknown SDK service stream method: {method}")
 
@@ -488,7 +493,7 @@ class HephService:
         session = self._begin_prompt(active_abort)
         try:
             for event in session.prompt(text, abort=active_abort):
-                yield event_to_dict(event)
+                yield self._validated_stream_event("prompt", event_to_dict(event))
         finally:
             self._end_prompt(active_abort)
 
@@ -586,9 +591,32 @@ class HephService:
         self.ensure_stream_available("build_index")
         self._begin_operation("build_index")
         try:
-            yield from iter_operation_stream(thread_name="heph-sdk-build-index", worker=build)
+            yield from self._validated_stream(
+                "build_index",
+                iter_operation_stream(thread_name="heph-sdk-build-index", worker=build),
+            )
         finally:
             self._end_operation("build_index")
+
+    def _validated_stream(
+        self,
+        method: str,
+        events: Iterator[dict[str, object]],
+    ) -> Iterator[dict[str, object]]:
+        for event in events:
+            yield self._validated_stream_event(method, event)
+
+    def _validated_stream_event(
+        self,
+        method: str,
+        event: dict[str, object],
+    ) -> dict[str, object]:
+        return validate_stream_event_payload(
+            method,
+            event,
+            SERVICE_STREAM_SPECS,
+            surface="SDK service",
+        )
 
     def scan_extraction_health(self) -> dict[str, object]:
         with self._idle_service_call():
