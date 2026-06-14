@@ -315,9 +315,43 @@ def test_jsonl_transport_contract_validator_reports_stream_route_drift(
     )
 
 
+def test_jsonl_sdk_server_rejects_transport_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    stream_routes = service._stream_route_sequence()
+
+    def broken_stream_route_sequence(
+        self: HephService,
+    ) -> tuple[object, ...]:
+        _ = self
+        return tuple(route for route in stream_routes if route.method != "build_index")
+
+    monkeypatch.setattr(HephService, "_stream_route_sequence", broken_stream_route_sequence)
+
+    with pytest.raises(
+        HephSdkError,
+        match=(
+            r"SDK JSONL transport contract drift: jsonl\.stream_routes does not implement "
+            r"advertised JSONL streams: build_index_stream"
+        ),
+    ):
+        JsonlSdkServer(
+            service=service,
+            input_stream=io.StringIO(""),
+            output_stream=io.StringIO(),
+        )
+
+
 def test_jsonl_sdk_server_validates_advertised_call_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=HephService.plain(config=_config()),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
     monkeypatch.setattr(
         sdk_stdio,
         "JSONL_CALL_METHOD_SPECS",
@@ -327,12 +361,6 @@ def test_jsonl_sdk_server_validates_advertised_call_params(
                 (sdk_methods.SdkMethodParameter("required", "string", True),),
             ),
         ),
-    )
-    output = io.StringIO()
-    server = JsonlSdkServer(
-        service=HephService.plain(config=_config()),
-        input_stream=io.StringIO(""),
-        output_stream=output,
     )
 
     server.handle_request({"id": "state-missing-param", "method": "state"})

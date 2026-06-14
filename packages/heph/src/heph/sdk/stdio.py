@@ -129,6 +129,12 @@ class JsonlSdkServer:
     )
     _stream_threads: list[threading.Thread] = field(default_factory=list, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        issues = validate_sdk_jsonl_transport_contract(self.service)
+        if issues:
+            message = "SDK JSONL transport contract drift: " + "; ".join(issues)
+            raise HephSdkError(message)
+
     def serve(self) -> None:
         self._write(
             {
