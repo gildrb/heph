@@ -8,6 +8,8 @@ from typing import Protocol
 
 from ai.providers.reasoning import DEFAULT_REASONING_LEVEL
 
+from heph.sdk.methods import BUSY_ALLOWED_CALL_METHODS, SERVICE_CALL_METHODS
+
 
 class _RuntimeConfigSource(Protocol):
     @property
@@ -101,19 +103,25 @@ class HephSdkServiceState:
     prompt_active: bool
     active_operation: str | None = None
     is_busy: bool = False
+    available_call_methods: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        is_busy = self.is_busy or self.prompt_active or self.active_operation is not None
         object.__setattr__(
             self,
             "is_busy",
-            self.is_busy or self.prompt_active or self.active_operation is not None,
+            is_busy,
         )
+        if not self.available_call_methods:
+            available = BUSY_ALLOWED_CALL_METHODS if is_busy else SERVICE_CALL_METHODS
+            object.__setattr__(self, "available_call_methods", available)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "prompt_active": self.prompt_active,
             "active_operation": self.active_operation,
             "is_busy": self.is_busy,
+            "available_call_methods": list(self.available_call_methods),
         }
 
 

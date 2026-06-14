@@ -20,6 +20,7 @@ from heph.sdk import (
     HephService,
     JsonlSdkServer,
 )
+from heph.sdk import methods as sdk_methods
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import stdio as sdk_stdio
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
@@ -411,6 +412,7 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
         "prompt_active": True,
         "active_operation": None,
         "is_busy": True,
+        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
     }
     assert not direct_abort_seen.is_set()
     assert prompt_errors == []
@@ -439,6 +441,7 @@ def test_jsonl_state_marks_pending_prompt_busy() -> None:
         "prompt_active": True,
         "active_operation": None,
         "is_busy": True,
+        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
     }
 
 
@@ -578,11 +581,13 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         "prompt_active": False,
         "active_operation": "build_index",
         "is_busy": True,
+        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
     }
     assert state_service == {
         "prompt_active": False,
         "active_operation": "build_index",
         "is_busy": True,
+        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
     }
     assert capabilities_response["type"] == "response"
     assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
@@ -594,6 +599,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         "prompt_active": False,
         "active_operation": "build_index",
         "is_busy": True,
+        "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
     }
     assert prompt_error_payload["code"] == "busy"
     assert events == [
@@ -681,6 +687,7 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
         "prompt_active": False,
         "active_operation": None,
         "is_busy": False,
+        "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
     }
 
 
@@ -747,6 +754,7 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
         "prompt_active": False,
         "active_operation": None,
         "is_busy": False,
+        "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
     }
 
 

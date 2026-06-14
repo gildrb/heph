@@ -15,6 +15,7 @@ from hephaion.armory.storage import ArmoryError
 from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.method_validation import validate_method_params
 from heph.sdk.methods import (
+    BUSY_ALLOWED_CALL_METHODS,
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
     SDK_JSONL_PROTOCOL,
@@ -536,6 +537,7 @@ def _merge_transport_busy_state(
     ):
         merged_service["active_operation"] = transport_state.active_operation
     merged_service["is_busy"] = True
+    merged_service["available_call_methods"] = list(BUSY_ALLOWED_CALL_METHODS)
     return merged_service
 
 
