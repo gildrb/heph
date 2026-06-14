@@ -2642,6 +2642,34 @@ def test_service_call_and_stream_dispatcher(
         service.call("update_settings", {"theme": "neon"})
 
 
+def test_service_ask_falls_back_to_streamed_deltas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = abort
+        raw_session.conversation.add("user", prompt)
+        raw_session.conversation.add("assistant", "Delta fallback.")
+        raw_session.dirty = True
+        yield AssistantDeltaEvent("Delta ")
+        yield AssistantDeltaEvent("fallback.")
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+
+    response = service.call("ask", {"text": "Return deltas only."})
+    session = _payload_mapping(response["session"])
+
+    assert response["text"] == "Delta fallback."
+    assert session["model"] == "gpt-4o-mini"
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [

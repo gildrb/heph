@@ -95,6 +95,33 @@ class _ServiceConfigParam:
 
 
 @dataclass(slots=True)
+class _PromptTextCollector:
+    chunks: list[str] = field(default_factory=list)
+    full_text: str = ""
+
+    @property
+    def text(self) -> str:
+        return self.full_text or "".join(self.chunks)
+
+    def record(self, event: Mapping[str, object]) -> None:
+        event_type = event.get("type")
+        if event_type == "assistant_delta":
+            self._record_delta(event)
+        elif event_type == "turn_complete":
+            self._record_completion(event)
+
+    def _record_delta(self, event: Mapping[str, object]) -> None:
+        delta = event.get("delta")
+        if isinstance(delta, str):
+            self.chunks.append(delta)
+
+    def _record_completion(self, event: Mapping[str, object]) -> None:
+        complete_text = event.get("full_text")
+        if isinstance(complete_text, str):
+            self.full_text = complete_text
+
+
+@dataclass(slots=True)
 class HephService:
     """JSON-ready state facade for native clients and future RPC adapters."""
 
@@ -336,19 +363,10 @@ class HephService:
             self._end_prompt(active_abort)
 
     def ask(self, text: str) -> dict[str, object]:
-        chunks: list[str] = []
-        full_text = ""
+        reply = _PromptTextCollector()
         for event in self.prompt(text):
-            event_type = event.get("type")
-            if event_type == "assistant_delta":
-                delta = event.get("delta")
-                if isinstance(delta, str):
-                    chunks.append(delta)
-            elif event_type == "turn_complete":
-                complete_text = event.get("full_text")
-                if isinstance(complete_text, str):
-                    full_text = complete_text
-        return {"text": full_text or "".join(chunks), "session": self._session_dict()}
+            reply.record(event)
+        return {"text": reply.text, "session": self._session_dict()}
 
     def abort(self) -> dict[str, object]:
         if active_abort := self._active_prompt_abort_event():
