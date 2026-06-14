@@ -749,6 +749,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "active_operation" in service_fields
     assert "is_busy" in service_fields
     assert "available_call_methods" in service_fields
+    assert "available_stream_methods" in service_fields
     assert "provider_slug" in runtime_fields
     assert "reasoning_level" in runtime_fields
     assert "provider_slug" in session_fields
@@ -874,11 +875,18 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     service_available_methods_spec = _payload_mapping(
         service_field_specs["available_call_methods"]
     )
+    service_available_stream_methods_spec = _payload_mapping(
+        service_field_specs["available_stream_methods"]
+    )
     runtime_armory_spec = _payload_mapping(runtime_field_specs["armory_path"])
     runtime_flags_spec = _payload_mapping(runtime_field_specs["feature_flags"])
     session_messages_spec = _payload_mapping(session_field_specs["messages"])
     assert service_operation_spec == {"type": "string", "nullable": True}
     assert service_available_methods_spec == {"type": "array<string>", "nullable": False}
+    assert service_available_stream_methods_spec == {
+        "type": "array<string>",
+        "nullable": False,
+    }
     assert runtime_armory_spec == {"type": "string", "nullable": True}
     assert runtime_flags_spec == {"type": "array<string>", "nullable": False}
     assert session_messages_spec == {"type": "array<message>", "nullable": False}
@@ -1611,6 +1619,7 @@ def test_service_manages_runtime_session_and_streams_json_events(
     assert service_state["active_operation"] is None
     assert service_state["is_busy"] is False
     assert service_state["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
+    assert service_state["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert runtime_payload["model"] == "gpt-4o-mini"
     assert events == [
         {"type": "assistant_delta", "delta": "Service reply."},
@@ -1649,10 +1658,12 @@ def test_service_state_snapshot_exposes_typed_client_state(tmp_path: Path) -> No
     assert empty_snapshot.session is None
     assert empty_snapshot.service.is_busy is False
     assert empty_snapshot.service.available_call_methods == sdk_methods.SERVICE_CALL_METHODS
+    assert empty_snapshot.service.available_stream_methods == sdk_methods.SERVICE_STREAM_METHODS
     assert snapshot.service.prompt_active is False
     assert snapshot.service.active_operation is None
     assert snapshot.service.is_busy is False
     assert snapshot.service.available_call_methods == sdk_methods.SERVICE_CALL_METHODS
+    assert snapshot.service.available_stream_methods == sdk_methods.SERVICE_STREAM_METHODS
     assert snapshot.runtime.armory_path == armory_path.resolve()
     assert snapshot.runtime.provider_slug == ""
     assert snapshot.runtime.model == "typed-state-model"
@@ -1676,12 +1687,24 @@ def test_service_state_constructor_derives_busy_flag() -> None:
     assert HephSdkServiceState(True).is_busy is True
     assert HephSdkServiceState(False, "build_index").is_busy is True
     assert HephSdkServiceState(False).available_call_methods == sdk_methods.SERVICE_CALL_METHODS
+    assert HephSdkServiceState(False).available_stream_methods == (
+        sdk_methods.SERVICE_STREAM_METHODS
+    )
     assert HephSdkServiceState(True).available_call_methods == (
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    )
+    assert HephSdkServiceState(True).available_stream_methods == ()
+    assert (
+        HephSdkServiceState(
+            True,
+            available_stream_methods=sdk_methods.SERVICE_STREAM_METHODS,
+        ).available_stream_methods
+        == ()
     )
     assert HephSdkServiceState(False, "build_index").available_call_methods == (
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
+    assert HephSdkServiceState(False, "build_index").available_stream_methods == ()
 
 
 def test_runtime_state_constructor_keeps_legacy_positional_shape() -> None:
@@ -1945,6 +1968,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert active_state["active_operation"] is None
     assert active_state["is_busy"] is True
     assert active_state["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert active_state["available_stream_methods"] == []
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
     active_settings = _payload_mapping(service.call("settings")["settings"])
@@ -1997,6 +2021,7 @@ def test_service_blocks_state_changes_while_prompt_streams(
     assert idle_state["active_operation"] is None
     assert idle_state["is_busy"] is False
     assert idle_state["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
+    assert idle_state["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert not thread.is_alive()
     assert stream_errors == []
     assert streamed_events[0] == {"type": "notice", "message": "Waiting.", "code": "sdk_test"}
@@ -2048,6 +2073,7 @@ def test_service_treats_direct_session_stream_as_busy(
     assert active_state.service.prompt_active
     assert active_state.service.is_busy
     assert active_state.service.available_call_methods == sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    assert active_state.service.available_stream_methods == ()
     assert active_state.session is not None
     assert active_state.session.is_streaming
     direct_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
@@ -2074,6 +2100,9 @@ def test_service_treats_direct_session_stream_as_busy(
     assert not service.state_snapshot().service.is_busy
     assert service.state_snapshot().service.available_call_methods == (
         sdk_methods.SERVICE_CALL_METHODS
+    )
+    assert service.state_snapshot().service.available_stream_methods == (
+        sdk_methods.SERVICE_STREAM_METHODS
     )
 
 
@@ -2169,6 +2198,7 @@ def _assert_direct_stream_start_blocks_service_replacement(
     assert service.state_snapshot().service.available_call_methods == (
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
+    assert service.state_snapshot().service.available_stream_methods == ()
 
     release.set()
     stream_thread.join(timeout=2.0)
@@ -2181,6 +2211,9 @@ def _assert_direct_stream_start_blocks_service_replacement(
     assert not service.state_snapshot().service.prompt_active
     assert service.state_snapshot().service.available_call_methods == (
         sdk_methods.SERVICE_CALL_METHODS
+    )
+    assert service.state_snapshot().service.available_stream_methods == (
+        sdk_methods.SERVICE_STREAM_METHODS
     )
 
 
@@ -2216,6 +2249,9 @@ def test_session_clears_streaming_when_autosave_fails(
     assert not service.state_snapshot().service.prompt_active
     assert service.state_snapshot().service.available_call_methods == (
         sdk_methods.SERVICE_CALL_METHODS
+    )
+    assert service.state_snapshot().service.available_stream_methods == (
+        sdk_methods.SERVICE_STREAM_METHODS
     )
     service.new_session()
 
@@ -2318,6 +2354,7 @@ def test_service_streams_build_index_progress(
     assert active_service["active_operation"] == "build_index"
     assert active_service["is_busy"] is True
     assert active_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert active_service["available_stream_methods"] == []
     active_capabilities = _payload_mapping(service.call("capabilities")["capabilities"])
     active_capability_service = _payload_mapping(active_capabilities["service"])
     active_settings = _payload_mapping(service.call("settings")["settings"])
@@ -2345,6 +2382,7 @@ def test_service_streams_build_index_progress(
     assert abort_service["active_operation"] == "build_index"
     assert abort_service["is_busy"] is True
     assert abort_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert abort_service["available_stream_methods"] == []
 
     release.set()
     assert finished.wait(timeout=2.0)
@@ -2354,6 +2392,7 @@ def test_service_streams_build_index_progress(
     assert finished_but_unconsumed_service["available_call_methods"] == list(
         sdk_methods.BUSY_ALLOWED_CALL_METHODS
     )
+    assert finished_but_unconsumed_service["available_stream_methods"] == []
     with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.list_materials()
     remaining_events = list(stream)
@@ -2385,6 +2424,7 @@ def test_service_streams_build_index_progress(
     assert idle_service["active_operation"] is None
     assert idle_service["is_busy"] is False
     assert idle_service["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
+    assert idle_service["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
 
 
 def test_service_streams_build_index_clears_operation_on_error(
@@ -2415,6 +2455,7 @@ def test_service_streams_build_index_clears_operation_on_error(
     assert active_service["active_operation"] == "build_index"
     assert active_service["is_busy"] is True
     assert active_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
+    assert active_service["available_stream_methods"] == []
 
     release.set()
     with pytest.raises(RuntimeError, match="index failed"):
@@ -2429,6 +2470,7 @@ def test_service_streams_build_index_clears_operation_on_error(
     assert idle_service["active_operation"] is None
     assert idle_service["is_busy"] is False
     assert idle_service["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
+    assert idle_service["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
 
 
 def test_service_streams_build_index_with_file_timeout(

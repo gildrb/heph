@@ -12,7 +12,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 22
+SDK_CAPABILITIES_VERSION = 23
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 
@@ -615,6 +615,7 @@ SERVICE_STATE_FIELD_SPECS = (
     SdkFieldSpec("active_operation", "string", nullable=True),
     SdkFieldSpec("is_busy", "boolean"),
     SdkFieldSpec("available_call_methods", "array<string>"),
+    SdkFieldSpec("available_stream_methods", "array<string>"),
 )
 RUNTIME_STATE_FIELD_SPECS = (
     SdkFieldSpec("armory_path", "string", nullable=True),

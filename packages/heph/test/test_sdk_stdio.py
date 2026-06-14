@@ -99,6 +99,8 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
 
     payloads = _payloads(output.getvalue())
     ready_capabilities = _payload_mapping(payloads[0]["capabilities"])
+    ready_state = _payload_mapping(payloads[0]["state"])
+    ready_service = _payload_mapping(ready_state["service"])
     ready_jsonl = _payload_mapping(ready_capabilities["jsonl"])
     ready_call_methods = _payload_list(ready_jsonl["call_methods"])
     ready_stream_methods = _payload_list(ready_jsonl["stream_methods"])
@@ -120,6 +122,7 @@ def test_jsonl_sdk_server_handles_state_and_prompt(
     assert "settings" in ready_call_methods
     assert "update_settings" in ready_call_methods
     assert "build_index_stream" in ready_stream_methods
+    assert ready_service["available_stream_methods"] == list(sdk_methods.JSONL_STREAM_METHODS)
     assert ready_message_types == list(JSONL_MESSAGE_TYPES)
     assert ready_error_codes == list(JSONL_ERROR_CODES)
     assert payloads[1]["type"] == "response"
@@ -413,6 +416,7 @@ def test_jsonl_abort_without_owned_stream_is_noop_for_direct_prompt(
         "active_operation": None,
         "is_busy": True,
         "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
+        "available_stream_methods": [],
     }
     assert not direct_abort_seen.is_set()
     assert prompt_errors == []
@@ -442,6 +446,7 @@ def test_jsonl_state_marks_pending_prompt_busy() -> None:
         "active_operation": None,
         "is_busy": True,
         "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
+        "available_stream_methods": [],
     }
 
 
@@ -582,12 +587,14 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         "active_operation": "build_index",
         "is_busy": True,
         "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
+        "available_stream_methods": [],
     }
     assert state_service == {
         "prompt_active": False,
         "active_operation": "build_index",
         "is_busy": True,
         "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
+        "available_stream_methods": [],
     }
     assert capabilities_response["type"] == "response"
     assert "capabilities" in _payload_list(capability_service["busy_allowed_call_methods"])
@@ -600,6 +607,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         "active_operation": "build_index",
         "is_busy": True,
         "available_call_methods": list(sdk_methods.BUSY_ALLOWED_CALL_METHODS),
+        "available_stream_methods": [],
     }
     assert prompt_error_payload["code"] == "busy"
     assert events == [
@@ -688,6 +696,7 @@ def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(
         "active_operation": None,
         "is_busy": False,
         "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
+        "available_stream_methods": list(sdk_methods.JSONL_STREAM_METHODS),
     }
 
 
@@ -755,6 +764,7 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
         "active_operation": None,
         "is_busy": False,
         "available_call_methods": list(sdk_methods.SERVICE_CALL_METHODS),
+        "available_stream_methods": list(sdk_methods.JSONL_STREAM_METHODS),
     }
 
 

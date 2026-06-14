@@ -8,7 +8,11 @@ from typing import Protocol
 
 from ai.providers.reasoning import DEFAULT_REASONING_LEVEL
 
-from heph.sdk.methods import BUSY_ALLOWED_CALL_METHODS, SERVICE_CALL_METHODS
+from heph.sdk.methods import (
+    BUSY_ALLOWED_CALL_METHODS,
+    SERVICE_CALL_METHODS,
+    SERVICE_STREAM_METHODS,
+)
 
 
 class _RuntimeConfigSource(Protocol):
@@ -104,17 +108,21 @@ class HephSdkServiceState:
     active_operation: str | None = None
     is_busy: bool = False
     available_call_methods: tuple[str, ...] = ()
+    available_stream_methods: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         is_busy = self.is_busy or self.prompt_active or self.active_operation is not None
+        object.__setattr__(self, "is_busy", is_busy)
         object.__setattr__(
             self,
-            "is_busy",
-            is_busy,
+            "available_call_methods",
+            _available_call_methods(self.available_call_methods, is_busy=is_busy),
         )
-        if not self.available_call_methods:
-            available = BUSY_ALLOWED_CALL_METHODS if is_busy else SERVICE_CALL_METHODS
-            object.__setattr__(self, "available_call_methods", available)
+        object.__setattr__(
+            self,
+            "available_stream_methods",
+            _available_stream_methods(self.available_stream_methods, is_busy=is_busy),
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -122,7 +130,24 @@ class HephSdkServiceState:
             "active_operation": self.active_operation,
             "is_busy": self.is_busy,
             "available_call_methods": list(self.available_call_methods),
+            "available_stream_methods": list(self.available_stream_methods),
         }
+
+
+def _available_call_methods(configured: tuple[str, ...], *, is_busy: bool) -> tuple[str, ...]:
+    if configured:
+        return configured
+    if is_busy:
+        return BUSY_ALLOWED_CALL_METHODS
+    return SERVICE_CALL_METHODS
+
+
+def _available_stream_methods(configured: tuple[str, ...], *, is_busy: bool) -> tuple[str, ...]:
+    if is_busy:
+        return ()
+    if configured:
+        return configured
+    return SERVICE_STREAM_METHODS
 
 
 @dataclass(frozen=True, slots=True)

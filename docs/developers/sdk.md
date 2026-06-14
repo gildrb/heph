@@ -30,6 +30,9 @@ SwiftUI / GUI / automation client
 - Structured provider summaries for credential-source and active-provider status.
 - Structured model choice and model switching helpers for provider-aware clients.
 - Structured app settings snapshots and update helpers for GUI/mobile preferences.
+- Dynamic service-state availability through `available_call_methods` and
+  `available_stream_methods`, so clients can enable controls from state instead
+  of duplicating busy rules.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
@@ -219,11 +222,18 @@ active runtime and optional active session. Direct Python clients should use
 `state_snapshot()` for typed `HephSdkState` values, while transports can keep
 calling `state()` for the same JSON-ready dictionary shape.
 The snapshot and payload include a top-level `service` object with
-`is_busy`, `prompt_active`, and `active_operation`, so clients can disable
-state-changing controls without inspecting internal `ChatSession` objects.
+`is_busy`, `prompt_active`, `active_operation`, `available_call_methods`, and
+`available_stream_methods`, so clients can disable state-changing controls
+without inspecting internal `ChatSession` objects or reimplementing busy-method
+policy.
 `prompt_active` is true for both service-owned prompt streams and direct streams
 on the active `HephSession`; `active_operation` names non-prompt operation
-streams such as `build_index`.
+streams such as `build_index`. `available_call_methods` lists every call method
+while the service is idle, then narrows to the calls that remain valid during a
+prompt or operation stream. `available_stream_methods` lists prompt and
+operation streams while the service is idle, then becomes empty while a stream
+is active. Direct Python state uses service stream method names, while JSONL
+transport state uses JSONL stream method names such as `build_index_stream`.
 Session state includes display settings that can affect rendering for the active
 conversation, including `thinking_visibility`, `live_tokens_visible`, and
 `live_cost_visible`.
@@ -309,13 +319,14 @@ The capability payload has its own `version`, separate from the JSONL
 operation stream is active, clients can still call `state`, `capabilities`, and
 `settings`; `abort` cancels prompt streams but returns a no-op state payload for
 non-prompt operation streams such as `build_index_stream`. Other service methods
-are rejected until the stream ends. Clients should gate state-changing UI with
-`service.is_busy`; `prompt_active` and `active_operation` remain available for
-more specific status display. This lifecycle rule is enforced by `HephService`
-itself, so it applies to both direct Python embeddings and JSONL transport
-clients. In Python, this raises `HephSdkBusyError`, a subclass of
-`HephSdkError`. In JSONL, the same condition is reported with error code
-`"busy"`.
+are rejected until the stream ends. Clients should gate regular request controls
+from `service.available_call_methods` and stream controls from
+`service.available_stream_methods`; `service.is_busy`, `prompt_active`, and
+`active_operation` remain available for status display. This lifecycle rule is
+enforced by `HephService` itself, so it applies to both direct Python embeddings
+and JSONL transport clients. In Python, this raises `HephSdkBusyError`, a
+subclass of `HephSdkError`. In JSONL, the same condition is reported with error
+code `"busy"`.
 JSONL `abort` is scoped to the prompt stream owned by that transport process;
 when no JSONL prompt stream is active it returns a no-op state payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a

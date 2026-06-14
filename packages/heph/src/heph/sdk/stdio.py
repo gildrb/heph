@@ -18,6 +18,7 @@ from heph.sdk.methods import (
     BUSY_ALLOWED_CALL_METHODS,
     JSONL_REQUEST_SPEC,
     JSONL_STREAM_METHOD_SPECS,
+    JSONL_STREAM_METHODS,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     service_stream_method_for_jsonl,
@@ -108,7 +109,7 @@ class JsonlSdkServer:
                 "protocol": SDK_JSONL_PROTOCOL,
                 "version": SDK_JSONL_VERSION,
                 "capabilities": self._capabilities_payload(),
-                "state": self.service.state(),
+                "state": self._state_with_transport_busy(),
             }
         )
         for raw_line in self.input_stream:
@@ -296,7 +297,7 @@ class JsonlSdkServer:
         return {"aborted": True, "state": self._state_with_transport_busy()}
 
     def _state_with_transport_busy(self) -> ServicePayload:
-        state = self.service.state()
+        state = _state_with_jsonl_stream_methods(self.service.state())
         transport_state = self._transport_busy_state()
         if not transport_state.is_busy:
             return state
@@ -538,7 +539,22 @@ def _merge_transport_busy_state(
         merged_service["active_operation"] = transport_state.active_operation
     merged_service["is_busy"] = True
     merged_service["available_call_methods"] = list(BUSY_ALLOWED_CALL_METHODS)
+    merged_service["available_stream_methods"] = []
     return merged_service
+
+
+def _state_with_jsonl_stream_methods(state: ServicePayload) -> ServicePayload:
+    service_state = state.get("service")
+    if not is_string_mapping(service_state):
+        return state
+    merged_service = dict(service_state)
+    if service_state.get("is_busy") is True:
+        merged_service["available_stream_methods"] = []
+    else:
+        merged_service["available_stream_methods"] = list(JSONL_STREAM_METHODS)
+    merged_state = dict(state)
+    merged_state["service"] = merged_service
+    return merged_state
 
 
 def _error(code: str, message: str) -> dict[str, object]:
