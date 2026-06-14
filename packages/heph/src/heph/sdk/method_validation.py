@@ -279,6 +279,15 @@ def _validate_unknown_result_fields(
 ) -> None:
     if not spec.fields:
         return
+    _raise_for_unknown_result_fields(surface, method, payload, spec)
+
+
+def _raise_for_unknown_result_fields(
+    surface: str,
+    method: str,
+    payload: Mapping[str, object],
+    spec: SdkResultSpec,
+) -> None:
     allowed_keys = frozenset(field.name for field in spec.fields)
     unknown_keys = tuple(sorted(key for key in payload if key not in allowed_keys))
     if unknown_keys:
@@ -721,17 +730,37 @@ def _validate_result_value_type(
     if custom_type is not None:
         _validate_custom_result_type(surface, method, location, value, custom_type, type_map)
         return
-    if item_type := sdk_array_item_type(value_type):
-        _validate_result_array(surface, method, location, value, item_type, type_map)
-        return
-    if item_type := sdk_map_item_type(value_type):
-        _validate_result_map(surface, method, location, value, item_type, type_map)
+    if _validate_result_collection_value_type(
+        surface,
+        method,
+        location,
+        value,
+        value_type,
+        type_map,
+    ):
         return
     if _value_matches_type(value, value_type):
         return
     raise HephSdkError(
         f"{surface} method '{method}' {location} must be {_type_message(value_type)}."
     )
+
+
+def _validate_result_collection_value_type(
+    surface: str,
+    method: str,
+    location: str,
+    value: object,
+    value_type: str,
+    type_map: Mapping[str, SdkTypeSpec],
+) -> bool:
+    if item_type := sdk_array_item_type(value_type):
+        _validate_result_array(surface, method, location, value, item_type, type_map)
+        return True
+    if item_type := sdk_map_item_type(value_type):
+        _validate_result_map(surface, method, location, value, item_type, type_map)
+        return True
+    return False
 
 
 def _validate_sdk_event_discriminator(
