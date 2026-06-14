@@ -44,6 +44,7 @@ from heph.sdk.methods import (
     SERVICE_STREAM_METHODS,
     SERVICE_STREAM_SPECS,
     SdkMethodAvailabilitySpec,
+    SdkMethodParameter,
     SdkMethodSpec,
 )
 from heph.sdk.operation_stream import OperationStreamPublish, iter_operation_stream
@@ -83,14 +84,6 @@ type _AvailabilityCheck = Callable[[HephRuntime, HephSession | None], bool]
 
 
 @dataclass(frozen=True, slots=True)
-class _RouteParameterContract:
-    name: str
-    value_type: str
-    required: bool
-    choices: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class _ServiceCallArgument:
     name: str
     decoder: _ServiceCallArgumentDecoder
@@ -109,7 +102,7 @@ class _ServiceCallRoute:
     arguments: tuple[_ServiceCallArgument, ...] = ()
     keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
     params_as_argument: bool = False
-    parameter_contracts: tuple[_RouteParameterContract, ...] = ()
+    parameter_contracts: tuple[SdkMethodParameter, ...] = ()
 
     def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
         if self.params_as_argument:
@@ -917,8 +910,8 @@ def _append_stream_route_parameter_issues(
 def _append_route_parameter_issue(
     issues: list[str],
     label: str,
-    expected: tuple[_RouteParameterContract, ...],
-    implemented: tuple[_RouteParameterContract, ...],
+    expected: tuple[SdkMethodParameter, ...],
+    implemented: tuple[SdkMethodParameter, ...],
     advertised_label: str,
 ) -> None:
     if implemented != expected:
@@ -929,18 +922,15 @@ def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMe
     return {spec.method: spec for spec in specs}
 
 
-def _method_spec_param_contracts(spec: SdkMethodSpec) -> tuple[_RouteParameterContract, ...]:
-    return tuple(
-        _RouteParameterContract(param.name, param.value_type, param.required, param.choices)
-        for param in spec.params
-    )
+def _method_spec_param_contracts(spec: SdkMethodSpec) -> tuple[SdkMethodParameter, ...]:
+    return spec.params
 
 
-def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[_RouteParameterContract, ...]:
+def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[SdkMethodParameter, ...]:
     if route.params_as_argument:
         return route.parameter_contracts
     return tuple(
-        _RouteParameterContract(
+        SdkMethodParameter(
             argument.name,
             argument.value_type,
             argument.required,
@@ -952,9 +942,9 @@ def _call_route_param_contracts(route: _ServiceCallRoute) -> tuple[_RouteParamet
 
 def _stream_route_param_contracts(
     route: _ServiceStreamRoute,
-) -> tuple[_RouteParameterContract, ...]:
+) -> tuple[SdkMethodParameter, ...]:
     return tuple(
-        _RouteParameterContract(
+        SdkMethodParameter(
             argument.name,
             argument.value_type,
             argument.required,
@@ -1244,9 +1234,9 @@ _CONFIG_PARAMS = (
 )
 
 
-def _config_param_contracts() -> tuple[_RouteParameterContract, ...]:
+def _config_param_contracts() -> tuple[SdkMethodParameter, ...]:
     return tuple(
-        _RouteParameterContract(
+        SdkMethodParameter(
             param.name,
             param.value_type,
             required=False,
@@ -1256,9 +1246,9 @@ def _config_param_contracts() -> tuple[_RouteParameterContract, ...]:
     )
 
 
-def _app_setting_param_contracts() -> tuple[_RouteParameterContract, ...]:
+def _app_setting_param_contracts() -> tuple[SdkMethodParameter, ...]:
     return tuple(
-        _RouteParameterContract(
+        SdkMethodParameter(
             contract.name,
             contract.value_type,
             required=False,

@@ -44,7 +44,6 @@ type RequestId = str | int | None
 type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
 type JsonlStreamCleanup = Callable[[], None]
 type _JsonlCallHandler = Callable[["JsonlSdkServer", RequestId, dict[str, object]], None]
-type _MethodParamContract = tuple[str, str, bool, tuple[str, ...]]
 
 
 class SdkProtocolError(Exception):
@@ -836,12 +835,8 @@ def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMe
     return {spec.method: spec for spec in specs}
 
 
-def _method_param_contracts(spec: SdkMethodSpec) -> tuple[_MethodParamContract, ...]:
-    return tuple(_method_param_contract(param) for param in spec.params)
-
-
-def _method_param_contract(param: SdkMethodParameter) -> _MethodParamContract:
-    return (param.name, param.value_type, param.required, param.choices)
+def _method_param_contracts(spec: SdkMethodSpec) -> tuple[SdkMethodParameter, ...]:
+    return spec.params
 
 
 __all__ = [
