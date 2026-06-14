@@ -32,6 +32,7 @@ from heph.sdk.methods import (
     SDK_METHOD_UNAVAILABLE_BUSY,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_STREAM_METHOD_SPECS,
+    SdkMethodParameter,
     SdkMethodSpec,
     jsonl_stream_method_for_service,
     service_stream_method_for_jsonl,
@@ -43,6 +44,7 @@ type RequestId = str | int | None
 type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
 type JsonlStreamCleanup = Callable[[], None]
 type _JsonlCallHandler = Callable[["JsonlSdkServer", RequestId, dict[str, object]], None]
+type _MethodParamContract = tuple[str, str, bool, tuple[str, ...]]
 
 
 class SdkProtocolError(Exception):
@@ -803,7 +805,7 @@ def _append_jsonl_call_parameter_issues(issues: list[str]) -> None:
         service_spec = service_specs.get(spec.method)
         if service_spec is None:
             continue
-        if _method_param_names(spec) != _method_param_names(service_spec):
+        if _method_param_contracts(spec) != _method_param_contracts(service_spec):
             issues.append(
                 f"jsonl.call_specs.{spec.method} params do not match service call params."
             )
@@ -818,7 +820,7 @@ def _append_jsonl_stream_parameter_issues(issues: list[str]) -> None:
         service_spec = service_specs.get(service_method)
         if service_spec is None:
             continue
-        if _method_param_names(spec) != _method_param_names(service_spec):
+        if _method_param_contracts(spec) != _method_param_contracts(service_spec):
             issues.append(
                 f"jsonl.stream_specs.{spec.method} params do not match service stream params."
             )
@@ -834,8 +836,12 @@ def _method_specs_by_method(specs: tuple[SdkMethodSpec, ...]) -> dict[str, SdkMe
     return {spec.method: spec for spec in specs}
 
 
-def _method_param_names(spec: SdkMethodSpec) -> tuple[str, ...]:
-    return tuple(param.name for param in spec.params)
+def _method_param_contracts(spec: SdkMethodSpec) -> tuple[_MethodParamContract, ...]:
+    return tuple(_method_param_contract(param) for param in spec.params)
+
+
+def _method_param_contract(param: SdkMethodParameter) -> _MethodParamContract:
+    return (param.name, param.value_type, param.required, param.choices)
 
 
 __all__ = [

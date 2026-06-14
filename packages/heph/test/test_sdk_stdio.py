@@ -338,6 +338,46 @@ def test_jsonl_transport_contract_validator_reports_stream_route_drift(
     )
 
 
+def test_jsonl_transport_contract_validator_reports_call_param_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(
+        sdk_stdio,
+        "JSONL_CALL_METHOD_SPECS",
+        (
+            sdk_methods.SdkMethodSpec(
+                "open_armory",
+                (sdk_methods.SdkMethodParameter("path", "integer", True),),
+            ),
+        ),
+    )
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.call_specs.open_armory params do not match service call params.",
+    )
+
+
+def test_jsonl_transport_contract_validator_reports_stream_param_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(
+        sdk_stdio,
+        "JSONL_STREAM_METHOD_SPECS",
+        (
+            sdk_methods.SdkMethodSpec(
+                "prompt",
+                (sdk_methods.SdkMethodParameter("text", "string", False),),
+            ),
+        ),
+    )
+
+    assert validate_sdk_jsonl_transport_contract(service) == (
+        "jsonl.stream_specs.prompt params do not match service stream params.",
+    )
+
+
 def test_jsonl_sdk_server_rejects_transport_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
