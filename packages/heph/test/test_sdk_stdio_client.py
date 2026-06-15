@@ -17,6 +17,8 @@ from heph.sdk import (
     SDK_JSONL_CANCELLED_ERROR_CODE,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_STABILITY_PREVIEW,
+    SDK_STABILITY_PUBLIC,
     HephSdkOptions,
     HephService,
     JsonlSdkClient,
@@ -1015,6 +1017,35 @@ def test_jsonl_sdk_client_rejects_incompatible_ready_payload() -> None:
         client.read_ready()
 
 
+def test_jsonl_sdk_client_requires_accepted_ready_stability() -> None:
+    service = HephService.plain(config=_config())
+    capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
+    compatibility = dict(_payload_mapping(capabilities["compatibility"]))
+    compatibility["stability"] = SDK_STABILITY_PREVIEW
+    capabilities["compatibility"] = compatibility
+    ready_message = {
+        "type": "ready",
+        "protocol": SDK_JSONL_PROTOCOL,
+        "version": SDK_JSONL_VERSION,
+        "capabilities": capabilities,
+        "state": service.state(),
+    }
+    default_client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+    )
+    preview_client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+        accepted_stability_levels=(SDK_STABILITY_PUBLIC, SDK_STABILITY_PREVIEW),
+    )
+
+    with pytest.raises(SdkClientCompatibilityError, match="preview"):
+        default_client.read_ready()
+
+    assert preview_client.read_ready().capabilities["compatibility"] == compatibility
+
+
 def test_jsonl_sdk_process_options_build_command() -> None:
     options = JsonlSdkProcessOptions(
         armory_path="notes",
@@ -1108,6 +1139,41 @@ def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
         _ = transport.process
     with pytest.raises(JsonlSdkClientProtocolError, match="client is closed"):
         client.call("state", request_id="state-after-close")
+
+
+def test_jsonl_sdk_process_passes_accepted_ready_stability(tmp_path: Path) -> None:
+    service = HephService.plain(config=_config())
+    ready_payload = _ready_message(service)
+    capabilities = dict(_payload_mapping(ready_payload["capabilities"]))
+    compatibility = dict(_payload_mapping(capabilities["compatibility"]))
+    compatibility["stability"] = SDK_STABILITY_PREVIEW
+    capabilities["compatibility"] = compatibility
+    ready_payload["capabilities"] = capabilities
+    ready_line = json.dumps(ready_payload) + "\n"
+    server_script = tmp_path / "fake_preview_sdk_server.py"
+    server_script.write_text(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import sys",
+                f"sys.stdout.write({ready_line!r})",
+                "sys.stdout.flush()",
+                "for _line in sys.stdin:",
+                "    pass",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    transport = JsonlSdkProcess(
+        command=(sys.executable, str(server_script)),
+        accepted_stability_levels=(SDK_STABILITY_PUBLIC, SDK_STABILITY_PREVIEW),
+    )
+
+    with transport as running:
+        assert running.ready.capabilities["compatibility"] == compatibility
+
+    assert transport.returncode == 0
 
 
 def test_jsonl_sdk_process_ignores_pipe_close_errors() -> None:

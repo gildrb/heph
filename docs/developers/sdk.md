@@ -220,7 +220,10 @@ tearing down child pipes, so stale client references fail with a stable
 and only closes the helper state; callers that own custom streams still own the
 actual pipe lifecycle.
 `JsonlSdkClient.read_ready()` validates the protocol/version handshake and the
-advertised capability compatibility policy. `call()` raises
+advertised capability compatibility policy. `JsonlSdkClient` and
+`JsonlSdkProcess` accept an `accepted_stability_levels` sequence for clients
+that intentionally opt into non-public SDK stability; the default is public-only.
+`call()` raises
 `JsonlSdkServerError` for structured server error envelopes and validates
 successful results against the advertised JSONL call result spec before
 returning them. `stream()` yields event payloads until `stream_end`, validates

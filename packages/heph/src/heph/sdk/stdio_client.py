@@ -6,7 +6,7 @@ import json
 import queue
 import subprocess
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Self
@@ -31,6 +31,7 @@ from heph.sdk.methods import (
     SDK_JSONL_CANCELLED_ERROR_CODE,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    SDK_STABILITY_PUBLIC,
     SdkMethodSpec,
 )
 from heph.sdk.runtime import HephSdkError
@@ -135,6 +136,7 @@ class JsonlSdkProcess:
     command: tuple[str, ...] | None = None
     client_capabilities_version: int = SDK_CAPABILITIES_VERSION
     jsonl_version: int = SDK_JSONL_VERSION
+    accepted_stability_levels: Sequence[str] = (SDK_STABILITY_PUBLIC,)
     startup_timeout: float | None = 10.0
     shutdown_timeout: float = 5.0
     cwd: str | Path | None = None
@@ -195,6 +197,7 @@ class JsonlSdkProcess:
             output_stream=stdin,
             client_capabilities_version=self.client_capabilities_version,
             jsonl_version=self.jsonl_version,
+            accepted_stability_levels=self.accepted_stability_levels,
         )
         self._read_ready_or_close()
         return self
@@ -356,6 +359,7 @@ class JsonlSdkClient:
     output_stream: IO[str]
     client_capabilities_version: int = SDK_CAPABILITIES_VERSION
     jsonl_version: int = SDK_JSONL_VERSION
+    accepted_stability_levels: Sequence[str] = (SDK_STABILITY_PUBLIC,)
     _request_counter: int = field(default=0, init=False, repr=False)
     _write_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _stream_control_lock: threading.Lock = field(
@@ -423,6 +427,7 @@ class JsonlSdkClient:
             ready.capabilities,
             client_capabilities_version=self.client_capabilities_version,
             jsonl_version=ready.version,
+            accepted_stability_levels=self.accepted_stability_levels,
         )
         return ready
 
