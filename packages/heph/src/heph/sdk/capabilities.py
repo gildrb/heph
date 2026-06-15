@@ -72,7 +72,11 @@ from heph.sdk.methods import (
     stream_specs_to_dict,
     type_specs_to_dict,
 )
-from heph.sdk.value_types import sdk_custom_type_references, sdk_value_type_shape_issue
+from heph.sdk.value_types import (
+    sdk_custom_type_references,
+    sdk_json_object_is_safe,
+    sdk_value_type_shape_issue,
+)
 
 _BUILTIN_TYPES = frozenset(
     {
@@ -312,6 +316,7 @@ def validate_sdk_capabilities(
     _append_stream_event_issues(issues, capabilities)
     _append_discriminator_issues(issues, capabilities)
     _append_jsonl_request_envelope_issues(issues, capabilities)
+    _append_payload_json_safety_issue(issues, capabilities)
     return tuple(issues)
 
 
@@ -1104,6 +1109,15 @@ def _required_nullable_message(field: SdkObjectFieldSpec) -> str:
     required = "required" if field.required else "optional"
     nullable = "nullable" if field.nullable else "non-null"
     return f"{required} and {nullable}"
+
+
+def _append_payload_json_safety_issue(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    if sdk_json_object_is_safe(capabilities.to_dict()):
+        return
+    issues.append("capabilities payload must use string keys and JSON-safe values.")
 
 
 def _referenced_value_types(capabilities: HephSdkCapabilities) -> tuple[_ValueTypeReference, ...]:

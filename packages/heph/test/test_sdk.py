@@ -2486,6 +2486,18 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     assert "streams.service.prompt completion event is unknown: missing_completion_event" in issues
 
 
+def test_sdk_capabilities_validator_reports_non_json_safe_payload() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_capabilities = replace(
+        capabilities,
+        jsonl_protocol=cast("str", float("nan")),
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "capabilities payload must use string keys and JSON-safe values." in issues
+
+
 def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:
     capabilities = get_sdk_capabilities()
     broken_service_call_method_specs = tuple(

@@ -359,7 +359,7 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 server also includes the same capability payload in its initial `ready` message.
 For code generation or CI contract snapshots without starting a transport
 service, `heph sdk capabilities` prints the same capability contract as JSON.
-The checked fixture `docs/developers/sdk-capabilities.v35.json` is the current
+The checked fixture `docs/developers/sdk-capabilities.v36.json` is the current
 versioned conformance artifact; external clients can diff it in CI and update it
 only when they intentionally accept a new SDK capability version.
 Capabilities list service methods, JSONL method names, stream event types, state
