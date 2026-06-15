@@ -64,6 +64,7 @@ from hephaion.chat.current_topic_planning import _current_topic_retrieval_state
 from hephaion.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
 )
+from hephaion.chat.priority_planning import _priority_retrieval_state
 from hephaion.chat.turn_contract_checks import (
     _contract_has_specific_material_target,
     _plan_requires_citations,
@@ -417,15 +418,14 @@ def _overview_strategy_has_specific_material_target(
 
 
 def _apply_priority_retrieval_state(state: _PlanContractApplication) -> None:
-    if (
-        state.plan.action is LearningAction.PRIORITY
-        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and not state.contract.prior_answer_reference
-    ):
-        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        state.retrieval_query = (
-            state.plan.retrieval_query or state.contract.canonical_request or state.retrieval_query
-        )
+    priority_state = _priority_retrieval_state(
+        state.plan,
+        state.contract,
+        retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
+    )
+    state.retrieval_strategy = priority_state.strategy
+    state.retrieval_query = priority_state.query
 
 
 def _finalized_plan_contract(
