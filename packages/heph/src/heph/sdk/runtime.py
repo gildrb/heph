@@ -478,7 +478,11 @@ class HephRuntime:
         *,
         config: ChatConfig | None = None,
     ) -> HephRuntime:
-        armory_path = validate_armory_path(str(path))
+        armory_path = _require_sdk_path(path, "armory path")
+        try:
+            armory_path = validate_armory_path(armory_path)
+        except (ArmoryError, OSError, RuntimeError, ValueError) as exc:
+            raise HephSdkError(f"SDK armory path is invalid: {exc}") from exc
         remember_armory(armory_path)
         set_last_armory(armory_path)
         return cls(config=_config_or_default(config, armory_path), armory_path=armory_path)
@@ -490,8 +494,11 @@ class HephRuntime:
         *,
         config: ChatConfig | None = None,
     ) -> HephRuntime:
-        armory_path = normalize_path(path)
-        initialize(armory_path)
+        armory_path = _require_sdk_path(path, "armory path")
+        try:
+            initialize(armory_path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HephSdkError(f"SDK armory path is invalid: {exc}") from exc
         remember_armory(armory_path)
         set_last_armory(armory_path)
         return cls(config=_config_or_default(config, armory_path), armory_path=armory_path)
@@ -505,6 +512,15 @@ class HephRuntime:
 
     @staticmethod
     def validate_armory(path: str | Path) -> ArmoryValidationSummary:
+        path_issue = _sdk_path_issue(path, "armory path")
+        if path_issue is not None:
+            return ArmoryValidationSummary(
+                path=_invalid_validation_summary_path(path),
+                exists=False,
+                is_dir=False,
+                valid=False,
+                error=path_issue,
+            )
         armory_path = _resolved_validation_path(path)
         exists = armory_path.exists()
         is_dir = armory_path.is_dir() if exists else False
@@ -582,8 +598,9 @@ class HephRuntime:
 
     def import_materials(self, source: str | Path) -> ImportMaterialsSummary:
         armory_path = self._require_armory_path("import materials")
+        source_path = _require_sdk_path(source, "material source path")
         result = import_material_files(
-            resolve_import_source(str(source)),
+            resolve_import_source(str(source_path)),
             armory_path / MATERIALS_DIR,
         )
         return ImportMaterialsSummary(
@@ -649,10 +666,36 @@ def _config_or_default(config: ChatConfig | None, armory_path: Path | None) -> C
     return load_config(armory_path)
 
 
+def _require_sdk_path(path: str | Path, label: str) -> Path:
+    path_issue = _sdk_path_issue(path, label)
+    if path_issue is not None:
+        raise HephSdkError(path_issue)
+    try:
+        return normalize_path(path)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise HephSdkError(f"SDK {label} is invalid: {exc}") from exc
+
+
+def _sdk_path_issue(path: object, label: str) -> str | None:
+    if not isinstance(path, str | Path):
+        return f"SDK {label} must be a path string or Path."
+    path_text = str(path)
+    if not path_text.strip():
+        return f"SDK {label} must be a non-empty path."
+    if "\0" in path_text:
+        return f"SDK {label} must not contain null bytes."
+    return None
+
+
+def _invalid_validation_summary_path(path: object) -> Path:
+    path_text = str(path).replace("\0", "")
+    return Path(path_text or ".")
+
+
 def _resolved_validation_path(path: str | Path) -> Path:
     try:
         return normalize_path(path)
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, TypeError, ValueError):
         return Path(path)
 
 

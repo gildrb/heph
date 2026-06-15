@@ -1396,6 +1396,11 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
         update_sdk_app_settings({"live_tokens_visible": "maybe"})
     with pytest.raises(SdkSettingsError, match="'default_armory_path' must be a string"):
         update_sdk_app_settings({"default_armory_path": None})
+    with pytest.raises(
+        SdkSettingsError,
+        match="'default_armory_path' must not contain null bytes",
+    ):
+        update_sdk_app_settings({"default_armory_path": "bad\0path"})
 
     stored = settings_store.load_app_settings()
     assert stored.theme == "light"
@@ -2945,6 +2950,9 @@ def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) 
     missing = HephRuntime.validate_armory(missing_path)
     file_candidate = HephRuntime.validate_armory(file_path)
     broken_payload = _payload_mapping(service.validate_armory(broken_path)["armory"])
+    invalid_service_payload = _payload_mapping(
+        service.call("validate_armory", {"path": "bad\0path"})["armory"]
+    )
     unknown_user = HephRuntime.validate_armory("~definitely_no_such_user/armory")
     plain_runtime = _payload_mapping(service.state()["runtime"])
 
@@ -2968,11 +2976,40 @@ def test_runtime_validates_armory_paths_without_opening_runtime(tmp_path: Path) 
     assert broken_payload["is_dir"] is True
     assert broken_payload["valid"] is False
     assert "missing armory marker file" in str(broken_payload["error"])
+    assert invalid_service_payload["valid"] is False
+    assert invalid_service_payload["error"] == "SDK armory path must not contain null bytes."
+    assert "\0" not in str(invalid_service_payload["path"])
     assert unknown_user.exists is False
     assert unknown_user.is_dir is False
     assert unknown_user.valid is False
     assert unknown_user.error
     assert plain_runtime["armory_path"] is None
+
+
+@pytest.mark.parametrize(
+    ("path", "message"),
+    [
+        ("", "non-empty path"),
+        ("bad\0path", "null bytes"),
+        (cast("str | Path", 7), "path string or Path"),
+    ],
+)
+def test_runtime_rejects_invalid_armory_paths_before_filesystem(
+    path: str | Path,
+    message: str,
+) -> None:
+    validation = HephRuntime.validate_armory(path)
+
+    with pytest.raises(HephSdkError, match=message):
+        HephRuntime.open_armory(path, config=_config())
+    with pytest.raises(HephSdkError, match=message):
+        HephRuntime.create_armory(path, config=_config())
+
+    assert validation.valid is False
+    assert validation.exists is False
+    assert validation.is_dir is False
+    assert message in validation.error
+    assert "\0" not in str(validation.path)
 
 
 def test_session_prompt_streams_sdk_events_and_autosaves(
@@ -5086,6 +5123,8 @@ def test_service_call_and_stream_dispatcher(
         service.call("state", {"typo": True})
     with pytest.raises(HephSdkError, match="requires parameter: path"):
         service.call("open_armory")
+    with pytest.raises(HephSdkError, match="null bytes"):
+        service.call("open_armory", {"path": "bad\0path"})
     with pytest.raises(HephSdkError, match="parameter 'text' must be a string"):
         service.call("ask", {"text": 123})
     with pytest.raises(HephSdkError, match="non-empty string"):
@@ -5102,6 +5141,8 @@ def test_service_call_and_stream_dispatcher(
         service.call("update_config", {"reasoning_level": "turbo"})
     with pytest.raises(HephSdkError, match="parameter 'theme' must be one of"):
         service.call("update_settings", {"theme": "neon"})
+    with pytest.raises(HephSdkError, match="null bytes"):
+        service.call("update_settings", {"default_armory_path": "bad\0path"})
 
 
 def test_service_ask_falls_back_to_streamed_deltas(
@@ -5186,6 +5227,27 @@ def test_service_update_config_rejects_empty_string_overrides(
     original = service.runtime.config
 
     with pytest.raises(HephSdkError, match="non-empty string"):
+        service.call("update_config", {key: value})
+
+    assert original.base_url == "https://api.openai.com/v1"
+    assert original.model == "gpt-4o-mini"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("base_url", "https://example.test\0"),
+        ("model", "model\0name"),
+    ],
+)
+def test_service_update_config_rejects_null_byte_string_overrides(
+    key: str,
+    value: str,
+) -> None:
+    service = HephService.plain(config=_config())
+    original = service.runtime.config
+
+    with pytest.raises(HephSdkError, match="null bytes"):
         service.call("update_config", {key: value})
 
     assert original.base_url == "https://api.openai.com/v1"

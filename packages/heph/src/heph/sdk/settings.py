@@ -229,6 +229,8 @@ def _save_sdk_app_settings(normalized: Mapping[str, object]) -> None:
 def _validate_sdk_setting_type(key: str, value: object) -> None:
     if key in _STRING_APP_SETTINGS and not isinstance(value, str):
         raise SdkSettingsError(f"SDK app setting '{key}' must be a string.")
+    if key in _STRING_APP_SETTINGS and isinstance(value, str) and "\0" in value:
+        raise SdkSettingsError(f"SDK app setting '{key}' must not contain null bytes.")
     if key in _BOOL_APP_SETTINGS and not isinstance(value, bool):
         raise SdkSettingsError(f"SDK app setting '{key}' must be a boolean.")
 

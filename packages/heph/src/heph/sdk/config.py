@@ -59,9 +59,19 @@ def sdk_config_update(
 
 
 def _require_string_update(name: str, value: SdkConfigUpdateValue) -> str:
-    if isinstance(value, str):
+    if not isinstance(value, str):
+        raise HephSdkError(f"SDK config field '{name}' must be a string.")
+    if "\0" not in value:
         return value
-    raise HephSdkError(f"SDK config field '{name}' must be a string.")
+    raise HephSdkError(f"SDK config field '{name}' must not contain null bytes.")
+
+
+def _require_feature_flag_string(value: object) -> str:
+    if not isinstance(value, str):
+        raise HephSdkError("SDK config field 'feature_flags' must be a set of strings.")
+    if "\0" in value:
+        raise HephSdkError("SDK config field 'feature_flags' must not contain null bytes.")
+    return value
 
 
 def _require_nonempty_string_update(name: str, value: SdkConfigUpdateValue) -> str:
@@ -94,8 +104,8 @@ def _optional_temperature_update(value: SdkConfigUpdateValue) -> float | None:
 
 
 def _require_feature_flags_update(value: SdkConfigUpdateValue) -> frozenset[str]:
-    if isinstance(value, frozenset) and all(isinstance(item, str) for item in value):
-        return value
+    if isinstance(value, frozenset):
+        return frozenset(_require_feature_flag_string(item) for item in value)
     raise HephSdkError("SDK config field 'feature_flags' must be a set of strings.")
 
 

@@ -172,8 +172,13 @@ values advertised as `number` or `number_or_null` must be finite JSON numbers;
 Generation limits such as `max_tokens` and `rag_context_budget` must be
 non-negative integers.
 Provider/model string overrides such as `base_url` and `model` must be
-non-empty strings.
+non-empty strings and must not contain null bytes.
 Values advertised as `object` must use string keys and JSON-safe nested values.
+Path-like service inputs such as armories, material import sources, session
+identifiers, model identifiers, and string app settings are validated before
+filesystem, config, or session state changes; invalid values raise
+`HephSdkError` or return an invalid `ArmoryValidationSummary` from
+`validate_armory()`.
 
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
 single JSON object with an `id`, `method`, and optional `params` object:

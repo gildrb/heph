@@ -202,7 +202,7 @@ def _service_call_route_sequence(
         _ServiceCallRoute(
             "validate_armory",
             service.validate_armory,
-            (_ServiceCallArgument("path", _required_str, "string"),),
+            (_ServiceCallArgument("path", _validation_path_str, "string"),),
         ),
         _ServiceCallRoute("new_session", service.new_session),
         _ServiceCallRoute(
@@ -329,6 +329,7 @@ def _required_str(params: Mapping[str, object], key: str) -> str:
     value = params.get(key)
     if not isinstance(value, str) or not value.strip():
         raise HephSdkError(f"SDK service parameter '{key}' must be a non-empty string.")
+    _ensure_service_string_has_no_nulls(value, key)
     return value
 
 
@@ -336,6 +337,13 @@ def _required_bool(params: Mapping[str, object], key: str) -> bool:
     value = params.get(key)
     if not isinstance(value, bool):
         raise HephSdkError(f"SDK service parameter '{key}' must be a boolean.")
+    return value
+
+
+def _validation_path_str(params: Mapping[str, object], key: str) -> str:
+    value = params.get(key)
+    if not isinstance(value, str):
+        raise HephSdkError(f"SDK service parameter '{key}' must be a string.")
     return value
 
 
@@ -354,7 +362,14 @@ def _optional_str(params: Mapping[str, object], key: str) -> str | None:
         return None
     if not isinstance(value, str):
         raise HephSdkError(f"SDK service parameter '{key}' must be a string.")
+    _ensure_service_string_has_no_nulls(value, key)
     return value
+
+
+def _ensure_service_string_has_no_nulls(value: str, key: str) -> None:
+    if "\0" not in value:
+        return
+    raise HephSdkError(f"SDK service parameter '{key}' must not contain null bytes.")
 
 
 def _optional_bool(params: Mapping[str, object], key: str) -> bool | None:
