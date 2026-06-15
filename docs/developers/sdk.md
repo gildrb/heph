@@ -239,6 +239,10 @@ When a UI cancel button needs to stop the active stream while `stream()` is
 being consumed, call `JsonlSdkClient.abort_active_stream()` from the UI control
 path. The stream iterator consumes the interleaved abort response and then
 raises `JsonlSdkStreamCancelledError` from the stream's final error envelope.
+For status panels that need to refresh during a long stream, use
+`JsonlSdkClient.call_active_stream()` for busy-safe methods such as `state`,
+`capabilities`, and `settings`; the stream iterator keeps ownership of the
+reader and routes the interleaved response back to the waiting caller.
 
 ## Session and Runtime Split
 

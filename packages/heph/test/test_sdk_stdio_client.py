@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import threading
+import time
 from collections.abc import Iterator, Mapping
 from dataclasses import fields
 from pathlib import Path
@@ -88,6 +89,13 @@ def _ready_message(service: HephService) -> dict[str, object]:
         "capabilities": service.capabilities()["capabilities"],
         "state": service.state(),
     }
+
+
+def _wait_for_output(output: io.StringIO, needle: str) -> None:
+    deadline = time.monotonic() + 2.0
+    while needle not in output.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert needle in output.getvalue()
 
 
 def test_jsonl_sdk_client_reads_ready_call_and_stream(
@@ -410,6 +418,165 @@ def test_jsonl_sdk_client_drains_late_abort_response_after_stream_end() -> None:
     state = client.call("state", request_id="state-1")
 
     assert "service" in state
+
+
+def test_jsonl_sdk_client_resolves_active_stream_state_call() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "response", "id": "state-1", "ok": True, "result": state},
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+    state_results: list[dict[str, object]] = []
+    errors: list[Exception] = []
+
+    def call_state() -> None:
+        try:
+            state_results.append(
+                client.call_active_stream("state", request_id="state-1", timeout=2.0)
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    assert next(stream)["type"] == "index_progress"
+    thread = threading.Thread(target=call_state, name="test-sdk-jsonl-active-state")
+    thread.start()
+    _wait_for_output(output, '"id": "state-1"')
+    assert list(stream) == []
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert state_results == [state]
+
+
+def test_jsonl_sdk_client_drains_late_active_stream_call_response_after_stream_end() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+                {"type": "response", "id": "state-1", "ok": True, "result": state},
+                {"type": "response", "id": "state-2", "ok": True, "result": state},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+    state_results: list[dict[str, object]] = []
+    errors: list[Exception] = []
+
+    def call_state() -> None:
+        try:
+            state_results.append(
+                client.call_active_stream("state", request_id="state-1", timeout=2.0)
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    assert next(stream)["type"] == "index_progress"
+    thread = threading.Thread(target=call_state, name="test-sdk-jsonl-late-active-state")
+    thread.start()
+    _wait_for_output(output, '"id": "state-1"')
+    assert list(stream) == []
+    thread.join(timeout=2.0)
+    next_state = client.call("state", request_id="state-2")
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert state_results == [state]
+    assert next_state == state
+
+
+def test_jsonl_sdk_client_routes_active_stream_call_errors_to_waiting_caller() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {
+                    "type": "error",
+                    "id": "state-1",
+                    "ok": False,
+                    "error": {
+                        "code": "unavailable",
+                        "message": "No active SDK session.",
+                        "unavailable_reason": "missing_session",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+    errors: list[Exception] = []
+
+    def call_state() -> None:
+        try:
+            client.call_active_stream("state", request_id="state-1", timeout=2.0)
+        except Exception as exc:
+            errors.append(exc)
+
+    assert next(stream)["type"] == "index_progress"
+    thread = threading.Thread(target=call_state, name="test-sdk-jsonl-active-state-error")
+    thread.start()
+    _wait_for_output(output, '"id": "state-1"')
+    assert list(stream) == []
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], JsonlSdkServerError)
+    assert errors[0].code == "unavailable"
+
+
+def test_jsonl_sdk_client_rejects_unsafe_active_stream_call_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="not available during an active stream"):
+        client.call_active_stream("ask", {"text": "hello"}, timeout=0.01)
+
+    assert output.getvalue() == ""
 
 
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
