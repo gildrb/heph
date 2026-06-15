@@ -133,6 +133,7 @@ class JsonlSdkProcess:
     _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
     _client: JsonlSdkClient | None = field(default=None, init=False, repr=False)
     _ready: JsonlSdkReady | None = field(default=None, init=False, repr=False)
+    _returncode: int | None = field(default=None, init=False, repr=False)
     _stderr_tail: _BoundedTextTail | None = field(default=None, init=False, repr=False)
     _stderr_thread: threading.Thread | None = field(default=None, init=False, repr=False)
 
@@ -161,10 +162,19 @@ class JsonlSdkProcess:
             return ""
         return self._stderr_tail.text
 
+    @property
+    def returncode(self) -> int | None:
+        """Return the latest known subprocess return code."""
+        process = self._process
+        if process is not None:
+            return process.poll()
+        return self._returncode
+
     def start(self) -> Self:
         """Start the subprocess and read the validated ready handshake."""
         if self._process is not None:
             raise JsonlSdkProcessError("SDK JSONL process is already running.")
+        self._returncode = None
         process = self._spawn_process()
         stdout, stdin = self._process_pipes(process)
         self._process = process
@@ -232,6 +242,7 @@ class JsonlSdkProcess:
                     process.kill()
                     process.wait(timeout=wait_timeout)
         finally:
+            self._returncode = process.poll()
             self._join_stderr_thread(wait_timeout)
             self._close_process_stdout(process)
             self._close_process_stderr(process)

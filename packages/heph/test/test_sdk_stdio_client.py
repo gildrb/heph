@@ -334,8 +334,10 @@ def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
         assert ready.capabilities["version"] == SDK_CAPABILITIES_VERSION
         assert client is running.client
         assert process.poll() is None
+        assert running.returncode is None
 
     assert process.poll() == 0
+    assert transport.returncode == 0
     with pytest.raises(JsonlSdkProcessError, match="not running"):
         _ = transport.process
 
@@ -386,6 +388,7 @@ def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
     with pytest.raises(JsonlSdkProcessError, match="did not send ready"):
         transport.start()
 
+    assert transport.returncode is not None
     with pytest.raises(JsonlSdkProcessError, match="not running"):
         _ = transport.process
 
@@ -406,3 +409,4 @@ def test_jsonl_sdk_process_reports_startup_stderr() -> None:
 
     assert "stream ended before a message" in str(exc.value)
     assert transport.stderr_tail == "sdk startup failed\n"
+    assert transport.returncode == 0
