@@ -209,6 +209,50 @@ def test_jsonl_client_call_and_stream_validate_method_category_before_write() ->
     assert output.getvalue() == ""
 
 
+def test_jsonl_sdk_client_validates_call_result_payload() -> None:
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {
+                    "type": "response",
+                    "id": "state-1",
+                    "ok": True,
+                    "result": {"service": {}},
+                }
+            )
+        ),
+        output_stream=io.StringIO(),
+    )
+
+    with pytest.raises(
+        JsonlSdkClientProtocolError,
+        match=r"SDK JSONL client method 'state'",
+    ):
+        client.call("state", request_id="state-1")
+
+
+def test_jsonl_sdk_client_validates_stream_event_contract() -> None:
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {"type": "assistant_delta", "delta": "wrong stream"},
+                },
+            )
+        ),
+        output_stream=io.StringIO(),
+    )
+
+    with pytest.raises(
+        JsonlSdkClientProtocolError,
+        match="does not advertise event type: assistant_delta",
+    ):
+        tuple(client.stream("build_index_stream", request_id="index-1"))
+
+
 def test_jsonl_sdk_client_raises_server_error_for_stream_end() -> None:
     client = JsonlSdkClient(
         input_stream=io.StringIO(

@@ -18,10 +18,14 @@ from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
     validate_jsonl_request_payload,
     validate_method_params,
+    validate_result_payload,
+    validate_stream_event_payload,
 )
 from heph.sdk.methods import (
     JSONL_CALL_METHOD_SPECS,
+    JSONL_CALL_RESULT_SPECS,
     JSONL_STREAM_METHOD_SPECS,
+    JSONL_STREAM_SPECS,
     SDK_CAPABILITIES_VERSION,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
@@ -392,7 +396,10 @@ class JsonlSdkClient:
             raise JsonlSdkClientProtocolError(
                 f"SDK JSONL response for {actual_request_id!r} was not successful."
             )
-        return _mapping_field(message, "result", "SDK JSONL response result")
+        return _validate_jsonl_call_result(
+            method,
+            _mapping_field(message, "result", "SDK JSONL response result"),
+        )
 
     def stream(
         self,
@@ -418,15 +425,18 @@ class JsonlSdkClient:
                 f"SDK JSONL stream_start for {actual_request_id!r} reported method "
                 f"{start.get('method')!r}, expected {method!r}."
             )
-        yield from self._stream_events(actual_request_id)
+        yield from self._stream_events(actual_request_id, method)
 
-    def _stream_events(self, request_id: str | int) -> Iterator[JsonlPayload]:
+    def _stream_events(self, request_id: str | int, method: str) -> Iterator[JsonlPayload]:
         while True:
             message = self.read_message()
             _require_request_id(message, request_id)
             message_type = _message_type(message)
             if message_type == "stream_event":
-                yield _mapping_field(message, "event", "SDK JSONL stream event")
+                yield _validate_jsonl_stream_event(
+                    method,
+                    _mapping_field(message, "event", "SDK JSONL stream event"),
+                )
             elif message_type == "stream_end":
                 if message.get("ok") is True:
                     return
@@ -500,6 +510,30 @@ def validate_jsonl_stream_params(
         _jsonl_stream_method_specs(method),
         surface="SDK JSONL stream",
     )
+
+
+def _validate_jsonl_call_result(method: str, result: Mapping[str, object]) -> JsonlPayload:
+    try:
+        return validate_result_payload(
+            method,
+            result,
+            JSONL_CALL_RESULT_SPECS,
+            surface="SDK JSONL client",
+        )
+    except HephSdkError as exc:
+        raise JsonlSdkClientProtocolError(str(exc)) from exc
+
+
+def _validate_jsonl_stream_event(method: str, event: Mapping[str, object]) -> JsonlPayload:
+    try:
+        return validate_stream_event_payload(
+            method,
+            event,
+            JSONL_STREAM_SPECS,
+            surface="SDK JSONL client",
+        )
+    except HephSdkError as exc:
+        raise JsonlSdkClientProtocolError(str(exc)) from exc
 
 
 def _validate_jsonl_params(
