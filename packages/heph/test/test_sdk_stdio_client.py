@@ -13,6 +13,7 @@ import pytest
 from ai.runtime import ChatConfig
 from heph.sdk import (
     SDK_CAPABILITIES_VERSION,
+    SDK_JSONL_CANCELLED_ERROR_CODE,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     HephSdkOptions,
@@ -24,6 +25,7 @@ from heph.sdk import (
     JsonlSdkProcessOptions,
     JsonlSdkServer,
     JsonlSdkServerError,
+    JsonlSdkStreamCancelledError,
     SdkClientCompatibilityError,
     parse_jsonl_message,
     validate_jsonl_call_params,
@@ -275,6 +277,37 @@ def test_jsonl_sdk_client_raises_server_error_for_stream_end() -> None:
 
     with pytest.raises(JsonlSdkServerError, match="SDK JSONL server returned engine_error"):
         tuple(client.stream("prompt", {"text": "hello"}, request_id="turn-1"))
+
+
+def test_jsonl_sdk_client_raises_cancelled_error_for_stream_end() -> None:
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_end",
+                    "id": "index-1",
+                    "ok": False,
+                    "error": {
+                        "code": SDK_JSONL_CANCELLED_ERROR_CODE,
+                        "message": "SDK operation was cancelled.",
+                        "unavailable_reason": None,
+                    },
+                },
+            )
+        ),
+        output_stream=io.StringIO(),
+    )
+
+    with pytest.raises(
+        JsonlSdkStreamCancelledError,
+        match="SDK JSONL server returned cancelled",
+    ) as exc:
+        tuple(client.stream("build_index_stream", request_id="index-1"))
+
+    assert isinstance(exc.value, JsonlSdkServerError)
+    assert exc.value.code == SDK_JSONL_CANCELLED_ERROR_CODE
+    assert exc.value.unavailable_reason is None
 
 
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:

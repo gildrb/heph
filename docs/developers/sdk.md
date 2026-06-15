@@ -219,8 +219,10 @@ advertised capability compatibility policy. `call()` raises
 successful results against the advertised JSONL call result spec before
 returning them. `stream()` yields event payloads until `stream_end`, validates
 each event against that stream method's advertised event contract, and raises
-the same structured error when a stream fails. `call()` only accepts JSONL call
-methods, and `stream()` only accepts JSONL stream methods; wrong-category
+the same structured error when a stream fails. Cancellation stream failures use
+the `JsonlSdkStreamCancelledError` subclass so clients can handle user-initiated
+cancel separately from model and server failures. `call()` only accepts JSONL
+call methods, and `stream()` only accepts JSONL stream methods; wrong-category
 requests are rejected before anything is written to the child process. Low-level
 read/write failures from app-owned pipes are raised as
 `JsonlSdkClientProtocolError` so callers can handle transport failures through

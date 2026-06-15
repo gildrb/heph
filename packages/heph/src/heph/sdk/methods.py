@@ -17,6 +17,7 @@ SDK_CAPABILITIES_VERSION = 34
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
+SDK_JSONL_CANCELLED_ERROR_CODE = "cancelled"
 SDK_STABILITY_PUBLIC = "public"
 SDK_STABILITY_PREVIEW = "preview"
 SDK_STABILITY_INTERNAL = "internal"
@@ -577,7 +578,7 @@ JSONL_ERROR_SPECS = (
         "The requested method exists but is not available for the current runtime/session state.",
     ),
     SdkErrorSpec("sdk_error", "The SDK rejected a valid request."),
-    SdkErrorSpec("cancelled", "An active SDK operation stream was cancelled."),
+    SdkErrorSpec(SDK_JSONL_CANCELLED_ERROR_CODE, "An active SDK operation stream was cancelled."),
     SdkErrorSpec(
         SDK_ENGINE_ERROR_CODE,
         "The model runtime rejected a request without a more specific code.",

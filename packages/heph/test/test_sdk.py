@@ -139,6 +139,7 @@ def test_sdk_public_facade_exports_stable_contract_constants() -> None:
         "JSONL_STREAM_METHODS",
         "BUSY_ALLOWED_CALL_METHODS",
         "SDK_STABILITY_PUBLIC",
+        "SDK_JSONL_CANCELLED_ERROR_CODE",
         "SDK_METHOD_UNAVAILABLE_REASONS",
         "SDK_DEPRECATION_SURFACE_SERVICE_CALL",
         "SDK_DEPRECATION_SURFACE_JSONL_STREAM",
@@ -151,6 +152,7 @@ def test_sdk_public_facade_exports_stable_contract_constants() -> None:
     assert sdk.JSONL_STREAM_METHODS == sdk_methods.JSONL_STREAM_METHODS
     assert sdk.BUSY_ALLOWED_CALL_METHODS == sdk_methods.BUSY_ALLOWED_CALL_METHODS
     assert sdk.SDK_STABILITY_PUBLIC == sdk_methods.SDK_STABILITY_PUBLIC
+    assert sdk.SDK_JSONL_CANCELLED_ERROR_CODE == sdk_methods.SDK_JSONL_CANCELLED_ERROR_CODE
     assert sdk.SDK_METHOD_UNAVAILABLE_REASONS == sdk_methods.SDK_METHOD_UNAVAILABLE_REASONS
     assert sdk.SDK_DEPRECATION_SURFACE_SERVICE_CALL == (
         sdk_methods.SDK_DEPRECATION_SURFACE_SERVICE_CALL

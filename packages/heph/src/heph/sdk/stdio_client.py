@@ -27,6 +27,7 @@ from heph.sdk.methods import (
     JSONL_STREAM_METHOD_SPECS,
     JSONL_STREAM_SPECS,
     SDK_CAPABILITIES_VERSION,
+    SDK_JSONL_CANCELLED_ERROR_CODE,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
     SdkMethodSpec,
@@ -68,6 +69,10 @@ class JsonlSdkServerError(JsonlSdkClientError):
         self.code = error.code
         self.unavailable_reason = error.unavailable_reason
         super().__init__(f"SDK JSONL server returned {error.code}: {error.message}")
+
+
+class JsonlSdkStreamCancelledError(JsonlSdkServerError):
+    """Raised when the SDK JSONL server reports stream cancellation."""
 
 
 @dataclass(slots=True)
@@ -395,7 +400,7 @@ class JsonlSdkClient:
         _require_request_id(message, actual_request_id)
         message_type = _message_type(message)
         if message_type == "error":
-            raise JsonlSdkServerError(actual_request_id, jsonl_error_from_message(message))
+            raise _server_error_from_message(actual_request_id, message)
         if message_type != "response":
             raise JsonlSdkClientProtocolError(
                 f"Expected SDK JSONL response for {actual_request_id!r}, got {message_type!r}."
@@ -423,7 +428,7 @@ class JsonlSdkClient:
         _require_request_id(start, actual_request_id)
         start_type = _message_type(start)
         if start_type == "error":
-            raise JsonlSdkServerError(actual_request_id, jsonl_error_from_message(start))
+            raise _server_error_from_message(actual_request_id, start)
         if start_type != "stream_start":
             raise JsonlSdkClientProtocolError(
                 f"Expected SDK JSONL stream_start for {actual_request_id!r}, got {start_type!r}."
@@ -448,9 +453,9 @@ class JsonlSdkClient:
             elif message_type == "stream_end":
                 if message.get("ok") is True:
                     return
-                raise JsonlSdkServerError(request_id, jsonl_error_from_message(message))
+                raise _server_error_from_message(request_id, message)
             elif message_type == "error":
-                raise JsonlSdkServerError(request_id, jsonl_error_from_message(message))
+                raise _server_error_from_message(request_id, message)
             else:
                 raise JsonlSdkClientProtocolError(
                     f"Expected SDK JSONL stream_event or stream_end for {request_id!r}, got "
@@ -614,6 +619,16 @@ def jsonl_error_from_message(message: Mapping[str, object]) -> JsonlSdkErrorPayl
         message=_string_field(error, "message", "SDK JSONL error message"),
         unavailable_reason=unavailable_reason,
     )
+
+
+def _server_error_from_message(
+    request_id: str | int,
+    message: Mapping[str, object],
+) -> JsonlSdkServerError:
+    error = jsonl_error_from_message(message)
+    if error.code == SDK_JSONL_CANCELLED_ERROR_CODE:
+        return JsonlSdkStreamCancelledError(request_id, error)
+    return JsonlSdkServerError(request_id, error)
 
 
 def _startup_error_with_stderr(message: str, stderr_tail: str) -> str:
