@@ -351,6 +351,31 @@ def test_jsonl_sdk_server_rejects_malformed_ready_capabilities(
     assert output.getvalue() == ""
 
 
+def test_jsonl_sdk_server_rejects_unknown_ready_capability_fields() -> None:
+    service = HephService.plain(config=_config())
+    capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
+    capabilities["future_section"] = {"enabled": True}
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    with pytest.raises(HephSdkError, match="future_section"):
+        server._write(
+            {
+                "type": "ready",
+                "protocol": SDK_JSONL_PROTOCOL,
+                "version": SDK_JSONL_VERSION,
+                "capabilities": capabilities,
+                "state": service.state(),
+            }
+        )
+
+    assert output.getvalue() == ""
+
+
 def test_jsonl_sdk_server_clears_stream_state_when_start_write_fails() -> None:
     service = HephService.plain(config=_config())
     service.new_session()

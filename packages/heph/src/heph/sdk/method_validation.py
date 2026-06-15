@@ -111,6 +111,7 @@ def validate_jsonl_message_payload(
     specs: tuple[SdkJsonlMessageSpec, ...] = JSONL_MESSAGE_SPECS,
     surface: str = "SDK JSONL",
     type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
+    allow_unknown_capability_fields: bool = False,
 ) -> dict[str, object]:
     """Validate an outgoing JSONL transport envelope against advertised specs."""
     payload = _string_keyed_result_object(surface, "message", "payload", message)
@@ -118,7 +119,14 @@ def validate_jsonl_message_payload(
     spec = _jsonl_message_spec(message_type, specs)
     if spec is None:
         raise HephSdkError(f"{surface} message type '{message_type}' is not advertised.")
-    _validate_jsonl_message_fields(surface, message_type, payload, spec, type_specs)
+    _validate_jsonl_message_fields(
+        surface,
+        message_type,
+        payload,
+        spec,
+        type_specs,
+        allow_unknown_capability_fields=allow_unknown_capability_fields,
+    )
     return payload
 
 
@@ -453,6 +461,8 @@ def _validate_jsonl_message_fields(
     payload: Mapping[str, object],
     spec: SdkJsonlMessageSpec,
     type_specs: tuple[SdkTypeSpec, ...],
+    *,
+    allow_unknown_capability_fields: bool,
 ) -> None:
     type_map = _type_specs_by_name(type_specs)
     _validate_unknown_jsonl_message_fields(surface, message_type, payload, spec)
@@ -470,6 +480,11 @@ def _validate_jsonl_message_fields(
             value,
             field.value_type,
             type_map,
+            allow_unknown_fields=(
+                allow_unknown_capability_fields
+                and message_type == "ready"
+                and field.name == "capabilities"
+            ),
         )
 
 
@@ -727,13 +742,23 @@ def _validate_result_value_type(
     value: object,
     value_type: str,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool = False,
 ) -> None:
     if value_type == _SDK_EVENT_TYPE:
         _validate_sdk_event_discriminator(surface, method, location, value, type_map)
         return
     custom_type = type_map.get(value_type)
     if custom_type is not None:
-        _validate_custom_result_type(surface, method, location, value, custom_type, type_map)
+        _validate_custom_result_type(
+            surface,
+            method,
+            location,
+            value,
+            custom_type,
+            type_map,
+            allow_unknown_fields=allow_unknown_fields,
+        )
         return
     if _validate_result_collection_value_type(
         surface,
@@ -742,6 +767,7 @@ def _validate_result_value_type(
         value,
         value_type,
         type_map,
+        allow_unknown_fields=allow_unknown_fields,
     ):
         return
     if _value_matches_type(value, value_type):
@@ -758,12 +784,30 @@ def _validate_result_collection_value_type(
     value: object,
     value_type: str,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool,
 ) -> bool:
     if item_type := sdk_array_item_type(value_type):
-        _validate_result_array(surface, method, location, value, item_type, type_map)
+        _validate_result_array(
+            surface,
+            method,
+            location,
+            value,
+            item_type,
+            type_map,
+            allow_unknown_fields=allow_unknown_fields,
+        )
         return True
     if item_type := sdk_map_item_type(value_type):
-        _validate_result_map(surface, method, location, value, item_type, type_map)
+        _validate_result_map(
+            surface,
+            method,
+            location,
+            value,
+            item_type,
+            type_map,
+            allow_unknown_fields=allow_unknown_fields,
+        )
         return True
     return False
 
@@ -863,6 +907,8 @@ def _validate_result_array(
     value: object,
     item_type: str,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool,
 ) -> None:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         raise HephSdkError(f"{surface} method '{method}' {location} must be an array.")
@@ -874,6 +920,7 @@ def _validate_result_array(
             item,
             item_type,
             type_map,
+            allow_unknown_fields=allow_unknown_fields,
         )
 
 
@@ -884,6 +931,8 @@ def _validate_result_map(
     value: object,
     item_type: str,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool,
 ) -> None:
     fields = _string_keyed_result_object(surface, method, location, value)
     for key, item in fields.items():
@@ -894,6 +943,7 @@ def _validate_result_map(
             item,
             item_type,
             type_map,
+            allow_unknown_fields=allow_unknown_fields,
         )
 
 
@@ -904,15 +954,26 @@ def _validate_custom_result_type(
     value: object,
     type_spec: SdkTypeSpec,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool,
 ) -> None:
     if not isinstance(value, Mapping):
         raise HephSdkError(
             f"{surface} method '{method}' {location} must be {_type_message(type_spec.type_name)}."
         )
     fields = _string_keyed_result_object(surface, method, location, value)
-    _validate_unknown_type_fields(surface, method, location, fields, type_spec)
+    if not allow_unknown_fields:
+        _validate_unknown_type_fields(surface, method, location, fields, type_spec)
     _validate_required_type_fields(surface, method, location, fields, type_spec)
-    _validate_supplied_type_fields(surface, method, location, fields, type_spec, type_map)
+    _validate_supplied_type_fields(
+        surface,
+        method,
+        location,
+        fields,
+        type_spec,
+        type_map,
+        allow_unknown_fields=allow_unknown_fields,
+    )
 
 
 def _string_keyed_result_object(
@@ -971,6 +1032,8 @@ def _validate_supplied_type_fields(
     value: Mapping[str, object],
     type_spec: SdkTypeSpec,
     type_map: Mapping[str, SdkTypeSpec],
+    *,
+    allow_unknown_fields: bool,
 ) -> None:
     for field in type_spec.fields:
         if field.name not in value:
@@ -985,6 +1048,7 @@ def _validate_supplied_type_fields(
             field_value,
             field.value_type,
             type_map,
+            allow_unknown_fields=allow_unknown_fields,
         )
 
 

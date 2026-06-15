@@ -150,11 +150,14 @@ class HephService:
             )
 
     def state(self) -> dict[str, object]:
-        return validate_result_payload(
-            "state",
-            self.state_snapshot().to_dict(),
-            SERVICE_CALL_RESULT_SPECS,
-        )
+        return self._validated_call_result("state", self.state_snapshot().to_dict())
+
+    @staticmethod
+    def _validated_call_result(
+        method: str,
+        result: Mapping[str, object],
+    ) -> dict[str, object]:
+        return validate_result_payload(method, result, SERVICE_CALL_RESULT_SPECS)
 
     def validate_call_params(
         self,
@@ -178,11 +181,7 @@ class HephService:
         parameters = self.validate_call_params(method, params)
         if route := self._call_routes().get(method):
             self._ensure_call_route_available(route)
-            return validate_result_payload(
-                method,
-                route.dispatch(parameters),
-                SERVICE_CALL_RESULT_SPECS,
-            )
+            return self._validated_call_result(method, route.dispatch(parameters))
         raise HephSdkError(f"Unknown SDK service method: {method}")
 
     def _call_routes(self) -> dict[str, _ServiceCallRoute]:
@@ -192,17 +191,15 @@ class HephService:
         return _service_call_route_sequence(self)
 
     def capabilities(self) -> ServicePayload:
-        return validate_result_payload(
+        return self._validated_call_result(
             "capabilities",
             {"capabilities": get_sdk_capabilities().to_dict()},
-            SERVICE_CALL_RESULT_SPECS,
         )
 
     def settings(self) -> ServicePayload:
-        return validate_result_payload(
+        return self._validated_call_result(
             "settings",
             {"settings": load_sdk_app_settings().to_dict()},
-            SERVICE_CALL_RESULT_SPECS,
         )
 
     def stream(
@@ -271,56 +268,61 @@ class HephService:
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_runtime(HephRuntime.plain(config=self.runtime.config))
-        return self.state()
+        return self._validated_call_result("use_plain_runtime", self.state())
 
     def open_runtime_armory(self, path: str | Path) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_runtime(HephRuntime.open_armory(path, config=self.runtime.config))
-        return self.state()
+        return self._validated_call_result("open_armory", self.state())
 
     def create_runtime_armory(self, path: str | Path) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_runtime(HephRuntime.create_armory(path, config=self.runtime.config))
-        return self.state()
+        return self._validated_call_result("create_armory", self.state())
 
     def list_armories(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {"armories": [armory.to_dict() for armory in HephRuntime.list_armories()]}
+            payload = {"armories": [armory.to_dict() for armory in HephRuntime.list_armories()]}
+        return self._validated_call_result("list_armories", payload)
 
     def validate_armory(self, path: str | Path) -> dict[str, object]:
         with self._idle_service_call():
-            return {"armory": HephRuntime.validate_armory(path).to_dict()}
+            payload = {"armory": HephRuntime.validate_armory(path).to_dict()}
+        return self._validated_call_result("validate_armory", payload)
 
     def new_session(self) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_session(self.runtime.new_session())
-        return self._session_payload()
+        return self._validated_call_result("new_session", self._session_payload())
 
     def resume_session(self, session_id: str) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_session(self.runtime.resume_session(session_id))
-        return self._session_payload()
+        return self._validated_call_result("resume_session", self._session_payload())
 
     def fork_session(self, turn_id: str) -> dict[str, object]:
         with self._idle_service_call():
             self._replace_session(self.runtime.fork_session(self._require_session(), turn_id))
-        return self._session_payload()
+        return self._validated_call_result("fork_session", self._session_payload())
 
     def list_sessions(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {"sessions": [session.to_dict() for session in self.runtime.list_sessions()]}
+            payload = {"sessions": [session.to_dict() for session in self.runtime.list_sessions()]}
+        return self._validated_call_result("list_sessions", payload)
 
     def save_session(self) -> dict[str, object]:
         with self._idle_service_call():
             session = self._require_session()
             saved_path = session.save()
-            return {"path": str(saved_path), "session": session.to_dict()}
+            payload = {"path": str(saved_path), "session": session.to_dict()}
+        return self._validated_call_result("save_session", payload)
 
     def messages(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {
+            payload = {
                 "messages": [message.to_dict() for message in self._require_session().messages]
             }
+        return self._validated_call_result("messages", payload)
 
     def prompt(
         self,
@@ -340,19 +342,25 @@ class HephService:
         reply = _PromptTextCollector()
         for event in self.prompt(text):
             reply.record(event)
-        return {"text": reply.text, "session": self._session_dict()}
+        return self._validated_call_result(
+            "ask",
+            {"text": reply.text, "session": self._session_dict()},
+        )
 
     def abort(self) -> dict[str, object]:
         if active_abort := self._active_prompt_abort_event():
             active_abort.set()
-            return {"aborted": True, "state": self.state()}
+            return self._validated_call_result("abort", {"aborted": True, "state": self.state()})
         if active_operation_abort := self._active_operation_abort_event():
             active_operation_abort.set()
-            return {"aborted": True, "state": self.state()}
+            return self._validated_call_result("abort", {"aborted": True, "state": self.state()})
         with self._prompt_lock:
             session = self._require_session()
         session.abort()
-        return {"aborted": True, "session": session.to_dict()}
+        return self._validated_call_result(
+            "abort",
+            {"aborted": True, "session": session.to_dict()},
+        )
 
     def list_providers(self) -> dict[str, object]:
         with self._idle_service_call():
@@ -360,7 +368,10 @@ class HephService:
                 providers = self.runtime.list_providers()
             else:
                 providers = self.session.list_providers()
-        return {"providers": [provider.to_dict() for provider in providers]}
+        return self._validated_call_result(
+            "list_providers",
+            {"providers": [provider.to_dict() for provider in providers]},
+        )
 
     def list_model_choices(self, *, refresh_live: bool = False) -> dict[str, object]:
         with self._idle_service_call():
@@ -368,7 +379,10 @@ class HephService:
                 models = self.runtime.list_model_choices(refresh_live=refresh_live)
             else:
                 models = self.session.list_model_choices(refresh_live=refresh_live)
-        return {"models": [model.to_dict() for model in models]}
+        return self._validated_call_result(
+            "list_model_choices",
+            {"models": [model.to_dict() for model in models]},
+        )
 
     def switch_model(self, provider_slug: str, model: str) -> dict[str, object]:
         with self._idle_service_call():
@@ -380,17 +394,24 @@ class HephService:
                     self.runtime.config = self.session._session.config
             session = self.session.to_dict() if self.session is not None else None
             runtime = self._runtime_state().to_dict()
-        return {"changed": changed, "runtime": runtime, "session": session}
+        return self._validated_call_result(
+            "switch_model",
+            {"changed": changed, "runtime": runtime, "session": session},
+        )
 
     def set_source_enabled(self, source: str, enabled: bool) -> dict[str, object]:
         with self._idle_service_call():
             changed = self._require_session().set_source_enabled(source, enabled)
-            return {"changed": changed, "session": self._session_dict()}
+            payload = {"changed": changed, "session": self._session_dict()}
+        return self._validated_call_result("set_source_enabled", payload)
 
     def update_config(self, params: Mapping[str, object]) -> dict[str, object]:
         with self._idle_service_call():
             apply_sdk_config_updates(self.runtime.config, _config_updates_from_params(params))
-        return {"runtime": self._runtime_state().to_dict()}
+        return self._validated_call_result(
+            "update_config",
+            {"runtime": self._runtime_state().to_dict()},
+        )
 
     def update_settings(self, params: Mapping[str, object]) -> dict[str, object]:
         with self._idle_service_call():
@@ -401,24 +422,29 @@ class HephService:
             self._apply_app_settings(settings)
             session = self.session.to_dict() if self.session is not None else None
             runtime = self._runtime_state().to_dict()
-        return {"settings": settings.to_dict(), "runtime": runtime, "session": session}
+        return self._validated_call_result(
+            "update_settings",
+            {"settings": settings.to_dict(), "runtime": runtime, "session": session},
+        )
 
     def list_materials(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {
+            payload = {
                 "materials": [material.to_dict() for material in self.runtime.list_materials()]
             }
+        return self._validated_call_result("list_materials", payload)
 
     def import_materials(self, source: str | Path) -> dict[str, object]:
         with self._idle_service_call():
             summary = self.runtime.import_materials(source)
             if self.session is not None and summary.imported:
                 self.session.refresh_materials()
-        return {"import": summary.to_dict()}
+        return self._validated_call_result("import_materials", {"import": summary.to_dict()})
 
     def build_index(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {"index": self.runtime.build_index().to_dict()}
+            payload = {"index": self.runtime.build_index().to_dict()}
+        return self._validated_call_result("build_index", payload)
 
     def build_index_stream(
         self,
@@ -466,7 +492,8 @@ class HephService:
 
     def scan_extraction_health(self) -> dict[str, object]:
         with self._idle_service_call():
-            return {"health": self.runtime.scan_extraction_health().to_dict()}
+            payload = {"health": self.runtime.scan_extraction_health().to_dict()}
+        return self._validated_call_result("scan_extraction_health", payload)
 
     def prompt_is_active(self) -> bool:
         with self._prompt_lock:

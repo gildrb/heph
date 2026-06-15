@@ -987,7 +987,7 @@ def parse_jsonl_message(line: str) -> JsonlPayload:
     if not is_string_mapping(parsed):
         raise JsonlSdkClientProtocolError("SDK JSONL messages must be JSON objects.")
     try:
-        return validate_jsonl_message_payload(parsed)
+        return validate_jsonl_message_payload(parsed, allow_unknown_capability_fields=True)
     except HephSdkError as exc:
         raise JsonlSdkClientProtocolError(f"Invalid SDK JSONL message: {exc}") from exc
 

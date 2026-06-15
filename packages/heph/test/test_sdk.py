@@ -933,6 +933,57 @@ def test_sdk_service_direct_introspection_methods_validate_results(
         service.settings()
 
 
+def test_sdk_service_direct_call_methods_validate_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenArmorySummary:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "name": "notes",
+                "path": "/tmp/notes",
+                "exists": "yes",
+                "valid": True,
+            }
+
+    class BrokenProviderSummary:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "provider_slug": "local",
+                "display_name": "Local",
+                "endpoint": "local",
+                "api_key_env": "",
+                "current_model": "test-model",
+                "model_count": 1,
+                "is_active": True,
+                "is_current": True,
+                "credential_kind": "none",
+                "credential_source": "none",
+                "credential_required": False,
+                "credential_configured": "yes",
+            }
+
+    def broken_list_armories() -> tuple[BrokenArmorySummary, ...]:
+        return (BrokenArmorySummary(),)
+
+    def broken_list_providers(_self: HephRuntime) -> tuple[BrokenProviderSummary, ...]:
+        return (BrokenProviderSummary(),)
+
+    service = HephService.plain(config=_config())
+    monkeypatch.setattr(HephRuntime, "list_armories", staticmethod(broken_list_armories))
+    monkeypatch.setattr(HephRuntime, "list_providers", broken_list_providers)
+
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'armories\[0\]\.exists' must be a boolean",
+    ):
+        service.list_armories()
+    with pytest.raises(
+        HephSdkError,
+        match=r"result field 'providers\[0\]\.credential_configured' must be a boolean",
+    ):
+        service.list_providers()
+
+
 def test_sdk_service_direct_capabilities_validate_nested_sections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

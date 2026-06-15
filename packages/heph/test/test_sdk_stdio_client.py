@@ -1074,6 +1074,40 @@ def test_jsonl_sdk_client_requires_accepted_ready_stability() -> None:
     assert preview_client.read_ready().capabilities["compatibility"] == compatibility
 
 
+def test_jsonl_sdk_client_ignores_unknown_ready_capability_fields() -> None:
+    service = HephService.plain(config=_config())
+    capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
+    compatibility = dict(_payload_mapping(capabilities["compatibility"]))
+    jsonl = dict(_payload_mapping(capabilities["jsonl"]))
+    value_types = dict(_payload_mapping(capabilities["value_types"]))
+    string_value_type = dict(_payload_mapping(value_types["string"]))
+    compatibility["future_policy"] = "ignore me"
+    jsonl["future_transport"] = {"name": "future"}
+    string_value_type["future_value_type_field"] = True
+    value_types["string"] = string_value_type
+    capabilities["compatibility"] = compatibility
+    capabilities["jsonl"] = jsonl
+    capabilities["value_types"] = value_types
+    capabilities["future_section"] = {"enabled": True}
+    ready_message = {
+        "type": "ready",
+        "protocol": SDK_JSONL_PROTOCOL,
+        "version": SDK_JSONL_VERSION,
+        "capabilities": capabilities,
+        "state": service.state(),
+    }
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+    )
+
+    ready = client.read_ready()
+
+    assert ready.capabilities["future_section"] == {"enabled": True}
+    assert _payload_mapping(ready.capabilities["compatibility"])["future_policy"] == "ignore me"
+    assert _payload_mapping(ready.capabilities["jsonl"])["future_transport"] == {"name": "future"}
+
+
 def test_jsonl_sdk_process_options_build_command() -> None:
     options = JsonlSdkProcessOptions(
         armory_path="notes",
