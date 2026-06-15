@@ -21,6 +21,7 @@ from hephaion.chat.followup_retrieval import (
     _expanded_prior_followup_query,
     _expanded_prior_should_use_current_request,
     _fresh_current_request_query,
+    _prior_followup_retrieval_state,
     _stabilized_followup_retrieval,
 )
 from hephaion.chat.material_state import (
@@ -230,6 +231,7 @@ def _apply_prior_answer_followup_state(state: _PlanContractApplication) -> None:
         prior_contract=state.prior_contract,
         retrieval_strategy=state.retrieval_strategy,
         retrieval_query=state.retrieval_query,
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
     )
     state.retrieval_strategy = retrieval.strategy
     state.retrieval_query = retrieval.query
@@ -450,39 +452,6 @@ def _direct_followup_reuses_prior_evidence(
     )
 
 
-def _prior_followup_retrieval_state(
-    contract: TurnContract,
-    *,
-    prior_contract: TurnContract | None,
-    retrieval_strategy: str,
-    retrieval_query: str | None,
-) -> _RetrievalState:
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
-    ):
-        retrieval_query = _fresh_current_request_query(contract)
-        if _current_request_introduces_fresh_content(
-            contract,
-            prior_contract,
-            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
-        ):
-            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        else:
-            retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
-            retrieval_query = None
-    if _reuse_prior_needs_current_retrieval(
-        contract,
-        prior_contract=prior_contract,
-        retrieval_strategy=retrieval_strategy,
-    ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        retrieval_query = _fresh_current_request_query(contract)
-    return _RetrievalState(strategy=retrieval_strategy, query=retrieval_query)
-
-
 def _apply_reasoning_followup_contract(
     contract: TurnContract,
     *,
@@ -510,28 +479,6 @@ def _apply_reasoning_followup_contract(
             strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
             query=_current_request_query(contract),
         ),
-    )
-
-
-def _reuse_prior_needs_current_retrieval(
-    contract: TurnContract,
-    *,
-    prior_contract: TurnContract | None,
-    retrieval_strategy: str,
-) -> bool:
-    return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and not contract.direct_evidence_required
-        and not contract.prior_answer_reference
-        and _current_request_introduces_fresh_content(
-            contract,
-            prior_contract,
-            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
-        )
     )
 
 

@@ -234,6 +234,64 @@ def _prior_retrieve_followup_retrieval(
     return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query)
 
 
+def _prior_followup_retrieval_state(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    retrieval_query: str | None,
+    fresh_request_min_terms: int,
+) -> _FollowupRetrievalDecision:
+    if (
+        prior_contract is not None
+        and prior_contract.evidence_refs
+        and contract.is_followup
+        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
+    ):
+        retrieval_query = _fresh_current_request_query(contract)
+        if _current_request_introduces_fresh_content(
+            contract,
+            prior_contract,
+            fresh_request_min_terms=fresh_request_min_terms,
+        ):
+            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        else:
+            retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
+            retrieval_query = None
+    if _reuse_prior_needs_current_retrieval(
+        contract,
+        prior_contract=prior_contract,
+        retrieval_strategy=retrieval_strategy,
+        fresh_request_min_terms=fresh_request_min_terms,
+    ):
+        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        retrieval_query = _fresh_current_request_query(contract)
+    return _FollowupRetrievalDecision(strategy=retrieval_strategy, query=retrieval_query)
+
+
+def _reuse_prior_needs_current_retrieval(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    fresh_request_min_terms: int,
+) -> bool:
+    return (
+        prior_contract is not None
+        and bool(prior_contract.evidence_refs)
+        and contract.is_followup
+        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+        and not contract.direct_evidence_required
+        and not contract.prior_answer_reference
+        and _current_request_introduces_fresh_content(
+            contract,
+            prior_contract,
+            fresh_request_min_terms=fresh_request_min_terms,
+        )
+    )
+
+
 def _expanded_prior_should_use_current_request(
     contract: TurnContract,
     *,
