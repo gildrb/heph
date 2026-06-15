@@ -245,6 +245,8 @@ actual pipe lifecycle.
 advertised capability compatibility policy. `JsonlSdkClient` and
 `JsonlSdkProcess` accept an `accepted_stability_levels` sequence for clients
 that intentionally opt into non-public SDK stability; the default is public-only.
+`JsonlSdkProcess.start()` validates client capability version, JSONL version,
+and accepted stability settings before spawning the child process.
 `call()` raises
 `JsonlSdkServerError` for structured server error envelopes and validates
 successful results against the advertised JSONL call result spec before
@@ -464,12 +466,15 @@ Python clients can use `validate_sdk_client_compatibility()` /
 `ensure_sdk_client_compatibility()` with a native `HephSdkCapabilities` object, or
 `validate_sdk_client_payload_compatibility()` /
 `ensure_sdk_client_payload_compatibility()` with the JSON-ready capability payload
-from a transport handshake. These helpers accept only `public` SDK stability by
-default; clients that intentionally bind to `preview` or `internal` surfaces
-must pass `accepted_stability_levels` explicitly. Empty, non-string, or unknown
-accepted stability levels are reported as compatibility issues so startup
-negotiation can fail through one SDK error family. Malformed client capability
-or JSONL version inputs are reported the same way before version comparison.
+from a transport handshake. `validate_sdk_client_options()` /
+`ensure_sdk_client_options()` validate client-side capability version, JSONL
+version, and accepted stability settings before a transport handshake exists.
+These helpers accept only `public` SDK stability by default; clients that
+intentionally bind to `preview` or `internal` surfaces must pass
+`accepted_stability_levels` explicitly. Empty, non-string, or unknown accepted
+stability levels are reported as compatibility issues so startup negotiation can
+fail through one SDK error family. Malformed client capability or JSONL version
+inputs are reported the same way before version comparison.
 The Python JSONL client honors the additive policy during the ready handshake:
 it validates known capability and state fields but ignores unknown fields inside
 `ready.capabilities` and `ready.state`, while server-side outgoing payload

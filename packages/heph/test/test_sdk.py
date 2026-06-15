@@ -67,6 +67,7 @@ from heph.sdk import (
     create_heph_service,
     create_heph_session,
     ensure_sdk_client_compatibility,
+    ensure_sdk_client_options,
     ensure_sdk_client_payload_compatibility,
     event_to_dict,
     from_turn_event,
@@ -75,6 +76,7 @@ from heph.sdk import (
     update_sdk_app_settings,
     validate_sdk_capabilities,
     validate_sdk_client_compatibility,
+    validate_sdk_client_options,
     validate_sdk_client_payload_compatibility,
     validate_sdk_service_contract,
 )
@@ -2194,6 +2196,13 @@ def test_sdk_client_compatibility_helpers_accept_advertised_contract() -> None:
     payload = capabilities.to_dict()
 
     assert (
+        validate_sdk_client_options(
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
+        == ()
+    )
+    assert (
         validate_sdk_client_compatibility(
             capabilities,
             client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
@@ -2211,6 +2220,10 @@ def test_sdk_client_compatibility_helpers_accept_advertised_contract() -> None:
     )
     ensure_sdk_client_compatibility(
         capabilities,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+    ensure_sdk_client_options(
         client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
         jsonl_version=sdk_methods.SDK_JSONL_VERSION,
     )
@@ -2256,6 +2269,10 @@ def test_sdk_client_compatibility_helpers_reject_malformed_client_versions() -> 
     capabilities = get_sdk_capabilities()
     payload = capabilities.to_dict()
 
+    option_issues = validate_sdk_client_options(
+        client_capabilities_version=cast("int", True),
+        jsonl_version=cast("int", "1"),
+    )
     native_issues = validate_sdk_client_compatibility(
         capabilities,
         client_capabilities_version=cast("int", True),
@@ -2271,7 +2288,13 @@ def test_sdk_client_compatibility_helpers_reject_malformed_client_versions() -> 
         "SDK client capability version must be an integer.",
         "SDK JSONL version must be an integer or None.",
     )
+    assert option_issues == native_issues
     assert payload_issues == native_issues
+    with pytest.raises(SdkClientCompatibilityError, match="capability version"):
+        ensure_sdk_client_options(
+            client_capabilities_version=cast("int", True),
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
     with pytest.raises(SdkClientCompatibilityError, match="capability version"):
         ensure_sdk_client_payload_compatibility(
             payload,
@@ -2341,6 +2364,10 @@ def test_sdk_client_compatibility_helpers_validate_accepted_stability_levels() -
     capabilities = get_sdk_capabilities()
     payload = capabilities.to_dict()
 
+    option_issues = validate_sdk_client_options(
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        accepted_stability_levels=(),
+    )
     empty_issues = validate_sdk_client_compatibility(
         capabilities,
         client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
@@ -2361,6 +2388,7 @@ def test_sdk_client_compatibility_helpers_validate_accepted_stability_levels() -
     )
 
     assert empty_issues == ("SDK client accepted stability levels must not be empty.",)
+    assert option_issues == empty_issues
     assert invalid_type_issues == ("SDK client accepted stability levels must be strings.",)
     assert unknown_issues == (
         "SDK client accepted stability levels contain unknown values: beta.",

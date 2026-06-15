@@ -15,7 +15,10 @@ from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 from hephaion._types import is_string_mapping
 
-from heph.sdk.compatibility import ensure_sdk_client_payload_compatibility
+from heph.sdk.compatibility import (
+    ensure_sdk_client_options,
+    ensure_sdk_client_payload_compatibility,
+)
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
     validate_jsonl_request_payload,
@@ -213,6 +216,11 @@ class JsonlSdkProcess:
             raise JsonlSdkProcessError("SDK JSONL process is already running.")
         _validate_process_timeout(self.startup_timeout, "startup_timeout")
         _validate_process_timeout(self.shutdown_timeout, "shutdown_timeout")
+        ensure_sdk_client_options(
+            client_capabilities_version=self.client_capabilities_version,
+            jsonl_version=self.jsonl_version,
+            accepted_stability_levels=self.accepted_stability_levels,
+        )
         self._returncode = None
         process = self._spawn_process()
         stdout, stdin = self._process_pipes(process)

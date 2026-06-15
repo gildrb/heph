@@ -144,6 +144,43 @@ def ensure_sdk_client_payload_compatibility(
         raise SdkClientCompatibilityError(issues)
 
 
+def validate_sdk_client_options(
+    *,
+    client_capabilities_version: object,
+    jsonl_version: object | None = None,
+    accepted_stability_levels: object = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
+) -> tuple[str, ...]:
+    """Return issues for client-side compatibility settings before a handshake."""
+    issues: list[str] = []
+    normalized_client_version = _normalized_client_capabilities_version(
+        issues,
+        client_capabilities_version,
+    )
+    normalized_jsonl_version = _normalized_client_jsonl_version(issues, jsonl_version)
+    _append_accepted_stability_level_issues(issues, accepted_stability_levels)
+    if normalized_client_version is not None and normalized_client_version < 1:
+        issues.append("SDK client capability version must be positive.")
+    if normalized_jsonl_version is not None and normalized_jsonl_version < 1:
+        issues.append("SDK JSONL version must be positive.")
+    return tuple(issues)
+
+
+def ensure_sdk_client_options(
+    *,
+    client_capabilities_version: object,
+    jsonl_version: object | None = None,
+    accepted_stability_levels: object = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
+) -> None:
+    """Raise when client-side compatibility settings are malformed."""
+    issues = validate_sdk_client_options(
+        client_capabilities_version=client_capabilities_version,
+        jsonl_version=jsonl_version,
+        accepted_stability_levels=accepted_stability_levels,
+    )
+    if issues:
+        raise SdkClientCompatibilityError(issues)
+
+
 def _mapping_field(
     issues: list[str],
     payload: Mapping[str, object],
@@ -275,10 +312,12 @@ def _normalized_client_jsonl_version(
 def _append_stability_issues(
     issues: list[str],
     stability: str,
-    accepted_stability_levels: Sequence[str],
+    accepted_stability_levels: object,
 ) -> None:
-    accepted_levels, accepted_level_issues = _accepted_stability_levels(accepted_stability_levels)
-    issues.extend(accepted_level_issues)
+    accepted_levels = _append_accepted_stability_level_issues(
+        issues,
+        accepted_stability_levels,
+    )
     if not accepted_levels:
         return
     if stability in accepted_levels:
@@ -289,7 +328,16 @@ def _append_stability_issues(
     )
 
 
-def _accepted_stability_levels(levels: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _append_accepted_stability_level_issues(
+    issues: list[str],
+    accepted_stability_levels: object,
+) -> tuple[str, ...]:
+    accepted_levels, accepted_level_issues = _accepted_stability_levels(accepted_stability_levels)
+    issues.extend(accepted_level_issues)
+    return accepted_levels
+
+
+def _accepted_stability_levels(levels: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
     accepted_levels: list[str] = []
     invalid_type_found = False
     unknown_levels: list[str] = []
@@ -303,8 +351,12 @@ def _accepted_stability_levels(levels: Sequence[str]) -> tuple[tuple[str, ...], 
     )
 
 
-def _raw_stability_levels(levels: Sequence[str]) -> tuple[object, ...]:
-    return (levels,) if isinstance(levels, str) else tuple(levels)
+def _raw_stability_levels(levels: object) -> tuple[object, ...]:
+    if isinstance(levels, str):
+        return (levels,)
+    if not isinstance(levels, Sequence):
+        return (levels,)
+    return tuple(levels)
 
 
 def _accept_stability_level(
@@ -389,7 +441,9 @@ def _version_list(versions: tuple[int, ...]) -> str:
 __all__ = [
     "SdkClientCompatibilityError",
     "ensure_sdk_client_compatibility",
+    "ensure_sdk_client_options",
     "ensure_sdk_client_payload_compatibility",
     "validate_sdk_client_compatibility",
+    "validate_sdk_client_options",
     "validate_sdk_client_payload_compatibility",
 ]

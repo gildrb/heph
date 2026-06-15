@@ -21,8 +21,10 @@ from heph.sdk.capabilities import (
 from heph.sdk.compatibility import (
     SdkClientCompatibilityError,
     ensure_sdk_client_compatibility,
+    ensure_sdk_client_options,
     ensure_sdk_client_payload_compatibility,
     validate_sdk_client_compatibility,
+    validate_sdk_client_options,
     validate_sdk_client_payload_compatibility,
 )
 from heph.sdk.events import (
@@ -324,6 +326,7 @@ __all__ = [  # noqa: RUF022 - keep spec exports grouped away from lower-level or
     "create_heph_session",
     "encode_jsonl_request",
     "ensure_sdk_client_compatibility",
+    "ensure_sdk_client_options",
     "ensure_sdk_client_payload_compatibility",
     "event_to_dict",
     "from_turn_event",
@@ -341,6 +344,7 @@ __all__ = [  # noqa: RUF022 - keep spec exports grouped away from lower-level or
     "validate_jsonl_stream_params",
     "validate_sdk_capabilities",
     "validate_sdk_client_compatibility",
+    "validate_sdk_client_options",
     "validate_sdk_client_payload_compatibility",
     "validate_sdk_jsonl_transport_contract",
     "validate_sdk_service_contract",
