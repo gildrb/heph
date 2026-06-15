@@ -1262,6 +1262,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     method_unavailable_reasons = _payload_list(service["method_unavailable_reasons"])
     jsonl_call_methods = _payload_list(jsonl["call_methods"])
     jsonl_stream_methods = _payload_list(jsonl["stream_methods"])
+    jsonl_busy_allowed_call_methods = _payload_list(jsonl["busy_allowed_call_methods"])
     service_call_specs = _payload_mapping(methods["service_call"])
     service_stream_specs = _payload_mapping(methods["service_stream"])
     jsonl_call_specs = _payload_mapping(methods["jsonl_call"])
@@ -1352,6 +1353,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert method_unavailable_reasons == list(sdk_methods.SDK_METHOD_UNAVAILABLE_REASONS)
     assert jsonl_call_methods == list(sdk_methods.JSONL_CALL_METHODS)
     assert jsonl_stream_methods == list(sdk_methods.JSONL_STREAM_METHODS)
+    assert jsonl_busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
     assert list(service_call_specs) == service_call_methods
     assert list(service_stream_specs) == service_stream_methods
     assert list(jsonl_call_specs) == jsonl_call_methods
@@ -1373,6 +1375,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "settings" in service_call_methods
     assert "update_settings" in service_call_methods
     assert "settings" in busy_allowed_call_methods
+    assert "settings" in jsonl_busy_allowed_call_methods
     assert "build_index" in service_stream_methods
     assert jsonl["protocol"] == "heph-sdk-jsonl"
     assert "build_index_stream" in jsonl_stream_methods

@@ -1,9 +1,9 @@
 {
-  "version": 34,
+  "version": 35,
   "compatibility": {
     "stability": "public",
-    "min_client_capabilities_version": 34,
-    "current_capabilities_version": 34,
+    "min_client_capabilities_version": 35,
+    "current_capabilities_version": 35,
     "supported_jsonl_versions": [
       1
     ],
@@ -94,6 +94,12 @@
     "stream_methods": [
       "prompt",
       "build_index_stream"
+    ],
+    "busy_allowed_call_methods": [
+      "state",
+      "abort",
+      "capabilities",
+      "settings"
     ],
     "request_spec": {
       "fields": {
@@ -2338,6 +2344,11 @@
           "nullable": false
         },
         "stream_methods": {
+          "type": "array<string>",
+          "required": true,
+          "nullable": false
+        },
+        "busy_allowed_call_methods": {
           "type": "array<string>",
           "required": true,
           "nullable": false

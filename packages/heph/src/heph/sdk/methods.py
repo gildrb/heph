@@ -13,7 +13,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 34
+SDK_CAPABILITIES_VERSION = 35
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
@@ -956,6 +956,7 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("version", "integer"),
             SdkTypeFieldSpec("call_methods", "array<string>"),
             SdkTypeFieldSpec("stream_methods", "array<string>"),
+            SdkTypeFieldSpec("busy_allowed_call_methods", "array<string>"),
             SdkTypeFieldSpec("request_spec", "sdk_jsonl_request_spec"),
             SdkTypeFieldSpec("message_types", "array<string>"),
             SdkTypeFieldSpec("message_specs", "map<sdk_jsonl_message_spec>"),

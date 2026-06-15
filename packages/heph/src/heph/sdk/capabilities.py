@@ -182,6 +182,7 @@ class HephSdkCapabilities:
                 "version": self.jsonl_version,
                 "call_methods": list(self.jsonl_call_methods),
                 "stream_methods": list(self.jsonl_stream_methods),
+                "busy_allowed_call_methods": list(self.busy_allowed_call_methods),
                 "request_spec": jsonl_request_spec_to_dict(self.jsonl_request_spec),
                 "message_types": list(self.jsonl_message_types),
                 "message_specs": jsonl_message_specs_to_dict(self.jsonl_message_specs),
@@ -296,6 +297,12 @@ def validate_sdk_capabilities(
         capabilities.busy_allowed_call_methods,
         capabilities.service_call_methods,
     )
+    _append_subset_issue(
+        issues,
+        "jsonl.busy_allowed_call_methods",
+        capabilities.busy_allowed_call_methods,
+        capabilities.jsonl_call_methods,
+    )
     _append_compatibility_issues(issues, capabilities)
     _append_deprecation_issues(issues, capabilities)
     _append_parameter_choice_issues(issues, capabilities)
@@ -367,6 +374,10 @@ def _jsonl_contract_duplicate_checks(
         _DuplicateCheck("jsonl.error_codes", capabilities.jsonl_error_codes),
         _DuplicateCheck(
             "service.busy_allowed_call_methods",
+            capabilities.busy_allowed_call_methods,
+        ),
+        _DuplicateCheck(
+            "jsonl.busy_allowed_call_methods",
             capabilities.busy_allowed_call_methods,
         ),
         _DuplicateCheck(

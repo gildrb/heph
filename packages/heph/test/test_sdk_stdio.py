@@ -1800,6 +1800,9 @@ def test_sdk_capabilities_cli_prints_contract(capsys: pytest.CaptureFixture[str]
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert jsonl["protocol"] == SDK_JSONL_PROTOCOL
     assert jsonl["version"] == SDK_JSONL_VERSION
+    assert _payload_list(jsonl["busy_allowed_call_methods"]) == list(
+        sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    )
     assert compatibility["current_capabilities_version"] == sdk_methods.SDK_CAPABILITIES_VERSION
 
 

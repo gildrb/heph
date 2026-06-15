@@ -325,13 +325,16 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 server also includes the same capability payload in its initial `ready` message.
 For code generation or CI contract snapshots without starting a transport
 service, `heph sdk capabilities` prints the same capability contract as JSON.
-The checked fixture `docs/developers/sdk-capabilities.v34.json` is the current
+The checked fixture `docs/developers/sdk-capabilities.v35.json` is the current
 versioned conformance artifact; external clients can diff it in CI and update it
 only when they intentionally accept a new SDK capability version.
 Capabilities list service methods, JSONL method names, stream event types, state
 fields, JSONL message types, JSONL error codes, calls that remain available
 while a stream is active, method availability requirements, and standard
 method-unavailable reason codes.
+Busy-safe calls are advertised in both `service.busy_allowed_call_methods` and
+`jsonl.busy_allowed_call_methods` so embedded and transport clients can discover
+which controls may remain interactive during a prompt or operation stream.
 The `jsonl.message_specs` section describes the top-level transport envelopes
 (`ready`, `response`, `error`, `stream_start`, `stream_event`, and `stream_end`)
 so native clients can generate wire decoders without scraping examples. The
