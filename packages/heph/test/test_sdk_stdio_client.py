@@ -1264,6 +1264,22 @@ def test_jsonl_sdk_process_options_reject_invalid_executable(
 @pytest.mark.parametrize(
     ("options", "message"),
     [
+        (JsonlSdkProcessOptions(armory_path=""), "armory_path"),
+        (JsonlSdkProcessOptions(armory_path=" "), "armory_path"),
+        (JsonlSdkProcessOptions(armory_path=cast("Path", 7)), "armory_path"),
+    ],
+)
+def test_jsonl_sdk_process_options_reject_invalid_armory_path(
+    options: JsonlSdkProcessOptions,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        options.command()
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
         (JsonlSdkProcessOptions(session_id=""), "session_id"),
         (JsonlSdkProcessOptions(base_url=" "), "base_url"),
         (JsonlSdkProcessOptions(model=""), "model"),

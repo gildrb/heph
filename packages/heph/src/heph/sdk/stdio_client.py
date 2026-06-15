@@ -138,6 +138,7 @@ class JsonlSdkProcessOptions:
         if self.create_armory and self.armory_path is None:
             raise JsonlSdkProcessError("create_armory=True requires an armory_path.")
         _validate_process_required_string_option(self.executable, "executable")
+        _validate_process_path_option(self.armory_path, "armory_path")
         _validate_process_string_option(self.session_id, "session_id")
         _validate_process_string_option(self.base_url, "base_url")
         _validate_process_string_option(self.model, "model")
@@ -1192,6 +1193,16 @@ def _validate_process_required_string_option(value: object, label: str) -> None:
     if isinstance(value, str) and value.strip():
         return
     raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be a non-empty string.")
+
+
+def _validate_process_path_option(value: object, label: str) -> None:
+    if value is None or isinstance(value, Path):
+        return
+    if isinstance(value, str) and value.strip():
+        return
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be a non-empty path string, Path, or None."
+    )
 
 
 def _validate_process_choice_option(
