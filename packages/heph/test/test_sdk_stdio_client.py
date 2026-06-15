@@ -1247,6 +1247,21 @@ def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
 
 
 @pytest.mark.parametrize(
+    "options",
+    [
+        JsonlSdkProcessOptions(executable=""),
+        JsonlSdkProcessOptions(executable=" "),
+        JsonlSdkProcessOptions(executable=cast("str", None)),
+    ],
+)
+def test_jsonl_sdk_process_options_reject_invalid_executable(
+    options: JsonlSdkProcessOptions,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match="executable"):
+        options.command()
+
+
+@pytest.mark.parametrize(
     ("options", "message"),
     [
         (JsonlSdkProcessOptions(session_id=""), "session_id"),
