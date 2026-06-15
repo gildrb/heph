@@ -202,14 +202,15 @@ with JsonlSdkProcess(options) as process:
 
 `JsonlSdkProcess` starts `heph sdk serve`, reads the ready handshake with a
 startup timeout, and closes stdin on exit so the service can shut down cleanly;
-if the process does not exit within its shutdown timeout, it is killed. Apps
-that launch Heph from a sandbox, app bundle, or test harness can pass an explicit
-`cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned paths,
-settings, and dependency resolution. Startup failures that happen before the
-ready handshake include a bounded stderr tail, and `process.stderr_tail` remains
-available after the child exits for app logs or diagnostics screens. The latest
-known child exit status is exposed as `process.returncode` even after `close()`
-clears the live process handle.
+stdin EOF aborts an active prompt stream before shutdown waits for worker
+threads. If the process does not exit within its shutdown timeout, it is killed.
+Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
+explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
+paths, settings, and dependency resolution. Startup failures that happen before
+the ready handshake include a bounded stderr tail, and `process.stderr_tail`
+remains available after the child exits for app logs or diagnostics screens. The
+latest known child exit status is exposed as `process.returncode` even after
+`close()` clears the live process handle.
 `JsonlSdkClient.read_ready()` validates the protocol/version handshake and the
 advertised capability compatibility policy. `call()` raises
 `JsonlSdkServerError` for structured server error envelopes and validates

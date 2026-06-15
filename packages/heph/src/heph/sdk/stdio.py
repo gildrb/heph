@@ -111,18 +111,21 @@ class JsonlSdkServer:
             raise HephSdkError(message)
 
     def serve(self) -> None:
-        self._write(
-            {
-                "type": "ready",
-                "protocol": SDK_JSONL_PROTOCOL,
-                "version": SDK_JSONL_VERSION,
-                "capabilities": self._capabilities_payload(),
-                "state": self._state_with_transport_busy(),
-            }
-        )
-        for raw_line in self._read_lines():
-            self.handle_line(raw_line)
-        self._wait_for_streams()
+        try:
+            self._write(
+                {
+                    "type": "ready",
+                    "protocol": SDK_JSONL_PROTOCOL,
+                    "version": SDK_JSONL_VERSION,
+                    "capabilities": self._capabilities_payload(),
+                    "state": self._state_with_transport_busy(),
+                }
+            )
+            for raw_line in self._read_lines():
+                self.handle_line(raw_line)
+        finally:
+            self._abort_prompt_for_transport_shutdown()
+            self._wait_for_streams()
 
     def handle_line(self, raw_line: str) -> None:
         line = raw_line.strip()
@@ -330,6 +333,12 @@ class JsonlSdkServer:
             return {"aborted": False, "state": self._state_with_transport_busy()}
         active_prompt.abort.set()
         return {"aborted": True, "state": self._state_with_transport_busy()}
+
+    def _abort_prompt_for_transport_shutdown(self) -> None:
+        with self._state_lock:
+            active_prompt = self._active_prompt
+        if active_prompt is not None:
+            active_prompt.abort.set()
 
     def _state_with_transport_busy(self) -> ServicePayload:
         state = _state_with_jsonl_stream_methods(self.service.state())

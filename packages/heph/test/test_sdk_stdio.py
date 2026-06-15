@@ -677,6 +677,66 @@ def test_jsonl_sdk_server_abort_reaches_active_prompt(
     assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
 
 
+def test_jsonl_sdk_server_aborts_active_prompt_when_input_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    abort_seen = threading.Event()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session
+        assert prompt == "shutdown prompt"
+        assert abort is not None
+        started.set()
+        deadline = time.monotonic() + 2.0
+        while not abort.is_set() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if abort.is_set():
+            abort_seen.set()
+        yield TurnCompleteEvent(
+            "stopped",
+            0,
+            1.0,
+            "abort" if abort.is_set() else "stop",
+            100,
+        )
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            _jsonl(
+                {
+                    "id": "turn-eof",
+                    "method": "prompt",
+                    "params": {"text": "shutdown prompt"},
+                }
+            )
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    complete_event = _payload_mapping(
+        next(payload for payload in payloads if payload["type"] == "stream_event")["event"]
+    )
+
+    assert started.is_set()
+    assert abort_seen.is_set()
+    assert complete_event["finish_reason"] == "abort"
+    assert payloads[-1] == {"type": "stream_end", "id": "turn-eof", "ok": True}
+
+
 def test_jsonl_sdk_server_prunes_completed_stream_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
