@@ -221,7 +221,9 @@ class JsonlSdkServer:
 
     def _capabilities_payload(self) -> ServicePayload:
         capabilities = self.service.capabilities().get("capabilities")
-        return capabilities if is_string_mapping(capabilities) else {}
+        if is_string_mapping(capabilities):
+            return capabilities
+        raise HephSdkError("SDK JSONL ready capabilities must be an object.")
 
     def _start_prompt_stream(self, request_id: RequestId, params: dict[str, object]) -> None:
         text = _required_string(params, "text")

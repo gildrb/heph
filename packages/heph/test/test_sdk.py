@@ -2596,6 +2596,45 @@ def test_sdk_capabilities_validator_uses_advertised_value_type_specs() -> None:
     assert "methods.service_call.open_armory.path references unknown SDK type: string" in issues
 
 
+def test_sdk_capabilities_validator_reports_malformed_value_type_specs() -> None:
+    capabilities = get_sdk_capabilities()
+
+    def broken_spec(spec: SdkValueTypeSpec) -> SdkValueTypeSpec:
+        if spec.name == "boolean":
+            return replace(spec, name="", kind="mystery", wire_types=(), template=True)
+        if spec.name == "number":
+            return replace(
+                spec,
+                wire_types=("string",),
+                nullable=True,
+                finite=True,
+                string_keys=True,
+            )
+        if spec.name == "array<T>":
+            return replace(spec, template=False, item_type_parameter=None, literal_parameter="T")
+        if spec.name == "literal<T>":
+            return replace(spec, template=False, item_type_parameter="T", literal_parameter=None)
+        return spec
+
+    broken_value_type_specs = tuple(broken_spec(spec) for spec in capabilities.value_type_specs)
+    broken_capabilities = replace(capabilities, value_type_specs=broken_value_type_specs)
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "value_types.<empty> must advertise a value type name." in issues
+    assert "value_types.<empty> references unknown value type kind: mystery" in issues
+    assert "value_types.<empty> must advertise at least one wire type." in issues
+    assert "value_types.number nullable value types must include the null wire type." in issues
+    assert "value_types.number finite value types must include a numeric wire type." in issues
+    assert "value_types.number string-keyed value types must use the object wire type." in issues
+    assert "value_types.array<T> must be marked as a template." in issues
+    assert "value_types.array<T> must advertise item_type_parameter." in issues
+    assert "value_types.array<T> must not advertise literal_parameter." in issues
+    assert "value_types.literal<T> must be marked as a template." in issues
+    assert "value_types.literal<T> must advertise literal_parameter." in issues
+    assert "value_types.literal<T> must not advertise item_type_parameter." in issues
+
+
 def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:
     capabilities = get_sdk_capabilities()
     broken_service_call_method_specs = tuple(

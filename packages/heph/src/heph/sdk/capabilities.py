@@ -34,6 +34,10 @@ from heph.sdk.methods import (
     SDK_METHOD_UNAVAILABLE_REASONS,
     SDK_STABILITY_LEVELS,
     SDK_TYPE_SPECS,
+    SDK_VALUE_TYPE_KIND_ARRAY,
+    SDK_VALUE_TYPE_KIND_LITERAL,
+    SDK_VALUE_TYPE_KIND_MAP,
+    SDK_VALUE_TYPE_KINDS,
     SDK_VALUE_TYPE_SPECS,
     SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
@@ -306,6 +310,7 @@ def validate_sdk_capabilities(
     _append_deprecation_issues(issues, capabilities)
     _append_parameter_choice_issues(issues, capabilities)
     _append_availability_issues(issues, capabilities)
+    _append_value_type_spec_issues(issues, capabilities)
     _append_value_type_shape_issues(issues, capabilities)
     _append_unknown_type_issues(issues, capabilities)
     _append_stream_event_issues(issues, capabilities)
@@ -827,6 +832,142 @@ def _append_unknown_type_issues(
 
 def _builtin_value_type_names(specs: tuple[SdkValueTypeSpec, ...]) -> frozenset[str]:
     return frozenset(spec.name for spec in specs if not spec.template)
+
+
+def _append_value_type_spec_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    for spec in capabilities.value_type_specs:
+        context = _value_type_context(spec)
+        _append_value_type_name_issue(issues, context, spec)
+        _append_value_type_kind_issue(issues, context, spec)
+        _append_value_type_wire_issues(issues, context, spec)
+        _append_value_type_template_issues(issues, context, spec)
+
+
+def _value_type_context(spec: SdkValueTypeSpec) -> str:
+    return f"value_types.{spec.name}" if spec.name else "value_types.<empty>"
+
+
+def _append_value_type_name_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if not spec.name.strip():
+        issues.append(f"{context} must advertise a value type name.")
+
+
+def _append_value_type_kind_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if spec.kind not in SDK_VALUE_TYPE_KINDS:
+        issues.append(f"{context} references unknown value type kind: {spec.kind}")
+
+
+def _append_value_type_wire_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if not spec.wire_types:
+        issues.append(f"{context} must advertise at least one wire type.")
+        return
+    if "" in spec.wire_types:
+        issues.append(f"{context} wire_types must not contain empty values.")
+    _append_value_type_nullable_issue(issues, context, spec)
+    _append_value_type_finite_issue(issues, context, spec)
+    _append_value_type_string_key_issue(issues, context, spec)
+
+
+def _append_value_type_nullable_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    has_null_wire_type = "null" in spec.wire_types
+    if spec.nullable and not has_null_wire_type:
+        issues.append(f"{context} nullable value types must include the null wire type.")
+    if has_null_wire_type and not spec.nullable:
+        issues.append(f"{context} null wire types must be marked nullable.")
+
+
+def _append_value_type_finite_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if spec.finite and not _value_type_has_numeric_wire_type(spec):
+        issues.append(f"{context} finite value types must include a numeric wire type.")
+
+
+def _value_type_has_numeric_wire_type(spec: SdkValueTypeSpec) -> bool:
+    return "integer" in spec.wire_types or "number" in spec.wire_types
+
+
+def _append_value_type_string_key_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if spec.string_keys and "object" not in spec.wire_types:
+        issues.append(f"{context} string-keyed value types must use the object wire type.")
+
+
+def _append_value_type_template_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if spec.kind in (SDK_VALUE_TYPE_KIND_ARRAY, SDK_VALUE_TYPE_KIND_MAP):
+        _append_value_type_item_template_issues(issues, context, spec)
+        return
+    if spec.kind == SDK_VALUE_TYPE_KIND_LITERAL:
+        _append_value_type_literal_template_issues(issues, context, spec)
+        return
+    _append_value_type_non_template_issues(issues, context, spec)
+
+
+def _append_value_type_item_template_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if not spec.template:
+        issues.append(f"{context} must be marked as a template.")
+    if not spec.item_type_parameter:
+        issues.append(f"{context} must advertise item_type_parameter.")
+    if spec.literal_parameter is not None:
+        issues.append(f"{context} must not advertise literal_parameter.")
+
+
+def _append_value_type_literal_template_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if not spec.template:
+        issues.append(f"{context} must be marked as a template.")
+    if not spec.literal_parameter:
+        issues.append(f"{context} must advertise literal_parameter.")
+    if spec.item_type_parameter is not None:
+        issues.append(f"{context} must not advertise item_type_parameter.")
+
+
+def _append_value_type_non_template_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkValueTypeSpec,
+) -> None:
+    if spec.template:
+        issues.append(f"{context} must not be marked as a template.")
+    if spec.item_type_parameter is not None:
+        issues.append(f"{context} must not advertise item_type_parameter.")
+    if spec.literal_parameter is not None:
+        issues.append(f"{context} must not advertise literal_parameter.")
 
 
 def _append_value_type_shape_issues(

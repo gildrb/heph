@@ -329,6 +329,28 @@ def test_serve_stdio_returns_when_transport_closes_during_ready() -> None:
     assert output.writes == 1
 
 
+def test_jsonl_sdk_server_rejects_malformed_ready_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    output = io.StringIO()
+
+    def broken_capabilities(_self: HephService) -> dict[str, object]:
+        return {"capabilities": []}
+
+    monkeypatch.setattr(HephService, "capabilities", broken_capabilities)
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    with pytest.raises(HephSdkError, match="ready capabilities must be an object"):
+        server.serve()
+
+    assert output.getvalue() == ""
+
+
 def test_jsonl_sdk_server_clears_stream_state_when_start_write_fails() -> None:
     service = HephService.plain(config=_config())
     service.new_session()
