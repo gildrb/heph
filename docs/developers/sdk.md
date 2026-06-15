@@ -405,6 +405,9 @@ client generators that want typed value objects instead of dictionaries.
 Capability sections such as `service`, `jsonl`, `streams`, and `availability`
 also have named DTO specs, so clients and runtime validators can detect nested
 capability payload drift instead of treating the whole contract as loose maps.
+Python clients can import the matching spec dataclasses, such as
+`SdkMethodSpec`, `SdkObjectFieldSpec`, `SdkResultSpec`, and `SdkTypeSpec`, from
+the public `heph.sdk` facade.
 Spec dictionaries use `map<...>` value types, for example
 `map<sdk_method_spec>` and `map<sdk_result_spec>`, so generated clients can
 validate dynamic method-name keys while still checking each value structurally.

@@ -162,6 +162,31 @@ def test_sdk_public_facade_exports_stable_contract_constants() -> None:
     )
 
 
+def test_sdk_public_facade_exports_contract_spec_types() -> None:
+    expected_exports = (
+        "SdkErrorSpec",
+        "SdkEventFieldSpec",
+        "SdkEventSpec",
+        "SdkFieldSpec",
+        "SdkJsonlMessageFieldSpec",
+        "SdkJsonlMessageSpec",
+        "SdkJsonlRequestSpec",
+        "SdkMethodAvailabilitySpec",
+        "SdkMethodParameter",
+        "SdkMethodSpec",
+        "SdkObjectFieldSpec",
+        "SdkResultFieldSpec",
+        "SdkResultSpec",
+        "SdkStreamSpec",
+        "SdkTypeFieldSpec",
+        "SdkTypeSpec",
+    )
+
+    assert all(name in sdk.__all__ for name in expected_exports)
+    for name in expected_exports:
+        assert getattr(sdk, name) is getattr(sdk_methods, name)
+
+
 def _pollinations_config(monkeypatch: pytest.MonkeyPatch) -> ChatConfig:
     provider_config = default_config()
     monkeypatch.setattr(
