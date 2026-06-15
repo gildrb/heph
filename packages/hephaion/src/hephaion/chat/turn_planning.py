@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 
 from ai.runtime.conversation import Conversation
 
-from hephaion.chat.citation_patterns import (
-    _OVERVIEW_CITATION_ID_RE,
-)
 from hephaion.chat.evidence import ResolvedTurnPlan
 from hephaion.chat.evidence import evidence_refs as _evidence_refs
 from hephaion.chat.followup_retrieval import (
@@ -65,6 +62,11 @@ from hephaion.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
 )
 from hephaion.chat.priority_planning import _priority_retrieval_state
+from hephaion.chat.replayability_planning import (
+    _contract_has_replayable_grounding_surface,
+    _contract_needs_prior_replay_state,
+    _unreplayable_followup_current_query,
+)
 from hephaion.chat.turn_contract_checks import (
     _contract_has_specific_material_target,
     _plan_requires_citations,
@@ -947,30 +949,6 @@ def _reset_unreplayable_followup_state(
         direct_evidence_required=reset_plan.requires_direct_evidence,
     )
     return reset_plan, reset_contract
-
-
-def _unreplayable_followup_current_query(contract: TurnContract) -> str:
-    if not contract.is_followup or not contract.prior_turn_original_user_input:
-        return contract.canonical_request or contract.original_user_input
-    if len(_content_terms(contract.original_user_input)) >= _FRESH_CURRENT_REQUEST_MIN_TERMS:
-        return contract.canonical_request or contract.original_user_input
-    return ""
-
-
-def _contract_has_replayable_grounding_surface(contract: TurnContract) -> bool:
-    return bool(contract.prior_turn_evidence_refs) or (
-        _OVERVIEW_CITATION_ID_RE.search(contract.prior_answer_excerpt) is not None
-    )
-
-
-def _contract_needs_prior_replay_state(contract: TurnContract) -> bool:
-    return (
-        contract.is_followup
-        or contract.prior_answer_reference
-        or contract.answer_mode in {ANSWER_MODE_TRANSFORM_PRIOR, ANSWER_MODE_REASON_FROM_PRIOR}
-        or contract.retrieval_strategy
-        in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
-    )
 
 
 def _turn_contract_with_validation(
