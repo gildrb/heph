@@ -216,6 +216,8 @@ class JsonlSdkProcess:
             raise JsonlSdkProcessError("SDK JSONL process is already running.")
         _validate_process_timeout(self.startup_timeout, "startup_timeout")
         _validate_process_timeout(self.shutdown_timeout, "shutdown_timeout")
+        _validate_process_boolean_option(self.capture_stderr, "capture_stderr")
+        _validate_process_required_integer_option(self.stderr_tail_limit, "stderr_tail_limit")
         ensure_sdk_client_options(
             client_capabilities_version=self.client_capabilities_version,
             jsonl_version=self.jsonl_version,
@@ -1157,6 +1159,22 @@ def _validate_process_integer_option(value: object, label: str) -> None:
             raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be non-negative.")
         return
     raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be an integer or None.")
+
+
+def _validate_process_required_integer_option(value: object, label: str) -> None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value < 0:
+            raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be non-negative.")
+        return
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be a non-negative integer."
+    )
+
+
+def _validate_process_boolean_option(value: object, label: str) -> None:
+    if isinstance(value, bool):
+        return
+    raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be a boolean.")
 
 
 def _validate_process_string_option(value: object, label: str) -> None:

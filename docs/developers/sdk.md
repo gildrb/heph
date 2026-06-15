@@ -232,9 +232,10 @@ Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before
 the ready handshake include a bounded stderr tail, and `process.stderr_tail`
-remains available after the child exits for app logs or diagnostics screens. The
-latest known child exit status is exposed as `process.returncode` even after
-`close()` clears the live process handle.
+remains available after the child exits for app logs or diagnostics screens.
+`capture_stderr` must be a boolean, and `stderr_tail_limit` must be a
+non-negative integer. The latest known child exit status is exposed as
+`process.returncode` even after `close()` clears the live process handle.
 `JsonlSdkProcess.close()` also marks the managed `JsonlSdkClient` closed before
 tearing down child pipes, so stale client references fail with a stable
 `JsonlSdkClientProtocolError` instead of leaking pipe-specific errors. Direct

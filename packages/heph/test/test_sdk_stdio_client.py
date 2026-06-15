@@ -1543,6 +1543,49 @@ def test_jsonl_sdk_process_rejects_invalid_client_options_before_spawn(
     assert transport.returncode is None
 
 
+@pytest.mark.parametrize(
+    ("transport", "message"),
+    [
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                capture_stderr=cast("bool", "yes"),
+            ),
+            "capture_stderr",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                stderr_tail_limit=cast("int", True),
+            ),
+            "stderr_tail_limit",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                stderr_tail_limit=cast("int", None),
+            ),
+            "stderr_tail_limit",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                stderr_tail_limit=-1,
+            ),
+            "stderr_tail_limit",
+        ),
+    ],
+)
+def test_jsonl_sdk_process_rejects_invalid_diagnostic_options_before_spawn(
+    transport: JsonlSdkProcess,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        transport.start()
+
+    assert transport.returncode is None
+
+
 @pytest.mark.parametrize("timeout", [-0.01, float("nan"), float("inf")])
 def test_jsonl_sdk_process_rejects_invalid_timeouts_before_spawn(timeout: float) -> None:
     startup_transport = JsonlSdkProcess(
