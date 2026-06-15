@@ -40,6 +40,7 @@ from heph.sdk.stdio_requests import (
     _validate_jsonl_call_params,
     _validate_jsonl_stream_params,
 )
+from heph.sdk.stdio_routes import _JSONL_CALL_ROUTES
 from heph.sdk.stdio_state import (
     TransportBusyState,
     _jsonl_validated_result_payload,
@@ -50,7 +51,6 @@ from heph.sdk.stdio_state import (
 
 type JsonlStreamEvents = Callable[[], Iterator[ServicePayload]]
 type JsonlStreamCleanup = Callable[[], None]
-type _JsonlCallHandler = Callable[["JsonlSdkServer", RequestId, dict[str, object]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,19 +77,6 @@ class _JsonlErrorPayload:
             "message": self.message,
             "unavailable_reason": self.unavailable_reason,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class _JsonlCallRoute:
-    handler: _JsonlCallHandler
-
-    def dispatch(
-        self,
-        server: JsonlSdkServer,
-        request_id: RequestId,
-        params: dict[str, object],
-    ) -> None:
-        self.handler(server, request_id, params)
 
 
 @dataclass(slots=True)
@@ -419,60 +406,6 @@ def serve_stdio(
         output_stream=output_stream or sys.stdout,
     )
     server.serve()
-
-
-def _write_jsonl_abort_call(
-    server: JsonlSdkServer,
-    request_id: RequestId,
-    params: dict[str, object],
-) -> None:
-    _ = params
-    server._write_call_response(
-        request_id,
-        "abort",
-        server._abort_active_prompt(),
-        translate_state_streams=False,
-    )
-
-
-def _write_jsonl_state_call(
-    server: JsonlSdkServer,
-    request_id: RequestId,
-    params: dict[str, object],
-) -> None:
-    _ = params
-    server._write_call_response(
-        request_id,
-        "state",
-        server._state_with_transport_busy(),
-        translate_state_streams=False,
-    )
-
-
-def _write_jsonl_capabilities_call(
-    server: JsonlSdkServer,
-    request_id: RequestId,
-    params: dict[str, object],
-) -> None:
-    _ = params
-    server._write_call_response(request_id, "capabilities", server.service.capabilities())
-
-
-def _write_jsonl_settings_call(
-    server: JsonlSdkServer,
-    request_id: RequestId,
-    params: dict[str, object],
-) -> None:
-    _ = params
-    server._write_call_response(request_id, "settings", server.service.settings())
-
-
-_JSONL_CALL_ROUTES: dict[str, _JsonlCallRoute] = {
-    "abort": _JsonlCallRoute(_write_jsonl_abort_call),
-    "state": _JsonlCallRoute(_write_jsonl_state_call),
-    "capabilities": _JsonlCallRoute(_write_jsonl_capabilities_call),
-    "settings": _JsonlCallRoute(_write_jsonl_settings_call),
-}
 
 
 def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
