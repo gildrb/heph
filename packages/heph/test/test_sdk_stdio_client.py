@@ -1617,6 +1617,37 @@ def test_jsonl_sdk_process_rejects_invalid_diagnostic_options_before_spawn(
     assert transport.returncode is None
 
 
+@pytest.mark.parametrize(
+    ("transport", "message"),
+    [
+        (
+            JsonlSdkProcess(command=cast("tuple[str, ...]", ())),
+            "must not be empty",
+        ),
+        (
+            JsonlSdkProcess(command=cast("tuple[str, ...]", "")),
+            "sequence of strings",
+        ),
+        (
+            JsonlSdkProcess(command=("",)),
+            "executable",
+        ),
+        (
+            JsonlSdkProcess(command=(sys.executable, cast("str", 7))),
+            "arguments must be strings",
+        ),
+    ],
+)
+def test_jsonl_sdk_process_rejects_invalid_command_before_spawn(
+    transport: JsonlSdkProcess,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        transport.start()
+
+    assert transport.returncode is None
+
+
 @pytest.mark.parametrize("timeout", [-0.01, float("nan"), float("inf")])
 def test_jsonl_sdk_process_rejects_invalid_timeouts_before_spawn(timeout: float) -> None:
     startup_transport = JsonlSdkProcess(

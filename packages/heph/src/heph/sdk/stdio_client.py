@@ -243,7 +243,7 @@ class JsonlSdkProcess:
     def _spawn_process(self) -> subprocess.Popen[str]:
         try:
             return subprocess.Popen(
-                self.command or self.options.command(),
+                self._command_for_spawn(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 cwd=str(self.cwd) if self.cwd is not None else None,
@@ -254,6 +254,11 @@ class JsonlSdkProcess:
             )
         except OSError as exc:
             raise JsonlSdkProcessError(f"Failed to start SDK JSONL process: {exc}") from exc
+
+    def _command_for_spawn(self) -> tuple[str, ...]:
+        if self.command is None:
+            return self.options.command()
+        return _validate_process_command(self.command)
 
     def _process_pipes(self, process: subprocess.Popen[str]) -> tuple[IO[str], IO[str]]:
         if process.stdin is None or process.stdout is None:
@@ -1177,6 +1182,25 @@ def _validate_process_boolean_option(value: object, label: str) -> None:
     if isinstance(value, bool):
         return
     raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be a boolean.")
+
+
+def _validate_process_command(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+        raise JsonlSdkProcessError(
+            "SDK JSONL process command must be a non-empty sequence of strings."
+        )
+    command = tuple(value)
+    if not command:
+        raise JsonlSdkProcessError("SDK JSONL process command must not be empty.")
+    executable = command[0]
+    if not isinstance(executable, str) or not executable.strip():
+        raise JsonlSdkProcessError("SDK JSONL process command executable must be non-empty.")
+    validated_command = [executable]
+    for item in command[1:]:
+        if not isinstance(item, str):
+            raise JsonlSdkProcessError("SDK JSONL process command arguments must be strings.")
+        validated_command.append(item)
+    return tuple(validated_command)
 
 
 def _validate_process_string_option(value: object, label: str) -> None:
