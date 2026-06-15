@@ -334,6 +334,17 @@ class JsonlSdkClient:
     client_capabilities_version: int = SDK_CAPABILITIES_VERSION
     jsonl_version: int = SDK_JSONL_VERSION
     _request_counter: int = field(default=0, init=False, repr=False)
+    _write_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _stream_control_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+    )
+    _stream_control_request_ids: set[str | int] = field(
+        default_factory=set,
+        init=False,
+        repr=False,
+    )
 
     def read_ready(self) -> JsonlSdkReady:
         """Read and validate the initial server ready message."""
@@ -374,17 +385,39 @@ class JsonlSdkClient:
         request_id: str | int | None = None,
     ) -> str | int:
         """Write one validated request and return the request id used."""
-        actual_request_id = request_id if request_id is not None else self._next_request_id(method)
+        with self._write_lock:
+            actual_request_id = self._request_id_for_write(method, request_id)
+            self._write_request_line(method, params, actual_request_id)
+        return actual_request_id
+
+    def abort_active_stream(self, *, request_id: str | int | None = None) -> str | int:
+        """Write an abort request for the active stream and return the request id used."""
+        with self._write_lock:
+            actual_request_id = self._request_id_for_write("abort", request_id)
+            self._track_stream_control_request(actual_request_id)
+            try:
+                self._write_request_line("abort", None, actual_request_id)
+            except Exception:
+                self._forget_stream_control_request(actual_request_id)
+                raise
+        return actual_request_id
+
+    def _request_id_for_write(self, method: str, request_id: str | int | None) -> str | int:
+        return request_id if request_id is not None else self._next_request_id(method)
+
+    def _write_request_line(
+        self,
+        method: str,
+        params: Mapping[str, object] | None,
+        request_id: str | int,
+    ) -> None:
         try:
-            self.output_stream.write(
-                encode_jsonl_request(method, params, request_id=actual_request_id)
-            )
+            self.output_stream.write(encode_jsonl_request(method, params, request_id=request_id))
             self.output_stream.flush()
         except (OSError, ValueError) as exc:
             raise JsonlSdkClientProtocolError(
-                f"Failed to write SDK JSONL request {actual_request_id!r}: {exc}"
+                f"Failed to write SDK JSONL request {request_id!r}: {exc}"
             ) from exc
-        return actual_request_id
 
     def call(
         self,
@@ -441,8 +474,22 @@ class JsonlSdkClient:
         yield from self._stream_events(actual_request_id, method)
 
     def _stream_events(self, request_id: str | int, method: str) -> Iterator[JsonlPayload]:
+        pending_error: JsonlSdkServerError | None = None
+        stream_completed = False
         while True:
             message = self.read_message()
+            control_request_id = self._stream_control_request_id(message)
+            if control_request_id is not None:
+                self._consume_stream_control_message(control_request_id, message)
+                if pending_error is not None and not self._has_stream_control_requests():
+                    raise pending_error
+                if stream_completed and not self._has_stream_control_requests():
+                    return
+                continue
+            if pending_error is not None or stream_completed:
+                raise JsonlSdkClientProtocolError(
+                    "Expected SDK JSONL response for an active stream control request."
+                )
             _require_request_id(message, request_id)
             message_type = _message_type(message)
             if message_type == "stream_event":
@@ -452,8 +499,13 @@ class JsonlSdkClient:
                 )
             elif message_type == "stream_end":
                 if message.get("ok") is True:
+                    if self._has_stream_control_requests():
+                        stream_completed = True
+                        continue
                     return
-                raise _server_error_from_message(request_id, message)
+                pending_error = _server_error_from_message(request_id, message)
+                if not self._has_stream_control_requests():
+                    raise pending_error
             elif message_type == "error":
                 raise _server_error_from_message(request_id, message)
             else:
@@ -465,6 +517,53 @@ class JsonlSdkClient:
     def _next_request_id(self, method: str) -> str:
         self._request_counter += 1
         return f"{method}-{self._request_counter}"
+
+    def _track_stream_control_request(self, request_id: str | int) -> None:
+        with self._stream_control_lock:
+            self._stream_control_request_ids.add(request_id)
+
+    def _forget_stream_control_request(self, request_id: str | int) -> None:
+        with self._stream_control_lock:
+            self._stream_control_request_ids.discard(request_id)
+
+    def _has_stream_control_requests(self) -> bool:
+        with self._stream_control_lock:
+            return bool(self._stream_control_request_ids)
+
+    def _stream_control_request_id(self, message: Mapping[str, object]) -> str | int | None:
+        request_id = message.get("id")
+        if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+            return None
+        with self._stream_control_lock:
+            if request_id in self._stream_control_request_ids:
+                return request_id
+        return None
+
+    def _consume_stream_control_message(
+        self,
+        request_id: str | int,
+        message: Mapping[str, object],
+    ) -> None:
+        try:
+            message_type = _message_type(message)
+            if message_type == "response":
+                if message.get("ok") is not True:
+                    raise JsonlSdkClientProtocolError(
+                        f"SDK JSONL response for {request_id!r} was not successful."
+                    )
+                _validate_jsonl_call_result(
+                    "abort",
+                    _mapping_field(message, "result", "SDK JSONL response result"),
+                )
+                return
+            if message_type == "error":
+                raise _server_error_from_message(request_id, message)
+            raise JsonlSdkClientProtocolError(
+                f"Expected SDK JSONL response for stream control request {request_id!r}, "
+                f"got {message_type!r}."
+            )
+        finally:
+            self._forget_stream_control_request(request_id)
 
 
 def jsonl_request_payload(

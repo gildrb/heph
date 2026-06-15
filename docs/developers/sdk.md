@@ -235,6 +235,10 @@ advanced clients can use `JsonlSdkClient`, `encode_jsonl_request()`,
 lifecycle, request routing, or UI event loop. `encode_jsonl_request()` and
 `JsonlSdkClient.write_request()` validate method names and params against the
 advertised JSONL method specs before writing to the transport.
+When a UI cancel button needs to stop the active stream while `stream()` is
+being consumed, call `JsonlSdkClient.abort_active_stream()` from the UI control
+path. The stream iterator consumes the interleaved abort response and then
+raises `JsonlSdkStreamCancelledError` from the stream's final error envelope.
 
 ## Session and Runtime Split
 

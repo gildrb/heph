@@ -310,6 +310,108 @@ def test_jsonl_sdk_client_raises_cancelled_error_for_stream_end() -> None:
     assert exc.value.unavailable_reason is None
 
 
+def test_jsonl_sdk_client_consumes_abort_response_during_stream() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {
+                    "type": "response",
+                    "id": "abort-1",
+                    "ok": True,
+                    "result": {"aborted": True, "state": state},
+                },
+                {
+                    "type": "stream_end",
+                    "id": "index-1",
+                    "ok": False,
+                    "error": {
+                        "code": SDK_JSONL_CANCELLED_ERROR_CODE,
+                        "message": "SDK operation was cancelled.",
+                        "unavailable_reason": None,
+                    },
+                },
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    assert client.abort_active_stream(request_id="abort-1") == "abort-1"
+    with pytest.raises(JsonlSdkStreamCancelledError):
+        tuple(stream)
+
+    written_requests = [
+        _payload_mapping(json.loads(line)) for line in output.getvalue().splitlines()
+    ]
+    assert written_requests == [
+        {"method": "build_index_stream", "id": "index-1"},
+        {"method": "abort", "id": "abort-1"},
+    ]
+
+
+def test_jsonl_sdk_client_drains_late_abort_response_after_stream_end() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {
+                    "type": "stream_end",
+                    "id": "index-1",
+                    "ok": False,
+                    "error": {
+                        "code": SDK_JSONL_CANCELLED_ERROR_CODE,
+                        "message": "SDK operation was cancelled.",
+                        "unavailable_reason": None,
+                    },
+                },
+                {
+                    "type": "response",
+                    "id": "abort-1",
+                    "ok": True,
+                    "result": {"aborted": True, "state": state},
+                },
+                {"type": "response", "id": "state-1", "ok": True, "result": state},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    assert client.abort_active_stream(request_id="abort-1") == "abort-1"
+    with pytest.raises(JsonlSdkStreamCancelledError):
+        tuple(stream)
+    state = client.call("state", request_id="state-1")
+
+    assert "service" in state
+
+
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
     with pytest.raises(
         JsonlSdkClientProtocolError,
