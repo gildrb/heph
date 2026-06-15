@@ -375,34 +375,61 @@ def _apply_direct_evidence_state(state: _PlanContractApplication) -> None:
 
 
 def _apply_overview_state(state: _PlanContractApplication) -> None:
-    if _contract_requires_overview_sampling(
+    if _apply_corpus_overview_sampling_state(state):
+        return
+    _apply_specific_target_overview_retrieval_state(state)
+
+
+def _apply_corpus_overview_sampling_state(state: _PlanContractApplication) -> bool:
+    if not _contract_requires_overview_sampling(
         state.contract,
         prior_contract=state.prior_contract,
     ):
-        if state.contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
-            state.contract = replace(
-                state.contract,
-                answer_mode=ANSWER_MODE_FROM_EVIDENCE,
-                prior_answer_reference=False,
-                prior_answer_positions=(),
-                prior_answer_position_basis="",
-            )
-        state.retrieval_strategy = RETRIEVAL_STRATEGY_OVERVIEW
-        state.retrieval_query = _overview_retrieval_surface(
-            state.plan,
-            state.contract,
-            state.retrieval_query,
-        )
-    elif (
-        state.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-        and _contract_has_specific_material_target(state.contract)
+        return False
+    state.contract = _corpus_overview_contract(state.contract)
+    state.retrieval_strategy = RETRIEVAL_STRATEGY_OVERVIEW
+    state.retrieval_query = _overview_retrieval_surface(
+        state.plan,
+        state.contract,
+        state.retrieval_query,
+    )
+    return True
+
+
+def _corpus_overview_contract(contract: TurnContract) -> TurnContract:
+    if contract.answer_mode != ANSWER_MODE_TRANSFORM_PRIOR:
+        return contract
+    return replace(
+        contract,
+        answer_mode=ANSWER_MODE_FROM_EVIDENCE,
+        prior_answer_reference=False,
+        prior_answer_positions=(),
+        prior_answer_position_basis="",
+    )
+
+
+def _apply_specific_target_overview_retrieval_state(
+    state: _PlanContractApplication,
+) -> None:
+    if not _overview_strategy_has_specific_material_target(
+        state.contract,
+        state.retrieval_strategy,
     ):
-        state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-        state.retrieval_query = (
-            state.contract.retrieval_query
-            or state.contract.canonical_request
-            or state.retrieval_query
-        )
+        return
+    state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
+    state.retrieval_query = (
+        state.contract.retrieval_query or state.contract.canonical_request or state.retrieval_query
+    )
+
+
+def _overview_strategy_has_specific_material_target(
+    contract: TurnContract,
+    retrieval_strategy: str,
+) -> bool:
+    return (
+        retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+        and _contract_has_specific_material_target(contract)
+    )
 
 
 def _apply_priority_retrieval_state(state: _PlanContractApplication) -> None:
