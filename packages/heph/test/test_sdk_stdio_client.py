@@ -1252,6 +1252,7 @@ def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
         JsonlSdkProcessOptions(executable=""),
         JsonlSdkProcessOptions(executable=" "),
         JsonlSdkProcessOptions(executable=cast("str", None)),
+        JsonlSdkProcessOptions(executable="heph\0"),
     ],
 )
 def test_jsonl_sdk_process_options_reject_invalid_executable(
@@ -1266,6 +1267,7 @@ def test_jsonl_sdk_process_options_reject_invalid_executable(
     [
         (JsonlSdkProcessOptions(armory_path=""), "armory_path"),
         (JsonlSdkProcessOptions(armory_path=" "), "armory_path"),
+        (JsonlSdkProcessOptions(armory_path="notes\0"), "armory_path"),
         (JsonlSdkProcessOptions(armory_path=cast("Path", 7)), "armory_path"),
     ],
 )
@@ -1281,6 +1283,7 @@ def test_jsonl_sdk_process_options_reject_invalid_armory_path(
     ("options", "message"),
     [
         (JsonlSdkProcessOptions(session_id=""), "session_id"),
+        (JsonlSdkProcessOptions(session_id="session\0"), "session_id"),
         (JsonlSdkProcessOptions(base_url=" "), "base_url"),
         (JsonlSdkProcessOptions(model=""), "model"),
         (JsonlSdkProcessOptions(reasoning_level=" "), "reasoning_level"),
@@ -1633,12 +1636,98 @@ def test_jsonl_sdk_process_rejects_invalid_diagnostic_options_before_spawn(
             "executable",
         ),
         (
+            JsonlSdkProcess(command=("heph\0",)),
+            "executable",
+        ),
+        (
             JsonlSdkProcess(command=(sys.executable, cast("str", 7))),
             "arguments must be strings",
+        ),
+        (
+            JsonlSdkProcess(command=(sys.executable, "bad\0")),
+            "arguments",
         ),
     ],
 )
 def test_jsonl_sdk_process_rejects_invalid_command_before_spawn(
+    transport: JsonlSdkProcess,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        transport.start()
+
+    assert transport.returncode is None
+
+
+@pytest.mark.parametrize(
+    ("transport", "message"),
+    [
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                cwd="",
+            ),
+            "cwd",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                cwd="bad\0",
+            ),
+            "cwd",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                cwd=cast("str | Path | None", 7),
+            ),
+            "cwd",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env=cast("Mapping[str, str]", "PATH=/tmp"),
+            ),
+            "env",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env={"": "value"},
+            ),
+            "env keys",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env={"BAD=KEY": "value"},
+            ),
+            "env keys",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env={"BAD\0KEY": "value"},
+            ),
+            "env keys",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env={"PATH": cast("str", 7)},
+            ),
+            "env values",
+        ),
+        (
+            JsonlSdkProcess(
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+                env={"PATH": "bad\0"},
+            ),
+            "env values",
+        ),
+    ],
+)
+def test_jsonl_sdk_process_rejects_invalid_launch_environment_before_spawn(
     transport: JsonlSdkProcess,
     message: str,
 ) -> None:

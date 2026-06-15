@@ -220,6 +220,8 @@ class JsonlSdkProcess:
         _validate_process_timeout(self.shutdown_timeout, "shutdown_timeout")
         _validate_process_boolean_option(self.capture_stderr, "capture_stderr")
         _validate_process_required_integer_option(self.stderr_tail_limit, "stderr_tail_limit")
+        _validate_process_cwd_option(self.cwd)
+        _validate_process_env_option(self.env)
         ensure_sdk_client_options(
             client_capabilities_version=self.client_capabilities_version,
             jsonl_version=self.jsonl_version,
@@ -1195,37 +1197,81 @@ def _validate_process_command(value: object) -> tuple[str, ...]:
     executable = command[0]
     if not isinstance(executable, str) or not executable.strip():
         raise JsonlSdkProcessError("SDK JSONL process command executable must be non-empty.")
+    if "\0" in executable:
+        raise JsonlSdkProcessError(
+            "SDK JSONL process command executable must not contain null bytes."
+        )
     validated_command = [executable]
     for item in command[1:]:
         if not isinstance(item, str):
             raise JsonlSdkProcessError("SDK JSONL process command arguments must be strings.")
+        if "\0" in item:
+            raise JsonlSdkProcessError(
+                "SDK JSONL process command arguments must not contain null bytes."
+            )
         validated_command.append(item)
     return tuple(validated_command)
+
+
+def _validate_process_cwd_option(value: object) -> None:
+    if value is None:
+        return
+    if isinstance(value, Path):
+        if "\0" not in str(value):
+            return
+    elif isinstance(value, str) and value.strip() and "\0" not in value:
+        return
+    raise JsonlSdkProcessError(
+        "SDK JSONL process cwd must be a non-empty path string, Path, or None without null bytes."
+    )
+
+
+def _validate_process_env_option(value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise JsonlSdkProcessError("SDK JSONL process env must be a mapping or None.")
+    for key, item in value.items():
+        if not isinstance(key, str) or not key or "=" in key or "\0" in key:
+            raise JsonlSdkProcessError(
+                "SDK JSONL process env keys must be non-empty strings without '=' or null bytes."
+            )
+        if not isinstance(item, str):
+            raise JsonlSdkProcessError("SDK JSONL process env values must be strings.")
+        if "\0" in item:
+            raise JsonlSdkProcessError("SDK JSONL process env values must not contain null bytes.")
 
 
 def _validate_process_string_option(value: object, label: str) -> None:
     if value is None:
         return
-    if isinstance(value, str) and value.strip():
+    if isinstance(value, str) and value.strip() and "\0" not in value:
         return
     raise JsonlSdkProcessError(
-        f"SDK JSONL process option '{label}' must be a non-empty string or None."
+        f"SDK JSONL process option '{label}' must be a non-empty string without "
+        "null bytes or None."
     )
 
 
 def _validate_process_required_string_option(value: object, label: str) -> None:
-    if isinstance(value, str) and value.strip():
+    if isinstance(value, str) and value.strip() and "\0" not in value:
         return
-    raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be a non-empty string.")
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be a non-empty string without null bytes."
+    )
 
 
 def _validate_process_path_option(value: object, label: str) -> None:
-    if value is None or isinstance(value, Path):
+    if value is None:
         return
-    if isinstance(value, str) and value.strip():
+    if isinstance(value, Path):
+        if "\0" not in str(value):
+            return
+    elif isinstance(value, str) and value.strip() and "\0" not in value:
         return
     raise JsonlSdkProcessError(
-        f"SDK JSONL process option '{label}' must be a non-empty path string, Path, or None."
+        f"SDK JSONL process option '{label}' must be a non-empty path string, Path, "
+        "or None without null bytes."
     )
 
 

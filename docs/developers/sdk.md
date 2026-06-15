@@ -224,18 +224,22 @@ errors before touching transport state.
 `create_armory=True` requires `armory_path`; `session_id` cannot be combined
 with `start_session=False`. Launch option validation also runs before spawning:
 `executable` must be a non-empty string; `armory_path` must be `None`, `Path`,
-or a non-empty path string; `max_tokens` and `rag_context_budget` must be
-non-negative integers, while `temperature` must be a finite number. Optional
-string overrides such as `session_id`, `base_url`, and `model` must be non-empty
-when supplied; choice overrides such as `reasoning_level` and
-`thinking_visibility` must match the advertised SDK choices.
+or a non-empty path string; process strings must not contain null bytes.
+`max_tokens` and `rag_context_budget` must be non-negative integers, while
+`temperature` must be a finite number. Optional string overrides such as
+`session_id`, `base_url`, and `model` must be non-empty when supplied; choice
+overrides such as `reasoning_level` and `thinking_visibility` must match the
+advertised SDK choices.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
-paths, settings, and dependency resolution. If `command` is supplied directly,
-it must be a non-empty sequence of strings with a non-empty executable entry.
-Startup failures that happen before the ready handshake include a bounded stderr
-tail, and `process.stderr_tail` remains available after the child exits for app
-logs or diagnostics screens.
+paths, settings, and dependency resolution. `cwd` must be `None`, `Path`, or a
+non-empty path string; `env` must be `None` or a mapping from valid environment
+variable names to string values; none of these values may contain null bytes. If
+`command` is supplied directly, it must be a non-empty sequence of strings with a
+non-empty executable entry and string arguments without null bytes. Startup
+failures that happen before the ready handshake include a bounded stderr tail,
+and `process.stderr_tail` remains available after the child exits for app logs or
+diagnostics screens.
 `capture_stderr` must be a boolean, and `stderr_tail_limit` must be a
 non-negative integer. The latest known child exit status is exposed as
 `process.returncode` even after `close()` clears the live process handle.
