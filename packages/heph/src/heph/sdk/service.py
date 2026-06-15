@@ -45,14 +45,10 @@ from heph.sdk.service_contract import validate_sdk_service_contract
 from heph.sdk.service_routes import (
     ServicePayload,
     ServiceStream,
-    _app_setting_param_contracts,
     _call_routes_by_method,
-    _config_param_contracts,
     _config_updates_from_params,
-    _optional_bool_default_false,
-    _required_bool,
-    _required_str,
-    _ServiceCallArgument,
+    _service_call_route_sequence,
+    _service_stream_route_sequence,
     _ServiceCallRoute,
     _ServiceStreamRoute,
     _stream_routes_by_method,
@@ -191,115 +187,7 @@ class HephService:
         return _call_routes_by_method(self._call_route_sequence())
 
     def _call_route_sequence(self) -> tuple[_ServiceCallRoute, ...]:
-        return (
-            _ServiceCallRoute("state", self.state),
-            _ServiceCallRoute("capabilities", self.capabilities),
-            _ServiceCallRoute("use_plain_runtime", self.use_plain_runtime),
-            _ServiceCallRoute(
-                "open_armory",
-                self.open_runtime_armory,
-                (_ServiceCallArgument("path", _required_str, "string"),),
-            ),
-            _ServiceCallRoute(
-                "create_armory",
-                self.create_runtime_armory,
-                (_ServiceCallArgument("path", _required_str, "string"),),
-            ),
-            _ServiceCallRoute("list_armories", self.list_armories),
-            _ServiceCallRoute(
-                "validate_armory",
-                self.validate_armory,
-                (_ServiceCallArgument("path", _required_str, "string"),),
-            ),
-            _ServiceCallRoute("new_session", self.new_session),
-            _ServiceCallRoute(
-                "resume_session",
-                self.resume_session,
-                (_ServiceCallArgument("session_id", _required_str, "string"),),
-            ),
-            _ServiceCallRoute(
-                "fork_session",
-                self.fork_session,
-                (_ServiceCallArgument("turn_id", _required_str, "string"),),
-            ),
-            _ServiceCallRoute("list_sessions", self.list_sessions),
-            _ServiceCallRoute(
-                "save_session",
-                self.save_session,
-            ),
-            _ServiceCallRoute(
-                "messages",
-                self.messages,
-            ),
-            _ServiceCallRoute(
-                "ask",
-                self.ask,
-                (_ServiceCallArgument("text", _required_str, "string"),),
-            ),
-            _ServiceCallRoute(
-                "abort",
-                self.abort,
-            ),
-            _ServiceCallRoute("settings", self.settings),
-            _ServiceCallRoute("list_providers", self.list_providers),
-            _ServiceCallRoute(
-                "list_model_choices",
-                self.list_model_choices,
-                keyword_arguments=(
-                    _ServiceCallArgument(
-                        "refresh_live",
-                        _optional_bool_default_false,
-                        "boolean",
-                        required=False,
-                    ),
-                ),
-            ),
-            _ServiceCallRoute(
-                "switch_model",
-                self.switch_model,
-                (
-                    _ServiceCallArgument("provider_slug", _required_str, "string"),
-                    _ServiceCallArgument("model", _required_str, "string"),
-                ),
-            ),
-            _ServiceCallRoute(
-                "set_source_enabled",
-                self.set_source_enabled,
-                (
-                    _ServiceCallArgument("source", _required_str, "string"),
-                    _ServiceCallArgument("enabled", _required_bool, "boolean"),
-                ),
-            ),
-            _ServiceCallRoute(
-                "list_materials",
-                self.list_materials,
-            ),
-            _ServiceCallRoute(
-                "import_materials",
-                self.import_materials,
-                (_ServiceCallArgument("source", _required_str, "string"),),
-            ),
-            _ServiceCallRoute(
-                "build_index",
-                self.build_index,
-            ),
-            _ServiceCallRoute(
-                "scan_extraction_health",
-                self.scan_extraction_health,
-            ),
-            _ServiceCallRoute(
-                "update_config",
-                self.update_config,
-                params_as_argument=True,
-                parameter_contracts=_config_param_contracts(),
-            ),
-            _ServiceCallRoute(
-                "update_settings",
-                self.update_settings,
-                params_as_argument=True,
-                parameter_contracts=_app_setting_param_contracts(),
-            ),
-        )
+        return _service_call_route_sequence(self)
 
     def capabilities(self) -> ServicePayload:
         return validate_result_payload(
@@ -371,17 +259,7 @@ class HephService:
         return _stream_routes_by_method(self._stream_route_sequence())
 
     def _stream_route_sequence(self) -> tuple[_ServiceStreamRoute, ...]:
-        return (
-            _ServiceStreamRoute(
-                "prompt",
-                self.prompt,
-                (_ServiceCallArgument("text", _required_str, "string"),),
-            ),
-            _ServiceStreamRoute(
-                "build_index",
-                self.build_index_stream,
-            ),
-        )
+        return _service_stream_route_sequence(self)
 
     def use_plain_runtime(self) -> dict[str, object]:
         with self._idle_service_call():

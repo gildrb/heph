@@ -895,7 +895,11 @@ def test_sdk_service_contract_validator_reports_route_drift(
     broken_open_armory = replace(
         next(route for route in call_routes if route.method == "open_armory"),
         arguments=(
-            sdk_service._ServiceCallArgument("wrong_path", sdk_service._required_str, "string"),
+            sdk_service_routes._ServiceCallArgument(
+                "wrong_path",
+                sdk_service_routes._required_str,
+                "string",
+            ),
         ),
     )
 
@@ -932,13 +936,21 @@ def test_sdk_service_contract_validator_reports_route_parameter_type_drift(
     broken_open_armory = replace(
         next(route for route in call_routes if route.method == "open_armory"),
         arguments=(
-            sdk_service._ServiceCallArgument("path", sdk_service._required_str, "integer"),
+            sdk_service_routes._ServiceCallArgument(
+                "path",
+                sdk_service_routes._required_str,
+                "integer",
+            ),
         ),
     )
     broken_prompt = replace(
         next(route for route in stream_routes if route.method == "prompt"),
         arguments=(
-            sdk_service._ServiceCallArgument("text", sdk_service._required_str, "integer"),
+            sdk_service_routes._ServiceCallArgument(
+                "text",
+                sdk_service_routes._required_str,
+                "integer",
+            ),
         ),
     )
 

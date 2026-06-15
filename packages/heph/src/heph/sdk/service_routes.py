@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
@@ -27,6 +28,64 @@ type _ServiceConfigParamDecoder = Callable[
     [Mapping[str, object], str],
     SdkConfigUpdateValue | None,
 ]
+
+
+class _ServiceRouteTarget(Protocol):
+    def state(self) -> ServicePayload: ...
+
+    def capabilities(self) -> ServicePayload: ...
+
+    def use_plain_runtime(self) -> ServicePayload: ...
+
+    def open_runtime_armory(self, path: str) -> ServicePayload: ...
+
+    def create_runtime_armory(self, path: str) -> ServicePayload: ...
+
+    def list_armories(self) -> ServicePayload: ...
+
+    def validate_armory(self, path: str) -> ServicePayload: ...
+
+    def new_session(self) -> ServicePayload: ...
+
+    def resume_session(self, session_id: str) -> ServicePayload: ...
+
+    def fork_session(self, turn_id: str) -> ServicePayload: ...
+
+    def list_sessions(self) -> ServicePayload: ...
+
+    def save_session(self) -> ServicePayload: ...
+
+    def messages(self) -> ServicePayload: ...
+
+    def ask(self, text: str) -> ServicePayload: ...
+
+    def abort(self) -> ServicePayload: ...
+
+    def settings(self) -> ServicePayload: ...
+
+    def list_providers(self) -> ServicePayload: ...
+
+    def list_model_choices(self, *, refresh_live: bool = False) -> ServicePayload: ...
+
+    def switch_model(self, provider_slug: str, model: str) -> ServicePayload: ...
+
+    def set_source_enabled(self, source: str, enabled: bool) -> ServicePayload: ...
+
+    def list_materials(self) -> ServicePayload: ...
+
+    def import_materials(self, source: str) -> ServicePayload: ...
+
+    def build_index(self) -> ServicePayload: ...
+
+    def scan_extraction_health(self) -> ServicePayload: ...
+
+    def update_config(self, params: Mapping[str, object]) -> ServicePayload: ...
+
+    def update_settings(self, params: Mapping[str, object]) -> ServicePayload: ...
+
+    def prompt(self, text: str) -> ServiceStream: ...
+
+    def build_index_stream(self) -> ServiceStream: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +159,136 @@ class _RouteAvailability:
             available=self.available,
             unavailable_reason=self.unavailable_reason,
         )
+
+
+def _service_call_route_sequence(
+    service: _ServiceRouteTarget,
+) -> tuple[_ServiceCallRoute, ...]:
+    return (
+        _ServiceCallRoute("state", service.state),
+        _ServiceCallRoute("capabilities", service.capabilities),
+        _ServiceCallRoute("use_plain_runtime", service.use_plain_runtime),
+        _ServiceCallRoute(
+            "open_armory",
+            service.open_runtime_armory,
+            (_ServiceCallArgument("path", _required_str, "string"),),
+        ),
+        _ServiceCallRoute(
+            "create_armory",
+            service.create_runtime_armory,
+            (_ServiceCallArgument("path", _required_str, "string"),),
+        ),
+        _ServiceCallRoute("list_armories", service.list_armories),
+        _ServiceCallRoute(
+            "validate_armory",
+            service.validate_armory,
+            (_ServiceCallArgument("path", _required_str, "string"),),
+        ),
+        _ServiceCallRoute("new_session", service.new_session),
+        _ServiceCallRoute(
+            "resume_session",
+            service.resume_session,
+            (_ServiceCallArgument("session_id", _required_str, "string"),),
+        ),
+        _ServiceCallRoute(
+            "fork_session",
+            service.fork_session,
+            (_ServiceCallArgument("turn_id", _required_str, "string"),),
+        ),
+        _ServiceCallRoute("list_sessions", service.list_sessions),
+        _ServiceCallRoute(
+            "save_session",
+            service.save_session,
+        ),
+        _ServiceCallRoute(
+            "messages",
+            service.messages,
+        ),
+        _ServiceCallRoute(
+            "ask",
+            service.ask,
+            (_ServiceCallArgument("text", _required_str, "string"),),
+        ),
+        _ServiceCallRoute(
+            "abort",
+            service.abort,
+        ),
+        _ServiceCallRoute("settings", service.settings),
+        _ServiceCallRoute("list_providers", service.list_providers),
+        _ServiceCallRoute(
+            "list_model_choices",
+            service.list_model_choices,
+            keyword_arguments=(
+                _ServiceCallArgument(
+                    "refresh_live",
+                    _optional_bool_default_false,
+                    "boolean",
+                    required=False,
+                ),
+            ),
+        ),
+        _ServiceCallRoute(
+            "switch_model",
+            service.switch_model,
+            (
+                _ServiceCallArgument("provider_slug", _required_str, "string"),
+                _ServiceCallArgument("model", _required_str, "string"),
+            ),
+        ),
+        _ServiceCallRoute(
+            "set_source_enabled",
+            service.set_source_enabled,
+            (
+                _ServiceCallArgument("source", _required_str, "string"),
+                _ServiceCallArgument("enabled", _required_bool, "boolean"),
+            ),
+        ),
+        _ServiceCallRoute(
+            "list_materials",
+            service.list_materials,
+        ),
+        _ServiceCallRoute(
+            "import_materials",
+            service.import_materials,
+            (_ServiceCallArgument("source", _required_str, "string"),),
+        ),
+        _ServiceCallRoute(
+            "build_index",
+            service.build_index,
+        ),
+        _ServiceCallRoute(
+            "scan_extraction_health",
+            service.scan_extraction_health,
+        ),
+        _ServiceCallRoute(
+            "update_config",
+            service.update_config,
+            params_as_argument=True,
+            parameter_contracts=_config_param_contracts(),
+        ),
+        _ServiceCallRoute(
+            "update_settings",
+            service.update_settings,
+            params_as_argument=True,
+            parameter_contracts=_app_setting_param_contracts(),
+        ),
+    )
+
+
+def _service_stream_route_sequence(
+    service: _ServiceRouteTarget,
+) -> tuple[_ServiceStreamRoute, ...]:
+    return (
+        _ServiceStreamRoute(
+            "prompt",
+            service.prompt,
+            (_ServiceCallArgument("text", _required_str, "string"),),
+        ),
+        _ServiceStreamRoute(
+            "build_index",
+            service.build_index_stream,
+        ),
+    )
 
 
 def _call_routes_by_method(
