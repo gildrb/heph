@@ -12,6 +12,7 @@ from ai.providers.config import default_config
 from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime import ChatConfig, EngineError, EngineErrorCode
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
+from heph import sdk
 from heph.sdk import (
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_SPECS,
@@ -117,6 +118,15 @@ class _FakeIndex:
 
 def _config() -> ChatConfig:
     return ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini")
+
+
+def test_sdk_public_facade_exports_are_resolvable() -> None:
+    exports = tuple(sdk.__all__)
+    missing = [name for name in exports if not hasattr(sdk, name)]
+
+    assert len(exports) == len(set(exports))
+    assert all(not name.startswith("_") for name in exports)
+    assert missing == []
 
 
 def _pollinations_config(monkeypatch: pytest.MonkeyPatch) -> ChatConfig:
