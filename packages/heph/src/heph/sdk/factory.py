@@ -148,7 +148,24 @@ def _validate_session_options(options: HephSdkOptions) -> None:
 def _normalized_optional_path(path: str | Path | None) -> Path | None:
     if path is None:
         return None
-    return normalize_path(path)
+    path_issue = _sdk_option_path_issue(path, "armory_path")
+    if path_issue is not None:
+        raise HephSdkError(path_issue)
+    try:
+        return normalize_path(path)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise HephSdkError(f"SDK option 'armory_path' is invalid: {exc}") from exc
+
+
+def _sdk_option_path_issue(path: object, label: str) -> str | None:
+    if not isinstance(path, str | Path):
+        return f"SDK option '{label}' must be a path string or Path."
+    path_text = str(path)
+    if not path_text.strip():
+        return f"SDK option '{label}' must be a non-empty path."
+    if "\0" in path_text:
+        return f"SDK option '{label}' must not contain null bytes."
+    return None
 
 
 def _apply_config_overrides(config: ChatConfig, options: HephSdkOptions) -> None:

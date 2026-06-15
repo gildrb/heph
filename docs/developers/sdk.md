@@ -611,7 +611,9 @@ wrapper: `create_armory=True` requires `armory_path`, and
 `create_heph_service()` rejects `session_id` when `start_session=False`.
 `create_heph_runtime()` rejects `session_id` because runtime construction does
 not resume sessions, while `create_heph_session()` requires `start_session=True`
-because it always returns a live session result.
+because it always returns a live session result. `armory_path` must be `None`,
+`Path`, or a non-empty path string without null bytes; invalid path options
+raise `HephSdkError` before config loading or runtime construction begins.
 
 ## Subscriptions and Abort
 

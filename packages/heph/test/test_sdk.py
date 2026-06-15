@@ -3541,15 +3541,51 @@ def test_factory_rejects_negative_generation_limits(
     ("options", "message"),
     [
         (HephSdkOptions(config=_config(), base_url=""), "base_url"),
+        (HephSdkOptions(config=_config(), base_url="https://example.invalid\0"), "base_url"),
         (HephSdkOptions(config=_config(), model="   "), "model"),
+        (HephSdkOptions(config=_config(), model="sdk\0model"), "model"),
     ],
 )
-def test_factory_rejects_empty_string_config_overrides(
+def test_factory_rejects_invalid_string_config_overrides(
     options: HephSdkOptions,
     message: str,
 ) -> None:
     with pytest.raises(HephSdkError, match=message):
         create_chat_config(options)
+
+
+def test_factory_rejects_null_byte_feature_flags() -> None:
+    options = HephSdkOptions(
+        config=_config(),
+        feature_flags=frozenset({"sdk\0flag"}),
+    )
+
+    with pytest.raises(HephSdkError, match="feature_flags"):
+        create_chat_config(options)
+
+
+@pytest.mark.parametrize(
+    ("path", "message"),
+    [
+        ("", "non-empty path"),
+        ("bad\0path", "null bytes"),
+        (cast("str | Path | None", 7), "path string or Path"),
+    ],
+)
+def test_factory_rejects_invalid_armory_path_options(
+    path: str | Path | None,
+    message: str,
+) -> None:
+    options = HephSdkOptions(armory_path=path, config=_config())
+
+    with pytest.raises(HephSdkError, match=message):
+        create_chat_config(options)
+    with pytest.raises(HephSdkError, match=message):
+        create_heph_runtime(options)
+    with pytest.raises(HephSdkError, match=message):
+        create_heph_service(options)
+    with pytest.raises(HephSdkError, match=message):
+        create_heph_session(options)
 
 
 def test_factory_rejects_create_armory_without_path() -> None:
