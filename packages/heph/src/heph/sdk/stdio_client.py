@@ -1089,7 +1089,7 @@ def _integer_field(message: Mapping[str, object], key: str, label: str) -> int:
 
 def _append_optional_path(command: list[str], flag: str, value: str | Path | None) -> None:
     if value is not None:
-        command.extend((flag, str(value)))
+        command.extend((flag, str(Path(value).expanduser())))
 
 
 def _append_optional_value(

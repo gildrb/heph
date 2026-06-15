@@ -202,10 +202,12 @@ with JsonlSdkProcess(options) as process:
         render(event)
 ```
 
-`JsonlSdkProcess` starts `heph sdk serve`, reads the ready handshake with a
-startup timeout, and closes stdin on exit so the service can shut down cleanly;
-stdin EOF aborts an active prompt or operation stream before shutdown waits for
-worker threads. If the process does not exit within its shutdown timeout, it is killed.
+`JsonlSdkProcessOptions` expands `~` in `armory_path` before spawning the child
+process. `JsonlSdkProcess` starts `heph sdk serve`, reads the ready handshake
+with a startup timeout, and closes stdin on exit so the service can shut down
+cleanly; stdin EOF aborts an active prompt or operation stream before shutdown
+waits for worker threads. If the process does not exit within its shutdown
+timeout, it is killed.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before

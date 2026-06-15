@@ -1086,6 +1086,17 @@ def test_jsonl_sdk_process_options_build_command() -> None:
     )
 
 
+def test_jsonl_sdk_process_options_expand_user_armory_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    options = JsonlSdkProcessOptions(armory_path="~/notes")
+
+    assert options.command()[3:5] == ("--armory", str(home / "notes"))
+
+
 def test_jsonl_sdk_process_options_cover_spawnable_sdk_options() -> None:
     sdk_option_fields = {field.name for field in fields(HephSdkOptions)}
     process_option_fields = {field.name for field in fields(JsonlSdkProcessOptions)}
