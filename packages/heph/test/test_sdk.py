@@ -1994,6 +1994,63 @@ def test_sdk_client_compatibility_helpers_reject_incompatible_versions() -> None
     )
 
 
+def test_sdk_client_compatibility_helpers_require_accepted_stability() -> None:
+    capabilities = get_sdk_capabilities()
+    preview_capabilities = replace(
+        capabilities,
+        compatibility=replace(
+            capabilities.compatibility,
+            stability=sdk_methods.SDK_STABILITY_PREVIEW,
+        ),
+    )
+    preview_payload = preview_capabilities.to_dict()
+
+    native_issues = validate_sdk_client_compatibility(
+        preview_capabilities,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+    payload_issues = validate_sdk_client_payload_compatibility(
+        preview_payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+
+    assert native_issues == (
+        "SDK stability 'preview' is not accepted by this client; accepted levels: public.",
+    )
+    assert payload_issues == native_issues
+    assert (
+        validate_sdk_client_compatibility(
+            preview_capabilities,
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+            accepted_stability_levels=(
+                sdk_methods.SDK_STABILITY_PUBLIC,
+                sdk_methods.SDK_STABILITY_PREVIEW,
+            ),
+        )
+        == ()
+    )
+    ensure_sdk_client_payload_compatibility(
+        preview_payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        accepted_stability_levels=(
+            sdk_methods.SDK_STABILITY_PUBLIC,
+            sdk_methods.SDK_STABILITY_PREVIEW,
+        ),
+    )
+    with pytest.raises(SdkClientCompatibilityError, match="preview") as exc:
+        ensure_sdk_client_compatibility(
+            preview_capabilities,
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
+
+    assert exc.value.issues == native_issues
+
+
 def test_sdk_client_payload_compatibility_reports_malformed_payload() -> None:
     payload = get_sdk_capabilities().to_dict()
     compatibility = dict(_payload_mapping(payload["compatibility"]))
@@ -2015,6 +2072,19 @@ def test_sdk_client_payload_compatibility_reports_malformed_payload() -> None:
         "capabilities.compatibility.min_client_capabilities_version must be an integer.",
         "capabilities.compatibility.supported_jsonl_versions must be an array of integers.",
     )
+
+
+def test_sdk_client_payload_compatibility_reports_malformed_stability() -> None:
+    payload = get_sdk_capabilities().to_dict()
+    compatibility = dict(_payload_mapping(payload["compatibility"]))
+    compatibility["stability"] = ""
+    payload["compatibility"] = compatibility
+
+    assert validate_sdk_client_payload_compatibility(
+        payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    ) == ("capabilities.compatibility.stability must be a non-empty string.",)
 
 
 def test_sdk_capabilities_validator_reports_contract_drift() -> None:

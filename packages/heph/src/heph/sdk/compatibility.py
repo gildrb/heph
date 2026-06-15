@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from heph.sdk.capabilities import HephSdkCapabilities
+from heph.sdk.methods import SDK_STABILITY_PUBLIC
+
+_DEFAULT_ACCEPTED_STABILITY_LEVELS = (SDK_STABILITY_PUBLIC,)
 
 
 class SdkClientCompatibilityError(Exception):
@@ -20,15 +23,18 @@ def validate_sdk_client_compatibility(
     *,
     client_capabilities_version: int,
     jsonl_version: int | None = None,
+    accepted_stability_levels: Sequence[str] = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
 ) -> tuple[str, ...]:
     """Return compatibility issues for a native capabilities object."""
     return _compatibility_issues(
+        stability=capabilities.compatibility.stability,
         capabilities_version=capabilities.version,
         current_capabilities_version=capabilities.compatibility.current_capabilities_version,
         min_client_capabilities_version=capabilities.compatibility.min_client_capabilities_version,
         supported_jsonl_versions=capabilities.compatibility.supported_jsonl_versions,
         client_capabilities_version=client_capabilities_version,
         jsonl_version=jsonl_version,
+        accepted_stability_levels=accepted_stability_levels,
     )
 
 
@@ -37,12 +43,14 @@ def ensure_sdk_client_compatibility(
     *,
     client_capabilities_version: int,
     jsonl_version: int | None = None,
+    accepted_stability_levels: Sequence[str] = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
 ) -> None:
     """Raise when a native SDK client cannot use the advertised capabilities."""
     issues = validate_sdk_client_compatibility(
         capabilities,
         client_capabilities_version=client_capabilities_version,
         jsonl_version=jsonl_version,
+        accepted_stability_levels=accepted_stability_levels,
     )
     if issues:
         raise SdkClientCompatibilityError(issues)
@@ -53,6 +61,7 @@ def validate_sdk_client_payload_compatibility(
     *,
     client_capabilities_version: int,
     jsonl_version: int | None = None,
+    accepted_stability_levels: Sequence[str] = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
 ) -> tuple[str, ...]:
     """Return compatibility issues for a JSON-ready capabilities payload."""
     payload_issues: list[str] = []
@@ -70,6 +79,12 @@ def validate_sdk_client_payload_compatibility(
     )
     if compatibility is None:
         return tuple(payload_issues)
+    stability = _string_field(
+        payload_issues,
+        compatibility,
+        key="stability",
+        label="capabilities.compatibility.stability",
+    )
     current_capabilities_version = _integer_field(
         payload_issues,
         compatibility,
@@ -89,7 +104,8 @@ def validate_sdk_client_payload_compatibility(
         label="capabilities.compatibility.supported_jsonl_versions",
     )
     if (
-        capabilities_version is None
+        stability is None
+        or capabilities_version is None
         or current_capabilities_version is None
         or min_client_capabilities_version is None
         or supported_jsonl_versions is None
@@ -104,6 +120,8 @@ def validate_sdk_client_payload_compatibility(
             supported_jsonl_versions=supported_jsonl_versions,
             client_capabilities_version=client_capabilities_version,
             jsonl_version=jsonl_version,
+            stability=stability,
+            accepted_stability_levels=accepted_stability_levels,
         ),
     )
 
@@ -113,12 +131,14 @@ def ensure_sdk_client_payload_compatibility(
     *,
     client_capabilities_version: int,
     jsonl_version: int | None = None,
+    accepted_stability_levels: Sequence[str] = _DEFAULT_ACCEPTED_STABILITY_LEVELS,
 ) -> None:
     """Raise when a JSON-ready SDK client cannot use the advertised capabilities."""
     issues = validate_sdk_client_payload_compatibility(
         capabilities,
         client_capabilities_version=client_capabilities_version,
         jsonl_version=jsonl_version,
+        accepted_stability_levels=accepted_stability_levels,
     )
     if issues:
         raise SdkClientCompatibilityError(issues)
@@ -158,6 +178,20 @@ def _integer_field(
     return None
 
 
+def _string_field(
+    issues: list[str],
+    payload: Mapping[str, object],
+    *,
+    key: str,
+    label: str,
+) -> str | None:
+    value = payload.get(key)
+    if isinstance(value, str) and value:
+        return value
+    issues.append(f"{label} must be a non-empty string.")
+    return None
+
+
 def _integer_sequence_field(
     issues: list[str],
     payload: Mapping[str, object],
@@ -180,14 +214,21 @@ def _integer_sequence_field(
 
 def _compatibility_issues(
     *,
+    stability: str,
     capabilities_version: int,
     current_capabilities_version: int,
     min_client_capabilities_version: int,
     supported_jsonl_versions: tuple[int, ...],
     client_capabilities_version: int,
     jsonl_version: int | None,
+    accepted_stability_levels: Sequence[str],
 ) -> tuple[str, ...]:
     issues: list[str] = []
+    _append_stability_issues(
+        issues,
+        stability,
+        accepted_stability_levels,
+    )
     _append_capability_version_issues(
         issues,
         capabilities_version=capabilities_version,
@@ -198,6 +239,29 @@ def _compatibility_issues(
     if jsonl_version is not None:
         _append_jsonl_version_issues(issues, jsonl_version, supported_jsonl_versions)
     return tuple(issues)
+
+
+def _append_stability_issues(
+    issues: list[str],
+    stability: str,
+    accepted_stability_levels: Sequence[str],
+) -> None:
+    accepted_levels = _accepted_stability_levels(accepted_stability_levels)
+    if not accepted_levels:
+        issues.append("SDK client accepted stability levels must not be empty.")
+        return
+    if stability in accepted_levels:
+        return
+    issues.append(
+        f"SDK stability '{stability}' is not accepted by this client; accepted levels: "
+        f"{', '.join(accepted_levels)}."
+    )
+
+
+def _accepted_stability_levels(levels: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(levels, str):
+        return (levels,)
+    return tuple(level for level in levels if level)
 
 
 def _append_capability_version_issues(
