@@ -897,6 +897,16 @@ def test_jsonl_sdk_client_rejects_duplicate_active_stream_control_id_before_writ
     ]
 
 
+def test_jsonl_sdk_client_rejects_negative_stream_control_timeout_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="stream control timeout"):
+        client.call_active_stream("state", timeout=-0.01)
+
+    assert output.getvalue() == ""
+
+
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
     with pytest.raises(
         JsonlSdkClientProtocolError,
@@ -1303,6 +1313,52 @@ def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
     assert transport.returncode is not None
     with pytest.raises(JsonlSdkProcessError, match="not running"):
         _ = transport.process
+
+
+def test_jsonl_sdk_process_rejects_negative_timeouts_before_spawn() -> None:
+    startup_transport = JsonlSdkProcess(
+        command=(sys.executable, "-c", "raise SystemExit(3)"),
+        startup_timeout=-0.01,
+    )
+    shutdown_transport = JsonlSdkProcess(
+        command=(sys.executable, "-c", "raise SystemExit(3)"),
+        shutdown_timeout=-0.01,
+    )
+
+    with pytest.raises(JsonlSdkProcessError, match="startup_timeout"):
+        startup_transport.start()
+    with pytest.raises(JsonlSdkProcessError, match="shutdown_timeout"):
+        shutdown_transport.start()
+
+    assert startup_transport.returncode is None
+    assert shutdown_transport.returncode is None
+
+
+def test_jsonl_sdk_process_rejects_negative_close_timeout(tmp_path: Path) -> None:
+    service = HephService.plain(config=_config())
+    server_script = tmp_path / "fake_sdk_server.py"
+    ready_line = json.dumps(_ready_message(service)) + "\n"
+    server_script.write_text(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import sys",
+                f"sys.stdout.write({ready_line!r})",
+                "sys.stdout.flush()",
+                "for _line in sys.stdin:",
+                "    pass",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    transport = JsonlSdkProcess(command=(sys.executable, str(server_script)))
+    transport.start()
+    try:
+        with pytest.raises(JsonlSdkProcessError, match="close timeout"):
+            transport.close(timeout=-0.01)
+    finally:
+        transport.close(timeout=1.0)
 
 
 def test_jsonl_sdk_process_reports_startup_stderr() -> None:

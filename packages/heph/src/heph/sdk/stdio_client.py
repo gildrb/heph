@@ -192,6 +192,8 @@ class JsonlSdkProcess:
         """Start the subprocess and read the validated ready handshake."""
         if self._process is not None:
             raise JsonlSdkProcessError("SDK JSONL process is already running.")
+        _validate_process_timeout(self.startup_timeout, "startup_timeout")
+        _validate_process_timeout(self.shutdown_timeout, "shutdown_timeout")
         self._returncode = None
         process = self._spawn_process()
         stdout, stdin = self._process_pipes(process)
@@ -256,6 +258,7 @@ class JsonlSdkProcess:
             return
         client = self._client
         wait_timeout = self.shutdown_timeout if timeout is None else timeout
+        _validate_process_timeout(wait_timeout, "close timeout")
         try:
             if client is not None:
                 client.close()
@@ -493,6 +496,7 @@ class JsonlSdkClient:
         timeout: float | None = None,
     ) -> JsonlPayload:
         """Write a busy-safe call while ``stream()`` is being consumed elsewhere."""
+        _validate_client_timeout(timeout, "stream control timeout")
         if method not in BUSY_ALLOWED_CALL_METHODS:
             raise JsonlSdkClientProtocolError(
                 f"SDK JSONL method '{method}' is not available during an active stream."
@@ -837,6 +841,7 @@ class JsonlSdkClient:
         response_queue: queue.Queue[_StreamControlResult],
         timeout: float | None,
     ) -> JsonlPayload:
+        _validate_client_timeout(timeout, "stream control timeout")
         try:
             result = response_queue.get(timeout=timeout)
         except queue.Empty as exc:
@@ -1022,6 +1027,7 @@ def _read_ready_with_timeout(
     client: JsonlSdkClient,
     timeout: float | None,
 ) -> JsonlSdkReady:
+    _validate_process_timeout(timeout, "startup_timeout")
     if timeout is None:
         return client.read_ready()
     results: queue.Queue[_ReadyResult] = queue.Queue(maxsize=1)
@@ -1069,6 +1075,26 @@ def _timeout_label(timeout: float | None) -> str:
     if timeout is None:
         return "none"
     return f"{timeout:g}s"
+
+
+def _validate_process_timeout(timeout: float | None, label: str) -> None:
+    if issue := _timeout_issue(timeout, label):
+        raise JsonlSdkProcessError(issue)
+
+
+def _validate_client_timeout(timeout: float | None, label: str) -> None:
+    if issue := _timeout_issue(timeout, label):
+        raise JsonlSdkClientProtocolError(issue)
+
+
+def _timeout_issue(timeout: object, label: str) -> str | None:
+    if timeout is None:
+        return None
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        return f"SDK JSONL {label} must be a non-negative number or None."
+    if timeout < 0:
+        return f"SDK JSONL {label} must be non-negative."
+    return None
 
 
 def _jsonl_request_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:

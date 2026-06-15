@@ -211,7 +211,9 @@ cleanly; stdin EOF aborts an active prompt or operation stream before shutdown
 waits for worker threads. If the process does not exit within its shutdown
 timeout, it is killed. If the killed process still does not exit within the
 timeout, `close()` raises `JsonlSdkProcessError` rather than a raw subprocess
-error.
+error. Startup, shutdown, close, and stream-control timeouts must be
+non-negative numbers or `None`; invalid timeout values raise SDK client/process
+errors before touching transport state.
 `create_armory=True` requires `armory_path`; `session_id` cannot be combined
 with `start_session=False`.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
