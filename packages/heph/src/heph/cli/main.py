@@ -5,6 +5,7 @@ import importlib
 import os
 import sys
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
@@ -160,7 +161,29 @@ def _cmd_sdk_capabilities(args: argparse.Namespace) -> None:
     payload = sdk_capabilities.get_sdk_capabilities().to_dict()
     indent = 2 if args.pretty else None
     separators = None if args.pretty else (",", ":")
-    print(json.dumps(payload, ensure_ascii=False, indent=indent, separators=separators))
+    _write_stdout(json.dumps(payload, ensure_ascii=False, indent=indent, separators=separators))
+
+
+def _write_stdout(text: str) -> None:
+    try:
+        sys.stdout.write(text)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _exit_cleanly_after_broken_pipe()
+
+
+def _exit_cleanly_after_broken_pipe() -> None:
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        raise SystemExit(0) from None
+    try:
+        with suppress(AttributeError, OSError, ValueError):
+            os.dup2(devnull_fd, sys.stdout.fileno())
+    finally:
+        os.close(devnull_fd)
+    raise SystemExit(0) from None
 
 
 def _validated_armory_path(path: str) -> Path:

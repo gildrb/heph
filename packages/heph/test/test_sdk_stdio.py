@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -28,6 +29,8 @@ from heph.sdk import runtime as sdk_runtime
 from heph.sdk import stdio as sdk_stdio
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
 from hephaion.chat.session import ChatSession
+
+cli_main_module = sys.modules[run_argv.__module__]
 
 
 class _FakeIndex:
@@ -92,6 +95,12 @@ class _BrokenPipeOutput(io.StringIO):
         if self.writes == self.fail_on_write:
             raise BrokenPipeError("client closed")
         return super().write(text)
+
+
+class _BrokenPipeStdout(io.StringIO):
+    def write(self, text: str) -> int:
+        _ = text
+        raise BrokenPipeError("downstream closed")
 
 
 def _available_method_order(value: object) -> list[str]:
@@ -1714,3 +1723,14 @@ def test_sdk_capabilities_cli_prints_contract(capsys: pytest.CaptureFixture[str]
     assert jsonl["protocol"] == SDK_JSONL_PROTOCOL
     assert jsonl["version"] == SDK_JSONL_VERSION
     assert compatibility["current_capabilities_version"] == sdk_methods.SDK_CAPABILITIES_VERSION
+
+
+def test_sdk_capabilities_cli_exits_cleanly_when_pipe_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main_module.sys, "stdout", _BrokenPipeStdout())
+
+    with pytest.raises(SystemExit) as exc:
+        run_argv(build_parser(), ["sdk", "capabilities"])
+
+    assert exc.value.code == 0
