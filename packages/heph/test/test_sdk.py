@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -1219,6 +1220,16 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
     assert stored.theme == "light"
     assert stored.live_tokens_visible is False
     assert stored.default_armory_path == ""
+
+
+def test_sdk_capabilities_fixture_matches_public_contract() -> None:
+    root = Path(__file__).resolve().parents[3]
+    fixture = root / "docs" / "developers" / "sdk-capabilities.v33.json"
+
+    payload: object = json.loads(fixture.read_text(encoding="utf-8"))
+
+    assert fixture.name == f"sdk-capabilities.v{sdk_methods.SDK_CAPABILITIES_VERSION}.json"
+    assert payload == get_sdk_capabilities().to_dict()
 
 
 def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
