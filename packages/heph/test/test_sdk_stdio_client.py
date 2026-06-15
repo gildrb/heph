@@ -26,7 +26,9 @@ from heph.sdk import (
     JsonlSdkServerError,
     SdkClientCompatibilityError,
     parse_jsonl_message,
+    validate_jsonl_call_params,
     validate_jsonl_request_params,
+    validate_jsonl_stream_params,
 )
 from heph.sdk import runtime as sdk_runtime
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
@@ -191,6 +193,20 @@ def test_jsonl_sdk_client_validates_request_params_before_write() -> None:
 def test_jsonl_request_param_validation_returns_normalized_params() -> None:
     assert validate_jsonl_request_params("prompt", {"text": "hello"}) == {"text": "hello"}
     assert validate_jsonl_request_params("state") == {}
+    assert validate_jsonl_call_params("state") == {}
+    assert validate_jsonl_stream_params("prompt", {"text": "hello"}) == {"text": "hello"}
+
+
+def test_jsonl_client_call_and_stream_validate_method_category_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="Unknown SDK JSONL call method"):
+        client.call("prompt", {"text": "hello"})
+    with pytest.raises(JsonlSdkClientProtocolError, match="Unknown SDK JSONL stream method"):
+        tuple(client.stream("state"))
+
+    assert output.getvalue() == ""
 
 
 def test_jsonl_sdk_client_raises_server_error_for_stream_end() -> None:

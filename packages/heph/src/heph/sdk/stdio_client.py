@@ -383,6 +383,7 @@ class JsonlSdkClient:
         request_id: str | int | None = None,
     ) -> JsonlPayload:
         """Write a call request and read its response payload."""
+        validate_jsonl_call_params(method, params)
         actual_request_id = self.write_request(method, params, request_id=request_id)
         message = self.read_message()
         _require_request_id(message, actual_request_id)
@@ -407,6 +408,7 @@ class JsonlSdkClient:
         request_id: str | int | None = None,
     ) -> Iterator[JsonlPayload]:
         """Write a stream request and yield each stream event payload."""
+        validate_jsonl_stream_params(method, params)
         actual_request_id = self.write_request(method, params, request_id=request_id)
         start = self.read_message()
         _require_request_id(start, actual_request_id)
@@ -472,15 +474,55 @@ def validate_jsonl_request_params(
     params: Mapping[str, object] | None = None,
 ) -> JsonlPayload:
     """Validate request params against the advertised JSONL method specs."""
-    specs = _jsonl_request_method_specs(method)
+    return _validate_jsonl_params(
+        method,
+        params,
+        _jsonl_request_method_specs(method),
+        surface="SDK JSONL",
+    )
+
+
+def validate_jsonl_call_params(
+    method: str,
+    params: Mapping[str, object] | None = None,
+) -> JsonlPayload:
+    """Validate params for a JSONL call method."""
+    return _validate_jsonl_params(
+        method,
+        params,
+        _jsonl_call_method_specs(method),
+        surface="SDK JSONL call",
+    )
+
+
+def validate_jsonl_stream_params(
+    method: str,
+    params: Mapping[str, object] | None = None,
+) -> JsonlPayload:
+    """Validate params for a JSONL stream method."""
+    return _validate_jsonl_params(
+        method,
+        params,
+        _jsonl_stream_method_specs(method),
+        surface="SDK JSONL stream",
+    )
+
+
+def _validate_jsonl_params(
+    method: str,
+    params: Mapping[str, object] | None,
+    specs: tuple[SdkMethodSpec, ...],
+    *,
+    surface: str,
+) -> JsonlPayload:
     if not specs:
-        raise JsonlSdkClientProtocolError(f"Unknown SDK JSONL method: {method}")
+        raise JsonlSdkClientProtocolError(f"Unknown {surface} method: {method}")
     try:
         return validate_method_params(
             method,
             params,
             specs,
-            surface="SDK JSONL client",
+            surface=f"{surface} client",
         )
     except HephSdkError as exc:
         raise JsonlSdkClientProtocolError(str(exc)) from exc
@@ -580,6 +622,14 @@ def _jsonl_request_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:
         for spec in (*JSONL_CALL_METHOD_SPECS, *JSONL_STREAM_METHOD_SPECS)
         if spec.method == method
     )
+
+
+def _jsonl_call_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:
+    return tuple(spec for spec in JSONL_CALL_METHOD_SPECS if spec.method == method)
+
+
+def _jsonl_stream_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:
+    return tuple(spec for spec in JSONL_STREAM_METHOD_SPECS if spec.method == method)
 
 
 def _message_type(message: Mapping[str, object]) -> str:

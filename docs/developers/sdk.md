@@ -210,7 +210,10 @@ clears the live process handle.
 `JsonlSdkClient.read_ready()` validates the protocol/version handshake and the advertised capability
 compatibility policy. `call()` raises `JsonlSdkServerError` for structured
 server error envelopes, while `stream()` yields event payloads until
-`stream_end` and raises the same structured error when a stream fails. More
+`stream_end` and raises the same structured error when a stream fails. `call()`
+only accepts JSONL call methods, and `stream()` only accepts JSONL stream
+methods; wrong-category requests are rejected before anything is written to the
+child process. More
 advanced clients can use `JsonlSdkClient`, `encode_jsonl_request()`,
 `parse_jsonl_message()`, `jsonl_ready_from_message()`, and
 `jsonl_error_from_message()` directly when they need their own subprocess
