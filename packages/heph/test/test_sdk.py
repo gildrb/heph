@@ -129,6 +129,35 @@ def test_sdk_public_facade_exports_are_resolvable() -> None:
     assert missing == []
 
 
+def test_sdk_public_facade_exports_stable_contract_constants() -> None:
+    expected_exports = (
+        "SERVICE_CALL_METHODS",
+        "SERVICE_STREAM_METHODS",
+        "JSONL_CALL_METHODS",
+        "JSONL_STREAM_METHODS",
+        "BUSY_ALLOWED_CALL_METHODS",
+        "SDK_STABILITY_PUBLIC",
+        "SDK_METHOD_UNAVAILABLE_REASONS",
+        "SDK_DEPRECATION_SURFACE_SERVICE_CALL",
+        "SDK_DEPRECATION_SURFACE_JSONL_STREAM",
+    )
+
+    assert all(name in sdk.__all__ for name in expected_exports)
+    assert sdk.SERVICE_CALL_METHODS == sdk_methods.SERVICE_CALL_METHODS
+    assert sdk.SERVICE_STREAM_METHODS == sdk_methods.SERVICE_STREAM_METHODS
+    assert sdk.JSONL_CALL_METHODS == sdk_methods.JSONL_CALL_METHODS
+    assert sdk.JSONL_STREAM_METHODS == sdk_methods.JSONL_STREAM_METHODS
+    assert sdk.BUSY_ALLOWED_CALL_METHODS == sdk_methods.BUSY_ALLOWED_CALL_METHODS
+    assert sdk.SDK_STABILITY_PUBLIC == sdk_methods.SDK_STABILITY_PUBLIC
+    assert sdk.SDK_METHOD_UNAVAILABLE_REASONS == sdk_methods.SDK_METHOD_UNAVAILABLE_REASONS
+    assert sdk.SDK_DEPRECATION_SURFACE_SERVICE_CALL == (
+        sdk_methods.SDK_DEPRECATION_SURFACE_SERVICE_CALL
+    )
+    assert sdk.SDK_DEPRECATION_SURFACE_JSONL_STREAM == (
+        sdk_methods.SDK_DEPRECATION_SURFACE_JSONL_STREAM
+    )
+
+
 def _pollinations_config(monkeypatch: pytest.MonkeyPatch) -> ChatConfig:
     provider_config = default_config()
     monkeypatch.setattr(

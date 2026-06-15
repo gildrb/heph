@@ -37,6 +37,9 @@ SwiftUI / GUI / automation client
 - Per-method availability records through `call_method_availability` and
   `stream_method_availability`, including stable unavailable reason codes for
   disabled controls.
+- Top-level stable constants for service/JSONL method names, busy-allowed
+  methods, availability requirements, unavailable reasons, SDK stability levels,
+  and deprecation surfaces.
 - Capability-advertised method availability requirements so clients can see
   which methods require an armory, a session, an armory-backed session, or
   attached source files.
