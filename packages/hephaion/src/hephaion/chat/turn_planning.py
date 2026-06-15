@@ -66,10 +66,10 @@ from hephaion.chat.turn_contract_checks import (
 from hephaion.chat.turn_query import (
     _best_current_request_query,
     _content_terms,
+    _current_request_introduces_fresh_content,
     _lacks_retrievable_content,
     _normalized_query_terms,
     _query_reuses_surface,
-    _query_terms_match,
     _same_normalized_text,
 )
 
@@ -462,7 +462,11 @@ def _prior_followup_retrieval_state(
         and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
     ):
         retrieval_query = _fresh_current_request_query(contract)
-        if _current_request_introduces_fresh_content(contract, prior_contract):
+        if _current_request_introduces_fresh_content(
+            contract,
+            prior_contract,
+            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+        ):
             retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
         else:
             retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
@@ -521,7 +525,11 @@ def _reuse_prior_needs_current_retrieval(
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
         and not contract.direct_evidence_required
         and not contract.prior_answer_reference
-        and _current_request_introduces_fresh_content(contract, prior_contract)
+        and _current_request_introduces_fresh_content(
+            contract,
+            prior_contract,
+            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+        )
     )
 
 
@@ -573,7 +581,11 @@ def _expanded_prior_should_use_current_request(
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
         and (
             _current_turn_semantic_query(contract) is not None
-            or _current_request_introduces_fresh_content(contract, prior_contract)
+            or _current_request_introduces_fresh_content(
+                contract,
+                prior_contract,
+                fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+            )
         )
     )
 
@@ -589,7 +601,11 @@ def _transform_followup_introduces_substantive_request(
         and contract.is_followup
         and contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
         and contract.answer_format == ANSWER_FORMAT_PLAIN
-        and _current_request_introduces_fresh_content(contract, prior_contract)
+        and _current_request_introduces_fresh_content(
+            contract,
+            prior_contract,
+            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+        )
     )
 
 
@@ -614,7 +630,11 @@ def _expanded_prior_followup_query(
             current_semantic_query,
         )
         return semantic_query or current_semantic_query
-    if _current_request_introduces_fresh_content(contract, prior_contract):
+    if _current_request_introduces_fresh_content(
+        contract,
+        prior_contract,
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+    ):
         return _current_request_query(contract)
     return retrieval_query or _current_request_query(contract)
 
@@ -663,39 +683,6 @@ def _source_request_needs_current_retrieval(
         and not retrieval_query
         and len(_content_terms(contract.original_user_input)) >= _FRESH_CURRENT_REQUEST_MIN_TERMS
     )
-
-
-def _current_request_introduces_fresh_content(
-    contract: TurnContract,
-    prior_contract: TurnContract,
-) -> bool:
-    current_terms = _content_terms(contract.original_user_input)
-    if not current_terms:
-        return False
-    prior_terms = _content_terms(
-        " ".join(
-            text
-            for text in (
-                prior_contract.original_user_input,
-                prior_contract.canonical_request,
-                prior_contract.retrieval_query,
-                " ".join(prior_contract.evidence_refs),
-                contract.prior_answer_excerpt,
-                contract.prior_turn_original_user_input,
-                contract.prior_turn_canonical_request,
-                " ".join(contract.prior_turn_evidence_refs),
-            )
-            if text
-        )
-    )
-    if not prior_terms:
-        return len(current_terms) >= _FRESH_CURRENT_REQUEST_MIN_TERMS
-    fresh_terms = [
-        term
-        for term in current_terms
-        if not any(_query_terms_match(term, prior_term) for prior_term in prior_terms)
-    ]
-    return len(fresh_terms) >= _FRESH_CURRENT_REQUEST_MIN_TERMS
 
 
 def _contract_requires_direct_source_support(

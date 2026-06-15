@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from hephaion.chat.turn_contract import (
+    TurnContract,
     TurnIntentResolution,
 )
 from hephaion.rag.scoring import tokenize
@@ -168,6 +169,60 @@ def _query_candidate_matches_original(
     original_text: str,
 ) -> bool:
     return _same_normalized_text(candidate.text, original_text)
+
+
+def _current_request_introduces_fresh_content(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    fresh_request_min_terms: int,
+) -> bool:
+    current_terms = _content_terms(contract.original_user_input)
+    if not current_terms:
+        return False
+    prior_terms = _prior_request_context_terms(contract, prior_contract)
+    if not prior_terms:
+        return len(current_terms) >= fresh_request_min_terms
+    fresh_terms = _terms_not_reused_by_prior(current_terms, prior_terms)
+    return len(fresh_terms) >= fresh_request_min_terms
+
+
+def _prior_request_context_terms(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+) -> frozenset[str]:
+    return _content_terms(" ".join(_prior_request_context_surfaces(contract, prior_contract)))
+
+
+def _prior_request_context_surfaces(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+) -> tuple[str, ...]:
+    return tuple(
+        text
+        for text in (
+            prior_contract.original_user_input,
+            prior_contract.canonical_request,
+            prior_contract.retrieval_query,
+            " ".join(prior_contract.evidence_refs),
+            contract.prior_answer_excerpt,
+            contract.prior_turn_original_user_input,
+            contract.prior_turn_canonical_request,
+            " ".join(contract.prior_turn_evidence_refs),
+        )
+        if text
+    )
+
+
+def _terms_not_reused_by_prior(
+    current_terms: frozenset[str],
+    prior_terms: frozenset[str],
+) -> tuple[str, ...]:
+    return tuple(term for term in current_terms if not _term_reused_by_prior(term, prior_terms))
+
+
+def _term_reused_by_prior(term: str, prior_terms: frozenset[str]) -> bool:
+    return any(_query_terms_match(term, prior_term) for prior_term in prior_terms)
 
 
 def _corpus_named_material_query(user_input: str, index: ArmoryIndex | None) -> str:
