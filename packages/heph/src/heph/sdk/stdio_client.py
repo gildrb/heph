@@ -320,6 +320,17 @@ class JsonlSdkReady:
 type _ReadyResult = JsonlSdkReady | Exception
 
 
+@dataclass(frozen=True, slots=True)
+class _JsonlStreamEnd:
+    error: JsonlSdkServerError | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _JsonlStreamMessage:
+    event: JsonlPayload | None = None
+    stream_end: _JsonlStreamEnd | None = None
+
+
 @dataclass(slots=True)
 class JsonlSdkClient:
     """Small sequential client for the Heph SDK JSONL stdio transport.
@@ -474,45 +485,27 @@ class JsonlSdkClient:
         yield from self._stream_events(actual_request_id, method)
 
     def _stream_events(self, request_id: str | int, method: str) -> Iterator[JsonlPayload]:
-        pending_error: JsonlSdkServerError | None = None
-        stream_completed = False
+        pending_end: _JsonlStreamEnd | None = None
         while True:
             message = self.read_message()
-            control_request_id = self._stream_control_request_id(message)
-            if control_request_id is not None:
-                self._consume_stream_control_message(control_request_id, message)
-                if pending_error is not None and not self._has_stream_control_requests():
-                    raise pending_error
-                if stream_completed and not self._has_stream_control_requests():
+            if self._consume_stream_control_if_tracked(message):
+                if pending_end is not None and not self._has_stream_control_requests():
+                    self._finish_pending_stream_end(pending_end)
                     return
                 continue
-            if pending_error is not None or stream_completed:
+            if pending_end is not None:
                 raise JsonlSdkClientProtocolError(
                     "Expected SDK JSONL response for an active stream control request."
                 )
-            _require_request_id(message, request_id)
-            message_type = _message_type(message)
-            if message_type == "stream_event":
-                yield _validate_jsonl_stream_event(
-                    method,
-                    _mapping_field(message, "event", "SDK JSONL stream event"),
-                )
-            elif message_type == "stream_end":
-                if message.get("ok") is True:
-                    if self._has_stream_control_requests():
-                        stream_completed = True
-                        continue
-                    return
-                pending_error = _server_error_from_message(request_id, message)
+            stream_message = self._stream_message_from_payload(request_id, method, message)
+            if stream_message.event is not None:
+                yield stream_message.event
+                continue
+            if stream_message.stream_end is not None:
                 if not self._has_stream_control_requests():
-                    raise pending_error
-            elif message_type == "error":
-                raise _server_error_from_message(request_id, message)
-            else:
-                raise JsonlSdkClientProtocolError(
-                    f"Expected SDK JSONL stream_event or stream_end for {request_id!r}, got "
-                    f"{message_type!r}."
-                )
+                    self._finish_pending_stream_end(stream_message.stream_end)
+                    return
+                pending_end = stream_message.stream_end
 
     def _next_request_id(self, method: str) -> str:
         self._request_counter += 1
@@ -529,6 +522,53 @@ class JsonlSdkClient:
     def _has_stream_control_requests(self) -> bool:
         with self._stream_control_lock:
             return bool(self._stream_control_request_ids)
+
+    def _consume_stream_control_if_tracked(self, message: Mapping[str, object]) -> bool:
+        control_request_id = self._stream_control_request_id(message)
+        if control_request_id is None:
+            return False
+        self._consume_stream_control_message(control_request_id, message)
+        return True
+
+    def _stream_message_from_payload(
+        self,
+        request_id: str | int,
+        method: str,
+        message: Mapping[str, object],
+    ) -> _JsonlStreamMessage:
+        _require_request_id(message, request_id)
+        message_type = _message_type(message)
+        if message_type == "stream_event":
+            return _JsonlStreamMessage(
+                event=_validate_jsonl_stream_event(
+                    method,
+                    _mapping_field(message, "event", "SDK JSONL stream event"),
+                )
+            )
+        if message_type == "stream_end":
+            return _JsonlStreamMessage(
+                stream_end=self._stream_end_from_message(request_id, message)
+            )
+        if message_type == "error":
+            raise _server_error_from_message(request_id, message)
+        raise JsonlSdkClientProtocolError(
+            f"Expected SDK JSONL stream_event or stream_end for {request_id!r}, got "
+            f"{message_type!r}."
+        )
+
+    def _stream_end_from_message(
+        self,
+        request_id: str | int,
+        message: Mapping[str, object],
+    ) -> _JsonlStreamEnd:
+        if message.get("ok") is True:
+            return _JsonlStreamEnd()
+        return _JsonlStreamEnd(error=_server_error_from_message(request_id, message))
+
+    @staticmethod
+    def _finish_pending_stream_end(stream_end: _JsonlStreamEnd) -> None:
+        if stream_end.error is not None:
+            raise stream_end.error
 
     def _stream_control_request_id(self, message: Mapping[str, object]) -> str | int | None:
         request_id = message.get("id")
