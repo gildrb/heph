@@ -335,6 +335,11 @@ client negotiation policy: `stability`, `min_client_capabilities_version`,
 strings for breaking changes, additive changes, and deprecations. GUI and mobile
 clients should check this section during startup and refuse servers outside their
 supported capability or JSONL version range.
+Python clients can use `validate_sdk_client_compatibility()` /
+`ensure_sdk_client_compatibility()` with a native `HephSdkCapabilities` object, or
+`validate_sdk_client_payload_compatibility()` /
+`ensure_sdk_client_payload_compatibility()` with the JSON-ready capability payload
+from a transport handshake.
 The top-level `deprecations` list advertises planned removals as structured
 entries with `surface`, `name`, `since_version`, nullable `removal_version`,
 `replacement`, and `message`. Clients should prefer replacements when present and

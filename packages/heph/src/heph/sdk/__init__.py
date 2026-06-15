@@ -18,6 +18,13 @@ from heph.sdk.capabilities import (
     get_sdk_capabilities,
     validate_sdk_capabilities,
 )
+from heph.sdk.compatibility import (
+    SdkClientCompatibilityError,
+    ensure_sdk_client_compatibility,
+    ensure_sdk_client_payload_compatibility,
+    validate_sdk_client_compatibility,
+    validate_sdk_client_payload_compatibility,
+)
 from heph.sdk.events import (
     AssistantDelta,
     CompactRequest,
@@ -169,6 +176,7 @@ __all__ = [
     "ProviderSummary",
     "ReasoningDelta",
     "SdkAppSettings",
+    "SdkClientCompatibilityError",
     "SdkCompatibilityPolicy",
     "SdkDeprecationSpec",
     "SdkMethodAvailabilitySpec",
@@ -186,6 +194,8 @@ __all__ = [
     "create_heph_runtime",
     "create_heph_service",
     "create_heph_session",
+    "ensure_sdk_client_compatibility",
+    "ensure_sdk_client_payload_compatibility",
     "event_to_dict",
     "from_turn_event",
     "get_sdk_capabilities",
@@ -194,6 +204,8 @@ __all__ = [
     "serve_stdio",
     "update_sdk_app_settings",
     "validate_sdk_capabilities",
+    "validate_sdk_client_compatibility",
+    "validate_sdk_client_payload_compatibility",
     "validate_sdk_jsonl_transport_contract",
     "validate_sdk_service_contract",
 ]

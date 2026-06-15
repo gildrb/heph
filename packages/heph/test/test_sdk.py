@@ -49,6 +49,7 @@ from heph.sdk import (
     ProviderSummary,
     ReasoningDelta,
     SdkAppSettings,
+    SdkClientCompatibilityError,
     SdkCompatibilityPolicy,
     SdkDeprecationSpec,
     SdkSettingsError,
@@ -60,12 +61,16 @@ from heph.sdk import (
     create_heph_runtime,
     create_heph_service,
     create_heph_session,
+    ensure_sdk_client_compatibility,
+    ensure_sdk_client_payload_compatibility,
     event_to_dict,
     from_turn_event,
     get_sdk_capabilities,
     load_sdk_app_settings,
     update_sdk_app_settings,
     validate_sdk_capabilities,
+    validate_sdk_client_compatibility,
+    validate_sdk_client_payload_compatibility,
     validate_sdk_service_contract,
 )
 from heph.sdk import methods as sdk_methods
@@ -1863,6 +1868,92 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert runtime_armory_spec == {"type": "string", "nullable": True}
     assert runtime_flags_spec == {"type": "array<string>", "nullable": False}
     assert session_messages_spec == {"type": "array<message>", "nullable": False}
+
+
+def test_sdk_client_compatibility_helpers_accept_advertised_contract() -> None:
+    capabilities = get_sdk_capabilities()
+    payload = capabilities.to_dict()
+
+    assert (
+        validate_sdk_client_compatibility(
+            capabilities,
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
+        == ()
+    )
+    assert (
+        validate_sdk_client_payload_compatibility(
+            payload,
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
+        == ()
+    )
+    ensure_sdk_client_compatibility(
+        capabilities,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+    ensure_sdk_client_payload_compatibility(
+        payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+
+
+def test_sdk_client_compatibility_helpers_reject_incompatible_versions() -> None:
+    capabilities = get_sdk_capabilities()
+    older_client_version = sdk_methods.SDK_CAPABILITIES_VERSION - 1
+    newer_client_version = sdk_methods.SDK_CAPABILITIES_VERSION + 1
+    newer_jsonl_version = sdk_methods.SDK_JSONL_VERSION + 1
+
+    issues = validate_sdk_client_compatibility(
+        capabilities,
+        client_capabilities_version=older_client_version,
+        jsonl_version=newer_jsonl_version,
+    )
+
+    assert (
+        f"SDK client capability version {older_client_version} is older than minimum supported "
+        f"{sdk_methods.SDK_CAPABILITIES_VERSION}." in issues
+    )
+    assert (
+        f"SDK JSONL version {newer_jsonl_version} is not supported; supported versions: "
+        f"{sdk_methods.SDK_JSONL_VERSION}." in issues
+    )
+    with pytest.raises(SdkClientCompatibilityError, match="SDK client is not compatible") as exc:
+        ensure_sdk_client_compatibility(
+            capabilities,
+            client_capabilities_version=newer_client_version,
+        )
+    assert exc.value.issues == (
+        f"SDK client capability version {newer_client_version} is newer than server "
+        f"capabilities {sdk_methods.SDK_CAPABILITIES_VERSION}.",
+    )
+
+
+def test_sdk_client_payload_compatibility_reports_malformed_payload() -> None:
+    payload = get_sdk_capabilities().to_dict()
+    compatibility = dict(_payload_mapping(payload["compatibility"]))
+    compatibility["current_capabilities_version"] = "33"
+    compatibility["min_client_capabilities_version"] = None
+    compatibility["supported_jsonl_versions"] = [sdk_methods.SDK_JSONL_VERSION, "2"]
+    payload["version"] = "33"
+    payload["compatibility"] = compatibility
+
+    issues = validate_sdk_client_payload_compatibility(
+        payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+    )
+
+    assert issues == (
+        "capabilities.version must be an integer.",
+        "capabilities.compatibility.current_capabilities_version must be an integer.",
+        "capabilities.compatibility.min_client_capabilities_version must be an integer.",
+        "capabilities.compatibility.supported_jsonl_versions must be an array of integers.",
+    )
 
 
 def test_sdk_capabilities_validator_reports_contract_drift() -> None:
