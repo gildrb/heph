@@ -27,6 +27,7 @@ from hephaion.chat.followup_retrieval import (
 from hephaion.chat.material_state import (
     _EVIDENCE_REQUIRED_ACTIONS,
 )
+from hephaion.chat.overview_planning import _contract_requires_overview_sampling
 from hephaion.chat.turn_contract import (
     ANSWER_FORMAT_PLAIN,
     ANSWER_MODE_FROM_EVIDENCE,
@@ -818,42 +819,6 @@ def _followup_lacks_replayable_prior_surface(
         and contract.is_followup
         and not contract.canonical_request
         and not _contract_followup_target(contract)
-    )
-
-
-def _contract_requires_overview_sampling(
-    contract: TurnContract,
-    *,
-    prior_contract: TurnContract | None,
-) -> bool:
-    if contract.resolved_intent != "material_overview":
-        return False
-    if _contract_is_plain_prior_transform(contract):
-        return False
-    if contract.answer_format != ANSWER_FORMAT_PLAIN:
-        return True
-    if _contract_has_specific_material_target(contract):
-        return False
-    if not contract.is_followup:
-        return True
-    if contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW:
-        return True
-    return not _overview_followup_can_reuse_prior_evidence(contract, prior_contract)
-
-
-def _contract_is_plain_prior_transform(contract: TurnContract) -> bool:
-    return (
-        contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
-        and contract.answer_format == ANSWER_FORMAT_PLAIN
-    )
-
-
-def _overview_followup_can_reuse_prior_evidence(
-    contract: TurnContract,
-    prior_contract: TurnContract | None,
-) -> bool:
-    return (
-        contract.is_followup and prior_contract is not None and bool(prior_contract.evidence_refs)
     )
 
 
