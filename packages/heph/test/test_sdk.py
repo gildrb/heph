@@ -2992,6 +2992,22 @@ def test_runtime_rejects_fork_from_streaming_or_disposed_session(
         runtime.fork_session(session, "T1")
 
 
+def test_runtime_rejects_fork_from_different_runtime(tmp_path: Path) -> None:
+    first_runtime = HephRuntime.open_armory(_armory(tmp_path / "first"), config=_config())
+    second_runtime = HephRuntime.open_armory(_armory(tmp_path / "second"), config=_config())
+    plain_runtime = HephRuntime.plain(config=_config())
+
+    first_session = first_runtime.new_session()
+    plain_session = plain_runtime.new_session()
+
+    with pytest.raises(HephSdkError, match="different runtime"):
+        second_runtime.fork_session(first_session, "T1")
+    with pytest.raises(HephSdkError, match="different runtime"):
+        first_runtime.fork_session(plain_session, "T1")
+    with pytest.raises(HephSdkError, match="different runtime"):
+        plain_runtime.fork_session(first_session, "T1")
+
+
 def test_runtime_lists_saves_and_resumes_sessions(tmp_path: Path) -> None:
     runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
     session = runtime.new_session()
@@ -3948,6 +3964,22 @@ def test_service_constructor_session_gets_direct_stream_guard(
     service = HephService(runtime=runtime, session=session)
 
     _assert_direct_stream_start_blocks_service_replacement(service, session, monkeypatch)
+
+
+def test_service_constructor_rejects_session_from_different_runtime(tmp_path: Path) -> None:
+    first_runtime = HephRuntime.open_armory(_armory(tmp_path / "first"), config=_config())
+    second_runtime = HephRuntime.open_armory(_armory(tmp_path / "second"), config=_config())
+    plain_runtime = HephRuntime.plain(config=_config())
+
+    first_session = first_runtime.new_session()
+    plain_session = plain_runtime.new_session()
+
+    with pytest.raises(HephSdkError, match="different runtime"):
+        HephService(runtime=second_runtime, session=first_session)
+    with pytest.raises(HephSdkError, match="different runtime"):
+        HephService(runtime=first_runtime, session=plain_session)
+    with pytest.raises(HephSdkError, match="different runtime"):
+        HephService(runtime=plain_runtime, session=first_session)
 
 
 def _assert_direct_stream_start_blocks_service_replacement(

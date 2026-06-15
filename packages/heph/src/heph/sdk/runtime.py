@@ -532,7 +532,17 @@ class HephRuntime:
 
     def fork_session(self, session: HephSession, turn_id: str) -> HephSession:
         with session._idle_raw_session() as raw_session:
+            self._ensure_raw_session_belongs_to_runtime(raw_session)
             return HephSession(fork_session_at_turn(raw_session, turn_id))
+
+    def _ensure_session_belongs_to_runtime(self, session: HephSession) -> None:
+        with session._idle_raw_session() as raw_session:
+            self._ensure_raw_session_belongs_to_runtime(raw_session)
+
+    def _ensure_raw_session_belongs_to_runtime(self, session: ChatSession) -> None:
+        if _same_armory_path(session.armory_path, self.armory_path):
+            return
+        raise HephSdkError("SDK session belongs to a different runtime armory.")
 
     def list_sessions(self) -> tuple[SessionSummary, ...]:
         if self.armory_path is None:
@@ -644,6 +654,12 @@ def _resolved_validation_path(path: str | Path) -> Path:
         return normalize_path(path)
     except (OSError, RuntimeError, ValueError):
         return Path(path)
+
+
+def _same_armory_path(left: Path | None, right: Path | None) -> bool:
+    if left is None or right is None:
+        return left is None and right is None
+    return left == right
 
 
 def _raise_if_operation_cancelled(abort: threading.Event | None) -> None:

@@ -284,7 +284,9 @@ resumed, or forked session. When `HephService` replaces the active session or
 runtime, the previous `HephSession` is disposed. Stale direct handles keep their
 identity and snapshots, expose `is_disposed`, and reject new streams,
 subscriptions, saves, refreshes, and source-scope mutations with `HephSdkError`.
-Direct `HephRuntime.fork_session()` also requires a live idle session handle.
+Direct `HephRuntime.fork_session()` also requires a live idle session handle
+from the same runtime armory; `HephService(runtime=..., session=...)` enforces
+the same ownership rule at construction time.
 
 ## Native Apple Path
 

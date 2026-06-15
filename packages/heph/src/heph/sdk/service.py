@@ -115,6 +115,7 @@ class HephService:
             message = "SDK service contract drift: " + "; ".join(issues)
             raise HephSdkError(message)
         if self.session is not None:
+            self.runtime._ensure_session_belongs_to_runtime(self.session)
             self._attach_session_stream_guard(self.session)
             self._apply_current_app_settings()
 
