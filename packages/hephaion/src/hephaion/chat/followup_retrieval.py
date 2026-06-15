@@ -85,23 +85,30 @@ def _prior_answer_direct_followup_retrieval(
     contract: TurnContract,
     prior_contract: TurnContract | None,
 ) -> _FollowupRetrievalDecision | None:
-    if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
+    if prior_contract is None:
+        return None
+    if not _contract_has_prior_evidence_followup(contract, prior_contract):
         return None
     if not contract.prior_answer_reference:
         return None
-    if contract.direct_evidence_required and _contract_has_nonliteral_retrieval_surface(contract):
-        return _FollowupRetrievalDecision(
-            RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-            _fresh_current_request_query(contract),
-        )
-    if contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE:
-        target_phrase_query = _followup_target_phrase_query(contract)
-        if target_phrase_query:
-            return _FollowupRetrievalDecision(
-                RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-                target_phrase_query,
-            )
+    retrieval_query = _prior_answer_direct_followup_query(contract)
+    if retrieval_query:
+        return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query)
     return None
+
+
+def _prior_answer_direct_followup_query(contract: TurnContract) -> str:
+    if _direct_followup_needs_nonliteral_source(contract):
+        return _fresh_current_request_query(contract)
+    if contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE:
+        return ""
+    return _followup_target_phrase_query(contract)
+
+
+def _direct_followup_needs_nonliteral_source(contract: TurnContract) -> bool:
+    return contract.direct_evidence_required and _contract_has_nonliteral_retrieval_surface(
+        contract
+    )
 
 
 def _prior_answer_reference_followup_retrieval(
@@ -147,19 +154,33 @@ def _overview_reuse_followup_retrieval(
     *,
     retrieval_strategy: str,
 ) -> _FollowupRetrievalDecision | None:
-    if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
+    if prior_contract is None:
         return None
-    if not (
-        _contract_is_material_overview(prior_contract)
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and not contract.direct_evidence_required
+    if not _overview_reuse_can_expand_followup(
+        contract,
+        prior_contract,
+        retrieval_strategy=retrieval_strategy,
     ):
         return None
     semantic_query = _first_non_literal_followup_query(contract, prior_contract)
     if semantic_query:
         return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
     return None
+
+
+def _overview_reuse_can_expand_followup(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    return (
+        _contract_has_prior_evidence_followup(contract, prior_contract)
+        and _contract_is_material_overview(prior_contract)
+        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+        and not contract.direct_evidence_required
+    )
 
 
 def _prior_answer_mode_followup_retrieval(
