@@ -213,6 +213,12 @@ the ready handshake include a bounded stderr tail, and `process.stderr_tail`
 remains available after the child exits for app logs or diagnostics screens. The
 latest known child exit status is exposed as `process.returncode` even after
 `close()` clears the live process handle.
+`JsonlSdkProcess.close()` also marks the managed `JsonlSdkClient` closed before
+tearing down child pipes, so stale client references fail with a stable
+`JsonlSdkClientProtocolError` instead of leaking pipe-specific errors. Direct
+`JsonlSdkClient.close()` is idempotent, wakes pending stream-control waiters,
+and only closes the helper state; callers that own custom streams still own the
+actual pipe lifecycle.
 `JsonlSdkClient.read_ready()` validates the protocol/version handshake and the
 advertised capability compatibility policy. `call()` raises
 `JsonlSdkServerError` for structured server error envelopes and validates
@@ -244,7 +250,7 @@ For status panels that need to refresh during a long stream, use
 `capabilities`, and `settings`; the stream iterator keeps ownership of the
 reader and routes the interleaved response back to the waiting caller. If a
 timed active-stream call returns late, the stream iterator drains and discards
-that late response so it cannot leak into the next request.
+that late response or error so it cannot leak into the next request.
 Use the high-level `call()` and `stream()` helpers only while no stream is being
 consumed. During an active stream, `call_active_stream()` and
 `abort_active_stream()` require the stream iterator to be running so their

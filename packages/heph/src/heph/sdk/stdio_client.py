@@ -243,8 +243,11 @@ class JsonlSdkProcess:
         process = self._process
         if process is None:
             return
+        client = self._client
         wait_timeout = self.shutdown_timeout if timeout is None else timeout
         try:
+            if client is not None:
+                client.close()
             self._close_process_stream(process.stdin)
             if process.poll() is None:
                 try:
@@ -370,6 +373,39 @@ class JsonlSdkClient:
         init=False,
         repr=False,
     )
+    _closed: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def closed(self) -> bool:
+        """Return whether this client helper has been closed."""
+        with self._stream_control_lock:
+            return self._closed
+
+    def close(self) -> None:
+        """Mark the helper closed and release pending stream-control waiters.
+
+        The helper does not own ``input_stream`` or ``output_stream``. Managed
+        process callers should close those pipes through ``JsonlSdkProcess``.
+        """
+        pending_requests = self._close_state()
+        close_error = JsonlSdkClientProtocolError("SDK JSONL client is closed.")
+        for control_request in pending_requests:
+            if control_request.response_queue is None:
+                continue
+            try:
+                control_request.response_queue.put_nowait(close_error)
+            except queue.Full:
+                continue
+
+    def _close_state(self) -> tuple[_StreamControlRequest, ...]:
+        with self._stream_control_lock:
+            if self._closed:
+                return ()
+            self._closed = True
+            pending_requests = tuple(self._stream_control_requests.values())
+            self._stream_control_requests.clear()
+            self._active_stream_request_ids.clear()
+            return pending_requests
 
     def read_ready(self) -> JsonlSdkReady:
         """Read and validate the initial server ready message."""
@@ -392,6 +428,7 @@ class JsonlSdkClient:
 
     def read_message(self) -> JsonlPayload:
         """Read one validated JSONL message from the server stream."""
+        self._ensure_open()
         try:
             line = self.input_stream.readline()
         except (OSError, ValueError) as exc:
@@ -473,6 +510,7 @@ class JsonlSdkClient:
         params: Mapping[str, object] | None,
         request_id: str | int,
     ) -> None:
+        self._ensure_open()
         try:
             self.output_stream.write(encode_jsonl_request(method, params, request_id=request_id))
             self.output_stream.flush()
@@ -584,6 +622,12 @@ class JsonlSdkClient:
         self._request_counter += 1
         return f"{method}-{self._request_counter}"
 
+    def _ensure_open(self) -> None:
+        with self._stream_control_lock:
+            if not self._closed:
+                return
+        raise JsonlSdkClientProtocolError("SDK JSONL client is closed.")
+
     def _track_stream_control_request(
         self,
         request_id: str | int,
@@ -593,6 +637,8 @@ class JsonlSdkClient:
         require_active_stream: bool = False,
     ) -> None:
         with self._stream_control_lock:
+            if self._closed:
+                raise JsonlSdkClientProtocolError("SDK JSONL client is closed.")
             if require_active_stream and not self._active_stream_request_ids:
                 raise JsonlSdkClientProtocolError(
                     "SDK JSONL stream control requests require an active stream reader."
@@ -623,6 +669,8 @@ class JsonlSdkClient:
 
     def _track_active_stream_request(self, request_id: str | int) -> None:
         with self._stream_control_lock:
+            if self._closed:
+                raise JsonlSdkClientProtocolError("SDK JSONL client is closed.")
             if self._active_stream_request_ids:
                 raise JsonlSdkClientProtocolError(
                     "Cannot start an SDK JSONL stream while another stream() is active."
