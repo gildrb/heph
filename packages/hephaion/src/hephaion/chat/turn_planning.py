@@ -551,14 +551,15 @@ def _prior_followup_should_reason_from_prior(
     prior_contract: TurnContract | None,
     retrieval_strategy: str,
 ) -> bool:
-    return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and not contract.direct_evidence_required
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and retrieval_strategy in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
-    )
+    if _grounded_prior_contract(prior_contract) is None:
+        return False
+    if not contract.is_followup:
+        return False
+    if contract.direct_evidence_required:
+        return False
+    if contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE:
+        return False
+    return retrieval_strategy in {RETRIEVAL_STRATEGY_REUSE_PRIOR, RETRIEVAL_STRATEGY_EXPAND_PRIOR}
 
 
 def _prior_followup_should_transform_prior_answer(
@@ -566,15 +567,21 @@ def _prior_followup_should_transform_prior_answer(
     *,
     prior_contract: TurnContract | None,
 ) -> bool:
-    return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR
-        and contract.answer_format == ANSWER_FORMAT_PLAIN
-        and not contract.direct_evidence_required
-        and not _content_terms(contract.original_user_input)
-    )
+    if _grounded_prior_contract(prior_contract) is None:
+        return False
+    if not _plain_reason_from_prior_followup(contract):
+        return False
+    return not _content_terms(contract.original_user_input)
+
+
+def _plain_reason_from_prior_followup(contract: TurnContract) -> bool:
+    if not contract.is_followup:
+        return False
+    if contract.answer_mode != ANSWER_MODE_REASON_FROM_PRIOR:
+        return False
+    if contract.answer_format != ANSWER_FORMAT_PLAIN:
+        return False
+    return not contract.direct_evidence_required
 
 
 def _transform_followup_introduces_substantive_request(
@@ -582,18 +589,24 @@ def _transform_followup_introduces_substantive_request(
     *,
     prior_contract: TurnContract | None,
 ) -> bool:
-    return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
-        and contract.answer_format == ANSWER_FORMAT_PLAIN
-        and _current_request_introduces_fresh_content(
-            contract,
-            prior_contract,
-            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
-        )
+    grounded_prior_contract = _grounded_prior_contract(prior_contract)
+    if grounded_prior_contract is None:
+        return False
+    if not _plain_transform_prior_followup(contract):
+        return False
+    return _current_request_introduces_fresh_content(
+        contract,
+        grounded_prior_contract,
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
     )
+
+
+def _plain_transform_prior_followup(contract: TurnContract) -> bool:
+    if not contract.is_followup:
+        return False
+    if contract.answer_mode != ANSWER_MODE_TRANSFORM_PRIOR:
+        return False
+    return contract.answer_format == ANSWER_FORMAT_PLAIN
 
 
 def _prior_followup_has_literal_direct_requirement(
@@ -601,14 +614,27 @@ def _prior_followup_has_literal_direct_requirement(
     *,
     prior_contract: TurnContract | None,
 ) -> bool:
-    return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and contract.prior_answer_reference
-        and contract.direct_evidence_required
-        and not _contract_has_nonliteral_retrieval_surface(contract)
-    )
+    if _grounded_prior_contract(prior_contract) is None:
+        return False
+    if not _literal_direct_prior_followup(contract):
+        return False
+    return not _contract_has_nonliteral_retrieval_surface(contract)
+
+
+def _literal_direct_prior_followup(contract: TurnContract) -> bool:
+    if not contract.is_followup:
+        return False
+    if not contract.prior_answer_reference:
+        return False
+    return contract.direct_evidence_required
+
+
+def _grounded_prior_contract(prior_contract: TurnContract | None) -> TurnContract | None:
+    if prior_contract is None:
+        return None
+    if not prior_contract.evidence_refs:
+        return None
+    return prior_contract
 
 
 def _source_request_needs_current_retrieval(
