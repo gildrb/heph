@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import queue
 import subprocess
@@ -36,6 +35,7 @@ from heph.sdk.methods import (
     SdkMethodSpec,
 )
 from heph.sdk.runtime import HephSdkError
+from heph.sdk.stdio_json import SdkJsonlDecodeError, decode_jsonl_line, encode_jsonl_line
 
 type JsonlRequestId = str | int | None
 type JsonlPayload = dict[str, object]
@@ -965,7 +965,12 @@ def encode_jsonl_request(
 ) -> str:
     """Return a validated newline-delimited JSON request line."""
     payload = jsonl_request_payload(method, params, request_id=request_id)
-    return json.dumps(payload, ensure_ascii=False) + "\n"
+    try:
+        return encode_jsonl_line(payload)
+    except ValueError as exc:
+        raise JsonlSdkClientProtocolError(
+            f"SDK JSONL request payload is not strict JSON: {exc}"
+        ) from exc
 
 
 def parse_jsonl_message(line: str) -> JsonlPayload:
@@ -973,9 +978,9 @@ def parse_jsonl_message(line: str) -> JsonlPayload:
     if not line.strip():
         raise JsonlSdkClientProtocolError("SDK JSONL messages must not be empty.")
     try:
-        parsed: object = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise JsonlSdkClientProtocolError(f"Invalid SDK JSONL message: {exc.msg}") from exc
+        parsed = decode_jsonl_line(line)
+    except SdkJsonlDecodeError as exc:
+        raise JsonlSdkClientProtocolError(f"Invalid SDK JSONL message: {exc}") from exc
     if not is_string_mapping(parsed):
         raise JsonlSdkClientProtocolError("SDK JSONL messages must be JSON objects.")
     try:

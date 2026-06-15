@@ -1611,6 +1611,29 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     assert state_response["ok"] is True
 
 
+def test_jsonl_sdk_server_reports_nonstandard_json_constants_as_invalid_json() -> None:
+    service = HephService.plain(config=_config())
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(
+            '{"id":"bad-json","method":"state","params":{"latency":NaN}}\n'
+            f"{json.dumps({'id': 'state-after-nan', 'method': 'state'})}\n"
+        ),
+        output_stream=output,
+    )
+
+    server.serve()
+
+    payloads = _payloads(output.getvalue())
+    errors = [payload for payload in payloads if payload["type"] == "error"]
+    assert len(errors) == 1
+    error = _payload_mapping(errors[0]["error"])
+    assert error["code"] == "invalid_json"
+    assert "non-standard JSON constant: NaN" in str(error["message"])
+    assert payloads[-1]["id"] == "state-after-nan"
+
+
 def test_jsonl_sdk_server_reports_service_errors_and_continues(tmp_path: Path) -> None:
     service = HephService.plain(config=_config())
     output = io.StringIO()

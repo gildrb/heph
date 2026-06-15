@@ -37,6 +37,7 @@ from heph.sdk import (
     validate_jsonl_stream_params,
 )
 from heph.sdk import runtime as sdk_runtime
+from heph.sdk.stdio_json import encode_jsonl_line
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
 from hephaion.chat.session import ChatSession
 
@@ -910,6 +911,11 @@ def test_jsonl_sdk_client_rejects_invalid_stream_control_timeout_before_write(
     assert output.getvalue() == ""
 
 
+def test_jsonl_codec_rejects_nonstandard_json_constants_on_encode() -> None:
+    with pytest.raises(ValueError, match="Out of range float values"):
+        encode_jsonl_line({"type": "response", "result": {"latency": float("nan")}})
+
+
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
     with pytest.raises(
         JsonlSdkClientProtocolError,
@@ -917,6 +923,13 @@ def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
     ):
         parse_jsonl_message(
             json.dumps({"type": "response", "id": "state-1", "ok": "yes", "result": {}})
+        )
+
+
+def test_jsonl_sdk_client_rejects_nonstandard_json_constants() -> None:
+    with pytest.raises(JsonlSdkClientProtocolError, match="non-standard JSON constant: NaN"):
+        parse_jsonl_message(
+            '{"type":"response","id":"state-1","ok":true,"result":{"latency":NaN}}'
         )
 
 

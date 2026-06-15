@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 from hephaion._types import is_string_mapping
@@ -13,6 +12,7 @@ from heph.sdk.method_validation import (
 )
 from heph.sdk.methods import SdkMethodSpec
 from heph.sdk.runtime import HephSdkError
+from heph.sdk.stdio_json import SdkJsonlDecodeError, decode_jsonl_line
 
 type RequestId = str | int | None
 
@@ -34,9 +34,9 @@ class _JsonlRequest:
 
 def _parse_request(line: str) -> dict[str, object]:
     try:
-        parsed: object = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise SdkProtocolError("invalid_json", f"Invalid JSON request: {exc.msg}") from exc
+        parsed = decode_jsonl_line(line)
+    except SdkJsonlDecodeError as exc:
+        raise SdkProtocolError("invalid_json", f"Invalid JSON request: {exc}") from exc
     if not is_string_mapping(parsed):
         raise SdkProtocolError("invalid_request", "SDK requests must be JSON objects.")
     try:

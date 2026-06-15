@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 import threading
 from collections.abc import Callable, Iterator
@@ -30,6 +29,7 @@ from heph.sdk.service import HephService, ServicePayload
 from heph.sdk.stdio_contract import (
     validate_sdk_jsonl_transport_contract as _validate_sdk_jsonl_transport_contract,
 )
+from heph.sdk.stdio_json import encode_jsonl_line
 from heph.sdk.stdio_requests import (
     RequestId,
     SdkProtocolError,
@@ -442,9 +442,13 @@ class JsonlSdkServer:
 
     def _write(self, payload: dict[str, object]) -> None:
         message = validate_jsonl_message_payload(payload)
+        try:
+            line = encode_jsonl_line(message)
+        except ValueError as exc:
+            raise HephSdkError(f"SDK JSONL payload is not strict JSON: {exc}") from exc
         with self._write_lock:
             try:
-                self.output_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
+                self.output_stream.write(line)
                 self.output_stream.flush()
             except (OSError, ValueError) as exc:
                 raise JsonlSdkTransportClosedError(
