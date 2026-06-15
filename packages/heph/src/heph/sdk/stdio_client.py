@@ -1130,6 +1130,8 @@ def _validate_process_integer_option(value: object, label: str) -> None:
     if value is None:
         return
     if isinstance(value, int) and not isinstance(value, bool):
+        if value < 0:
+            raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be non-negative.")
         return
     raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be an integer or None.")
 

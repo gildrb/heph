@@ -70,6 +70,13 @@ def _require_integer_update(name: str, value: SdkConfigUpdateValue) -> int:
     raise HephSdkError(f"SDK config field '{name}' must be an integer.")
 
 
+def _require_nonnegative_integer_update(name: str, value: SdkConfigUpdateValue) -> int:
+    integer = _require_integer_update(name, value)
+    if integer >= 0:
+        return integer
+    raise HephSdkError(f"SDK config field '{name}' must be non-negative.")
+
+
 def _optional_temperature_update(value: SdkConfigUpdateValue) -> float | None:
     if value is None:
         return None
@@ -96,12 +103,12 @@ def _apply_model(config: ChatConfig, value: SdkConfigUpdateValue) -> None:
 
 
 def _apply_max_tokens(config: ChatConfig, value: SdkConfigUpdateValue) -> None:
-    max_tokens = _require_integer_update("max_tokens", value)
+    max_tokens = _require_nonnegative_integer_update("max_tokens", value)
     config.max_tokens = max_tokens
 
 
 def _apply_rag_context_budget(config: ChatConfig, value: SdkConfigUpdateValue) -> None:
-    rag_context_budget = _require_integer_update("rag_context_budget", value)
+    rag_context_budget = _require_nonnegative_integer_update("rag_context_budget", value)
     config.rag_context_budget = rag_context_budget
 
 

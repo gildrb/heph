@@ -1258,6 +1258,7 @@ def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
     [
         (JsonlSdkProcessOptions(max_tokens=cast("int", True)), "max_tokens"),
         (JsonlSdkProcessOptions(max_tokens=cast("int", 1.5)), "max_tokens"),
+        (JsonlSdkProcessOptions(max_tokens=-1), "max_tokens"),
         (
             JsonlSdkProcessOptions(rag_context_budget=cast("int", True)),
             "rag_context_budget",
@@ -1266,6 +1267,7 @@ def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
             JsonlSdkProcessOptions(rag_context_budget=cast("int", 1.5)),
             "rag_context_budget",
         ),
+        (JsonlSdkProcessOptions(rag_context_budget=-1), "rag_context_budget"),
         (JsonlSdkProcessOptions(temperature=cast("float", True)), "temperature"),
         (JsonlSdkProcessOptions(temperature=float("nan")), "temperature"),
         (JsonlSdkProcessOptions(temperature=float("inf")), "temperature"),

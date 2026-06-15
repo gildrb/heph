@@ -3454,6 +3454,24 @@ def test_factory_rejects_nonfinite_temperature(temperature: float) -> None:
         create_chat_config(options)
 
 
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (HephSdkOptions(config=_config(), max_tokens=cast("int", -1)), "max_tokens"),
+        (
+            HephSdkOptions(config=_config(), rag_context_budget=cast("int", -1)),
+            "rag_context_budget",
+        ),
+    ],
+)
+def test_factory_rejects_negative_generation_limits(
+    options: HephSdkOptions,
+    message: str,
+) -> None:
+    with pytest.raises(HephSdkError, match=message):
+        create_chat_config(options)
+
+
 def test_factory_rejects_create_armory_without_path() -> None:
     options = HephSdkOptions(create_armory=True)
 
@@ -5096,6 +5114,18 @@ def test_service_update_config_rejects_boolean_numeric_values(
     assert original.max_tokens == 4096
     assert original.rag_context_budget == 2000
     assert original.temperature == 0.0
+
+
+@pytest.mark.parametrize("key", ["max_tokens", "rag_context_budget"])
+def test_service_update_config_rejects_negative_generation_limits(key: str) -> None:
+    service = HephService.plain(config=_config())
+    original = service.runtime.config
+
+    with pytest.raises(HephSdkError, match="non-negative"):
+        service.call("update_config", {key: -1})
+
+    assert original.max_tokens == 4096
+    assert original.rag_context_budget == 2000
 
 
 @pytest.mark.parametrize("temperature", [float("nan"), float("inf"), float("-inf")])

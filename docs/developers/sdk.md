@@ -169,6 +169,8 @@ The serve command accepts startup overrides for provider/model settings,
 generation limits, reasoning level, thinking visibility, and temperature. SDK
 values advertised as `number` or `number_or_null` must be finite JSON numbers;
 `NaN` and infinities are rejected before config or transport state changes.
+Generation limits such as `max_tokens` and `rag_context_budget` must be
+non-negative integers.
 Values advertised as `object` must use string keys and JSON-safe nested values.
 
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
@@ -219,8 +221,8 @@ non-negative numbers or `None`; invalid timeout values raise SDK client/process
 errors before touching transport state.
 `create_armory=True` requires `armory_path`; `session_id` cannot be combined
 with `start_session=False`. Launch option validation also runs before spawning:
-`max_tokens` and `rag_context_budget` must be integers, while `temperature` must
-be a finite number.
+`max_tokens` and `rag_context_budget` must be non-negative integers, while
+`temperature` must be a finite number.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before
