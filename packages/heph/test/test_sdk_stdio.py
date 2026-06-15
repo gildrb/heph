@@ -1849,6 +1849,23 @@ def test_sdk_serve_cli_rejects_session_id_with_no_session(
     assert "--session-id cannot be used with --no-session" in capsys.readouterr().err
 
 
+def test_sdk_serve_cli_rejects_create_armory_without_armory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        run_argv(
+            build_parser(),
+            [
+                "sdk",
+                "serve",
+                "--create-armory",
+            ],
+        )
+
+    assert exc.value.code == 2
+    assert "--create-armory requires --armory" in capsys.readouterr().err
+
+
 def test_sdk_capabilities_cli_prints_contract(capsys: pytest.CaptureFixture[str]) -> None:
     run_argv(build_parser(), ["sdk", "capabilities"])
 

@@ -109,8 +109,7 @@ class JsonlSdkProcessOptions:
 
     def command(self) -> tuple[str, ...]:
         """Return the argv tuple for ``heph sdk serve``."""
-        if self.session_id is not None and not self.start_session:
-            raise JsonlSdkProcessError("--session-id cannot be used with start_session=False.")
+        self._validate_command_options()
         command = [self.executable, "sdk", "serve"]
         _append_optional_path(command, "--armory", self.armory_path)
         if self.create_armory:
@@ -126,6 +125,12 @@ class JsonlSdkProcessOptions:
         _append_optional_value(command, "--thinking-visibility", self.thinking_visibility)
         _append_optional_value(command, "--temperature", self.temperature)
         return tuple(command)
+
+    def _validate_command_options(self) -> None:
+        if self.session_id is not None and not self.start_session:
+            raise JsonlSdkProcessError("--session-id cannot be used with start_session=False.")
+        if self.create_armory and self.armory_path is None:
+            raise JsonlSdkProcessError("create_armory=True requires an armory_path.")
 
 
 @dataclass(slots=True)

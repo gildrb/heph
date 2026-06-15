@@ -208,6 +208,8 @@ with a startup timeout, and closes stdin on exit so the service can shut down
 cleanly; stdin EOF aborts an active prompt or operation stream before shutdown
 waits for worker threads. If the process does not exit within its shutdown
 timeout, it is killed.
+`create_armory=True` requires `armory_path`; `session_id` cannot be combined
+with `start_session=False`.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before

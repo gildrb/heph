@@ -1111,6 +1111,13 @@ def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
         options.command()
 
 
+def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
+    options = JsonlSdkProcessOptions(create_armory=True)
+
+    with pytest.raises(JsonlSdkProcessError, match="requires an armory_path"):
+        options.command()
+
+
 def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
     service = HephService.plain(config=_config())
     server_script = tmp_path / "fake_sdk_server.py"

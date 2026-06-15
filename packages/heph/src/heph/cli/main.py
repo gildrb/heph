@@ -137,6 +137,9 @@ def _cmd_sdk_serve(args: argparse.Namespace) -> None:
     if args.no_session and args.session_id is not None:
         print("error: --session-id cannot be used with --no-session", file=sys.stderr)
         raise SystemExit(2)
+    if args.create_armory and args.armory_path is None:
+        print("error: --create-armory requires --armory", file=sys.stderr)
+        raise SystemExit(2)
     sdk_factory = importlib.import_module("heph.sdk.factory")
     sdk_stdio = importlib.import_module("heph.sdk.stdio")
     options = sdk_factory.HephSdkOptions(
