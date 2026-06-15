@@ -63,6 +63,7 @@ class ActivePrompt:
 class ActiveOperation:
     request_id: RequestId
     active_operation: str
+    abort: threading.Event
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +125,7 @@ class JsonlSdkServer:
             for raw_line in self._read_lines():
                 self.handle_line(raw_line)
         finally:
-            self._abort_prompt_for_transport_shutdown()
+            self._abort_stream_for_transport_shutdown()
             self._wait_for_streams()
 
     def handle_line(self, raw_line: str) -> None:
@@ -241,6 +242,7 @@ class JsonlSdkServer:
         active_operation = ActiveOperation(
             request_id=request_id,
             active_operation=service_method,
+            abort=threading.Event(),
         )
         with self._state_lock:
             if self._active_prompt is not None or self._active_operation is not None:
@@ -248,7 +250,7 @@ class JsonlSdkServer:
             self._active_operation = active_operation
 
         def events() -> Iterator[ServicePayload]:
-            yield from self.service.stream(service_method, params)
+            yield from self.service.stream(service_method, params, abort=active_operation.abort)
 
         def cleanup() -> None:
             with self._state_lock:
@@ -326,19 +328,26 @@ class JsonlSdkServer:
                 }
             )
 
-    def _abort_active_prompt(self) -> ServicePayload:
+    def _abort_active_stream(self) -> ServicePayload:
         with self._state_lock:
             active_prompt = self._active_prompt
+            active_operation = self._active_operation
         if active_prompt is None:
-            return {"aborted": False, "state": self._state_with_transport_busy()}
+            if active_operation is None:
+                return {"aborted": False, "state": self._state_with_transport_busy()}
+            active_operation.abort.set()
+            return {"aborted": True, "state": self._state_with_transport_busy()}
         active_prompt.abort.set()
         return {"aborted": True, "state": self._state_with_transport_busy()}
 
-    def _abort_prompt_for_transport_shutdown(self) -> None:
+    def _abort_stream_for_transport_shutdown(self) -> None:
         with self._state_lock:
             active_prompt = self._active_prompt
+            active_operation = self._active_operation
         if active_prompt is not None:
             active_prompt.abort.set()
+        if active_operation is not None:
+            active_operation.abort.set()
 
     def _state_with_transport_busy(self) -> ServicePayload:
         state = _state_with_jsonl_stream_methods(self.service.state())

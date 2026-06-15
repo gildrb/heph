@@ -13,7 +13,7 @@ from heph.sdk.stdio_requests import RequestId
 class _JsonlCallServer(Protocol):
     service: HephService
 
-    def _abort_active_prompt(self) -> ServicePayload: ...
+    def _abort_active_stream(self) -> ServicePayload: ...
 
     def _state_with_transport_busy(self) -> ServicePayload: ...
 
@@ -52,7 +52,7 @@ def _write_jsonl_abort_call(
     server._write_call_response(
         request_id,
         "abort",
-        server._abort_active_prompt(),
+        server._abort_active_stream(),
         translate_state_streams=False,
     )
 

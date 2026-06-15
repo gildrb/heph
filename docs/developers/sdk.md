@@ -37,6 +37,8 @@ SwiftUI / GUI / automation client
 - Per-method availability records through `call_method_availability` and
   `stream_method_availability`, including stable unavailable reason codes for
   disabled controls.
+- Abortable prompt and operation streams, including structured cancellation
+  errors for transport clients.
 - Top-level stable constants for service/JSONL method names, busy-allowed
   methods, availability requirements, unavailable reasons, SDK stability levels,
   and deprecation surfaces.
@@ -202,8 +204,8 @@ with JsonlSdkProcess(options) as process:
 
 `JsonlSdkProcess` starts `heph sdk serve`, reads the ready handshake with a
 startup timeout, and closes stdin on exit so the service can shut down cleanly;
-stdin EOF aborts an active prompt stream before shutdown waits for worker
-threads. If the process does not exit within its shutdown timeout, it is killed.
+stdin EOF aborts an active prompt or operation stream before shutdown waits for
+worker threads. If the process does not exit within its shutdown timeout, it is killed.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before
@@ -313,7 +315,7 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 server also includes the same capability payload in its initial `ready` message.
 For code generation or CI contract snapshots without starting a transport
 service, `heph sdk capabilities` prints the same capability contract as JSON.
-The checked fixture `docs/developers/sdk-capabilities.v33.json` is the current
+The checked fixture `docs/developers/sdk-capabilities.v34.json` is the current
 versioned conformance artifact; external clients can diff it in CI and update it
 only when they intentionally accept a new SDK capability version.
 Capabilities list service methods, JSONL method names, stream event types, state
@@ -439,10 +441,13 @@ keep rendering deprecated features until the compatibility policy allows removal
 
 `prompt` and `build_index_stream` are streaming methods. While a prompt or
 operation stream is active, clients can still call `state`, `capabilities`, and
-`settings`; `abort` cancels prompt streams but returns a no-op state payload for
-non-prompt operation streams such as `build_index_stream`. Other service methods
-are rejected until the stream ends. Clients should gate regular request controls
-from `service.available_call_methods` and stream controls from
+`settings`; `abort` cancels active prompt streams and active operation streams
+such as `build_index_stream`. Operation cancellation is observed at operation
+checkpoints such as progress boundaries. Direct Python streams raise
+`HephSdkOperationCancelledError`; JSONL streams end with `ok:false` and the
+structured error code `"cancelled"`. Other service methods are rejected until
+the stream ends. Clients should gate regular request controls from
+`service.available_call_methods` and stream controls from
 `service.available_stream_methods`; `service.is_busy`, `prompt_active`, and
 `active_operation` remain available for status display. A plain runtime without
 an active session therefore advertises no streams, an active plain session
@@ -459,8 +464,9 @@ Model runtime failures raised while handling a prompt are wrapped as
 stream errors for transport clients. When the lower runtime classifies the
 failure, JSONL uses the concrete model error code; otherwise it falls back to
 `"engine_error"`.
-JSONL `abort` is scoped to the prompt stream owned by that transport process;
-when no JSONL prompt stream is active it returns a no-op state payload.
+JSONL `abort` is scoped to the prompt or operation stream owned by that
+transport process; when no JSONL stream is active it returns a no-op state
+payload.
 Direct `HephSession` users get the same `HephSdkBusyError` when starting a
 second prompt on a session that is already streaming.
 
@@ -577,6 +583,7 @@ The JSONL error codes advertised through capabilities are:
   state.
 - `sdk_error`: the SDK rejected a valid request, such as opening a missing
   armory.
+- `cancelled`: an active SDK operation stream was cancelled.
 - `engine_error`: the model runtime rejected a request without a more specific
   code.
 - `account_setup`: provider account setup or billing prevented the model

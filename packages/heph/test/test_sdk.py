@@ -35,6 +35,7 @@ from heph.sdk import (
     HephSdkError,
     HephSdkMethodAvailability,
     HephSdkModelError,
+    HephSdkOperationCancelledError,
     HephSdkOptions,
     HephSdkRuntimeState,
     HephSdkServiceState,
@@ -1224,7 +1225,12 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
 
 def test_sdk_capabilities_fixture_matches_public_contract() -> None:
     root = Path(__file__).resolve().parents[3]
-    fixture = root / "docs" / "developers" / "sdk-capabilities.v33.json"
+    fixture = (
+        root
+        / "docs"
+        / "developers"
+        / f"sdk-capabilities.v{sdk_methods.SDK_CAPABILITIES_VERSION}.json"
+    )
 
     payload: object = json.loads(fixture.read_text(encoding="utf-8"))
 
@@ -4070,14 +4076,6 @@ def test_service_streams_build_index_progress(
         service.switch_model("pollinations", "openai")
     with pytest.raises(HephSdkBusyError, match="only state, abort, capabilities, and settings"):
         service.validate_armory(tmp_path)
-    abort_payload = service.call("abort")
-    abort_result = _payload_mapping(abort_payload)
-    abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
-    assert abort_result["aborted"] is False
-    assert abort_service["active_operation"] == "build_index"
-    assert abort_service["is_busy"] is True
-    assert abort_service["available_call_methods"] == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
-    assert abort_service["available_stream_methods"] == []
 
     release.set()
     assert finished.wait(timeout=2.0)
@@ -4120,6 +4118,57 @@ def test_service_streams_build_index_progress(
     assert idle_service["is_busy"] is False
     assert idle_service["available_call_methods"] == list(sdk_methods.SERVICE_CALL_METHODS)
     assert idle_service["available_stream_methods"] == list(sdk_methods.SERVICE_STREAM_METHODS)
+
+
+def test_service_aborts_build_index_stream_at_progress_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.open_armory(_armory(tmp_path), config=_config())
+    release = threading.Event()
+    finished = threading.Event()
+
+    def fake_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        assert release.wait(timeout=2.0)
+        progress("writing", ".hephaion/rag_index.json")
+        finished.set()
+        return _FakeIndex()
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", fake_build_index)
+    stream = service.stream("build_index")
+
+    first_event = next(stream)
+    abort_payload = service.call("abort")
+    abort_result = _payload_mapping(abort_payload)
+    abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
+    release.set()
+
+    with pytest.raises(HephSdkOperationCancelledError, match="cancelled"):
+        list(stream)
+
+    idle_service = _payload_mapping(service.state()["service"])
+
+    assert first_event == {
+        "type": "index_progress",
+        "action": "reading",
+        "detail": "materials/notes.md",
+    }
+    assert abort_result["aborted"] is True
+    assert abort_service["active_operation"] == "build_index"
+    assert abort_service["is_busy"] is True
+    assert not finished.is_set()
+    assert idle_service["active_operation"] is None
+    assert idle_service["is_busy"] is False
+    assert idle_service["available_stream_methods"] == ["build_index"]
 
 
 def test_service_streams_build_index_clears_operation_on_error(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Protocol
@@ -83,9 +84,18 @@ class _ServiceRouteTarget(Protocol):
 
     def update_settings(self, params: Mapping[str, object]) -> ServicePayload: ...
 
-    def prompt(self, text: str) -> ServiceStream: ...
+    def prompt(
+        self,
+        text: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> ServiceStream: ...
 
-    def build_index_stream(self) -> ServiceStream: ...
+    def build_index_stream(
+        self,
+        *,
+        abort: threading.Event | None = None,
+    ) -> ServiceStream: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +136,18 @@ class _ServiceStreamRoute:
     method: str
     handler: _ServiceStreamHandler
     arguments: tuple[_ServiceCallArgument, ...] = ()
+    supports_abort: bool = False
 
-    def dispatch(self, params: dict[str, object]) -> ServiceStream:
-        return self.handler(*(argument.value_from(params) for argument in self.arguments))
+    def dispatch(
+        self,
+        params: dict[str, object],
+        *,
+        abort: threading.Event | None = None,
+    ) -> ServiceStream:
+        arguments = tuple(argument.value_from(params) for argument in self.arguments)
+        if self.supports_abort:
+            return self.handler(*arguments, abort=abort)
+        return self.handler(*arguments)
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,10 +302,12 @@ def _service_stream_route_sequence(
             "prompt",
             service.prompt,
             (_ServiceCallArgument("text", _required_str, "string"),),
+            supports_abort=True,
         ),
         _ServiceStreamRoute(
             "build_index",
             service.build_index_stream,
+            supports_abort=True,
         ),
     )
 

@@ -112,6 +112,13 @@ class HephSdkBusyError(HephSdkError):
         super().__init__(message, code="busy")
 
 
+class HephSdkOperationCancelledError(HephSdkError):
+    """Raised when an SDK operation stream is cancelled."""
+
+    def __init__(self, message: str = "SDK operation was cancelled.") -> None:
+        super().__init__(message, code="cancelled")
+
+
 class HephSdkUnavailableError(HephSdkError):
     """Raised when an SDK method is valid but unavailable for current state."""
 
@@ -580,17 +587,22 @@ class HephRuntime:
         self,
         *,
         progress: Callable[[IndexProgressEvent], None] | None = None,
+        abort: threading.Event | None = None,
     ) -> IndexSummary:
         armory_path = self._require_armory_path("build an index")
         progress_events: list[IndexProgressEvent] = []
+        _raise_if_operation_cancelled(abort)
 
         def record_progress(action: str, detail: str) -> None:
+            _raise_if_operation_cancelled(abort)
             event = IndexProgressEvent(action=action, detail=detail)
             progress_events.append(event)
             if progress is not None:
                 progress(event)
+            _raise_if_operation_cancelled(abort)
 
         index = build_rag_index(armory_path, progress=record_progress)
+        _raise_if_operation_cancelled(abort)
         return IndexSummary(
             documents=len(index.documents),
             chunks=index.chunk_count,
@@ -634,6 +646,11 @@ def _resolved_validation_path(path: str | Path) -> Path:
         return Path(path)
 
 
+def _raise_if_operation_cancelled(abort: threading.Event | None) -> None:
+    if abort is not None and abort.is_set():
+        raise HephSdkOperationCancelledError()
+
+
 __all__ = [
     "SDK_ENGINE_ERROR_CODE",
     "ArmorySummary",
@@ -646,6 +663,7 @@ __all__ = [
     "HephSdkBusyError",
     "HephSdkError",
     "HephSdkModelError",
+    "HephSdkOperationCancelledError",
     "HephSdkSessionState",
     "HephSdkUnavailableError",
     "HephSession",

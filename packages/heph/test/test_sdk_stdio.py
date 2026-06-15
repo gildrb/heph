@@ -1098,7 +1098,6 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     server.handle_request({"id": "state-during-index", "method": "state"})
     server.handle_request({"id": "caps-during-index", "method": "capabilities"})
     server.handle_request({"id": "settings-during-index", "method": "settings"})
-    server.handle_request({"id": "abort-during-index", "method": "abort"})
     server.handle_request(
         {
             "id": "prompt-during-index",
@@ -1128,9 +1127,6 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     settings_response = next(
         payload for payload in payloads if payload.get("id") == "settings-during-index"
     )
-    abort_response = next(
-        payload for payload in payloads if payload.get("id") == "abort-during-index"
-    )
     prompt_error = next(
         payload for payload in payloads if payload.get("id") == "prompt-during-index"
     )
@@ -1143,8 +1139,6 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     )
     capability_service = _payload_mapping(capabilities["service"])
     settings = _payload_mapping(_payload_mapping(settings_response["result"])["settings"])
-    abort_result = _payload_mapping(abort_response["result"])
-    abort_state_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
     prompt_error_payload = _payload_mapping(prompt_error["error"])
     events = [
         _payload_mapping(payload["event"])
@@ -1158,8 +1152,6 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     assert "settings" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert settings_response["type"] == "response"
     assert settings["theme"] in {"dark", "light"}
-    assert abort_result["aborted"] is False
-    _assert_jsonl_operation_busy_service_state(abort_state_service)
     assert prompt_error_payload["code"] == "busy"
     assert prompt_error_payload["unavailable_reason"] == "busy"
     assert events == [
@@ -1186,6 +1178,92 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         },
     ]
     assert payloads[-1] == {"type": "stream_end", "id": "index-1", "ok": True}
+
+
+def test_jsonl_sdk_server_aborts_build_index_stream_at_progress_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_path = tmp_path / ".armories" / "jsonl-index-cancel"
+    service = HephService.create_armory(armory_path, config=_config())
+    release = threading.Event()
+    finished = threading.Event()
+
+    def fake_build_index(
+        armory_path: Path,
+        *,
+        strategy: object | None = None,
+        progress: Callable[[str, str], None] | None = None,
+        previous: object | None = None,
+    ) -> _FakeIndex:
+        _ = armory_path, strategy, previous
+        assert progress is not None
+        progress("reading", "materials/notes.md")
+        assert release.wait(timeout=2.0)
+        progress("writing", ".hephaion/rag_index.json")
+        finished.set()
+        return _FakeIndex()
+
+    monkeypatch.setattr(sdk_runtime, "build_rag_index", fake_build_index)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "index-cancel", "method": "build_index_stream"})
+    deadline = time.monotonic() + 2.0
+    while "index_progress" not in output.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert "index_progress" in output.getvalue()
+
+    server.handle_request({"id": "abort-index", "method": "abort"})
+    release.set()
+    server._wait_for_streams()
+    server.handle_request({"id": "state-after-cancel", "method": "state"})
+
+    payloads = _payloads(output.getvalue())
+    abort_response = next(payload for payload in payloads if payload.get("id") == "abort-index")
+    stream_events = [
+        _payload_mapping(payload["event"])
+        for payload in payloads
+        if payload["type"] == "stream_event"
+    ]
+    stream_end = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "index-cancel" and payload["type"] == "stream_end"
+    )
+    state_response = next(
+        payload for payload in payloads if payload.get("id") == "state-after-cancel"
+    )
+    abort_result = _payload_mapping(abort_response["result"])
+    abort_service = _payload_mapping(_payload_mapping(abort_result["state"])["service"])
+    stream_error = _payload_mapping(stream_end["error"])
+    service_state = _payload_mapping(_payload_mapping(state_response["result"])["service"])
+
+    assert abort_result["aborted"] is True
+    _assert_jsonl_operation_busy_service_state(abort_service)
+    assert stream_events == [
+        {
+            "type": "index_progress",
+            "action": "reading",
+            "detail": "materials/notes.md",
+        }
+    ]
+    assert stream_end["type"] == "stream_end"
+    assert stream_end["ok"] is False
+    assert stream_error["code"] == "cancelled"
+    assert stream_error["unavailable_reason"] is None
+    assert "cancelled" in str(stream_error["message"])
+    assert not finished.is_set()
+    assert service_state["prompt_active"] is False
+    assert service_state["active_operation"] is None
+    assert service_state["is_busy"] is False
+    assert service_state["available_stream_methods"] == list(
+        _jsonl_stream_methods("build_index_stream")
+    )
 
 
 def test_jsonl_sdk_server_reports_prompt_stream_errors_and_clears_state(

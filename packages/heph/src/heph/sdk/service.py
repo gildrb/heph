@@ -103,6 +103,7 @@ class HephService:
     _prompt_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _active_prompt_abort: threading.Event | None = field(default=None, init=False, repr=False)
     _active_operation: str | None = field(default=None, init=False, repr=False)
+    _active_operation_abort: threading.Event | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         capability_issues = validate_sdk_capabilities()
@@ -207,11 +208,16 @@ class HephService:
         self,
         method: str,
         params: Mapping[str, object] | None = None,
+        *,
+        abort: threading.Event | None = None,
     ) -> ServiceStream:
         parameters = self.validate_stream_params(method, params)
         if route := self._stream_routes().get(method):
             self._ensure_stream_route_available(route)
-            yield from self._validated_stream(method, route.dispatch(parameters))
+            yield from self._validated_stream(
+                method,
+                route.dispatch(parameters, abort=abort),
+            )
             return
         raise HephSdkError(f"Unknown SDK service stream method: {method}")
 
@@ -339,9 +345,10 @@ class HephService:
         if active_abort := self._active_prompt_abort_event():
             active_abort.set()
             return {"aborted": True, "state": self.state()}
+        if active_operation_abort := self._active_operation_abort_event():
+            active_operation_abort.set()
+            return {"aborted": True, "state": self.state()}
         with self._prompt_lock:
-            if self._active_operation is not None:
-                return {"aborted": False, "state": self.state()}
             session = self._require_session()
         session.abort()
         return {"aborted": True, "session": session.to_dict()}
@@ -412,23 +419,29 @@ class HephService:
         with self._idle_service_call():
             return {"index": self.runtime.build_index().to_dict()}
 
-    def build_index_stream(self) -> Iterator[dict[str, object]]:
+    def build_index_stream(
+        self,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[dict[str, object]]:
+        active_abort = abort or threading.Event()
+
         def build(publish: OperationStreamPublish) -> ServicePayload:
             def record_progress(event: IndexProgressEvent) -> None:
                 publish({"type": "index_progress", **event.to_dict()})
 
-            summary = self.runtime.build_index(progress=record_progress)
+            summary = self.runtime.build_index(progress=record_progress, abort=active_abort)
             return {"type": "index_complete", "index": summary.to_dict()}
 
         self.ensure_stream_available("build_index")
-        self._begin_operation("build_index")
+        self._begin_operation("build_index", active_abort)
         try:
             yield from self._validated_stream(
                 "build_index",
                 iter_operation_stream(thread_name="heph-sdk-build-index", worker=build),
             )
         finally:
-            self._end_operation("build_index")
+            self._end_operation("build_index", active_abort)
 
     def _validated_stream(
         self,
@@ -568,19 +581,25 @@ class HephService:
         with self._prompt_lock:
             return self._active_prompt_abort
 
+    def _active_operation_abort_event(self) -> threading.Event | None:
+        with self._prompt_lock:
+            return self._active_operation_abort
+
     def _is_busy(self) -> bool:
         with self._prompt_lock:
             return self._is_busy_locked()
 
-    def _begin_operation(self, name: str) -> None:
+    def _begin_operation(self, name: str, abort: threading.Event) -> None:
         with self._prompt_lock:
             self._ensure_idle_for_service_call()
             self._active_operation = name
+            self._active_operation_abort = abort
 
-    def _end_operation(self, name: str) -> None:
+    def _end_operation(self, name: str, abort: threading.Event) -> None:
         with self._prompt_lock:
-            if self._active_operation == name:
+            if self._active_operation == name and self._active_operation_abort is abort:
                 self._active_operation = None
+                self._active_operation_abort = None
 
     @contextmanager
     def _direct_stream_guard(

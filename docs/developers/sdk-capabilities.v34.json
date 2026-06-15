@@ -1,9 +1,9 @@
 {
-  "version": 33,
+  "version": 34,
   "compatibility": {
     "stability": "public",
-    "min_client_capabilities_version": 33,
-    "current_capabilities_version": 33,
+    "min_client_capabilities_version": 34,
+    "current_capabilities_version": 34,
     "supported_jsonl_versions": [
       1
     ],
@@ -269,6 +269,7 @@
       "busy",
       "unavailable",
       "sdk_error",
+      "cancelled",
       "engine_error",
       "account_setup",
       "provider_capacity",
@@ -1401,6 +1402,9 @@
       },
       "sdk_error": {
         "description": "The SDK rejected a valid request."
+      },
+      "cancelled": {
+        "description": "An active SDK operation stream was cancelled."
       },
       "engine_error": {
         "description": "The model runtime rejected a request without a more specific code."
