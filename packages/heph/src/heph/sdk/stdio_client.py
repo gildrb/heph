@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Self
 
+from ai.providers.reasoning import REASONING_LEVELS
+from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 from hephaion._types import is_string_mapping
 
 from heph.sdk.compatibility import ensure_sdk_client_payload_compatibility
@@ -135,8 +137,16 @@ class JsonlSdkProcessOptions:
         _validate_process_string_option(self.session_id, "session_id")
         _validate_process_string_option(self.base_url, "base_url")
         _validate_process_string_option(self.model, "model")
-        _validate_process_string_option(self.reasoning_level, "reasoning_level")
-        _validate_process_string_option(self.thinking_visibility, "thinking_visibility")
+        _validate_process_choice_option(
+            self.reasoning_level,
+            "reasoning_level",
+            REASONING_LEVELS,
+        )
+        _validate_process_choice_option(
+            self.thinking_visibility,
+            "thinking_visibility",
+            THINKING_VISIBILITY_MODES,
+        )
         _validate_process_integer_option(self.max_tokens, "max_tokens")
         _validate_process_integer_option(self.rag_context_budget, "rag_context_budget")
         _validate_process_number_option(self.temperature, "temperature")
@@ -1148,6 +1158,19 @@ def _validate_process_string_option(value: object, label: str) -> None:
         return
     raise JsonlSdkProcessError(
         f"SDK JSONL process option '{label}' must be a non-empty string or None."
+    )
+
+
+def _validate_process_choice_option(
+    value: object,
+    label: str,
+    choices: tuple[str, ...],
+) -> None:
+    _validate_process_string_option(value, label)
+    if value is None or value in choices:
+        return
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be one of: {', '.join(choices)}."
     )
 
 

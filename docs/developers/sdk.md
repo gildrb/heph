@@ -225,7 +225,9 @@ errors before touching transport state.
 with `start_session=False`. Launch option validation also runs before spawning:
 `max_tokens` and `rag_context_budget` must be non-negative integers, while
 `temperature` must be a finite number. Optional string overrides such as
-`session_id`, `base_url`, and `model` must be non-empty when supplied.
+`session_id`, `base_url`, and `model` must be non-empty when supplied; choice
+overrides such as `reasoning_level` and `thinking_visibility` must match the
+advertised SDK choices.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before

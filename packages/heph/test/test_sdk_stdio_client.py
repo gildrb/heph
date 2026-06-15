@@ -1264,6 +1264,21 @@ def test_jsonl_sdk_process_options_reject_empty_string_options(
         options.command()
 
 
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (JsonlSdkProcessOptions(reasoning_level="turbo"), "reasoning_level"),
+        (JsonlSdkProcessOptions(thinking_visibility="verbose"), "thinking_visibility"),
+    ],
+)
+def test_jsonl_sdk_process_options_reject_unknown_choice_options(
+    options: JsonlSdkProcessOptions,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        options.command()
+
+
 def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
     options = JsonlSdkProcessOptions(create_armory=True)
 
