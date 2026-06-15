@@ -224,8 +224,11 @@ class JsonlSdkProcess:
 
     def _process_pipes(self, process: subprocess.Popen[str]) -> tuple[IO[str], IO[str]]:
         if process.stdin is None or process.stdout is None:
-            process.kill()
-            process.wait(timeout=self.shutdown_timeout)
+            _kill_and_wait_for_process(
+                process,
+                timeout=self.shutdown_timeout,
+                reason="stdin/stdout pipes were unavailable",
+            )
             raise JsonlSdkProcessError("SDK JSONL process did not expose stdin/stdout pipes.")
         return process.stdout, process.stdin
 
@@ -261,8 +264,11 @@ class JsonlSdkProcess:
                 try:
                     process.wait(timeout=wait_timeout)
                 except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=wait_timeout)
+                    _kill_and_wait_for_process(
+                        process,
+                        timeout=wait_timeout,
+                        reason="shutdown timeout",
+                    )
         finally:
             self._returncode = process.poll()
             self._join_stderr_thread(wait_timeout)
@@ -1041,6 +1047,28 @@ def _read_ready_with_timeout(
     if isinstance(result, Exception):
         raise result
     return result
+
+
+def _kill_and_wait_for_process(
+    process: subprocess.Popen[str],
+    *,
+    timeout: float | None,
+    reason: str,
+) -> None:
+    process.kill()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise JsonlSdkProcessError(
+            "SDK JSONL process did not exit after kill "
+            f"({reason}; timeout={_timeout_label(timeout)})."
+        ) from exc
+
+
+def _timeout_label(timeout: float | None) -> str:
+    if timeout is None:
+        return "none"
+    return f"{timeout:g}s"
 
 
 def _jsonl_request_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:

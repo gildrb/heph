@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -1210,6 +1211,47 @@ def test_jsonl_sdk_process_ignores_pipe_close_errors() -> None:
 
     JsonlSdkProcess._close_process_stream(stream)
     stream.close()
+
+
+def test_jsonl_sdk_process_close_wraps_kill_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = subprocess.Popen(
+        (sys.executable, "-c", "import time; time.sleep(10)"),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    transport = JsonlSdkProcess(shutdown_timeout=0.01)
+    client = JsonlSdkClient(input_stream=process.stdout, output_stream=process.stdin)
+    transport._process = process
+    transport._client = client
+    real_wait = process.wait
+    wait_calls = 0
+
+    def fake_wait(timeout: float | None = None) -> int:
+        nonlocal wait_calls
+        wait_calls += 1
+        raise subprocess.TimeoutExpired(process.args, timeout if timeout is not None else 0.0)
+
+    monkeypatch.setattr(process, "wait", fake_wait)
+    try:
+        with pytest.raises(JsonlSdkProcessError, match="did not exit after kill") as exc:
+            transport.close()
+
+        assert "shutdown timeout" in str(exc.value)
+        assert wait_calls == 2
+        assert client.closed
+        with pytest.raises(JsonlSdkProcessError, match="not running"):
+            _ = transport.process
+    finally:
+        monkeypatch.setattr(process, "wait", real_wait)
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=2.0)
 
 
 def test_jsonl_sdk_process_runs_real_sdk_serve_cli(tmp_path: Path) -> None:
