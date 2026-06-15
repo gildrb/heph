@@ -58,9 +58,7 @@ from hephaion.chat.conversation_context import (
 )
 from hephaion.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
-    _evidence_item_ref,
 )
-from hephaion.chat.reply_repair import _reply_evidence_ids
 from hephaion.chat.turn_contract_checks import (
     _contract_has_specific_material_target,
     _plan_requires_citations,
@@ -1108,41 +1106,6 @@ def _resolved_with_validation_result(
         resolved,
         turn_contract=_turn_contract_with_validation(resolved.turn_contract, notice),
     )
-
-
-def _resolved_with_visible_evidence_refs(
-    resolved: ResolvedTurnPlan,
-    reply: str,
-    visible_evidence: TurnEvidence | None,
-) -> ResolvedTurnPlan:
-    contract = resolved.turn_contract
-    if contract is None:
-        return resolved
-    return replace(
-        resolved,
-        turn_contract=replace(
-            contract,
-            evidence_refs=tuple(_reply_cited_evidence_refs(reply, visible_evidence)),
-        ),
-    )
-
-
-def _reply_cited_evidence_refs(
-    reply: str,
-    evidence: TurnEvidence | None,
-) -> list[str]:
-    if evidence is None or not evidence.items:
-        return []
-    ref_by_id = {item.evidence_id.casefold(): _evidence_item_ref(item) for item in evidence.items}
-    refs: list[str] = []
-    seen: set[str] = set()
-    for evidence_id in _reply_evidence_ids(reply):
-        ref = ref_by_id.get(evidence_id.casefold())
-        if ref is None or ref in seen:
-            continue
-        refs.append(ref)
-        seen.add(ref)
-    return refs
 
 
 def _turn_contract_can_seed_followup(

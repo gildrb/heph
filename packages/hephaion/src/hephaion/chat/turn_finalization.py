@@ -42,6 +42,7 @@ from hephaion.chat.learning_signals import (
 )
 from hephaion.chat.material_state import _material_operation_events
 from hephaion.chat.overview_reply import _overview_answer_has_bad_shape
+from hephaion.chat.reply_evidence import _resolved_with_visible_evidence_refs
 from hephaion.chat.reply_repair import _MAX_INTERNAL_PASSES
 from hephaion.chat.titles import derive_title
 from hephaion.chat.turn_contract import (
@@ -56,7 +57,6 @@ from hephaion.chat.turn_planning import (
     _resolved_turn_intent,
     _resolved_with_citation_requirement,
     _resolved_with_validation_result,
-    _resolved_with_visible_evidence_refs,
     _turn_contract_can_seed_followup,
 )
 from hephaion.chat.turn_predicates import (
