@@ -27,7 +27,10 @@ from hephaion.chat.followup_retrieval import (
 from hephaion.chat.material_state import (
     _EVIDENCE_REQUIRED_ACTIONS,
 )
-from hephaion.chat.overview_planning import _contract_requires_overview_sampling
+from hephaion.chat.overview_planning import (
+    _contract_requires_overview_sampling,
+    _overview_retrieval_surface,
+)
 from hephaion.chat.turn_contract import (
     ANSWER_FORMAT_PLAIN,
     ANSWER_MODE_FROM_EVIDENCE,
@@ -68,7 +71,6 @@ from hephaion.chat.turn_query import (
     _best_current_request_query,
     _content_terms,
     _current_request_introduces_fresh_content,
-    _lacks_retrievable_content,
     _normalized_query_terms,
     _same_normalized_text,
 )
@@ -788,24 +790,6 @@ def _default_material_overview_contract(
     if clear_followup_target:
         return replace(updated_contract, followup_target="")
     return updated_contract
-
-
-def _overview_retrieval_surface(
-    plan: LearningTurnPlan,
-    contract: TurnContract,
-    fallback: str | None,
-) -> str | None:
-    for candidate in (
-        contract.retrieval_query,
-        fallback or "",
-        contract.canonical_request,
-        contract.original_user_input,
-        plan.retrieval_query or "",
-        plan.original_user_input,
-    ):
-        if candidate and not _lacks_retrievable_content(candidate):
-            return candidate
-    return None
 
 
 def _followup_lacks_replayable_prior_surface(

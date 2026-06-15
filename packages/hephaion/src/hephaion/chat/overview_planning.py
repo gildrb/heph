@@ -9,6 +9,8 @@ from hephaion.chat.turn_contract import (
     TurnContract,
 )
 from hephaion.chat.turn_contract_checks import _contract_has_specific_material_target
+from hephaion.chat.turn_query import _lacks_retrievable_content
+from hephaion.study.prompt_plans import LearningTurnPlan
 
 
 def _contract_requires_overview_sampling(
@@ -54,3 +56,34 @@ def _overview_followup_can_reuse_prior_evidence(
     if prior_contract is None:
         return False
     return bool(prior_contract.evidence_refs)
+
+
+def _overview_retrieval_surface(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+    fallback: str | None,
+) -> str | None:
+    candidates = _overview_retrieval_candidates(plan, contract, fallback)
+    return _first_retrievable_overview_surface(candidates)
+
+
+def _overview_retrieval_candidates(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+    fallback: str | None,
+) -> tuple[str | None, ...]:
+    return (
+        contract.retrieval_query,
+        fallback or "",
+        contract.canonical_request,
+        contract.original_user_input,
+        plan.retrieval_query or "",
+        plan.original_user_input,
+    )
+
+
+def _first_retrievable_overview_surface(candidates: tuple[str | None, ...]) -> str | None:
+    for candidate in candidates:
+        if candidate and not _lacks_retrievable_content(candidate):
+            return candidate
+    return None
