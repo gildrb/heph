@@ -17,7 +17,12 @@ from hephaion.chat.turn_contract import (
     TurnContract,
 )
 from hephaion.chat.turn_predicates import _contract_followup_target
-from hephaion.chat.turn_query import _same_normalized_text, _semantic_query_specificity
+from hephaion.chat.turn_query import (
+    _current_request_introduces_fresh_content,
+    _query_reuses_surface,
+    _same_normalized_text,
+    _semantic_query_specificity,
+)
 
 _BROAD_PRIOR_EVIDENCE_REF_COUNT = 8
 
@@ -227,6 +232,78 @@ def _prior_retrieve_followup_retrieval(
         if semantic_query:
             return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
     return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query)
+
+
+def _expanded_prior_should_use_current_request(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    fresh_request_min_terms: int,
+) -> bool:
+    return (
+        prior_contract is not None
+        and bool(prior_contract.evidence_refs)
+        and contract.is_followup
+        and not contract.prior_answer_reference
+        and contract.resolved_intent == "source_qa"
+        and retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
+        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+        and (
+            _current_turn_semantic_query(contract) is not None
+            or _current_request_introduces_fresh_content(
+                contract,
+                prior_contract,
+                fresh_request_min_terms=fresh_request_min_terms,
+            )
+        )
+    )
+
+
+def _expanded_prior_followup_query(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    fresh_request_min_terms: int,
+) -> str:
+    current_semantic_query = _current_turn_semantic_query(contract)
+    retrieval_query = _contract_retrieval_query(contract)
+    followup_target = _contract_followup_target(contract)
+    target_query = _reusable_nonliteral_query_for_surface(
+        contract,
+        retrieval_query,
+        followup_target,
+    )
+    if target_query:
+        return target_query
+    if current_semantic_query:
+        semantic_query = _reusable_nonliteral_query_for_surface(
+            contract,
+            retrieval_query,
+            current_semantic_query,
+        )
+        return semantic_query or current_semantic_query
+    if _current_request_introduces_fresh_content(
+        contract,
+        prior_contract,
+        fresh_request_min_terms=fresh_request_min_terms,
+    ):
+        return _current_request_query(contract)
+    return retrieval_query or _current_request_query(contract)
+
+
+def _reusable_nonliteral_query_for_surface(
+    contract: TurnContract,
+    retrieval_query: str | None,
+    surface: str | None,
+) -> str | None:
+    if not retrieval_query or not surface:
+        return None
+    if _same_normalized_text(retrieval_query, contract.original_user_input):
+        return None
+    if not _query_reuses_surface(retrieval_query, surface):
+        return None
+    return retrieval_query
 
 
 def _contract_has_nonliteral_retrieval_surface(contract: TurnContract) -> bool:
