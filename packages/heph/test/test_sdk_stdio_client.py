@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import threading
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from ai.runtime import ChatConfig
@@ -14,6 +16,9 @@ from heph.sdk import (
     HephService,
     JsonlSdkClient,
     JsonlSdkClientProtocolError,
+    JsonlSdkProcess,
+    JsonlSdkProcessError,
+    JsonlSdkProcessOptions,
     JsonlSdkServer,
     JsonlSdkServerError,
     SdkClientCompatibilityError,
@@ -35,6 +40,16 @@ def _jsonl(*requests: dict[str, object]) -> str:
 def _payload_mapping(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return {str(key): item for key, item in value.items()}
+
+
+def _ready_message(service: HephService) -> dict[str, object]:
+    return {
+        "type": "ready",
+        "protocol": SDK_JSONL_PROTOCOL,
+        "version": SDK_JSONL_VERSION,
+        "capabilities": service.capabilities()["capabilities"],
+        "state": service.state(),
+    }
 
 
 def test_jsonl_sdk_client_reads_ready_call_and_stream(
@@ -180,3 +195,97 @@ def test_jsonl_sdk_client_rejects_incompatible_ready_payload() -> None:
 
     with pytest.raises(SdkClientCompatibilityError, match="older than minimum supported"):
         client.read_ready()
+
+
+def test_jsonl_sdk_process_options_build_command() -> None:
+    options = JsonlSdkProcessOptions(
+        armory_path="notes",
+        create_armory=True,
+        session_id="session-1",
+        base_url="https://example.test/v1",
+        model="sdk-model",
+        max_tokens=512,
+        rag_context_budget=4096,
+        reasoning_level="medium",
+        temperature=0.5,
+    )
+
+    assert options.command() == (
+        "heph",
+        "sdk",
+        "serve",
+        "--armory",
+        "notes",
+        "--create-armory",
+        "--session-id",
+        "session-1",
+        "--base-url",
+        "https://example.test/v1",
+        "--model",
+        "sdk-model",
+        "--max-tokens",
+        "512",
+        "--rag-context-budget",
+        "4096",
+        "--reasoning-level",
+        "medium",
+        "--temperature",
+        "0.5",
+    )
+
+
+def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
+    options = JsonlSdkProcessOptions(session_id="session-1", start_session=False)
+
+    with pytest.raises(JsonlSdkProcessError, match="--session-id cannot be used"):
+        options.command()
+
+
+def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
+    service = HephService.plain(config=_config())
+    server_script = tmp_path / "fake_sdk_server.py"
+    ready_line = json.dumps(_ready_message(service)) + "\n"
+    server_script.write_text(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import sys",
+                f"sys.stdout.write({ready_line!r})",
+                "sys.stdout.flush()",
+                "for _line in sys.stdin:",
+                "    pass",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    transport = JsonlSdkProcess(command=(sys.executable, str(server_script)))
+
+    with transport as running:
+        ready = running.ready
+        process = running.process
+        client = running.client
+
+        assert ready.protocol == SDK_JSONL_PROTOCOL
+        assert ready.version == SDK_JSONL_VERSION
+        assert ready.capabilities["version"] == SDK_CAPABILITIES_VERSION
+        assert client is running.client
+        assert process.poll() is None
+
+    assert process.poll() == 0
+    with pytest.raises(JsonlSdkProcessError, match="not running"):
+        _ = transport.process
+
+
+def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
+    transport = JsonlSdkProcess(
+        command=(sys.executable, "-c", "import time; time.sleep(10)"),
+        startup_timeout=0.01,
+        shutdown_timeout=0.01,
+    )
+
+    with pytest.raises(JsonlSdkProcessError, match="did not send ready"):
+        transport.start()
+
+    with pytest.raises(JsonlSdkProcessError, match="not running"):
+        _ = transport.process

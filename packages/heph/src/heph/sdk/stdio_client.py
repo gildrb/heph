@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import queue
+import subprocess
+import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import TextIO
+from pathlib import Path
+from typing import IO, Self
 
 from hephaion._types import is_string_mapping
 
@@ -29,6 +33,10 @@ class JsonlSdkClientProtocolError(JsonlSdkClientError):
     """Raised when the server stream does not match the SDK JSONL protocol."""
 
 
+class JsonlSdkProcessError(JsonlSdkClientError):
+    """Raised when a managed SDK JSONL subprocess cannot be started or used."""
+
+
 @dataclass(frozen=True, slots=True)
 class JsonlSdkErrorPayload:
     """Structured JSONL error returned by the SDK transport."""
@@ -50,6 +58,143 @@ class JsonlSdkServerError(JsonlSdkClientError):
 
 
 @dataclass(frozen=True, slots=True)
+class JsonlSdkProcessOptions:
+    """Command-line options for spawning ``heph sdk serve``."""
+
+    executable: str = "heph"
+    armory_path: str | Path | None = None
+    create_armory: bool = False
+    session_id: str | None = None
+    start_session: bool = True
+    base_url: str | None = None
+    model: str | None = None
+    max_tokens: int | None = None
+    rag_context_budget: int | None = None
+    reasoning_level: str | None = None
+    temperature: float | None = None
+
+    def command(self) -> tuple[str, ...]:
+        """Return the argv tuple for ``heph sdk serve``."""
+        if self.session_id is not None and not self.start_session:
+            raise JsonlSdkProcessError("--session-id cannot be used with start_session=False.")
+        command = [self.executable, "sdk", "serve"]
+        _append_optional_path(command, "--armory", self.armory_path)
+        if self.create_armory:
+            command.append("--create-armory")
+        _append_optional_value(command, "--session-id", self.session_id)
+        if not self.start_session:
+            command.append("--no-session")
+        _append_optional_value(command, "--base-url", self.base_url)
+        _append_optional_value(command, "--model", self.model)
+        _append_optional_value(command, "--max-tokens", self.max_tokens)
+        _append_optional_value(command, "--rag-context-budget", self.rag_context_budget)
+        _append_optional_value(command, "--reasoning-level", self.reasoning_level)
+        _append_optional_value(command, "--temperature", self.temperature)
+        return tuple(command)
+
+
+@dataclass(slots=True)
+class JsonlSdkProcess:
+    """Manage a ``heph sdk serve`` subprocess and its validated JSONL client."""
+
+    options: JsonlSdkProcessOptions = field(default_factory=JsonlSdkProcessOptions)
+    command: tuple[str, ...] | None = None
+    client_capabilities_version: int = SDK_CAPABILITIES_VERSION
+    jsonl_version: int = SDK_JSONL_VERSION
+    startup_timeout: float | None = 10.0
+    shutdown_timeout: float = 5.0
+    _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
+    _client: JsonlSdkClient | None = field(default=None, init=False, repr=False)
+    _ready: JsonlSdkReady | None = field(default=None, init=False, repr=False)
+
+    @property
+    def process(self) -> subprocess.Popen[str]:
+        if self._process is None:
+            raise JsonlSdkProcessError("SDK JSONL process is not running.")
+        return self._process
+
+    @property
+    def client(self) -> JsonlSdkClient:
+        if self._client is None:
+            raise JsonlSdkProcessError("SDK JSONL process has not started.")
+        return self._client
+
+    @property
+    def ready(self) -> JsonlSdkReady:
+        if self._ready is None:
+            raise JsonlSdkProcessError("SDK JSONL ready handshake has not completed.")
+        return self._ready
+
+    def start(self) -> Self:
+        """Start the subprocess and read the validated ready handshake."""
+        if self._process is not None:
+            raise JsonlSdkProcessError("SDK JSONL process is already running.")
+        try:
+            process = subprocess.Popen(
+                self.command or self.options.command(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            raise JsonlSdkProcessError(f"Failed to start SDK JSONL process: {exc}") from exc
+        if process.stdin is None or process.stdout is None:
+            process.kill()
+            process.wait(timeout=self.shutdown_timeout)
+            raise JsonlSdkProcessError("SDK JSONL process did not expose stdin/stdout pipes.")
+        self._process = process
+        self._client = JsonlSdkClient(
+            input_stream=process.stdout,
+            output_stream=process.stdin,
+            client_capabilities_version=self.client_capabilities_version,
+            jsonl_version=self.jsonl_version,
+        )
+        try:
+            self._ready = _read_ready_with_timeout(self._client, self.startup_timeout)
+        except Exception:
+            self.close()
+            raise
+        return self
+
+    def close(self, timeout: float | None = None) -> None:
+        """Close stdin and wait for the subprocess, killing it after the timeout."""
+        process = self._process
+        if process is None:
+            return
+        wait_timeout = self.shutdown_timeout if timeout is None else timeout
+        try:
+            self._close_process_stdin(process)
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=wait_timeout)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=wait_timeout)
+        finally:
+            self._close_process_stdout(process)
+            self._process = None
+            self._client = None
+            self._ready = None
+
+    def __enter__(self) -> Self:
+        return self.start()
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    @staticmethod
+    def _close_process_stdin(process: subprocess.Popen[str]) -> None:
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+
+    @staticmethod
+    def _close_process_stdout(process: subprocess.Popen[str]) -> None:
+        if process.stdout is not None and not process.stdout.closed:
+            process.stdout.close()
+
+
+@dataclass(frozen=True, slots=True)
 class JsonlSdkReady:
     """Initial SDK JSONL ready handshake."""
 
@@ -57,6 +202,9 @@ class JsonlSdkReady:
     version: int
     capabilities: JsonlPayload
     state: JsonlPayload
+
+
+type _ReadyResult = JsonlSdkReady | Exception
 
 
 @dataclass(slots=True)
@@ -68,8 +216,8 @@ class JsonlSdkClient:
     messages by id in their own event loop.
     """
 
-    input_stream: TextIO
-    output_stream: TextIO
+    input_stream: IO[str]
+    output_stream: IO[str]
     client_capabilities_version: int = SDK_CAPABILITIES_VERSION
     jsonl_version: int = SDK_JSONL_VERSION
     _request_counter: int = field(default=0, init=False, repr=False)
@@ -260,6 +408,37 @@ def jsonl_error_from_message(message: Mapping[str, object]) -> JsonlSdkErrorPayl
     )
 
 
+def _read_ready_with_timeout(
+    client: JsonlSdkClient,
+    timeout: float | None,
+) -> JsonlSdkReady:
+    if timeout is None:
+        return client.read_ready()
+    results: queue.Queue[_ReadyResult] = queue.Queue(maxsize=1)
+
+    def read_ready() -> None:
+        try:
+            results.put(client.read_ready())
+        except Exception as exc:
+            results.put(exc)
+
+    thread = threading.Thread(
+        target=read_ready,
+        name="heph-sdk-jsonl-ready",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        result = results.get(timeout=timeout)
+    except queue.Empty as exc:
+        raise JsonlSdkProcessError(
+            f"SDK JSONL process did not send ready within {timeout:g} seconds."
+        ) from exc
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
 def _message_type(message: Mapping[str, object]) -> str:
     return _string_field(message, "type", "SDK JSONL message type")
 
@@ -293,18 +472,15 @@ def _integer_field(message: Mapping[str, object], key: str, label: str) -> int:
     raise JsonlSdkClientProtocolError(f"{label} must be an integer.")
 
 
-__all__ = [
-    "JsonlPayload",
-    "JsonlRequestId",
-    "JsonlSdkClient",
-    "JsonlSdkClientError",
-    "JsonlSdkClientProtocolError",
-    "JsonlSdkErrorPayload",
-    "JsonlSdkReady",
-    "JsonlSdkServerError",
-    "encode_jsonl_request",
-    "jsonl_error_from_message",
-    "jsonl_ready_from_message",
-    "jsonl_request_payload",
-    "parse_jsonl_message",
-]
+def _append_optional_path(command: list[str], flag: str, value: str | Path | None) -> None:
+    if value is not None:
+        command.extend((flag, str(value)))
+
+
+def _append_optional_value(
+    command: list[str],
+    flag: str,
+    value: str | float | None,
+) -> None:
+    if value is not None:
+        command.extend((flag, str(value)))
