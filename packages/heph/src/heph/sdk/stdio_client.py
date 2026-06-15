@@ -437,16 +437,16 @@ class JsonlSdkClient:
         ready = jsonl_ready_from_message(message)
         if ready.protocol != SDK_JSONL_PROTOCOL:
             raise JsonlSdkClientProtocolError(f"Unsupported SDK JSONL protocol: {ready.protocol}.")
-        if ready.version != self.jsonl_version:
-            raise JsonlSdkClientProtocolError(
-                f"Unsupported SDK JSONL version {ready.version}; expected {self.jsonl_version}."
-            )
         ensure_sdk_client_payload_compatibility(
             ready.capabilities,
             client_capabilities_version=self.client_capabilities_version,
             jsonl_version=self.jsonl_version,
             accepted_stability_levels=self.accepted_stability_levels,
         )
+        if ready.version != self.jsonl_version:
+            raise JsonlSdkClientProtocolError(
+                f"Unsupported SDK JSONL version {ready.version}; expected {self.jsonl_version}."
+            )
         return ready
 
     def read_message(self) -> JsonlPayload:

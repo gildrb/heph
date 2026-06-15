@@ -1064,6 +1064,21 @@ def test_jsonl_sdk_client_rejects_malformed_client_compatibility_versions() -> N
     )
 
 
+def test_jsonl_sdk_client_rejects_malformed_client_jsonl_version_before_compare() -> None:
+    service = HephService.plain(config=_config())
+    ready_message = _ready_message(service)
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+        jsonl_version=cast("int", "1"),
+    )
+
+    with pytest.raises(SdkClientCompatibilityError, match="JSONL version") as exc:
+        client.read_ready()
+
+    assert exc.value.issues == ("SDK JSONL version must be an integer or None.",)
+
+
 def test_jsonl_sdk_client_requires_accepted_ready_stability() -> None:
     service = HephService.plain(config=_config())
     capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
