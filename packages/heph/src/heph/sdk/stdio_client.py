@@ -31,6 +31,7 @@ from heph.sdk.runtime import HephSdkError
 
 type JsonlRequestId = str | int | None
 type JsonlPayload = dict[str, object]
+_DEFAULT_STDERR_TAIL_LIMIT = 16_384
 
 
 class JsonlSdkClientError(Exception):
@@ -63,6 +64,18 @@ class JsonlSdkServerError(JsonlSdkClientError):
         self.code = error.code
         self.unavailable_reason = error.unavailable_reason
         super().__init__(f"SDK JSONL server returned {error.code}: {error.message}")
+
+
+@dataclass(slots=True)
+class _BoundedTextTail:
+    limit: int
+    text: str = ""
+
+    def append(self, chunk: str) -> None:
+        if self.limit <= 0 or not chunk:
+            return
+        next_text = self.text + chunk
+        self.text = next_text[-self.limit :]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,9 +126,13 @@ class JsonlSdkProcess:
     shutdown_timeout: float = 5.0
     cwd: str | Path | None = None
     env: Mapping[str, str] | None = None
+    capture_stderr: bool = True
+    stderr_tail_limit: int = _DEFAULT_STDERR_TAIL_LIMIT
     _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
     _client: JsonlSdkClient | None = field(default=None, init=False, repr=False)
     _ready: JsonlSdkReady | None = field(default=None, init=False, repr=False)
+    _stderr_tail: _BoundedTextTail | None = field(default=None, init=False, repr=False)
+    _stderr_thread: threading.Thread | None = field(default=None, init=False, repr=False)
 
     @property
     def process(self) -> subprocess.Popen[str]:
@@ -135,39 +152,68 @@ class JsonlSdkProcess:
             raise JsonlSdkProcessError("SDK JSONL ready handshake has not completed.")
         return self._ready
 
+    @property
+    def stderr_tail(self) -> str:
+        """Return the captured stderr tail for the managed process."""
+        if self._stderr_tail is None:
+            return ""
+        return self._stderr_tail.text
+
     def start(self) -> Self:
         """Start the subprocess and read the validated ready handshake."""
         if self._process is not None:
             raise JsonlSdkProcessError("SDK JSONL process is already running.")
+        process = self._spawn_process()
+        stdout, stdin = self._process_pipes(process)
+        self._process = process
+        self._start_stderr_capture(process.stderr)
+        self._client = JsonlSdkClient(
+            input_stream=stdout,
+            output_stream=stdin,
+            client_capabilities_version=self.client_capabilities_version,
+            jsonl_version=self.jsonl_version,
+        )
+        self._read_ready_or_close()
+        return self
+
+    def _spawn_process(self) -> subprocess.Popen[str]:
         try:
-            process = subprocess.Popen(
+            return subprocess.Popen(
                 self.command or self.options.command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 cwd=str(self.cwd) if self.cwd is not None else None,
                 env=dict(self.env) if self.env is not None else None,
+                stderr=subprocess.PIPE if self.capture_stderr else None,
                 text=True,
                 bufsize=1,
             )
         except OSError as exc:
             raise JsonlSdkProcessError(f"Failed to start SDK JSONL process: {exc}") from exc
+
+    def _process_pipes(self, process: subprocess.Popen[str]) -> tuple[IO[str], IO[str]]:
         if process.stdin is None or process.stdout is None:
             process.kill()
             process.wait(timeout=self.shutdown_timeout)
             raise JsonlSdkProcessError("SDK JSONL process did not expose stdin/stdout pipes.")
-        self._process = process
-        self._client = JsonlSdkClient(
-            input_stream=process.stdout,
-            output_stream=process.stdin,
-            client_capabilities_version=self.client_capabilities_version,
-            jsonl_version=self.jsonl_version,
-        )
+        return process.stdout, process.stdin
+
+    def _read_ready_or_close(self) -> None:
+        client = self._client
+        if client is None:
+            raise JsonlSdkProcessError("SDK JSONL process has not started.")
         try:
-            self._ready = _read_ready_with_timeout(self._client, self.startup_timeout)
+            self._ready = _read_ready_with_timeout(client, self.startup_timeout)
+        except (JsonlSdkClientProtocolError, JsonlSdkProcessError) as exc:
+            self.close()
+            if stderr_tail := self.stderr_tail.strip():
+                raise JsonlSdkProcessError(
+                    _startup_error_with_stderr(str(exc), stderr_tail)
+                ) from exc
+            raise
         except Exception:
             self.close()
             raise
-        return self
 
     def close(self, timeout: float | None = None) -> None:
         """Close stdin and wait for the subprocess, killing it after the timeout."""
@@ -184,10 +230,13 @@ class JsonlSdkProcess:
                     process.kill()
                     process.wait(timeout=wait_timeout)
         finally:
+            self._join_stderr_thread(wait_timeout)
             self._close_process_stdout(process)
+            self._close_process_stderr(process)
             self._process = None
             self._client = None
             self._ready = None
+            self._stderr_thread = None
 
     def __enter__(self) -> Self:
         return self.start()
@@ -204,6 +253,42 @@ class JsonlSdkProcess:
     def _close_process_stdout(process: subprocess.Popen[str]) -> None:
         if process.stdout is not None and not process.stdout.closed:
             process.stdout.close()
+
+    @staticmethod
+    def _close_process_stderr(process: subprocess.Popen[str]) -> None:
+        if process.stderr is not None and not process.stderr.closed:
+            process.stderr.close()
+
+    def _start_stderr_capture(self, stream: IO[str] | None) -> None:
+        if stream is None:
+            self._stderr_tail = None
+            self._stderr_thread = None
+            return
+        tail = _BoundedTextTail(self.stderr_tail_limit)
+        self._stderr_tail = tail
+
+        def read_stderr() -> None:
+            try:
+                while True:
+                    chunk = stream.read(1024)
+                    if chunk == "":
+                        return
+                    tail.append(chunk)
+            except (OSError, ValueError):
+                return
+
+        thread = threading.Thread(
+            target=read_stderr,
+            name="heph-sdk-jsonl-stderr",
+            daemon=True,
+        )
+        thread.start()
+        self._stderr_thread = thread
+
+    def _join_stderr_thread(self, timeout: float | None) -> None:
+        thread = self._stderr_thread
+        if thread is not None:
+            thread.join(timeout=timeout)
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +523,11 @@ def jsonl_error_from_message(message: Mapping[str, object]) -> JsonlSdkErrorPayl
         message=_string_field(error, "message", "SDK JSONL error message"),
         unavailable_reason=unavailable_reason,
     )
+
+
+def _startup_error_with_stderr(message: str, stderr_tail: str) -> str:
+    clean_message = message.rstrip(".")
+    return f"{clean_message}. SDK JSONL process stderr:\n{stderr_tail}"
 
 
 def _read_ready_with_timeout(

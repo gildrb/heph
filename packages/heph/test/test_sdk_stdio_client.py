@@ -376,3 +376,21 @@ def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
 
     with pytest.raises(JsonlSdkProcessError, match="not running"):
         _ = transport.process
+
+
+def test_jsonl_sdk_process_reports_startup_stderr() -> None:
+    transport = JsonlSdkProcess(
+        command=(
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('sdk startup failed\\n'); sys.stderr.flush()",
+        ),
+        startup_timeout=1.0,
+        shutdown_timeout=1.0,
+    )
+
+    with pytest.raises(JsonlSdkProcessError, match="sdk startup failed") as exc:
+        transport.start()
+
+    assert "stream ended before a message" in str(exc.value)
+    assert transport.stderr_tail == "sdk startup failed\n"
