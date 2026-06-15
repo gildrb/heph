@@ -410,18 +410,42 @@ def _apply_prior_evidence_refs(state: _PlanContractApplication) -> tuple[str, ..
         state.retrieval_strategy,
         state.prior_contract,
     )
-    if evidence_refs and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+    if _reusing_prior_evidence(state, evidence_refs):
         state.retrieval_query = None
-    elif state.retrieval_query and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
+    elif _reuse_prior_without_evidence_has_query(state, evidence_refs):
         state.retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-    if (
-        evidence_refs
-        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and state.contract.is_followup
-        and state.contract.direct_evidence_required
-    ):
+    if _direct_followup_reuses_prior_evidence(state, evidence_refs):
         state.contract = replace(state.contract, prior_answer_reference=True)
     return evidence_refs
+
+
+def _reusing_prior_evidence(
+    state: _PlanContractApplication,
+    evidence_refs: tuple[str, ...],
+) -> bool:
+    return bool(evidence_refs) and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+
+
+def _reuse_prior_without_evidence_has_query(
+    state: _PlanContractApplication,
+    evidence_refs: tuple[str, ...],
+) -> bool:
+    return (
+        not evidence_refs
+        and bool(state.retrieval_query)
+        and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+    )
+
+
+def _direct_followup_reuses_prior_evidence(
+    state: _PlanContractApplication,
+    evidence_refs: tuple[str, ...],
+) -> bool:
+    return (
+        _reusing_prior_evidence(state, evidence_refs)
+        and state.contract.is_followup
+        and state.contract.direct_evidence_required
+    )
 
 
 def _prior_followup_retrieval_state(
