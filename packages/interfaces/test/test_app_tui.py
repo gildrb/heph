@@ -40,7 +40,6 @@ from interfaces.tui import keybinds, keymap
 from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
-from interfaces.tui.cell_text import cell_width
 from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
@@ -295,6 +294,7 @@ def test_session_status_keeps_full_model_name_when_width_is_tight() -> None:
 
     status = tui._status_lines(session, width=40)
 
+    assert "ARMORY none" in status
     assert "MODEL gpt-5.5" in status
     assert ".g." not in status
 
@@ -304,6 +304,11 @@ def test_session_status_supports_menu_title_replacement() -> None:
 
     assert status.startswith("Materials  ARMORY none")
     assert not status.startswith("Heph")
+
+
+def test_status_render_width_does_not_constrain_auto_width_status() -> None:
+    assert tui_display_text.status_render_width(80) is None
+    assert tui_display_text.status_render_width(0) is None
 
 
 def test_session_status_omits_api_badge_for_keyless_provider() -> None:
@@ -3341,19 +3346,19 @@ def test_status_lines_preserves_actual_armory_name_casing(tmp_path: Path) -> Non
     assert "ARMORY mixedcase-2" not in status
 
 
-def test_status_lines_shrinks_long_armory_name_before_model() -> None:
+def test_status_lines_preserves_long_armory_name_before_model() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
 
     status = tui._status_lines(session, width=40)
 
-    assert cell_width(status) <= 40
-    assert "ARMORY" not in status
+    assert "ARMORY very-long-armory-name" in status
     assert "MODEL test-model" in status
+    assert "REASONING" not in status
     assert " mode " not in status
 
 
-def test_status_lines_can_omit_armory_after_cost_shrinks() -> None:
+def test_status_lines_preserves_armory_name_before_optional_cost() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
     session.config.apply_provider_reference("openai-codex", "OPENAI_CODEX_OAUTH_TOKEN")
@@ -3362,31 +3367,30 @@ def test_status_lines_can_omit_armory_after_cost_shrinks() -> None:
 
     status = tui._status_lines(session, width=50)
 
-    assert cell_width(status) <= 50
-    assert "ARMORY" not in status
+    assert "ARMORY very-long-armory-name" in status
     assert "MODEL test-model" in status
-    assert "COST" in status
+    assert "COST" not in status
 
 
-def test_status_text_styles_only_rendered_labels_when_armory_is_omitted() -> None:
+def test_status_text_preserves_armory_when_reasoning_is_omitted() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
 
     status = tui._status_text(session, width=40)
 
-    assert "ARMORY" not in status.plain
+    assert "ARMORY very-long-armory-name" in status.plain
     assert "MODEL test-model" in status.plain
-    assert "REASONING low" in status.plain
+    assert "REASONING low" not in status.plain
 
 
-def test_status_text_ignores_omitted_label_words_inside_values() -> None:
+def test_status_text_handles_label_words_inside_values() -> None:
     session = _plain_session()
     session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
     session.config.model = "foo ARMORY bar"
 
     status = tui._status_text(session, width=52)
 
-    assert "ARMORY" not in status.plain.split("MODEL", maxsplit=1)[0]
+    assert "ARMORY" in status.plain.split("MODEL", maxsplit=1)[0]
     assert "MODEL foo ARMORY bar" in status.plain
 
 

@@ -63,13 +63,14 @@ def _fit_status_fields(
     if width <= 0:
         return fields
     fitted = list(fields)
-    for label in ("armory", "tokens", "cost"):
+    for label in ("tokens", "cost"):
         fitted = _shrink_status_field(title, fitted, label, width)
         if cell_width(_format_status_fields(title, fitted)) <= width:
             return fitted
-        without_armory = _without_status_field(fitted, "armory")
-        if cell_width(_format_status_fields(title, without_armory)) <= width:
-            return without_armory
+    for label in ("tokens", "reasoning", "cost"):
+        fitted = _without_status_field(fitted, label)
+        if cell_width(_format_status_fields(title, fitted)) <= width:
+            return fitted
     return fitted
 
 

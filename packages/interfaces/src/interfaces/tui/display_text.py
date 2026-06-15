@@ -31,7 +31,6 @@ _INFO_PANEL_VISIBLE_WIDTH = 38
 _INFO_PANEL_SCOPE = "scope"
 _INFO_PANEL_EVIDENCE = "evidence"
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
-_STATUS_SIDEBAR_GUTTER = len(STATUS_FIELD_GAP)
 
 
 @dataclass(frozen=True)
@@ -88,9 +87,11 @@ def status_text(
 
 
 def status_render_width(widget_width: int) -> int | None:
-    if widget_width <= 0:
-        return None
-    return max(1, widget_width - _STATUS_SIDEBAR_GUTTER)
+    # The status widget is auto-width. Its measured width can briefly reflect a
+    # previous, shorter render, so using it as a fitting constraint makes stable
+    # identity fields such as ARMORY flicker or truncate while typing.
+    del widget_width
+    return None
 
 
 def _rendered_status_labels(plain: str, labels: Sequence[str]) -> tuple[str, ...]:
