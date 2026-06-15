@@ -444,7 +444,7 @@ class JsonlSdkClient:
         ensure_sdk_client_payload_compatibility(
             ready.capabilities,
             client_capabilities_version=self.client_capabilities_version,
-            jsonl_version=ready.version,
+            jsonl_version=self.jsonl_version,
             accepted_stability_levels=self.accepted_stability_levels,
         )
         return ready
@@ -987,7 +987,11 @@ def parse_jsonl_message(line: str) -> JsonlPayload:
     if not is_string_mapping(parsed):
         raise JsonlSdkClientProtocolError("SDK JSONL messages must be JSON objects.")
     try:
-        return validate_jsonl_message_payload(parsed, allow_unknown_capability_fields=True)
+        return validate_jsonl_message_payload(
+            parsed,
+            allow_unknown_capability_fields=True,
+            allow_unknown_ready_state_fields=True,
+        )
     except HephSdkError as exc:
         raise JsonlSdkClientProtocolError(f"Invalid SDK JSONL message: {exc}") from exc
 

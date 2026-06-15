@@ -112,6 +112,7 @@ def validate_jsonl_message_payload(
     surface: str = "SDK JSONL",
     type_specs: tuple[SdkTypeSpec, ...] = SDK_TYPE_SPECS,
     allow_unknown_capability_fields: bool = False,
+    allow_unknown_ready_state_fields: bool = False,
 ) -> dict[str, object]:
     """Validate an outgoing JSONL transport envelope against advertised specs."""
     payload = _string_keyed_result_object(surface, "message", "payload", message)
@@ -126,6 +127,7 @@ def validate_jsonl_message_payload(
         spec,
         type_specs,
         allow_unknown_capability_fields=allow_unknown_capability_fields,
+        allow_unknown_ready_state_fields=allow_unknown_ready_state_fields,
     )
     return payload
 
@@ -463,6 +465,7 @@ def _validate_jsonl_message_fields(
     type_specs: tuple[SdkTypeSpec, ...],
     *,
     allow_unknown_capability_fields: bool,
+    allow_unknown_ready_state_fields: bool,
 ) -> None:
     type_map = _type_specs_by_name(type_specs)
     _validate_unknown_jsonl_message_fields(surface, message_type, payload, spec)
@@ -480,12 +483,29 @@ def _validate_jsonl_message_fields(
             value,
             field.value_type,
             type_map,
-            allow_unknown_fields=(
-                allow_unknown_capability_fields
-                and message_type == "ready"
-                and field.name == "capabilities"
+            allow_unknown_fields=_allow_unknown_jsonl_message_payload_fields(
+                message_type,
+                field.name,
+                allow_unknown_capability_fields=allow_unknown_capability_fields,
+                allow_unknown_ready_state_fields=allow_unknown_ready_state_fields,
             ),
         )
+
+
+def _allow_unknown_jsonl_message_payload_fields(
+    message_type: str,
+    field_name: str,
+    *,
+    allow_unknown_capability_fields: bool,
+    allow_unknown_ready_state_fields: bool,
+) -> bool:
+    if message_type != "ready":
+        return False
+    if field_name == "capabilities":
+        return allow_unknown_capability_fields
+    if field_name == "state":
+        return allow_unknown_ready_state_fields
+    return False
 
 
 def _validate_unknown_jsonl_message_fields(

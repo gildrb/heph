@@ -791,8 +791,8 @@ SDK_COMPATIBILITY_POLICY = SdkCompatibilityPolicy(
         "advertised contract change."
     ),
     additive_change_policy=(
-        "Clients must ignore unknown capability fields and may opt into newly advertised "
-        "methods, fields, events, and types."
+        "Clients must ignore unknown ready capability and state fields and may opt into newly "
+        "advertised methods, fields, events, and types."
     ),
     deprecation_policy=(
         "Advertise deprecations in capabilities before removal and keep deprecated names until "

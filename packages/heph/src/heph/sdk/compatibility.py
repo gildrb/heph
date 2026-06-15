@@ -224,21 +224,52 @@ def _compatibility_issues(
     accepted_stability_levels: Sequence[str],
 ) -> tuple[str, ...]:
     issues: list[str] = []
+    normalized_client_version = _normalized_client_capabilities_version(
+        issues,
+        client_capabilities_version,
+    )
+    normalized_jsonl_version = _normalized_client_jsonl_version(issues, jsonl_version)
     _append_stability_issues(
         issues,
         stability,
         accepted_stability_levels,
     )
-    _append_capability_version_issues(
-        issues,
-        capabilities_version=capabilities_version,
-        current_capabilities_version=current_capabilities_version,
-        min_client_capabilities_version=min_client_capabilities_version,
-        client_capabilities_version=client_capabilities_version,
-    )
-    if jsonl_version is not None:
-        _append_jsonl_version_issues(issues, jsonl_version, supported_jsonl_versions)
+    if normalized_client_version is not None:
+        _append_capability_version_issues(
+            issues,
+            capabilities_version=capabilities_version,
+            current_capabilities_version=current_capabilities_version,
+            min_client_capabilities_version=min_client_capabilities_version,
+            client_capabilities_version=normalized_client_version,
+        )
+    if normalized_jsonl_version is not None:
+        _append_jsonl_version_issues(issues, normalized_jsonl_version, supported_jsonl_versions)
     return tuple(issues)
+
+
+def _normalized_client_capabilities_version(
+    issues: list[str],
+    client_capabilities_version: object,
+) -> int | None:
+    if isinstance(client_capabilities_version, int) and not isinstance(
+        client_capabilities_version,
+        bool,
+    ):
+        return client_capabilities_version
+    issues.append("SDK client capability version must be an integer.")
+    return None
+
+
+def _normalized_client_jsonl_version(
+    issues: list[str],
+    jsonl_version: object | None,
+) -> int | None:
+    if jsonl_version is None:
+        return None
+    if isinstance(jsonl_version, int) and not isinstance(jsonl_version, bool):
+        return jsonl_version
+    issues.append("SDK JSONL version must be an integer or None.")
+    return None
 
 
 def _append_stability_issues(

@@ -1045,6 +1045,25 @@ def test_jsonl_sdk_client_rejects_incompatible_ready_payload() -> None:
         client.read_ready()
 
 
+def test_jsonl_sdk_client_rejects_malformed_client_compatibility_versions() -> None:
+    service = HephService.plain(config=_config())
+    ready_message = _ready_message(service)
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+        client_capabilities_version=cast("int", True),
+        jsonl_version=cast("int", True),
+    )
+
+    with pytest.raises(SdkClientCompatibilityError, match="capability version") as exc:
+        client.read_ready()
+
+    assert exc.value.issues == (
+        "SDK client capability version must be an integer.",
+        "SDK JSONL version must be an integer or None.",
+    )
+
+
 def test_jsonl_sdk_client_requires_accepted_ready_stability() -> None:
     service = HephService.plain(config=_config())
     capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
@@ -1106,6 +1125,45 @@ def test_jsonl_sdk_client_ignores_unknown_ready_capability_fields() -> None:
     assert ready.capabilities["future_section"] == {"enabled": True}
     assert _payload_mapping(ready.capabilities["compatibility"])["future_policy"] == "ignore me"
     assert _payload_mapping(ready.capabilities["jsonl"])["future_transport"] == {"name": "future"}
+
+
+def test_jsonl_sdk_client_ignores_unknown_ready_state_fields() -> None:
+    service = HephService.plain(config=_config())
+    ready_message = _ready_message(service)
+    state = dict(_payload_mapping(ready_message["state"]))
+    service_state = dict(_payload_mapping(state["service"]))
+    service_state["future_service_field"] = {"name": "future"}
+    state["service"] = service_state
+    state["future_state_section"] = {"enabled": True}
+    ready_message["state"] = state
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+    )
+
+    ready = client.read_ready()
+
+    ready_state = _payload_mapping(ready.state)
+    ready_service_state = _payload_mapping(ready_state["service"])
+    assert ready_state["future_state_section"] == {"enabled": True}
+    assert ready_service_state["future_service_field"] == {"name": "future"}
+
+
+def test_jsonl_sdk_client_rejects_malformed_known_ready_state_fields() -> None:
+    service = HephService.plain(config=_config())
+    ready_message = _ready_message(service)
+    state = dict(_payload_mapping(ready_message["state"]))
+    service_state = dict(_payload_mapping(state["service"]))
+    service_state["is_busy"] = "no"
+    state["service"] = service_state
+    ready_message["state"] = state
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(json.dumps(ready_message) + "\n"),
+        output_stream=io.StringIO(),
+    )
+
+    with pytest.raises(JsonlSdkClientProtocolError, match=r"is_busy.*boolean"):
+        client.read_ready()
 
 
 def test_jsonl_sdk_process_options_build_command() -> None:

@@ -1523,7 +1523,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         sdk_methods.SDK_JSONL_VERSION
     ]
     assert "Bump JSONL version" in str(compatibility["breaking_change_policy"])
-    assert "ignore unknown capability fields" in str(compatibility["additive_change_policy"])
+    assert "ignore unknown ready capability and state fields" in str(
+        compatibility["additive_change_policy"]
+    )
     assert "Advertise deprecations" in str(compatibility["deprecation_policy"])
     assert deprecations == []
     assert SDK_DEPRECATION_SURFACES == sdk_methods.SDK_DEPRECATION_SURFACES
@@ -2248,6 +2250,34 @@ def test_sdk_client_compatibility_helpers_reject_incompatible_versions() -> None
         f"SDK client capability version {newer_client_version} is newer than server "
         f"capabilities {sdk_methods.SDK_CAPABILITIES_VERSION}.",
     )
+
+
+def test_sdk_client_compatibility_helpers_reject_malformed_client_versions() -> None:
+    capabilities = get_sdk_capabilities()
+    payload = capabilities.to_dict()
+
+    native_issues = validate_sdk_client_compatibility(
+        capabilities,
+        client_capabilities_version=cast("int", True),
+        jsonl_version=cast("int", "1"),
+    )
+    payload_issues = validate_sdk_client_payload_compatibility(
+        payload,
+        client_capabilities_version=cast("int", "37"),
+        jsonl_version=cast("int", True),
+    )
+
+    assert native_issues == (
+        "SDK client capability version must be an integer.",
+        "SDK JSONL version must be an integer or None.",
+    )
+    assert payload_issues == native_issues
+    with pytest.raises(SdkClientCompatibilityError, match="capability version"):
+        ensure_sdk_client_payload_compatibility(
+            payload,
+            client_capabilities_version=cast("int", True),
+            jsonl_version=sdk_methods.SDK_JSONL_VERSION,
+        )
 
 
 def test_sdk_client_compatibility_helpers_require_accepted_stability() -> None:

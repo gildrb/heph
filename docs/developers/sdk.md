@@ -461,11 +461,12 @@ from a transport handshake. These helpers accept only `public` SDK stability by
 default; clients that intentionally bind to `preview` or `internal` surfaces
 must pass `accepted_stability_levels` explicitly. Empty, non-string, or unknown
 accepted stability levels are reported as compatibility issues so startup
-negotiation can fail through one SDK error family.
+negotiation can fail through one SDK error family. Malformed client capability
+or JSONL version inputs are reported the same way before version comparison.
 The Python JSONL client honors the additive policy during the ready handshake:
-it validates known capability fields but ignores unknown fields inside
-`ready.capabilities`, while server-side outgoing payload validation remains
-strict against the current advertised contract.
+it validates known capability and state fields but ignores unknown fields inside
+`ready.capabilities` and `ready.state`, while server-side outgoing payload
+validation remains strict against the current advertised contract.
 The top-level `deprecations` list advertises planned removals as structured
 entries with `surface`, `name`, `since_version`, nullable `removal_version`,
 `replacement`, and `message`. Clients should prefer replacements when present and
