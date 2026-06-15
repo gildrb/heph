@@ -1524,3 +1524,17 @@ def test_sdk_serve_cli_starts_session_for_created_armory(
     assert captured.create_armory
     assert captured.session_id is None
     assert captured.start_session
+
+
+def test_sdk_capabilities_cli_prints_contract(capsys: pytest.CaptureFixture[str]) -> None:
+    run_argv(build_parser(), ["sdk", "capabilities"])
+
+    output = capsys.readouterr().out
+    payload = _payload_mapping(json.loads(output))
+    jsonl = _payload_mapping(payload["jsonl"])
+    compatibility = _payload_mapping(payload["compatibility"])
+
+    assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
+    assert jsonl["protocol"] == SDK_JSONL_PROTOCOL
+    assert jsonl["version"] == SDK_JSONL_VERSION
+    assert compatibility["current_capabilities_version"] == sdk_methods.SDK_CAPABILITIES_VERSION

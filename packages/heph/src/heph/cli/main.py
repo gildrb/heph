@@ -153,6 +153,15 @@ def _cmd_sdk_serve(args: argparse.Namespace) -> None:
     sdk_stdio.serve_stdio(options)
 
 
+def _cmd_sdk_capabilities(args: argparse.Namespace) -> None:
+    json = importlib.import_module("json")
+    sdk_capabilities = importlib.import_module("heph.sdk.capabilities")
+    payload = sdk_capabilities.get_sdk_capabilities().to_dict()
+    indent = 2 if args.pretty else None
+    separators = None if args.pretty else (",", ":")
+    print(json.dumps(payload, ensure_ascii=False, indent=indent, separators=separators))
+
+
 def _validated_armory_path(path: str) -> Path:
     armory_storage = importlib.import_module("hephaion.armory.storage")
     try:
@@ -678,6 +687,17 @@ def build_parser() -> argparse.ArgumentParser:
     sdk_serve.add_argument("--reasoning-level", help="Override the reasoning level.")
     sdk_serve.add_argument("--temperature", type=float, help="Override generation temperature.")
     sdk_serve.set_defaults(handler=_cmd_sdk_serve)
+
+    sdk_capabilities = sdk_sub.add_parser(
+        "capabilities",
+        help="Print the SDK capability contract as JSON.",
+    )
+    sdk_capabilities.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print the capability JSON.",
+    )
+    sdk_capabilities.set_defaults(handler=_cmd_sdk_capabilities)
 
     # Chat automation is hidden from the main help, but kept for scripts and
     # harness audits that need a structured non-interactive turn stream.

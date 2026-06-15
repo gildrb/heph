@@ -26,6 +26,7 @@
 | `heph local stop` | Stop the managed llama.cpp server. |
 | `heph update` | Show how to update the active Heph install. |
 | `heph sdk serve` | Run the SDK JSONL stdio service. |
+| `heph sdk capabilities` | Print the SDK capability contract as JSON. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat ask <path> [prompt]` | Ask one question without opening the TUI. |

@@ -157,6 +157,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
     "heph sdk serve": "Run the SDK JSONL stdio service for native clients.",
+    "heph sdk capabilities": "Print the SDK capability contract as JSON.",
     "heph chat ask --jsonl <path> [prompt]": (
         "Emit structured turn events as JSON Lines for harness audits."
     ),
@@ -343,6 +344,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(f"{short_command} local stop", local_help["stop"]),
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),
+        CommandLine(f"{short_command} sdk capabilities", sdk_help["capabilities"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),
