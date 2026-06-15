@@ -115,18 +115,44 @@ def _prior_answer_reference_followup_retrieval(
     contract: TurnContract,
     prior_contract: TurnContract | None,
 ) -> _FollowupRetrievalDecision | None:
-    if prior_contract is None or not prior_contract.evidence_refs or not contract.is_followup:
+    if prior_contract is None:
         return None
-    if not contract.prior_answer_reference:
+    if not _prior_answer_reference_can_reuse_prior(contract, prior_contract):
         return None
-    if (
+    if overview_retrieval := _prior_answer_reference_overview_retrieval(
+        contract,
+        prior_contract,
+    ):
+        return overview_retrieval
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
+
+
+def _prior_answer_reference_can_reuse_prior(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+) -> bool:
+    if not _contract_has_prior_evidence_followup(contract, prior_contract):
+        return False
+    return contract.prior_answer_reference
+
+
+def _prior_answer_reference_overview_retrieval(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+) -> _FollowupRetrievalDecision | None:
+    if not _prior_answer_reference_needs_overview_search(contract):
+        return None
+    semantic_query = _first_non_literal_followup_query(contract, prior_contract)
+    if not semantic_query:
+        return None
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
+
+
+def _prior_answer_reference_needs_overview_search(contract: TurnContract) -> bool:
+    return (
         contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR
         and contract.resolved_intent == "material_overview"
-    ):
-        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-        if semantic_query:
-            return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
-    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
+    )
 
 
 def _missing_prior_evidence_followup_retrieval(
@@ -240,19 +266,39 @@ def _prior_retrieve_followup_retrieval(
     retrieval_strategy: str,
     retrieval_query: str | None,
 ) -> _FollowupRetrievalDecision | None:
-    if (
-        prior_contract is None
-        or not prior_contract.evidence_refs
-        or not contract.is_followup
-        or retrieval_strategy != RETRIEVAL_STRATEGY_RETRIEVE
-        or not retrieval_query
+    if prior_contract is None or not retrieval_query:
+        return None
+    if not _prior_retrieve_followup_can_expand(
+        contract,
+        prior_contract,
+        retrieval_strategy=retrieval_strategy,
     ):
         return None
-    if _same_normalized_text(retrieval_query, contract.original_user_input):
-        semantic_query = _first_non_literal_followup_query(contract, prior_contract)
-        if semantic_query:
-            return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, semantic_query)
-    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_EXPAND_PRIOR, retrieval_query)
+    return _FollowupRetrievalDecision(
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        _prior_retrieve_followup_query(contract, prior_contract, retrieval_query),
+    )
+
+
+def _prior_retrieve_followup_can_expand(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    if not _contract_has_prior_evidence_followup(contract, prior_contract):
+        return False
+    return retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
+
+
+def _prior_retrieve_followup_query(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    retrieval_query: str,
+) -> str:
+    if not _same_normalized_text(retrieval_query, contract.original_user_input):
+        return retrieval_query
+    return _first_non_literal_followup_query(contract, prior_contract) or retrieval_query
 
 
 def _prior_followup_retrieval_state(
