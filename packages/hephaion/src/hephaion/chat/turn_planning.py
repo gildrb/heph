@@ -117,6 +117,18 @@ class _PlanContractApplication:
     retrieval_query: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _RetrievalState:
+    strategy: str
+    query: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ReasoningFollowupApplication:
+    contract: TurnContract
+    retrieval: _RetrievalState
+
+
 def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
     if plan is None:
         return ""
@@ -207,12 +219,14 @@ def _apply_prior_answer_followup_state(state: _PlanContractApplication) -> None:
         )
         state.retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
         state.retrieval_query = None
-    state.retrieval_strategy, state.retrieval_query = _prior_followup_retrieval_strategy(
+    retrieval = _prior_followup_retrieval_state(
         state.contract,
         prior_contract=state.prior_contract,
         retrieval_strategy=state.retrieval_strategy,
         retrieval_query=state.retrieval_query,
     )
+    state.retrieval_strategy = retrieval.strategy
+    state.retrieval_query = retrieval.query
 
 
 def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> None:
@@ -224,16 +238,15 @@ def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> N
     ):
         state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
         state.retrieval_query = _fresh_current_request_query(state.contract)
-    (
-        state.contract,
-        state.retrieval_strategy,
-        state.retrieval_query,
-    ) = _apply_reasoning_followup_contract(
+    application = _apply_reasoning_followup_contract(
         state.contract,
         prior_contract=state.prior_contract,
         retrieval_strategy=state.retrieval_strategy,
         retrieval_query=state.retrieval_query,
     )
+    state.contract = application.contract
+    state.retrieval_strategy = application.retrieval.strategy
+    state.retrieval_query = application.retrieval.query
     if (
         _expanded_prior_should_use_current_request(
             state.contract,
@@ -405,13 +418,13 @@ def _apply_prior_evidence_refs(state: _PlanContractApplication) -> tuple[str, ..
     return evidence_refs
 
 
-def _prior_followup_retrieval_strategy(
+def _prior_followup_retrieval_state(
     contract: TurnContract,
     *,
     prior_contract: TurnContract | None,
     retrieval_strategy: str,
     retrieval_query: str | None,
-) -> tuple[str, str | None]:
+) -> _RetrievalState:
     if (
         prior_contract is not None
         and prior_contract.evidence_refs
@@ -431,7 +444,7 @@ def _prior_followup_retrieval_strategy(
     ):
         retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
         retrieval_query = _fresh_current_request_query(contract)
-    return retrieval_strategy, retrieval_query
+    return _RetrievalState(strategy=retrieval_strategy, query=retrieval_query)
 
 
 def _apply_reasoning_followup_contract(
@@ -440,22 +453,27 @@ def _apply_reasoning_followup_contract(
     prior_contract: TurnContract | None,
     retrieval_strategy: str,
     retrieval_query: str | None,
-) -> tuple[TurnContract, str, str | None]:
+) -> _ReasoningFollowupApplication:
     if not _transform_followup_introduces_substantive_request(
         contract,
         prior_contract=prior_contract,
     ):
-        return contract, retrieval_strategy, retrieval_query
-    return (
-        replace(
+        return _ReasoningFollowupApplication(
+            contract=contract,
+            retrieval=_RetrievalState(strategy=retrieval_strategy, query=retrieval_query),
+        )
+    return _ReasoningFollowupApplication(
+        contract=replace(
             contract,
             answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
             prior_answer_reference=True,
             prior_answer_positions=(),
             prior_answer_position_basis="",
         ),
-        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-        _current_request_query(contract),
+        retrieval=_RetrievalState(
+            strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+            query=_current_request_query(contract),
+        ),
     )
 
 
