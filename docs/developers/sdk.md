@@ -41,6 +41,8 @@ SwiftUI / GUI / automation client
   which methods require an armory, a session, an armory-backed session, or
   attached source files.
 - JSON-ready `to_dict()` helpers for transport clients.
+- `JsonlSdkClient` plus JSONL request/message helpers for Python clients that
+  spawn `heph sdk serve`.
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
 
@@ -175,6 +177,40 @@ Responses are JSON objects with explicit transport types:
 {"type":"stream_event","id":"turn-1","event":{"type":"assistant_delta","delta":"..."}}
 {"type":"stream_end","id":"turn-1","ok":true}
 ```
+
+Python clients that spawn the process can use the reference JSONL client helper
+instead of writing framing code by hand:
+
+```python
+import subprocess
+
+from heph.sdk import JsonlSdkClient
+
+process = subprocess.Popen(
+    ["heph", "sdk", "serve", "--armory", "~/my-armory"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+assert process.stdin is not None
+assert process.stdout is not None
+
+client = JsonlSdkClient(process.stdout, process.stdin)
+ready = client.read_ready()
+state = client.call("state")
+
+for event in client.stream("prompt", {"text": "Explain these notes."}):
+    render(event)
+```
+
+`JsonlSdkClient.read_ready()` validates the protocol/version handshake and the
+advertised capability compatibility policy. `call()` raises
+`JsonlSdkServerError` for structured server error envelopes, while `stream()`
+yields event payloads until `stream_end` and raises the same structured error
+when a stream fails. More advanced clients can use `encode_jsonl_request()`,
+`parse_jsonl_message()`, `jsonl_ready_from_message()`, and
+`jsonl_error_from_message()` directly when they need their own request routing
+or UI event loop.
 
 ## Session and Runtime Split
 
