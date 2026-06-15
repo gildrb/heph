@@ -799,6 +799,57 @@ def test_jsonl_sdk_server_prunes_completed_stream_threads(
     assert output.getvalue().count('"type": "stream_end"') == 2
 
 
+def test_jsonl_sdk_server_rejects_active_prompt_request_id_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "tracked prompt"
+        started.set()
+        yield AssistantDeltaEvent("first")
+        assert release.wait(timeout=2.0)
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = io.StringIO()
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request(
+        {"id": "turn-1", "method": "prompt", "params": {"text": "tracked prompt"}}
+    )
+    assert started.wait(timeout=2.0)
+    server.handle_request({"id": "turn-1", "method": "state"})
+
+    release.set()
+    server._wait_for_streams()
+
+    payloads = _payloads(output.getvalue())
+    collision_error = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "turn-1" and payload["type"] == "error"
+    )
+    collision_error_payload = _payload_mapping(collision_error["error"])
+
+    assert collision_error_payload["code"] == "invalid_request"
+    assert "already in use by an active stream" in str(collision_error_payload["message"])
+    assert payloads[-1] == {"type": "stream_end", "id": "turn-1", "ok": True}
+
+
 def test_jsonl_sdk_server_maps_service_busy_errors_to_busy_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
