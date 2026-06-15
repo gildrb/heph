@@ -590,15 +590,38 @@ def _first_non_literal_followup_query(
 ) -> str | None:
     if semantic_current_query := _current_turn_semantic_query(contract):
         return semantic_current_query
-    prior_candidates = [
-        prior_contract.canonical_request if prior_contract is not None else "",
-        prior_contract.retrieval_query if prior_contract is not None else "",
-    ]
+    return _prior_non_literal_followup_query(contract, prior_contract)
+
+
+def _prior_non_literal_followup_query(
+    contract: TurnContract,
+    prior_contract: TurnContract | None,
+) -> str | None:
+    return _best_non_literal_followup_query(
+        contract,
+        _prior_followup_query_candidates(prior_contract),
+    )
+
+
+def _prior_followup_query_candidates(prior_contract: TurnContract | None) -> tuple[str, ...]:
+    if prior_contract is None:
+        return ()
+    return (prior_contract.canonical_request, prior_contract.retrieval_query)
+
+
+def _best_non_literal_followup_query(
+    contract: TurnContract,
+    candidates: tuple[str, ...],
+) -> str | None:
     semantic_candidates = [
         candidate
-        for candidate in prior_candidates
-        if candidate and not _same_normalized_text(candidate, contract.original_user_input)
+        for candidate in candidates
+        if _is_non_literal_followup_query(contract, candidate)
     ]
     if not semantic_candidates:
         return None
     return max(semantic_candidates, key=_semantic_query_specificity)
+
+
+def _is_non_literal_followup_query(contract: TurnContract, candidate: str) -> bool:
+    return bool(candidate) and not _same_normalized_text(candidate, contract.original_user_input)
