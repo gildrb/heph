@@ -23,6 +23,7 @@ from heph.sdk.methods import (
 from heph.sdk.runtime import HephSdkError
 from heph.sdk.value_types import (
     sdk_array_item_type,
+    sdk_json_number_is_finite,
     sdk_literal_value,
     sdk_map_item_type,
 )
@@ -1024,7 +1025,7 @@ def _is_json_integer(value: object) -> bool:
 
 
 def _is_json_number(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
+    return sdk_json_number_is_finite(value)
 
 
 def _is_json_number_or_null(value: object) -> bool:
@@ -1070,8 +1071,8 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
     "string": _TypeRule("a string", _is_json_string),
     "boolean": _TypeRule("a boolean", _is_json_boolean),
     "integer": _TypeRule("an integer", _is_json_integer),
-    "number": _TypeRule("a number", _is_json_number),
-    "number_or_null": _TypeRule("a number or null", _is_json_number_or_null),
+    "number": _TypeRule("a finite number", _is_json_number),
+    "number_or_null": _TypeRule("a finite number or null", _is_json_number_or_null),
     "string_or_integer": _TypeRule("a string or integer", _is_json_string_or_integer),
     "object": _TypeRule("an object", _is_json_object),
 }

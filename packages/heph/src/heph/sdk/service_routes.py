@@ -19,6 +19,7 @@ from heph.sdk.methods import SdkMethodParameter
 from heph.sdk.runtime import HephSdkError
 from heph.sdk.settings import SDK_APP_SETTING_CONTRACTS
 from heph.sdk.state import HephSdkMethodAvailability
+from heph.sdk.value_types import sdk_json_finite_float
 
 type ServicePayload = dict[str, object]
 type ServiceStream = Iterator[ServicePayload]
@@ -383,9 +384,10 @@ def _optional_float(params: Mapping[str, object], key: str) -> float | None:
     value = params.get(key)
     if value is None:
         return None
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    raise HephSdkError(f"SDK service parameter '{key}' must be a number or null.")
+    numeric_value = sdk_json_finite_float(value)
+    if numeric_value is not None:
+        return numeric_value
+    raise HephSdkError(f"SDK service parameter '{key}' must be a finite number or null.")
 
 
 _CONFIG_PARAMS = (

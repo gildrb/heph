@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Collection
 from dataclasses import dataclass
 
@@ -20,6 +21,27 @@ _COLLECTION_VALUE_TYPE_SPECS = (
     _CollectionValueTypeSpec(_ARRAY_PREFIX, "empty array item type"),
     _CollectionValueTypeSpec(_MAP_PREFIX, "empty map item type"),
 )
+
+
+def sdk_json_number_is_finite(value: object) -> bool:
+    """Return whether a value is a JSON-safe finite SDK number."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def sdk_json_finite_float(value: object) -> float | None:
+    """Return a float for finite SDK numbers that can be represented as floats."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not sdk_json_number_is_finite(value):
+        return None
+    try:
+        return float(value)
+    except OverflowError:
+        return None
 
 
 def sdk_array_item_type(value_type: str) -> str | None:

@@ -10,6 +10,7 @@ from ai.providers.reasoning import normalize_reasoning_level
 from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from heph.sdk.runtime import HephSdkError
+from heph.sdk.value_types import sdk_json_finite_float
 
 type SdkConfigUpdateName = Literal[
     "base_url",
@@ -72,9 +73,10 @@ def _require_integer_update(name: str, value: SdkConfigUpdateValue) -> int:
 def _optional_temperature_update(value: SdkConfigUpdateValue) -> float | None:
     if value is None:
         return None
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return min(2.0, max(0.0, float(value)))
-    raise HephSdkError("SDK config field 'temperature' must be a number or null.")
+    temperature = sdk_json_finite_float(value)
+    if temperature is not None:
+        return min(2.0, max(0.0, temperature))
+    raise HephSdkError("SDK config field 'temperature' must be a finite number or null.")
 
 
 def _require_feature_flags_update(value: SdkConfigUpdateValue) -> frozenset[str]:

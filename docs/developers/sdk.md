@@ -166,7 +166,9 @@ heph sdk serve --armory ~/my-armory
 ```
 
 The serve command accepts startup overrides for provider/model settings,
-generation limits, reasoning level, thinking visibility, and temperature.
+generation limits, reasoning level, thinking visibility, and temperature. SDK
+values advertised as `number` or `number_or_null` must be finite JSON numbers;
+`NaN` and infinities are rejected before config or transport state changes.
 
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
 single JSON object with an `id`, `method`, and optional `params` object:

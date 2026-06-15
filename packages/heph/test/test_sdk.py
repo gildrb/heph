@@ -452,6 +452,19 @@ def test_sdk_result_validation_accepts_advertised_result_shape() -> None:
     assert validate_result_payload("check", result, specs) == result
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_sdk_result_validation_rejects_nonfinite_numbers(value: float) -> None:
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("latency", "number"),),
+        ),
+    )
+
+    with pytest.raises(HephSdkError, match="finite number"):
+        validate_result_payload("check", {"latency": value}, specs)
+
+
 def test_sdk_result_validation_accepts_nested_advertised_dto_shape() -> None:
     type_specs = (
         sdk_methods.SdkTypeSpec(
@@ -1113,8 +1126,8 @@ def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
         ("name", 7, "a string"),
         ("enabled", "yes", "a boolean"),
         ("count", True, "an integer"),
-        ("ratio", False, "a number"),
-        ("maybe", "1", "a number or null"),
+        ("ratio", False, "a finite number"),
+        ("maybe", "1", "a finite number or null"),
         ("identity", False, "a string or integer"),
         ("payload", [], "an object"),
         ("items", "not an array", "an array"),
@@ -1145,6 +1158,35 @@ def test_sdk_method_validation_rejects_advertised_value_type_mismatch(
     )
 
     with pytest.raises(HephSdkError, match=message):
+        validate_method_params("check", {name: value}, specs)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("ratio", float("nan")),
+        ("ratio", float("inf")),
+        ("ratio", float("-inf")),
+        ("maybe", float("nan")),
+        ("maybe", float("inf")),
+        ("maybe", float("-inf")),
+    ],
+)
+def test_sdk_method_validation_rejects_nonfinite_numbers(
+    name: str,
+    value: float,
+) -> None:
+    specs = (
+        sdk_methods.SdkMethodSpec(
+            "check",
+            (
+                sdk_methods.SdkMethodParameter("ratio", "number", False),
+                sdk_methods.SdkMethodParameter("maybe", "number_or_null", False),
+            ),
+        ),
+    )
+
+    with pytest.raises(HephSdkError, match="finite number"):
         validate_method_params("check", {name: value}, specs)
 
 
@@ -3134,6 +3176,14 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
     assert config.thinking_visibility == "all"
 
 
+@pytest.mark.parametrize("temperature", [float("nan"), float("inf"), float("-inf")])
+def test_factory_rejects_nonfinite_temperature(temperature: float) -> None:
+    options = HephSdkOptions(config=_config(), temperature=temperature)
+
+    with pytest.raises(HephSdkError, match="finite number or null"):
+        create_chat_config(options)
+
+
 def test_factory_rejects_create_armory_without_path() -> None:
     options = HephSdkOptions(create_armory=True)
 
@@ -4758,8 +4808,8 @@ def test_service_ask_falls_back_to_streamed_deltas(
         ("max_tokens", False, "integer"),
         ("rag_context_budget", True, "integer"),
         ("rag_context_budget", False, "integer"),
-        ("temperature", True, "number or null"),
-        ("temperature", False, "number or null"),
+        ("temperature", True, "finite number or null"),
+        ("temperature", False, "finite number or null"),
     ],
 )
 def test_service_update_config_rejects_boolean_numeric_values(
@@ -4775,6 +4825,17 @@ def test_service_update_config_rejects_boolean_numeric_values(
 
     assert original.max_tokens == 4096
     assert original.rag_context_budget == 2000
+    assert original.temperature == 0.0
+
+
+@pytest.mark.parametrize("temperature", [float("nan"), float("inf"), float("-inf")])
+def test_service_update_config_rejects_nonfinite_temperature(temperature: float) -> None:
+    service = HephService.plain(config=_config())
+    original = service.runtime.config
+
+    with pytest.raises(HephSdkError, match="finite number or null"):
+        service.call("update_config", {"temperature": temperature})
+
     assert original.temperature == 0.0
 
 
