@@ -60,6 +60,7 @@ from hephaion.chat.conversation_context import (
     _last_assistant_message,
     _last_cited_assistant_message,
 )
+from hephaion.chat.current_topic_planning import _current_topic_retrieval_state
 from hephaion.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
 )
@@ -68,22 +69,12 @@ from hephaion.chat.turn_contract_checks import (
     _plan_requires_citations,
 )
 from hephaion.chat.turn_query import (
-    _best_current_request_query,
     _content_terms,
     _current_request_introduces_fresh_content,
-    _normalized_query_terms,
-    _same_normalized_text,
 )
 
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
 _DEFAULT_MATERIAL_OVERVIEW_REQUEST = "Provide a compact overview of the material contents."
-_CURRENT_TOPIC_QUERY_INTENTS = frozenset({"source_qa", "topic_presentation"})
-_CURRENT_TOPIC_QUERY_BLOCKED_STRATEGIES = frozenset(
-    {
-        RETRIEVAL_STRATEGY_NONE,
-        RETRIEVAL_STRATEGY_REUSE_PRIOR,
-    }
-)
 _EMPTY_QUERY_NO_RETRIEVAL_STRATEGIES = frozenset(
     {
         RETRIEVAL_STRATEGY_NONE,
@@ -339,22 +330,14 @@ def _followup_reuses_missing_prior_evidence(state: _PlanContractApplication) -> 
 
 
 def _apply_current_topic_retrieval_state(state: _PlanContractApplication) -> None:
-    current_topic_query = _stabilized_current_topic_query(
+    current_topic_state = _current_topic_retrieval_state(
         state.contract,
-        state.retrieval_query,
+        state.prior_contract,
         retrieval_strategy=state.retrieval_strategy,
+        retrieval_query=state.retrieval_query,
     )
-    if current_topic_query != state.retrieval_query:
-        if (
-            state.prior_contract is not None
-            and state.prior_contract.evidence_refs
-            and state.contract.is_followup
-            and state.contract.resolved_intent == "source_qa"
-        ):
-            state.retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        else:
-            state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
-    state.retrieval_query = current_topic_query
+    state.retrieval_strategy = current_topic_state.strategy
+    state.retrieval_query = current_topic_state.query
 
 
 def _apply_direct_evidence_state(state: _PlanContractApplication) -> None:
@@ -803,80 +786,6 @@ def _followup_lacks_replayable_prior_surface(
         and contract.is_followup
         and not contract.canonical_request
         and not _contract_followup_target(contract)
-    )
-
-
-def _stabilized_current_topic_query(
-    contract: TurnContract,
-    retrieval_query: str | None,
-    *,
-    retrieval_strategy: str,
-) -> str | None:
-    if _expanded_prior_source_query_should_stay(
-        contract,
-        retrieval_query,
-        retrieval_strategy=retrieval_strategy,
-    ):
-        return retrieval_query
-    if not _contract_can_choose_current_topic_query(
-        contract,
-        retrieval_strategy=retrieval_strategy,
-    ):
-        return retrieval_query
-    return _current_topic_query_for_contract(contract, retrieval_query)
-
-
-def _expanded_prior_source_query_should_stay(
-    contract: TurnContract,
-    retrieval_query: str | None,
-    *,
-    retrieval_strategy: str,
-) -> bool:
-    return (
-        contract.resolved_intent == "source_qa"
-        and retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        and bool(retrieval_query)
-        and not _same_normalized_text(retrieval_query, contract.original_user_input)
-    )
-
-
-def _contract_can_choose_current_topic_query(
-    contract: TurnContract,
-    *,
-    retrieval_strategy: str,
-) -> bool:
-    if not contract.is_followup:
-        return False
-    if contract.resolved_intent not in _CURRENT_TOPIC_QUERY_INTENTS:
-        return False
-    if contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE:
-        return False
-    if contract.prior_answer_reference:
-        return False
-    return retrieval_strategy not in _CURRENT_TOPIC_QUERY_BLOCKED_STRATEGIES
-
-
-def _current_topic_query_for_contract(
-    contract: TurnContract,
-    retrieval_query: str | None,
-) -> str | None:
-    current_query = contract.canonical_request
-    if not current_query:
-        return retrieval_query
-    if not retrieval_query:
-        return current_query
-    request_terms = _normalized_query_terms(contract.original_user_input)
-    if not request_terms:
-        return retrieval_query
-    return _best_current_request_query(
-        request_terms,
-        original_text=contract.original_user_input,
-        candidates=(
-            retrieval_query,
-            current_query,
-            _contract_followup_target(contract),
-        ),
-        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
     )
 
 
