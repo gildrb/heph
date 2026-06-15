@@ -358,6 +358,24 @@ def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
         _ = transport.process
 
 
+def test_jsonl_sdk_process_ignores_pipe_close_errors() -> None:
+    class BrokenCloseStream(io.StringIO):
+        def __init__(self) -> None:
+            super().__init__()
+            self.raise_on_close = True
+
+        def close(self) -> None:
+            if self.raise_on_close:
+                self.raise_on_close = False
+                raise BrokenPipeError("pipe already closed")
+            super().close()
+
+    stream = BrokenCloseStream()
+
+    JsonlSdkProcess._close_process_stream(stream)
+    stream.close()
+
+
 def test_jsonl_sdk_process_runs_real_sdk_serve_cli(tmp_path: Path) -> None:
     command = (
         sys.executable,

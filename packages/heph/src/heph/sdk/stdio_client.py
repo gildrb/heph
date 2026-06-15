@@ -234,7 +234,7 @@ class JsonlSdkProcess:
             return
         wait_timeout = self.shutdown_timeout if timeout is None else timeout
         try:
-            self._close_process_stdin(process)
+            self._close_process_stream(process.stdin)
             if process.poll() is None:
                 try:
                     process.wait(timeout=wait_timeout)
@@ -244,8 +244,8 @@ class JsonlSdkProcess:
         finally:
             self._returncode = process.poll()
             self._join_stderr_thread(wait_timeout)
-            self._close_process_stdout(process)
-            self._close_process_stderr(process)
+            self._close_process_stream(process.stdout)
+            self._close_process_stream(process.stderr)
             self._process = None
             self._client = None
             self._ready = None
@@ -258,19 +258,13 @@ class JsonlSdkProcess:
         self.close()
 
     @staticmethod
-    def _close_process_stdin(process: subprocess.Popen[str]) -> None:
-        if process.stdin is not None and not process.stdin.closed:
-            process.stdin.close()
-
-    @staticmethod
-    def _close_process_stdout(process: subprocess.Popen[str]) -> None:
-        if process.stdout is not None and not process.stdout.closed:
-            process.stdout.close()
-
-    @staticmethod
-    def _close_process_stderr(process: subprocess.Popen[str]) -> None:
-        if process.stderr is not None and not process.stderr.closed:
-            process.stderr.close()
+    def _close_process_stream(stream: IO[str] | None) -> None:
+        if stream is None or stream.closed:
+            return
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            return
 
     def _start_stderr_capture(self, stream: IO[str] | None) -> None:
         if stream is None:
