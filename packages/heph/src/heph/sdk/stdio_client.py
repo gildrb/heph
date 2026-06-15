@@ -418,7 +418,11 @@ class JsonlSdkClient:
         """Write an abort request for the active stream and return the request id used."""
         with self._write_lock:
             actual_request_id = self._request_id_for_write("abort", request_id)
-            self._track_stream_control_request(actual_request_id, "abort")
+            self._track_stream_control_request(
+                actual_request_id,
+                "abort",
+                require_active_stream=True,
+            )
             try:
                 self._write_request_line("abort", None, actual_request_id)
             except Exception:
@@ -442,7 +446,12 @@ class JsonlSdkClient:
         response_queue: queue.Queue[_StreamControlResult] = queue.Queue(maxsize=1)
         with self._write_lock:
             actual_request_id = self._request_id_for_write(method, request_id)
-            self._track_stream_control_request(actual_request_id, method, response_queue)
+            self._track_stream_control_request(
+                actual_request_id,
+                method,
+                response_queue,
+                require_active_stream=True,
+            )
             try:
                 self._write_request_line(method, params, actual_request_id)
             except Exception:
@@ -480,6 +489,7 @@ class JsonlSdkClient:
     ) -> JsonlPayload:
         """Write a call request and read its response payload."""
         validate_jsonl_call_params(method, params)
+        self._ensure_no_active_stream_for_call()
         actual_request_id = self.write_request(method, params, request_id=request_id)
         message = self.read_message()
         _require_request_id(message, actual_request_id)
@@ -578,8 +588,14 @@ class JsonlSdkClient:
         request_id: str | int,
         method: str,
         response_queue: queue.Queue[_StreamControlResult] | None = None,
+        *,
+        require_active_stream: bool = False,
     ) -> None:
         with self._stream_control_lock:
+            if require_active_stream and not self._active_stream_request_ids:
+                raise JsonlSdkClientProtocolError(
+                    "SDK JSONL stream control requests require an active stream reader."
+                )
             self._ensure_request_id_available_locked(request_id)
             self._stream_control_requests[request_id] = _StreamControlRequest(
                 method=method,
@@ -596,12 +612,25 @@ class JsonlSdkClient:
 
     def _track_active_stream_request(self, request_id: str | int) -> None:
         with self._stream_control_lock:
+            if self._active_stream_request_ids:
+                raise JsonlSdkClientProtocolError(
+                    "Cannot start an SDK JSONL stream while another stream() is active."
+                )
             self._ensure_request_id_available_locked(request_id)
             self._active_stream_request_ids.add(request_id)
 
     def _forget_active_stream_request(self, request_id: str | int) -> None:
         with self._stream_control_lock:
             self._active_stream_request_ids.discard(request_id)
+
+    def _ensure_no_active_stream_for_call(self) -> None:
+        with self._stream_control_lock:
+            if not self._active_stream_request_ids:
+                return
+        raise JsonlSdkClientProtocolError(
+            "Cannot use JsonlSdkClient.call() while stream() is active; use "
+            "call_active_stream() for busy-safe methods."
+        )
 
     def _ensure_request_id_available_locked(self, request_id: str | int) -> None:
         if request_id in self._active_stream_request_ids:

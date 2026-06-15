@@ -583,6 +583,86 @@ def test_jsonl_sdk_client_rejects_unsafe_active_stream_call_before_write() -> No
     assert output.getvalue() == ""
 
 
+def test_jsonl_sdk_client_rejects_active_stream_call_without_stream_reader_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="require an active stream reader"):
+        client.call_active_stream("state", request_id="state-1", timeout=0.01)
+
+    assert output.getvalue() == ""
+
+
+def test_jsonl_sdk_client_rejects_active_stream_abort_without_stream_reader_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="require an active stream reader"):
+        client.abort_active_stream(request_id="abort-1")
+
+    assert output.getvalue() == ""
+
+
+def test_jsonl_sdk_client_rejects_regular_call_while_stream_active_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    with pytest.raises(JsonlSdkClientProtocolError, match="call_active_stream"):
+        client.call("state", request_id="state-1")
+
+    assert list(stream) == []
+    assert _written_requests(output) == [{"method": "build_index_stream", "id": "index-1"}]
+
+
+def test_jsonl_sdk_client_rejects_second_stream_while_stream_active_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    with pytest.raises(JsonlSdkClientProtocolError, match="another stream"):
+        tuple(client.stream("build_index_stream", request_id="index-2"))
+
+    assert list(stream) == []
+    assert _written_requests(output) == [{"method": "build_index_stream", "id": "index-1"}]
+
+
 def test_jsonl_sdk_client_rejects_active_stream_call_id_collision_before_write() -> None:
     output = io.StringIO()
     client = JsonlSdkClient(
