@@ -13,12 +13,7 @@ from ai.runtime import ChatConfig, normalize_thinking_visibility
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
 
 from heph.sdk.capabilities import get_sdk_capabilities, validate_sdk_capabilities
-from heph.sdk.config import (
-    SdkConfigUpdate,
-    SdkConfigUpdateName,
-    SdkConfigUpdateValue,
-    apply_sdk_config_updates,
-)
+from heph.sdk.config import SdkConfigUpdate, apply_sdk_config_updates
 from heph.sdk.events import event_to_dict
 from heph.sdk.materials import IndexProgressEvent
 from heph.sdk.method_validation import (
@@ -55,6 +50,15 @@ from heph.sdk.runtime import (
     HephSdkUnavailableError,
     HephSession,
 )
+from heph.sdk.service_routes import (
+    ServicePayload,
+    ServiceStream,
+    _RouteAvailability,
+    _ServiceCallArgument,
+    _ServiceCallRoute,
+    _ServiceConfigParam,
+    _ServiceStreamRoute,
+)
 from heph.sdk.settings import (
     SDK_APP_SETTING_CONTRACTS,
     SdkAppSettings,
@@ -70,90 +74,8 @@ from heph.sdk.state import (
     HephSdkState,
 )
 
-type ServicePayload = dict[str, object]
-type ServiceStream = Iterator[ServicePayload]
-type _ServiceCallArgumentDecoder = Callable[[Mapping[str, object], str], object]
-type _ServiceCallHandler = Callable[..., ServicePayload]
-type _ServiceStreamHandler = Callable[..., ServiceStream]
-type _ServiceConfigParamDecoder = Callable[
-    [Mapping[str, object], str],
-    SdkConfigUpdateValue | None,
-]
 type _MethodAvailabilitySpecsByMethod = Mapping[str, SdkMethodAvailabilitySpec]
 type _AvailabilityCheck = Callable[[HephRuntime, HephSession | None], bool]
-
-
-@dataclass(frozen=True, slots=True)
-class _ServiceCallArgument:
-    name: str
-    decoder: _ServiceCallArgumentDecoder
-    value_type: str
-    required: bool = True
-    choices: tuple[str, ...] = ()
-
-    def value_from(self, params: Mapping[str, object]) -> object:
-        return self.decoder(params, self.name)
-
-
-@dataclass(frozen=True, slots=True)
-class _ServiceCallRoute:
-    method: str
-    handler: _ServiceCallHandler
-    arguments: tuple[_ServiceCallArgument, ...] = ()
-    keyword_arguments: tuple[_ServiceCallArgument, ...] = ()
-    params_as_argument: bool = False
-    parameter_contracts: tuple[SdkMethodParameter, ...] = ()
-
-    def dispatch(self, params: Mapping[str, object]) -> ServicePayload:
-        if self.params_as_argument:
-            return self.handler(params)
-        keywords = {
-            argument.name: argument.value_from(params) for argument in self.keyword_arguments
-        }
-        return self.handler(
-            *(argument.value_from(params) for argument in self.arguments),
-            **keywords,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _ServiceStreamRoute:
-    method: str
-    handler: _ServiceStreamHandler
-    arguments: tuple[_ServiceCallArgument, ...] = ()
-
-    def dispatch(self, params: dict[str, object]) -> ServiceStream:
-        return self.handler(*(argument.value_from(params) for argument in self.arguments))
-
-
-@dataclass(frozen=True, slots=True)
-class _ServiceConfigParam:
-    name: SdkConfigUpdateName
-    decoder: _ServiceConfigParamDecoder
-    value_type: str
-    choices: tuple[str, ...] = ()
-    keep_none: bool = False
-
-    def update_from(self, params: Mapping[str, object]) -> SdkConfigUpdate | None:
-        if self.name not in params:
-            return None
-        value = self.decoder(params, self.name)
-        if value is None and not self.keep_none:
-            return None
-        return SdkConfigUpdate(self.name, value)
-
-
-@dataclass(frozen=True, slots=True)
-class _RouteAvailability:
-    available: bool
-    unavailable_reason: str | None = None
-
-    def to_sdk(self, method: str) -> HephSdkMethodAvailability:
-        return HephSdkMethodAvailability(
-            method=method,
-            available=self.available,
-            unavailable_reason=self.unavailable_reason,
-        )
 
 
 @dataclass(slots=True)
