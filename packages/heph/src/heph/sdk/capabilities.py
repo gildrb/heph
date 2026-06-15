@@ -34,6 +34,7 @@ from heph.sdk.methods import (
     SDK_METHOD_UNAVAILABLE_REASONS,
     SDK_STABILITY_LEVELS,
     SDK_TYPE_SPECS,
+    SDK_VALUE_TYPE_SPECS,
     SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
     SERVICE_CALL_METHODS,
@@ -60,6 +61,7 @@ from heph.sdk.methods import (
     SdkResultSpec,
     SdkStreamSpec,
     SdkTypeSpec,
+    SdkValueTypeSpec,
     deprecation_specs_to_list,
     error_specs_to_dict,
     event_specs_to_dict,
@@ -71,6 +73,7 @@ from heph.sdk.methods import (
     result_specs_to_dict,
     stream_specs_to_dict,
     type_specs_to_dict,
+    value_type_specs_to_dict,
 )
 from heph.sdk.value_types import (
     sdk_custom_type_references,
@@ -78,17 +81,6 @@ from heph.sdk.value_types import (
     sdk_value_type_shape_issue,
 )
 
-_BUILTIN_TYPES = frozenset(
-    {
-        "boolean",
-        "integer",
-        "number",
-        "number_or_null",
-        "object",
-        "string",
-        "string_or_integer",
-    }
-)
 _JSONL_REQUEST_ENVELOPE_FIELDS = (
     SdkObjectFieldSpec("id", "string_or_integer", required=False, nullable=True),
     SdkObjectFieldSpec("method", "string"),
@@ -169,6 +161,7 @@ class HephSdkCapabilities:
     runtime_state_field_specs: tuple[SdkFieldSpec, ...]
     session_state_field_specs: tuple[SdkFieldSpec, ...]
     type_specs: tuple[SdkTypeSpec, ...]
+    value_type_specs: tuple[SdkValueTypeSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -237,6 +230,7 @@ class HephSdkCapabilities:
                 "session_state": field_specs_to_dict(self.session_state_field_specs),
             },
             "types": type_specs_to_dict(self.type_specs),
+            "value_types": value_type_specs_to_dict(self.value_type_specs),
         }
 
 
@@ -279,6 +273,7 @@ SDK_CAPABILITIES = HephSdkCapabilities(
     runtime_state_field_specs=RUNTIME_STATE_FIELD_SPECS,
     session_state_field_specs=SESSION_STATE_FIELD_SPECS,
     type_specs=SDK_TYPE_SPECS,
+    value_type_specs=SDK_VALUE_TYPE_SPECS,
 )
 
 
@@ -326,6 +321,7 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
         *_jsonl_contract_duplicate_checks(capabilities),
         *_availability_duplicate_checks(capabilities),
         _DuplicateCheck("types", _type_names(capabilities.type_specs)),
+        _DuplicateCheck("value_types", _value_type_names(capabilities.value_type_specs)),
         _DuplicateCheck("deprecations", _deprecation_keys(capabilities.deprecation_specs)),
         *_method_param_duplicate_checks(
             "methods.service_call",
@@ -450,6 +446,10 @@ def _field_names(specs: tuple[SdkFieldSpec, ...]) -> tuple[str, ...]:
 
 def _type_names(specs: tuple[SdkTypeSpec, ...]) -> tuple[str, ...]:
     return tuple(spec.type_name for spec in specs)
+
+
+def _value_type_names(specs: tuple[SdkValueTypeSpec, ...]) -> tuple[str, ...]:
+    return tuple(spec.name for spec in specs)
 
 
 def _deprecation_keys(specs: tuple[SdkDeprecationSpec, ...]) -> tuple[str, ...]:
@@ -816,12 +816,17 @@ def _append_unknown_type_issues(
     capabilities: HephSdkCapabilities,
 ) -> None:
     known_types = frozenset(spec.type_name for spec in capabilities.type_specs)
+    builtin_types = _builtin_value_type_names(capabilities.value_type_specs)
     issues.extend(
         f"{reference.context} references unknown SDK type: {type_name}"
         for reference in _referenced_value_types(capabilities)
-        for type_name in sdk_custom_type_references(reference.value_type, _BUILTIN_TYPES)
+        for type_name in sdk_custom_type_references(reference.value_type, builtin_types)
         if type_name not in known_types
     )
+
+
+def _builtin_value_type_names(specs: tuple[SdkValueTypeSpec, ...]) -> frozenset[str]:
+    return frozenset(spec.name for spec in specs if not spec.template)
 
 
 def _append_value_type_shape_issues(
@@ -1245,6 +1250,7 @@ __all__ = (  # noqa: PLE0604
     "HephSdkCapabilities",
     "SdkCompatibilityPolicy",
     "SdkDeprecationSpec",
+    "SdkValueTypeSpec",
     "get_sdk_capabilities",
     "validate_sdk_capabilities",
 )

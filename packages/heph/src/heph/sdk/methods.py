@@ -13,7 +13,7 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 36
+SDK_CAPABILITIES_VERSION = 37
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
@@ -67,6 +67,18 @@ SDK_METHOD_UNAVAILABLE_REASONS = (
     SDK_METHOD_UNAVAILABLE_MISSING_ARMORY_SESSION,
     SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES,
     SDK_METHOD_UNAVAILABLE_GENERIC,
+)
+SDK_VALUE_TYPE_KIND_SCALAR = "scalar"
+SDK_VALUE_TYPE_KIND_UNION = "union"
+SDK_VALUE_TYPE_KIND_ARRAY = "array"
+SDK_VALUE_TYPE_KIND_MAP = "map"
+SDK_VALUE_TYPE_KIND_LITERAL = "literal"
+SDK_VALUE_TYPE_KINDS = (
+    SDK_VALUE_TYPE_KIND_SCALAR,
+    SDK_VALUE_TYPE_KIND_UNION,
+    SDK_VALUE_TYPE_KIND_ARRAY,
+    SDK_VALUE_TYPE_KIND_MAP,
+    SDK_VALUE_TYPE_KIND_LITERAL,
 )
 
 
@@ -125,6 +137,38 @@ class SdkTypeSpec:
 
     def to_dict(self) -> dict[str, object]:
         return {"fields": type_field_specs_to_dict(self.fields)}
+
+
+@dataclass(frozen=True, slots=True)
+class SdkValueTypeSpec:
+    """A JSON-ready SDK value-type grammar contract."""
+
+    name: str
+    kind: str
+    wire_types: tuple[str, ...]
+    nullable: bool = False
+    finite: bool = False
+    string_keys: bool = False
+    nested_json_safe: bool = False
+    template: bool = False
+    item_type_parameter: str | None = None
+    literal_parameter: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "kind": self.kind,
+            "wire_types": list(self.wire_types),
+            "nullable": self.nullable,
+            "finite": self.finite,
+            "string_keys": self.string_keys,
+            "nested_json_safe": self.nested_json_safe,
+            "template": self.template,
+        }
+        if self.item_type_parameter is not None:
+            payload["item_type_parameter"] = self.item_type_parameter
+        if self.literal_parameter is not None:
+            payload["literal_parameter"] = self.literal_parameter
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -920,6 +964,56 @@ SESSION_STATE_FIELD_SPECS = (
 SERVICE_STATE_FIELDS = tuple(spec.name for spec in SERVICE_STATE_FIELD_SPECS)
 RUNTIME_STATE_FIELDS = tuple(spec.name for spec in RUNTIME_STATE_FIELD_SPECS)
 SESSION_STATE_FIELDS = tuple(spec.name for spec in SESSION_STATE_FIELD_SPECS)
+SDK_VALUE_TYPE_SPECS = (
+    SdkValueTypeSpec("boolean", SDK_VALUE_TYPE_KIND_SCALAR, ("boolean",)),
+    SdkValueTypeSpec("integer", SDK_VALUE_TYPE_KIND_SCALAR, ("integer",), finite=True),
+    SdkValueTypeSpec("number", SDK_VALUE_TYPE_KIND_SCALAR, ("number",), finite=True),
+    SdkValueTypeSpec(
+        "number_or_null",
+        SDK_VALUE_TYPE_KIND_UNION,
+        ("number", "null"),
+        nullable=True,
+        finite=True,
+    ),
+    SdkValueTypeSpec(
+        "object",
+        SDK_VALUE_TYPE_KIND_SCALAR,
+        ("object",),
+        string_keys=True,
+        nested_json_safe=True,
+    ),
+    SdkValueTypeSpec("string", SDK_VALUE_TYPE_KIND_SCALAR, ("string",)),
+    SdkValueTypeSpec(
+        "string_or_integer",
+        SDK_VALUE_TYPE_KIND_UNION,
+        ("string", "integer"),
+        finite=True,
+    ),
+    SdkValueTypeSpec(
+        "array<T>",
+        SDK_VALUE_TYPE_KIND_ARRAY,
+        ("array",),
+        nested_json_safe=True,
+        template=True,
+        item_type_parameter="T",
+    ),
+    SdkValueTypeSpec(
+        "map<T>",
+        SDK_VALUE_TYPE_KIND_MAP,
+        ("object",),
+        string_keys=True,
+        nested_json_safe=True,
+        template=True,
+        item_type_parameter="T",
+    ),
+    SdkValueTypeSpec(
+        "literal<T>",
+        SDK_VALUE_TYPE_KIND_LITERAL,
+        ("string",),
+        template=True,
+        literal_parameter="T",
+    ),
+)
 SDK_TYPE_SPECS = (
     SdkTypeSpec(
         "sdk_capabilities",
@@ -938,6 +1032,7 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("availability", "sdk_capabilities_availability"),
             SdkTypeFieldSpec("fields", "sdk_capabilities_fields"),
             SdkTypeFieldSpec("types", "map<sdk_type_spec>"),
+            SdkTypeFieldSpec("value_types", "map<sdk_value_type_spec>"),
         ),
     ),
     SdkTypeSpec(
@@ -1045,6 +1140,20 @@ SDK_TYPE_SPECS = (
     SdkTypeSpec(
         "sdk_type_spec",
         (SdkTypeFieldSpec("fields", "map<sdk_object_field_spec>"),),
+    ),
+    SdkTypeSpec(
+        "sdk_value_type_spec",
+        (
+            SdkTypeFieldSpec("kind", "string"),
+            SdkTypeFieldSpec("wire_types", "array<string>"),
+            SdkTypeFieldSpec("nullable", "boolean"),
+            SdkTypeFieldSpec("finite", "boolean"),
+            SdkTypeFieldSpec("string_keys", "boolean"),
+            SdkTypeFieldSpec("nested_json_safe", "boolean"),
+            SdkTypeFieldSpec("template", "boolean"),
+            SdkTypeFieldSpec("item_type_parameter", "string", required=False),
+            SdkTypeFieldSpec("literal_parameter", "string", required=False),
+        ),
     ),
     SdkTypeSpec(
         "sdk_result_spec",
@@ -1397,6 +1506,10 @@ def type_specs_to_dict(specs: tuple[SdkTypeSpec, ...]) -> dict[str, object]:
     return {spec.type_name: spec.to_dict() for spec in specs}
 
 
+def value_type_specs_to_dict(specs: tuple[SdkValueTypeSpec, ...]) -> dict[str, object]:
+    return {spec.name: spec.to_dict() for spec in specs}
+
+
 __all__ = [
     "BUSY_ALLOWED_CALL_METHODS",
     "INDEX_STREAM_EVENT_TYPES",
@@ -1436,6 +1549,13 @@ __all__ = [
     "SDK_METHOD_UNAVAILABLE_MISSING_SESSION_SOURCES",
     "SDK_METHOD_UNAVAILABLE_REASONS",
     "SDK_TYPE_SPECS",
+    "SDK_VALUE_TYPE_KINDS",
+    "SDK_VALUE_TYPE_KIND_ARRAY",
+    "SDK_VALUE_TYPE_KIND_LITERAL",
+    "SDK_VALUE_TYPE_KIND_MAP",
+    "SDK_VALUE_TYPE_KIND_SCALAR",
+    "SDK_VALUE_TYPE_KIND_UNION",
+    "SDK_VALUE_TYPE_SPECS",
     "SERVICE_CALL_METHODS",
     "SERVICE_CALL_METHOD_AVAILABILITY_SPECS",
     "SERVICE_CALL_METHOD_SPECS",
@@ -1468,6 +1588,7 @@ __all__ = [
     "SdkStreamSpec",
     "SdkTypeFieldSpec",
     "SdkTypeSpec",
+    "SdkValueTypeSpec",
     "deprecation_specs_to_list",
     "error_specs_to_dict",
     "event_field_specs_to_dict",
@@ -1485,4 +1606,5 @@ __all__ = [
     "stream_specs_to_dict",
     "type_field_specs_to_dict",
     "type_specs_to_dict",
+    "value_type_specs_to_dict",
 ]

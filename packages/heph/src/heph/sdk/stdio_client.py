@@ -132,6 +132,9 @@ class JsonlSdkProcessOptions:
             raise JsonlSdkProcessError("--session-id cannot be used with start_session=False.")
         if self.create_armory and self.armory_path is None:
             raise JsonlSdkProcessError("create_armory=True requires an armory_path.")
+        _validate_process_integer_option(self.max_tokens, "max_tokens")
+        _validate_process_integer_option(self.rag_context_budget, "rag_context_budget")
+        _validate_process_number_option(self.temperature, "temperature")
 
 
 @dataclass(slots=True)
@@ -1117,6 +1120,25 @@ def _numeric_timeout_issue(timeout: float, label: str) -> str | None:
     if timeout < 0:
         return f"SDK JSONL {label} must be non-negative."
     return None
+
+
+def _validate_process_integer_option(value: object, label: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, int) and not isinstance(value, bool):
+        return
+    raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be an integer or None.")
+
+
+def _validate_process_number_option(value: object, label: str) -> None:
+    if value is None:
+        return
+    number = _timeout_number(value)
+    if number is not None and math.isfinite(number):
+        return
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be a finite number or None."
+    )
 
 
 def _jsonl_request_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:

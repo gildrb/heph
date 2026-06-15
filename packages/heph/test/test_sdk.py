@@ -24,6 +24,7 @@ from heph.sdk import (
     SDK_DEPRECATION_SPECS,
     SDK_DEPRECATION_SURFACES,
     SDK_MUTABLE_APP_SETTINGS,
+    SDK_VALUE_TYPE_SPECS,
     ArmoryValidationSummary,
     AssistantDelta,
     CompactRequest,
@@ -56,6 +57,7 @@ from heph.sdk import (
     SdkCompatibilityPolicy,
     SdkDeprecationSpec,
     SdkSettingsError,
+    SdkValueTypeSpec,
     SettingChoice,
     ToolCall,
     ToolResult,
@@ -1379,6 +1381,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     availability = _payload_mapping(payload["availability"])
     fields = _payload_mapping(payload["fields"])
     types = _payload_mapping(payload["types"])
+    value_types = _payload_mapping(payload["value_types"])
     service_call_methods = _payload_list(service["call_methods"])
     service_stream_methods = _payload_list(service["stream_methods"])
     busy_allowed_call_methods = _payload_list(service["busy_allowed_call_methods"])
@@ -1415,9 +1418,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
     assert isinstance(capabilities, HephSdkCapabilities)
     assert isinstance(capabilities.compatibility, SdkCompatibilityPolicy)
+    assert all(isinstance(spec, SdkValueTypeSpec) for spec in capabilities.value_type_specs)
     assert capabilities is SDK_CAPABILITIES
     assert capabilities.compatibility is SDK_COMPATIBILITY_POLICY
     assert capabilities.deprecation_specs == SDK_DEPRECATION_SPECS
+    assert capabilities.value_type_specs == SDK_VALUE_TYPE_SPECS
     assert validate_sdk_capabilities(capabilities) == ()
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert "sdk_capabilities" in types
@@ -1437,6 +1442,7 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "sdk_object_field_spec" in types
     assert "sdk_event_spec" in types
     assert "sdk_type_spec" in types
+    assert "sdk_value_type_spec" in types
     assert "sdk_result_spec" in types
     assert "sdk_stream_spec" in types
     assert "sdk_error_spec" in types
@@ -1470,6 +1476,64 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "Advertise deprecations" in str(compatibility["deprecation_policy"])
     assert deprecations == []
     assert SDK_DEPRECATION_SURFACES == sdk_methods.SDK_DEPRECATION_SURFACES
+    assert list(value_types) == [spec.name for spec in SDK_VALUE_TYPE_SPECS]
+    assert _payload_mapping(value_types["number"]) == {
+        "kind": "scalar",
+        "wire_types": ["number"],
+        "nullable": False,
+        "finite": True,
+        "string_keys": False,
+        "nested_json_safe": False,
+        "template": False,
+    }
+    assert _payload_mapping(value_types["number_or_null"]) == {
+        "kind": "union",
+        "wire_types": ["number", "null"],
+        "nullable": True,
+        "finite": True,
+        "string_keys": False,
+        "nested_json_safe": False,
+        "template": False,
+    }
+    assert _payload_mapping(value_types["object"]) == {
+        "kind": "scalar",
+        "wire_types": ["object"],
+        "nullable": False,
+        "finite": False,
+        "string_keys": True,
+        "nested_json_safe": True,
+        "template": False,
+    }
+    assert _payload_mapping(value_types["array<T>"]) == {
+        "kind": "array",
+        "wire_types": ["array"],
+        "nullable": False,
+        "finite": False,
+        "string_keys": False,
+        "nested_json_safe": True,
+        "template": True,
+        "item_type_parameter": "T",
+    }
+    assert _payload_mapping(value_types["map<T>"]) == {
+        "kind": "map",
+        "wire_types": ["object"],
+        "nullable": False,
+        "finite": False,
+        "string_keys": True,
+        "nested_json_safe": True,
+        "template": True,
+        "item_type_parameter": "T",
+    }
+    assert _payload_mapping(value_types["literal<T>"]) == {
+        "kind": "literal",
+        "wire_types": ["string"],
+        "nullable": False,
+        "finite": False,
+        "string_keys": False,
+        "nested_json_safe": False,
+        "template": True,
+        "literal_parameter": "T",
+    }
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -1851,6 +1915,9 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     )
     jsonl_error_type_fields = _payload_mapping(_payload_mapping(types["jsonl_error"])["fields"])
     sdk_event_type_fields = _payload_mapping(_payload_mapping(types["sdk_event"])["fields"])
+    sdk_value_type_spec_fields = _payload_mapping(
+        _payload_mapping(types["sdk_value_type_spec"])["fields"]
+    )
     method_availability_type_fields = _payload_mapping(
         _payload_mapping(types["sdk_method_availability"])["fields"]
     )
@@ -1899,6 +1966,11 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     }
     assert _payload_mapping(sdk_capabilities_fields["types"]) == {
         "type": "map<sdk_type_spec>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["value_types"]) == {
+        "type": "map<sdk_value_type_spec>",
         "required": True,
         "nullable": False,
     }
@@ -1992,6 +2064,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert _payload_mapping(sdk_event_type_fields["type"]) == {
         "type": "string",
         "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_value_type_spec_fields["wire_types"]) == {
+        "type": "array<string>",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_value_type_spec_fields["item_type_parameter"]) == {
+        "type": "string",
+        "required": False,
         "nullable": False,
     }
     assert _payload_mapping(method_availability_type_fields["method"]) == {
@@ -2406,6 +2488,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         jsonl_stream_specs=broken_jsonl_stream_specs,
         jsonl_stream_method_availability_specs=broken_jsonl_stream_availability_specs,
         type_specs=broken_type_specs,
+        value_type_specs=(*capabilities.value_type_specs, capabilities.value_type_specs[0]),
     )
 
     issues = validate_sdk_capabilities(broken_capabilities)
@@ -2470,6 +2553,7 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
         "methods.service_call.update_settings.theme.choices contains duplicate entries: dark"
         in (issues)
     )
+    assert "value_types contains duplicate entries: boolean" in issues
     assert "results.jsonl_call.state references unknown SDK type: missing_custom_type" in issues
     assert (
         "jsonl.request_spec.params references unknown SDK type: missing_jsonl_request_type"
@@ -2496,6 +2580,20 @@ def test_sdk_capabilities_validator_reports_non_json_safe_payload() -> None:
     issues = validate_sdk_capabilities(broken_capabilities)
 
     assert "capabilities payload must use string keys and JSON-safe values." in issues
+
+
+def test_sdk_capabilities_validator_uses_advertised_value_type_specs() -> None:
+    capabilities = get_sdk_capabilities()
+    broken_capabilities = replace(
+        capabilities,
+        value_type_specs=tuple(
+            spec for spec in capabilities.value_type_specs if spec.name != "string"
+        ),
+    )
+
+    issues = validate_sdk_capabilities(broken_capabilities)
+
+    assert "methods.service_call.open_armory.path references unknown SDK type: string" in issues
 
 
 def test_sdk_capabilities_validator_reports_malformed_value_types() -> None:

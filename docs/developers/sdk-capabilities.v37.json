@@ -1,9 +1,9 @@
 {
-    "version": 36,
+    "version": 37,
     "compatibility": {
         "stability": "public",
-        "min_client_capabilities_version": 36,
-        "current_capabilities_version": 36,
+        "min_client_capabilities_version": 37,
+        "current_capabilities_version": 37,
         "supported_jsonl_versions": [
             1
         ],
@@ -2299,6 +2299,11 @@
                     "type": "map<sdk_type_spec>",
                     "required": true,
                     "nullable": false
+                },
+                "value_types": {
+                    "type": "map<sdk_value_type_spec>",
+                    "required": true,
+                    "nullable": false
                 }
             }
         },
@@ -2564,6 +2569,55 @@
                 "fields": {
                     "type": "map<sdk_object_field_spec>",
                     "required": true,
+                    "nullable": false
+                }
+            }
+        },
+        "sdk_value_type_spec": {
+            "fields": {
+                "kind": {
+                    "type": "string",
+                    "required": true,
+                    "nullable": false
+                },
+                "wire_types": {
+                    "type": "array<string>",
+                    "required": true,
+                    "nullable": false
+                },
+                "nullable": {
+                    "type": "boolean",
+                    "required": true,
+                    "nullable": false
+                },
+                "finite": {
+                    "type": "boolean",
+                    "required": true,
+                    "nullable": false
+                },
+                "string_keys": {
+                    "type": "boolean",
+                    "required": true,
+                    "nullable": false
+                },
+                "nested_json_safe": {
+                    "type": "boolean",
+                    "required": true,
+                    "nullable": false
+                },
+                "template": {
+                    "type": "boolean",
+                    "required": true,
+                    "nullable": false
+                },
+                "item_type_parameter": {
+                    "type": "string",
+                    "required": false,
+                    "nullable": false
+                },
+                "literal_parameter": {
+                    "type": "string",
+                    "required": false,
                     "nullable": false
                 }
             }
@@ -3469,6 +3523,123 @@
                     "nullable": false
                 }
             }
+        }
+    },
+    "value_types": {
+        "boolean": {
+            "kind": "scalar",
+            "wire_types": [
+                "boolean"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "integer": {
+            "kind": "scalar",
+            "wire_types": [
+                "integer"
+            ],
+            "nullable": false,
+            "finite": true,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "number": {
+            "kind": "scalar",
+            "wire_types": [
+                "number"
+            ],
+            "nullable": false,
+            "finite": true,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "number_or_null": {
+            "kind": "union",
+            "wire_types": [
+                "number",
+                "null"
+            ],
+            "nullable": true,
+            "finite": true,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "object": {
+            "kind": "scalar",
+            "wire_types": [
+                "object"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": true,
+            "nested_json_safe": true,
+            "template": false
+        },
+        "string": {
+            "kind": "scalar",
+            "wire_types": [
+                "string"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "string_or_integer": {
+            "kind": "union",
+            "wire_types": [
+                "string",
+                "integer"
+            ],
+            "nullable": false,
+            "finite": true,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": false
+        },
+        "array<T>": {
+            "kind": "array",
+            "wire_types": [
+                "array"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": false,
+            "nested_json_safe": true,
+            "template": true,
+            "item_type_parameter": "T"
+        },
+        "map<T>": {
+            "kind": "map",
+            "wire_types": [
+                "object"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": true,
+            "nested_json_safe": true,
+            "template": true,
+            "item_type_parameter": "T"
+        },
+        "literal<T>": {
+            "kind": "literal",
+            "wire_types": [
+                "string"
+            ],
+            "nullable": false,
+            "finite": false,
+            "string_keys": false,
+            "nested_json_safe": false,
+            "template": true,
+            "literal_parameter": "T"
         }
     }
 }

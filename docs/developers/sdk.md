@@ -218,7 +218,9 @@ error. Startup, shutdown, close, and stream-control timeouts must be finite
 non-negative numbers or `None`; invalid timeout values raise SDK client/process
 errors before touching transport state.
 `create_armory=True` requires `armory_path`; `session_id` cannot be combined
-with `start_session=False`.
+with `start_session=False`. Launch option validation also runs before spawning:
+`max_tokens` and `rag_context_budget` must be integers, while `temperature` must
+be a finite number.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before
@@ -359,7 +361,7 @@ Clients can discover the supported contract with `get_sdk_capabilities()`,
 server also includes the same capability payload in its initial `ready` message.
 For code generation or CI contract snapshots without starting a transport
 service, `heph sdk capabilities` prints the same capability contract as JSON.
-The checked fixture `docs/developers/sdk-capabilities.v36.json` is the current
+The checked fixture `docs/developers/sdk-capabilities.v37.json` is the current
 versioned conformance artifact; external clients can diff it in CI and update it
 only when they intentionally accept a new SDK capability version.
 Capabilities list service methods, JSONL method names, stream event types, state
@@ -409,12 +411,15 @@ precondition. Each method maps to a `requirement` value such as `always`,
 `unavailable_reason` that state snapshots use when that requirement is not met.
 The `types` section resolves those reusable SDK DTO names into field specs for
 client generators that want typed value objects instead of dictionaries.
+The `value_types` section describes the reusable SDK value-type grammar,
+including scalar, union, array, map, and literal templates, so generated clients
+can validate method params and result payloads without copying Python internals.
 Capability sections such as `service`, `jsonl`, `streams`, and `availability`
 also have named DTO specs, so clients and runtime validators can detect nested
 capability payload drift instead of treating the whole contract as loose maps.
 Python clients can import the matching spec dataclasses, such as
-`SdkMethodSpec`, `SdkObjectFieldSpec`, `SdkResultSpec`, and `SdkTypeSpec`, from
-the public `heph.sdk` facade.
+`SdkMethodSpec`, `SdkObjectFieldSpec`, `SdkResultSpec`, `SdkTypeSpec`, and
+`SdkValueTypeSpec`, from the public `heph.sdk` facade.
 Spec dictionaries use `map<...>` value types, for example
 `map<sdk_method_spec>` and `map<sdk_result_spec>`, so generated clients can
 validate dynamic method-name keys while still checking each value structurally.

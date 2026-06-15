@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator, Mapping
 from dataclasses import fields
 from pathlib import Path
+from typing import cast
 
 import pytest
 from ai.runtime import ChatConfig
@@ -1142,6 +1143,32 @@ def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
     options = JsonlSdkProcessOptions(create_armory=True)
 
     with pytest.raises(JsonlSdkProcessError, match="requires an armory_path"):
+        options.command()
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (JsonlSdkProcessOptions(max_tokens=cast("int", True)), "max_tokens"),
+        (JsonlSdkProcessOptions(max_tokens=cast("int", 1.5)), "max_tokens"),
+        (
+            JsonlSdkProcessOptions(rag_context_budget=cast("int", True)),
+            "rag_context_budget",
+        ),
+        (
+            JsonlSdkProcessOptions(rag_context_budget=cast("int", 1.5)),
+            "rag_context_budget",
+        ),
+        (JsonlSdkProcessOptions(temperature=cast("float", True)), "temperature"),
+        (JsonlSdkProcessOptions(temperature=float("nan")), "temperature"),
+        (JsonlSdkProcessOptions(temperature=float("inf")), "temperature"),
+    ],
+)
+def test_jsonl_sdk_process_options_reject_invalid_numeric_options(
+    options: JsonlSdkProcessOptions,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
         options.command()
 
 
