@@ -897,12 +897,15 @@ def test_jsonl_sdk_client_rejects_duplicate_active_stream_control_id_before_writ
     ]
 
 
-def test_jsonl_sdk_client_rejects_negative_stream_control_timeout_before_write() -> None:
+@pytest.mark.parametrize("timeout", [-0.01, float("nan"), float("inf")])
+def test_jsonl_sdk_client_rejects_invalid_stream_control_timeout_before_write(
+    timeout: float,
+) -> None:
     output = io.StringIO()
     client = JsonlSdkClient(input_stream=io.StringIO(), output_stream=output)
 
     with pytest.raises(JsonlSdkClientProtocolError, match="stream control timeout"):
-        client.call_active_stream("state", timeout=-0.01)
+        client.call_active_stream("state", timeout=timeout)
 
     assert output.getvalue() == ""
 
@@ -1315,14 +1318,15 @@ def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
         _ = transport.process
 
 
-def test_jsonl_sdk_process_rejects_negative_timeouts_before_spawn() -> None:
+@pytest.mark.parametrize("timeout", [-0.01, float("nan"), float("inf")])
+def test_jsonl_sdk_process_rejects_invalid_timeouts_before_spawn(timeout: float) -> None:
     startup_transport = JsonlSdkProcess(
         command=(sys.executable, "-c", "raise SystemExit(3)"),
-        startup_timeout=-0.01,
+        startup_timeout=timeout,
     )
     shutdown_transport = JsonlSdkProcess(
         command=(sys.executable, "-c", "raise SystemExit(3)"),
-        shutdown_timeout=-0.01,
+        shutdown_timeout=timeout,
     )
 
     with pytest.raises(JsonlSdkProcessError, match="startup_timeout"):
@@ -1334,7 +1338,11 @@ def test_jsonl_sdk_process_rejects_negative_timeouts_before_spawn() -> None:
     assert shutdown_transport.returncode is None
 
 
-def test_jsonl_sdk_process_rejects_negative_close_timeout(tmp_path: Path) -> None:
+@pytest.mark.parametrize("timeout", [-0.01, float("nan"), float("inf")])
+def test_jsonl_sdk_process_rejects_invalid_close_timeout(
+    tmp_path: Path,
+    timeout: float,
+) -> None:
     service = HephService.plain(config=_config())
     server_script = tmp_path / "fake_sdk_server.py"
     ready_line = json.dumps(_ready_message(service)) + "\n"
@@ -1356,7 +1364,7 @@ def test_jsonl_sdk_process_rejects_negative_close_timeout(tmp_path: Path) -> Non
     transport.start()
     try:
         with pytest.raises(JsonlSdkProcessError, match="close timeout"):
-            transport.close(timeout=-0.01)
+            transport.close(timeout=timeout)
     finally:
         transport.close(timeout=1.0)
 

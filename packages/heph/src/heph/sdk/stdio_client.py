@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import queue
 import subprocess
 import threading
@@ -1090,8 +1091,24 @@ def _validate_client_timeout(timeout: float | None, label: str) -> None:
 def _timeout_issue(timeout: object, label: str) -> str | None:
     if timeout is None:
         return None
+    timeout_value = _timeout_number(timeout)
+    if timeout_value is None:
+        return f"SDK JSONL {label} must be a finite non-negative number or None."
+    return _numeric_timeout_issue(timeout_value, label)
+
+
+def _timeout_number(timeout: object) -> float | None:
     if isinstance(timeout, bool) or not isinstance(timeout, int | float):
-        return f"SDK JSONL {label} must be a non-negative number or None."
+        return None
+    try:
+        return float(timeout)
+    except OverflowError:
+        return math.inf
+
+
+def _numeric_timeout_issue(timeout: float, label: str) -> str | None:
+    if not math.isfinite(timeout):
+        return f"SDK JSONL {label} must be finite."
     if timeout < 0:
         return f"SDK JSONL {label} must be non-negative."
     return None
