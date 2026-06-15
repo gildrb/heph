@@ -351,7 +351,10 @@ class JsonlSdkClient:
 
     def read_message(self) -> JsonlPayload:
         """Read one validated JSONL message from the server stream."""
-        line = self.input_stream.readline()
+        try:
+            line = self.input_stream.readline()
+        except (OSError, ValueError) as exc:
+            raise JsonlSdkClientProtocolError(f"Failed to read SDK JSONL message: {exc}") from exc
         if line == "":
             raise JsonlSdkClientProtocolError(
                 "SDK JSONL stream ended before a message was available."
@@ -367,10 +370,15 @@ class JsonlSdkClient:
     ) -> str | int:
         """Write one validated request and return the request id used."""
         actual_request_id = request_id if request_id is not None else self._next_request_id(method)
-        self.output_stream.write(
-            encode_jsonl_request(method, params, request_id=actual_request_id)
-        )
-        self.output_stream.flush()
+        try:
+            self.output_stream.write(
+                encode_jsonl_request(method, params, request_id=actual_request_id)
+            )
+            self.output_stream.flush()
+        except (OSError, ValueError) as exc:
+            raise JsonlSdkClientProtocolError(
+                f"Failed to write SDK JSONL request {actual_request_id!r}: {exc}"
+            ) from exc
         return actual_request_id
 
     def call(

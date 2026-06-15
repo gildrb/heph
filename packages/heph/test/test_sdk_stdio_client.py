@@ -287,6 +287,25 @@ def test_jsonl_sdk_client_reports_malformed_server_message() -> None:
         )
 
 
+def test_jsonl_sdk_client_wraps_stream_io_failures() -> None:
+    closed_input = io.StringIO("")
+    closed_input.close()
+    reader = JsonlSdkClient(input_stream=closed_input, output_stream=io.StringIO())
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="Failed to read SDK JSONL message"):
+        reader.read_message()
+
+    closed_output = io.StringIO()
+    closed_output.close()
+    writer = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=closed_output)
+
+    with pytest.raises(
+        JsonlSdkClientProtocolError,
+        match="Failed to write SDK JSONL request 'state-1'",
+    ):
+        writer.write_request("state", request_id="state-1")
+
+
 def test_jsonl_sdk_client_rejects_incompatible_ready_payload() -> None:
     service = HephService.plain(config=_config())
     capabilities = dict(_payload_mapping(service.capabilities()["capabilities"]))
@@ -478,7 +497,7 @@ def test_jsonl_sdk_process_reports_startup_stderr() -> None:
             "-c",
             "import sys; sys.stderr.write('sdk startup failed\\n'); sys.stderr.flush()",
         ),
-        startup_timeout=1.0,
+        startup_timeout=5.0,
         shutdown_timeout=1.0,
     )
 

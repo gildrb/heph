@@ -218,7 +218,10 @@ returning them. `stream()` yields event payloads until `stream_end`, validates
 each event against that stream method's advertised event contract, and raises
 the same structured error when a stream fails. `call()` only accepts JSONL call
 methods, and `stream()` only accepts JSONL stream methods; wrong-category
-requests are rejected before anything is written to the child process. More
+requests are rejected before anything is written to the child process. Low-level
+read/write failures from app-owned pipes are raised as
+`JsonlSdkClientProtocolError` so callers can handle transport failures through
+one SDK error family. More
 advanced clients can use `JsonlSdkClient`, `encode_jsonl_request()`,
 `parse_jsonl_message()`, `jsonl_ready_from_message()`, and
 `jsonl_error_from_message()` directly when they need their own subprocess
