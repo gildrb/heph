@@ -5,6 +5,8 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from hephaion.chat.turn_contract import (
@@ -14,6 +16,13 @@ from hephaion.rag.scoring import tokenize
 
 if TYPE_CHECKING:
     from hephaion.rag.index import ArmoryIndex
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class _CurrentRequestQueryCandidate:
+    term_overlap: int
+    specificity: tuple[int, int]
+    text: str
 
 
 def _query_reuses_surface(query: str, surface: str) -> bool:
@@ -104,6 +113,61 @@ def _index_query_terms(index: ArmoryIndex) -> frozenset[str]:
 
 def _query_has_matching_term(term: str, query_terms: frozenset[str]) -> bool:
     return any(_query_terms_match(term, query_term) for query_term in query_terms)
+
+
+def _best_current_request_query(
+    request_terms: frozenset[str],
+    *,
+    original_text: str,
+    candidates: Sequence[str | None],
+    fresh_request_min_terms: int,
+) -> str | None:
+    scored_candidates = _current_request_query_candidates(request_terms, candidates)
+    if not scored_candidates:
+        return None
+    best = max(scored_candidates)
+    if not _query_candidate_matches_original(best, original_text):
+        return best.text
+    if len(_content_terms(original_text)) >= fresh_request_min_terms:
+        return best.text
+    semantic_candidates = _semantic_current_request_candidates(
+        scored_candidates,
+        original_text,
+    )
+    return max(semantic_candidates).text if semantic_candidates else best.text
+
+
+def _current_request_query_candidates(
+    request_terms: frozenset[str],
+    candidates: Sequence[str | None],
+) -> tuple[_CurrentRequestQueryCandidate, ...]:
+    return tuple(
+        _CurrentRequestQueryCandidate(
+            _query_term_overlap(candidate, request_terms),
+            _semantic_query_specificity(candidate),
+            candidate,
+        )
+        for candidate in candidates
+        if candidate
+    )
+
+
+def _semantic_current_request_candidates(
+    candidates: Sequence[_CurrentRequestQueryCandidate],
+    original_text: str,
+) -> tuple[_CurrentRequestQueryCandidate, ...]:
+    return tuple(
+        candidate
+        for candidate in candidates
+        if not _query_candidate_matches_original(candidate, original_text)
+    )
+
+
+def _query_candidate_matches_original(
+    candidate: _CurrentRequestQueryCandidate,
+    original_text: str,
+) -> bool:
+    return _same_normalized_text(candidate.text, original_text)
 
 
 def _corpus_named_material_query(user_input: str, index: ArmoryIndex | None) -> str:

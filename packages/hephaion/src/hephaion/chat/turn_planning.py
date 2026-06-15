@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -64,14 +64,13 @@ from hephaion.chat.turn_contract_checks import (
     _plan_requires_citations,
 )
 from hephaion.chat.turn_query import (
+    _best_current_request_query,
     _content_terms,
     _lacks_retrievable_content,
     _normalized_query_terms,
     _query_reuses_surface,
-    _query_term_overlap,
     _query_terms_match,
     _same_normalized_text,
-    _semantic_query_specificity,
 )
 
 _FRESH_CURRENT_REQUEST_MIN_TERMS = 3
@@ -887,37 +886,8 @@ def _current_topic_query_for_contract(
             current_query,
             _contract_followup_target(contract),
         ),
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
     )
-
-
-def _best_current_request_query(
-    request_terms: frozenset[str],
-    *,
-    original_text: str,
-    candidates: Sequence[str | None],
-) -> str | None:
-    scored = [
-        (
-            _query_term_overlap(candidate, request_terms),
-            _semantic_query_specificity(candidate),
-            candidate,
-        )
-        for candidate in candidates
-        if candidate
-    ]
-    if not scored:
-        return None
-    best = max(scored)[2]
-    if not _same_normalized_text(best, original_text):
-        return best
-    if len(_content_terms(original_text)) >= _FRESH_CURRENT_REQUEST_MIN_TERMS:
-        return best
-    semantic_candidates = [
-        scored_candidate
-        for scored_candidate in scored
-        if not _same_normalized_text(scored_candidate[2], original_text)
-    ]
-    return max(semantic_candidates)[2] if semantic_candidates else best
 
 
 def _semantic_retrieval_query(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
