@@ -1478,6 +1478,8 @@ def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> No
             "--create-armory",
             "--session-id",
             "session-1",
+            "--base-url",
+            "https://example.test/v1",
             "--model",
             "sdk-model",
             "--temperature",
@@ -1488,6 +1490,8 @@ def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> No
             "all",
             "--max-tokens",
             "512",
+            "--rag-context-budget",
+            "4096",
         ],
     )
 
@@ -1496,11 +1500,13 @@ def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured.create_armory
     assert captured.session_id == "session-1"
     assert captured.start_session
+    assert captured.base_url == "https://example.test/v1"
     assert captured.model == "sdk-model"
     assert captured.temperature == 0.5
     assert captured.reasoning_level == "medium"
     assert captured.thinking_visibility == "all"
     assert captured.max_tokens == 512
+    assert captured.rag_context_budget == 4096
 
 
 def test_sdk_serve_cli_starts_session_for_created_armory(
@@ -1530,6 +1536,25 @@ def test_sdk_serve_cli_starts_session_for_created_armory(
     assert captured.create_armory
     assert captured.session_id is None
     assert captured.start_session
+
+
+def test_sdk_serve_cli_rejects_session_id_with_no_session(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        run_argv(
+            build_parser(),
+            [
+                "sdk",
+                "serve",
+                "--session-id",
+                "session-1",
+                "--no-session",
+            ],
+        )
+
+    assert exc.value.code == 2
+    assert "--session-id cannot be used with --no-session" in capsys.readouterr().err
 
 
 def test_sdk_capabilities_cli_prints_contract(capsys: pytest.CaptureFixture[str]) -> None:

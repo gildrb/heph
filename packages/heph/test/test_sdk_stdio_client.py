@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 from collections.abc import Iterator, Mapping
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from heph.sdk import (
     SDK_CAPABILITIES_VERSION,
     SDK_JSONL_PROTOCOL,
     SDK_JSONL_VERSION,
+    HephSdkOptions,
     HephService,
     JsonlSdkClient,
     JsonlSdkClientProtocolError,
@@ -286,6 +288,13 @@ def test_jsonl_sdk_process_options_build_command() -> None:
         "--temperature",
         "0.5",
     )
+
+
+def test_jsonl_sdk_process_options_cover_spawnable_sdk_options() -> None:
+    sdk_option_fields = {field.name for field in fields(HephSdkOptions)}
+    process_option_fields = {field.name for field in fields(JsonlSdkProcessOptions)}
+
+    assert sdk_option_fields - process_option_fields == {"config", "feature_flags"}
 
 
 def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
