@@ -276,14 +276,13 @@ def _reuse_prior_needs_current_retrieval(
     retrieval_strategy: str,
     fresh_request_min_terms: int,
 ) -> bool:
+    if prior_contract is None:
+        return False
+    if not _contract_has_prior_evidence_followup(contract, prior_contract):
+        return False
     return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and not contract.direct_evidence_required
-        and not contract.prior_answer_reference
+        retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
+        and _source_answer_can_fetch_current_request(contract)
         and _current_request_introduces_fresh_content(
             contract,
             prior_contract,
@@ -299,22 +298,63 @@ def _expanded_prior_should_use_current_request(
     retrieval_strategy: str,
     fresh_request_min_terms: int,
 ) -> bool:
+    if prior_contract is None:
+        return False
+    if not _expanded_prior_can_use_current_request(
+        contract,
+        prior_contract,
+        retrieval_strategy=retrieval_strategy,
+    ):
+        return False
+    return _expanded_prior_has_current_request_signal(
+        contract,
+        prior_contract,
+        fresh_request_min_terms=fresh_request_min_terms,
+    )
+
+
+def _expanded_prior_can_use_current_request(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
     return (
-        prior_contract is not None
-        and bool(prior_contract.evidence_refs)
-        and contract.is_followup
+        _contract_has_prior_evidence_followup(contract, prior_contract)
         and not contract.prior_answer_reference
         and contract.resolved_intent == "source_qa"
         and retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and (
-            _current_turn_semantic_query(contract) is not None
-            or _current_request_introduces_fresh_content(
-                contract,
-                prior_contract,
-                fresh_request_min_terms=fresh_request_min_terms,
-            )
-        )
+    )
+
+
+def _expanded_prior_has_current_request_signal(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    fresh_request_min_terms: int,
+) -> bool:
+    return _current_turn_semantic_query(
+        contract
+    ) is not None or _current_request_introduces_fresh_content(
+        contract,
+        prior_contract,
+        fresh_request_min_terms=fresh_request_min_terms,
+    )
+
+
+def _contract_has_prior_evidence_followup(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+) -> bool:
+    return bool(prior_contract.evidence_refs) and contract.is_followup
+
+
+def _source_answer_can_fetch_current_request(contract: TurnContract) -> bool:
+    return (
+        contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
+        and not contract.direct_evidence_required
+        and not contract.prior_answer_reference
     )
 
 
