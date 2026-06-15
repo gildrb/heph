@@ -329,7 +329,16 @@ can generate discriminated event unions without scraping examples or Python DTOs
 The `sdk_event` DTO is the shared `"type"` discriminator for those event
 payloads; use `events.specs` for each concrete event shape.
 The capability payload has its own `version`, separate from the JSONL
-`protocol` and wire `version`.
+`protocol` and wire `version`. Its `compatibility` section is the machine-readable
+client negotiation policy: `stability`, `min_client_capabilities_version`,
+`current_capabilities_version`, `supported_jsonl_versions`, and short policy
+strings for breaking changes, additive changes, and deprecations. GUI and mobile
+clients should check this section during startup and refuse servers outside their
+supported capability or JSONL version range.
+The top-level `deprecations` list advertises planned removals as structured
+entries with `surface`, `name`, `since_version`, nullable `removal_version`,
+`replacement`, and `message`. Clients should prefer replacements when present and
+keep rendering deprecated features until the compatibility policy allows removal.
 
 `heph sdk serve` is the first concrete transport. It supports:
 

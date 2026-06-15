@@ -18,6 +18,9 @@ from heph.sdk import (
     JSONL_MESSAGE_TYPES,
     JSONL_REQUEST_SPEC,
     SDK_CAPABILITIES,
+    SDK_COMPATIBILITY_POLICY,
+    SDK_DEPRECATION_SPECS,
+    SDK_DEPRECATION_SURFACES,
     SDK_MUTABLE_APP_SETTINGS,
     ArmoryValidationSummary,
     AssistantDelta,
@@ -46,6 +49,8 @@ from heph.sdk import (
     ProviderSummary,
     ReasoningDelta,
     SdkAppSettings,
+    SdkCompatibilityPolicy,
+    SdkDeprecationSpec,
     SdkSettingsError,
     SettingChoice,
     ToolCall,
@@ -1175,6 +1180,8 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
 def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     capabilities = get_sdk_capabilities()
     payload = capabilities.to_dict()
+    compatibility = _payload_mapping(payload["compatibility"])
+    deprecations = _payload_list(payload["deprecations"])
     service = _payload_mapping(payload["service"])
     jsonl = _payload_mapping(payload["jsonl"])
     events = _payload_mapping(payload["events"])
@@ -1220,10 +1227,15 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     session_field_specs = _payload_mapping(fields["session_state"])
 
     assert isinstance(capabilities, HephSdkCapabilities)
+    assert isinstance(capabilities.compatibility, SdkCompatibilityPolicy)
     assert capabilities is SDK_CAPABILITIES
+    assert capabilities.compatibility is SDK_COMPATIBILITY_POLICY
+    assert capabilities.deprecation_specs == SDK_DEPRECATION_SPECS
     assert validate_sdk_capabilities(capabilities) == ()
     assert payload["version"] == sdk_methods.SDK_CAPABILITIES_VERSION
     assert "sdk_capabilities" in types
+    assert "sdk_compatibility_policy" in types
+    assert "sdk_deprecation_spec" in types
     assert "sdk_capabilities_service" in types
     assert "sdk_capabilities_jsonl" in types
     assert "sdk_capabilities_events" in types
@@ -1258,6 +1270,19 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "sdk_event" in types
     assert "sdk_method_availability" in types
     assert "sdk_method_availability_spec" in types
+    assert compatibility["stability"] == sdk_methods.SDK_STABILITY_PUBLIC
+    assert compatibility["min_client_capabilities_version"] == (
+        sdk_methods.SDK_CAPABILITIES_VERSION
+    )
+    assert compatibility["current_capabilities_version"] == sdk_methods.SDK_CAPABILITIES_VERSION
+    assert _payload_list(compatibility["supported_jsonl_versions"]) == [
+        sdk_methods.SDK_JSONL_VERSION
+    ]
+    assert "Bump JSONL version" in str(compatibility["breaking_change_policy"])
+    assert "ignore unknown capability fields" in str(compatibility["additive_change_policy"])
+    assert "Advertise deprecations" in str(compatibility["deprecation_policy"])
+    assert deprecations == []
+    assert SDK_DEPRECATION_SURFACES == sdk_methods.SDK_DEPRECATION_SURFACES
     assert service_call_methods == list(sdk_methods.SERVICE_CALL_METHODS)
     assert service_stream_methods == list(sdk_methods.SERVICE_STREAM_METHODS)
     assert busy_allowed_call_methods == list(sdk_methods.BUSY_ALLOWED_CALL_METHODS)
@@ -1653,6 +1678,16 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
         "required": True,
         "nullable": False,
     }
+    assert _payload_mapping(sdk_capabilities_fields["compatibility"]) == {
+        "type": "sdk_compatibility_policy",
+        "required": True,
+        "nullable": False,
+    }
+    assert _payload_mapping(sdk_capabilities_fields["deprecations"]) == {
+        "type": "array<sdk_deprecation_spec>",
+        "required": True,
+        "nullable": False,
+    }
     assert _payload_mapping(sdk_capabilities_fields["jsonl"]) == {
         "type": "sdk_capabilities_jsonl",
         "required": True,
@@ -1832,6 +1867,42 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
 
 def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     capabilities = get_sdk_capabilities()
+    broken_compatibility = replace(
+        capabilities.compatibility,
+        stability="experimental",
+        min_client_capabilities_version=capabilities.version + 1,
+        current_capabilities_version=capabilities.version - 1,
+        supported_jsonl_versions=(0, 0),
+        breaking_change_policy="",
+        additive_change_policy="",
+        deprecation_policy="",
+    )
+    broken_deprecation_specs = (
+        SdkDeprecationSpec(
+            surface="missing_surface",
+            name="lost_method",
+            since_version=0,
+            removal_version=0,
+            replacement="",
+            message="",
+        ),
+        SdkDeprecationSpec(
+            surface=sdk_methods.SDK_DEPRECATION_SURFACE_SERVICE_CALL,
+            name="ask",
+            since_version=capabilities.version + 1,
+            removal_version=capabilities.version,
+            replacement="prompt",
+            message="Use prompt streams.",
+        ),
+        SdkDeprecationSpec(
+            surface=sdk_methods.SDK_DEPRECATION_SURFACE_SERVICE_CALL,
+            name="ask",
+            since_version=capabilities.version,
+            removal_version=None,
+            replacement="prompt",
+            message="Use prompt streams.",
+        ),
+    )
     broken_result_specs = tuple(
         replace(spec, value_type="array<array<missing_custom_type>>")
         if spec.method == "state"
@@ -1924,6 +1995,8 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     )
     broken_capabilities = replace(
         capabilities,
+        compatibility=broken_compatibility,
+        deprecation_specs=broken_deprecation_specs,
         busy_allowed_call_methods=(*capabilities.busy_allowed_call_methods, "bogus"),
         method_unavailable_reasons=(
             *capabilities.method_unavailable_reasons,
@@ -1953,6 +2026,36 @@ def test_sdk_capabilities_validator_reports_contract_drift() -> None:
     issues = validate_sdk_capabilities(broken_capabilities)
 
     assert "service.call_methods contains duplicate entries: state" in issues
+    assert "compatibility.stability is unknown: experimental" in issues
+    assert "compatibility.current_capabilities_version must match version." in issues
+    assert (
+        "compatibility.min_client_capabilities_version must not exceed "
+        "current_capabilities_version." in issues
+    )
+    assert "compatibility.supported_jsonl_versions contains duplicate entries: 0" in issues
+    assert "compatibility.supported_jsonl_versions must include jsonl.version." in issues
+    assert "compatibility.supported_jsonl_versions must be positive." in issues
+    assert "compatibility.breaking_change_policy must not be empty." in issues
+    assert "compatibility.additive_change_policy must not be empty." in issues
+    assert "compatibility.deprecation_policy must not be empty." in issues
+    assert "deprecations contains duplicate entries: service_call:ask" in issues
+    assert (
+        "deprecations.missing_surface.lost_method references unknown deprecation surface: "
+        "missing_surface" in issues
+    )
+    assert (
+        "deprecations.missing_surface.lost_method must advertise a deprecation message." in issues
+    )
+    assert "deprecations.missing_surface.lost_method.since_version must be positive." in issues
+    assert (
+        "deprecations.missing_surface.lost_method.removal_version must be greater than "
+        "since_version." in issues
+    )
+    assert "deprecations.service_call.ask.since_version must not exceed version." in issues
+    assert (
+        "deprecations.service_call.ask.removal_version must be greater than since_version."
+        in issues
+    )
     assert "service.call_methods does not match its structured specs." in issues
     assert (
         "service.busy_allowed_call_methods contains entries that are not advertised calls: bogus"

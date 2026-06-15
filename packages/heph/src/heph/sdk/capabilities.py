@@ -22,6 +22,9 @@ from heph.sdk.methods import (
     RUNTIME_STATE_FIELD_SPECS,
     RUNTIME_STATE_FIELDS,
     SDK_CAPABILITIES_VERSION,
+    SDK_COMPATIBILITY_POLICY,
+    SDK_DEPRECATION_SPECS,
+    SDK_DEPRECATION_SURFACES,
     SDK_EVENT_SPECS,
     SDK_EVENT_TYPES,
     SDK_JSONL_PROTOCOL,
@@ -29,6 +32,7 @@ from heph.sdk.methods import (
     SDK_METHOD_AVAILABILITY_REQUIREMENTS,
     SDK_METHOD_REQUIREMENT_ALWAYS,
     SDK_METHOD_UNAVAILABLE_REASONS,
+    SDK_STABILITY_LEVELS,
     SDK_TYPE_SPECS,
     SERVICE_CALL_METHOD_AVAILABILITY_SPECS,
     SERVICE_CALL_METHOD_SPECS,
@@ -42,6 +46,8 @@ from heph.sdk.methods import (
     SERVICE_STREAM_SPECS,
     SESSION_STATE_FIELD_SPECS,
     SESSION_STATE_FIELDS,
+    SdkCompatibilityPolicy,
+    SdkDeprecationSpec,
     SdkErrorSpec,
     SdkEventSpec,
     SdkFieldSpec,
@@ -54,6 +60,7 @@ from heph.sdk.methods import (
     SdkResultSpec,
     SdkStreamSpec,
     SdkTypeSpec,
+    deprecation_specs_to_list,
     error_specs_to_dict,
     event_specs_to_dict,
     field_specs_to_dict,
@@ -121,6 +128,8 @@ class HephSdkCapabilities:
     """JSON-ready SDK feature contract for direct and transport clients."""
 
     version: int
+    compatibility: SdkCompatibilityPolicy
+    deprecation_specs: tuple[SdkDeprecationSpec, ...]
     service_call_methods: tuple[str, ...]
     service_stream_methods: tuple[str, ...]
     jsonl_call_methods: tuple[str, ...]
@@ -160,6 +169,8 @@ class HephSdkCapabilities:
     def to_dict(self) -> dict[str, object]:
         return {
             "version": self.version,
+            "compatibility": self.compatibility.to_dict(),
+            "deprecations": deprecation_specs_to_list(self.deprecation_specs),
             "service": {
                 "call_methods": list(self.service_call_methods),
                 "stream_methods": list(self.service_stream_methods),
@@ -226,6 +237,8 @@ class HephSdkCapabilities:
 
 SDK_CAPABILITIES = HephSdkCapabilities(
     version=SDK_CAPABILITIES_VERSION,
+    compatibility=SDK_COMPATIBILITY_POLICY,
+    deprecation_specs=SDK_DEPRECATION_SPECS,
     service_call_methods=SERVICE_CALL_METHODS,
     service_stream_methods=SERVICE_STREAM_METHODS,
     jsonl_call_methods=JSONL_CALL_METHODS,
@@ -283,6 +296,8 @@ def validate_sdk_capabilities(
         capabilities.busy_allowed_call_methods,
         capabilities.service_call_methods,
     )
+    _append_compatibility_issues(issues, capabilities)
+    _append_deprecation_issues(issues, capabilities)
     _append_parameter_choice_issues(issues, capabilities)
     _append_availability_issues(issues, capabilities)
     _append_value_type_shape_issues(issues, capabilities)
@@ -299,6 +314,7 @@ def _duplicate_checks(capabilities: HephSdkCapabilities) -> tuple[_DuplicateChec
         *_jsonl_contract_duplicate_checks(capabilities),
         *_availability_duplicate_checks(capabilities),
         _DuplicateCheck("types", _type_names(capabilities.type_specs)),
+        _DuplicateCheck("deprecations", _deprecation_keys(capabilities.deprecation_specs)),
         *_method_param_duplicate_checks(
             "methods.service_call",
             capabilities.service_call_method_specs,
@@ -418,6 +434,10 @@ def _field_names(specs: tuple[SdkFieldSpec, ...]) -> tuple[str, ...]:
 
 def _type_names(specs: tuple[SdkTypeSpec, ...]) -> tuple[str, ...]:
     return tuple(spec.type_name for spec in specs)
+
+
+def _deprecation_keys(specs: tuple[SdkDeprecationSpec, ...]) -> tuple[str, ...]:
+    return tuple(f"{spec.surface}:{spec.name}" for spec in specs)
 
 
 def _method_param_duplicate_checks(
@@ -649,6 +669,118 @@ def _append_subset_issue(
         issues.append(
             f"{label} contains entries that are not advertised calls: {', '.join(unknown)}"
         )
+
+
+def _append_compatibility_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    policy = capabilities.compatibility
+    _append_compatibility_stability_issue(issues, policy)
+    _append_compatibility_version_issues(issues, capabilities.version, policy)
+    _append_compatibility_jsonl_version_issues(issues, capabilities.jsonl_version, policy)
+    _append_compatibility_text_issues(issues, policy)
+
+
+def _append_compatibility_stability_issue(
+    issues: list[str],
+    policy: SdkCompatibilityPolicy,
+) -> None:
+    if policy.stability not in SDK_STABILITY_LEVELS:
+        issues.append(f"compatibility.stability is unknown: {policy.stability}")
+
+
+def _append_compatibility_version_issues(
+    issues: list[str],
+    capabilities_version: int,
+    policy: SdkCompatibilityPolicy,
+) -> None:
+    if policy.current_capabilities_version != capabilities_version:
+        issues.append("compatibility.current_capabilities_version must match version.")
+    if policy.min_client_capabilities_version < 1:
+        issues.append("compatibility.min_client_capabilities_version must be positive.")
+    if policy.min_client_capabilities_version > policy.current_capabilities_version:
+        issues.append(
+            "compatibility.min_client_capabilities_version must not exceed "
+            "current_capabilities_version."
+        )
+
+
+def _append_compatibility_jsonl_version_issues(
+    issues: list[str],
+    jsonl_version: int,
+    policy: SdkCompatibilityPolicy,
+) -> None:
+    _append_duplicate_issue(
+        issues,
+        "compatibility.supported_jsonl_versions",
+        tuple(str(version) for version in policy.supported_jsonl_versions),
+    )
+    if jsonl_version not in policy.supported_jsonl_versions:
+        issues.append("compatibility.supported_jsonl_versions must include jsonl.version.")
+    issues.extend(
+        "compatibility.supported_jsonl_versions must be positive."
+        for version in policy.supported_jsonl_versions
+        if version < 1
+    )
+
+
+def _append_compatibility_text_issues(
+    issues: list[str],
+    policy: SdkCompatibilityPolicy,
+) -> None:
+    for field_name, value in (
+        ("breaking_change_policy", policy.breaking_change_policy),
+        ("additive_change_policy", policy.additive_change_policy),
+        ("deprecation_policy", policy.deprecation_policy),
+    ):
+        if not value.strip():
+            issues.append(f"compatibility.{field_name} must not be empty.")
+
+
+def _append_deprecation_issues(
+    issues: list[str],
+    capabilities: HephSdkCapabilities,
+) -> None:
+    for spec in capabilities.deprecation_specs:
+        context = f"deprecations.{spec.surface}.{spec.name}"
+        _append_deprecation_surface_issue(issues, context, spec)
+        _append_deprecation_text_issues(issues, context, spec)
+        _append_deprecation_version_issues(issues, context, capabilities.version, spec)
+
+
+def _append_deprecation_surface_issue(
+    issues: list[str],
+    context: str,
+    spec: SdkDeprecationSpec,
+) -> None:
+    if spec.surface not in SDK_DEPRECATION_SURFACES:
+        issues.append(f"{context} references unknown deprecation surface: {spec.surface}")
+
+
+def _append_deprecation_text_issues(
+    issues: list[str],
+    context: str,
+    spec: SdkDeprecationSpec,
+) -> None:
+    if not spec.name.strip():
+        issues.append(f"{context} must advertise a deprecated name.")
+    if not spec.message.strip():
+        issues.append(f"{context} must advertise a deprecation message.")
+
+
+def _append_deprecation_version_issues(
+    issues: list[str],
+    context: str,
+    capabilities_version: int,
+    spec: SdkDeprecationSpec,
+) -> None:
+    if spec.since_version < 1:
+        issues.append(f"{context}.since_version must be positive.")
+    if spec.since_version > capabilities_version:
+        issues.append(f"{context}.since_version must not exceed version.")
+    if spec.removal_version is not None and spec.removal_version <= spec.since_version:
+        issues.append(f"{context}.removal_version must be greater than since_version.")
 
 
 def _duplicates(names: tuple[str, ...]) -> tuple[str, ...]:
@@ -1086,6 +1218,8 @@ def _public_constant_exports() -> tuple[str, ...]:
 __all__ = (  # noqa: PLE0604
     *_public_constant_exports(),
     "HephSdkCapabilities",
+    "SdkCompatibilityPolicy",
+    "SdkDeprecationSpec",
     "get_sdk_capabilities",
     "validate_sdk_capabilities",
 )

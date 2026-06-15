@@ -13,10 +13,34 @@ from hephaion.parameters.settings import (
     VOCAB_STRICTNESS_MODES,
 )
 
-SDK_CAPABILITIES_VERSION = 32
+SDK_CAPABILITIES_VERSION = 33
 SDK_JSONL_PROTOCOL = "heph-sdk-jsonl"
 SDK_JSONL_VERSION = 1
 SDK_ENGINE_ERROR_CODE = "engine_error"
+SDK_STABILITY_PUBLIC = "public"
+SDK_STABILITY_PREVIEW = "preview"
+SDK_STABILITY_INTERNAL = "internal"
+SDK_STABILITY_LEVELS = (SDK_STABILITY_PUBLIC, SDK_STABILITY_PREVIEW, SDK_STABILITY_INTERNAL)
+SDK_DEPRECATION_SURFACE_SERVICE_CALL = "service_call"
+SDK_DEPRECATION_SURFACE_SERVICE_STREAM = "service_stream"
+SDK_DEPRECATION_SURFACE_JSONL_CALL = "jsonl_call"
+SDK_DEPRECATION_SURFACE_JSONL_STREAM = "jsonl_stream"
+SDK_DEPRECATION_SURFACE_EVENT = "event"
+SDK_DEPRECATION_SURFACE_TYPE = "type"
+SDK_DEPRECATION_SURFACE_STATE_FIELD = "state_field"
+SDK_DEPRECATION_SURFACE_JSONL_MESSAGE = "jsonl_message"
+SDK_DEPRECATION_SURFACE_JSONL_ERROR = "jsonl_error"
+SDK_DEPRECATION_SURFACES = (
+    SDK_DEPRECATION_SURFACE_SERVICE_CALL,
+    SDK_DEPRECATION_SURFACE_SERVICE_STREAM,
+    SDK_DEPRECATION_SURFACE_JSONL_CALL,
+    SDK_DEPRECATION_SURFACE_JSONL_STREAM,
+    SDK_DEPRECATION_SURFACE_EVENT,
+    SDK_DEPRECATION_SURFACE_TYPE,
+    SDK_DEPRECATION_SURFACE_STATE_FIELD,
+    SDK_DEPRECATION_SURFACE_JSONL_MESSAGE,
+    SDK_DEPRECATION_SURFACE_JSONL_ERROR,
+)
 SDK_METHOD_REQUIREMENT_ALWAYS = "always"
 SDK_METHOD_REQUIREMENT_ARMORY = "armory"
 SDK_METHOD_REQUIREMENT_SESSION = "session"
@@ -207,6 +231,52 @@ class SdkMethodAvailabilitySpec:
         return {
             "requirement": self.requirement,
             "unavailable_reason": self.unavailable_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkCompatibilityPolicy:
+    """Machine-readable SDK compatibility policy for generated clients."""
+
+    stability: str
+    min_client_capabilities_version: int
+    current_capabilities_version: int
+    supported_jsonl_versions: tuple[int, ...]
+    breaking_change_policy: str
+    additive_change_policy: str
+    deprecation_policy: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "stability": self.stability,
+            "min_client_capabilities_version": self.min_client_capabilities_version,
+            "current_capabilities_version": self.current_capabilities_version,
+            "supported_jsonl_versions": list(self.supported_jsonl_versions),
+            "breaking_change_policy": self.breaking_change_policy,
+            "additive_change_policy": self.additive_change_policy,
+            "deprecation_policy": self.deprecation_policy,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SdkDeprecationSpec:
+    """Machine-readable SDK deprecation notice for generated clients."""
+
+    surface: str
+    name: str
+    since_version: int
+    removal_version: int | None
+    replacement: str
+    message: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "surface": self.surface,
+            "name": self.name,
+            "since_version": self.since_version,
+            "removal_version": self.removal_version,
+            "replacement": self.replacement,
+            "message": self.message,
         }
 
 
@@ -665,6 +735,25 @@ SERVICE_CALL_RESULT_SPECS = (
     ),
 )
 JSONL_CALL_RESULT_SPECS = SERVICE_CALL_RESULT_SPECS
+SDK_COMPATIBILITY_POLICY = SdkCompatibilityPolicy(
+    stability=SDK_STABILITY_PUBLIC,
+    min_client_capabilities_version=SDK_CAPABILITIES_VERSION,
+    current_capabilities_version=SDK_CAPABILITIES_VERSION,
+    supported_jsonl_versions=(SDK_JSONL_VERSION,),
+    breaking_change_policy=(
+        "Bump JSONL version for incompatible wire changes; bump capability version for any "
+        "advertised contract change."
+    ),
+    additive_change_policy=(
+        "Clients must ignore unknown capability fields and may opt into newly advertised "
+        "methods, fields, events, and types."
+    ),
+    deprecation_policy=(
+        "Advertise deprecations in capabilities before removal and keep deprecated names until "
+        "the next incompatible SDK contract version."
+    ),
+)
+SDK_DEPRECATION_SPECS: tuple[SdkDeprecationSpec, ...] = ()
 SDK_EVENT_SPECS = (
     SdkEventSpec(
         "assistant_delta",
@@ -834,6 +923,8 @@ SDK_TYPE_SPECS = (
         "sdk_capabilities",
         (
             SdkTypeFieldSpec("version", "integer"),
+            SdkTypeFieldSpec("compatibility", "sdk_compatibility_policy"),
+            SdkTypeFieldSpec("deprecations", "array<sdk_deprecation_spec>"),
             SdkTypeFieldSpec("service", "sdk_capabilities_service"),
             SdkTypeFieldSpec("jsonl", "sdk_capabilities_jsonl"),
             SdkTypeFieldSpec("events", "sdk_capabilities_events"),
@@ -1024,6 +1115,29 @@ SDK_TYPE_SPECS = (
         (
             SdkTypeFieldSpec("requirement", "string"),
             SdkTypeFieldSpec("unavailable_reason", "string", nullable=True),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_compatibility_policy",
+        (
+            SdkTypeFieldSpec("stability", "string"),
+            SdkTypeFieldSpec("min_client_capabilities_version", "integer"),
+            SdkTypeFieldSpec("current_capabilities_version", "integer"),
+            SdkTypeFieldSpec("supported_jsonl_versions", "array<integer>"),
+            SdkTypeFieldSpec("breaking_change_policy", "string"),
+            SdkTypeFieldSpec("additive_change_policy", "string"),
+            SdkTypeFieldSpec("deprecation_policy", "string"),
+        ),
+    ),
+    SdkTypeSpec(
+        "sdk_deprecation_spec",
+        (
+            SdkTypeFieldSpec("surface", "string"),
+            SdkTypeFieldSpec("name", "string"),
+            SdkTypeFieldSpec("since_version", "integer"),
+            SdkTypeFieldSpec("removal_version", "integer", nullable=True),
+            SdkTypeFieldSpec("replacement", "string"),
+            SdkTypeFieldSpec("message", "string"),
         ),
     ),
     SdkTypeSpec("sdk_service_state", _type_fields_from_state_specs(SERVICE_STATE_FIELD_SPECS)),
@@ -1268,6 +1382,10 @@ def stream_specs_to_dict(specs: tuple[SdkStreamSpec, ...]) -> dict[str, object]:
     return {spec.method: spec.to_dict() for spec in specs}
 
 
+def deprecation_specs_to_list(specs: tuple[SdkDeprecationSpec, ...]) -> list[object]:
+    return [spec.to_dict() for spec in specs]
+
+
 def type_field_specs_to_dict(specs: tuple[SdkObjectFieldSpec, ...]) -> dict[str, object]:
     return _object_field_specs_to_dict(specs)
 
@@ -1329,6 +1447,8 @@ __all__ = [
     "SESSION_STATE_FIELDS",
     "SESSION_STATE_FIELD_SPECS",
     "TURN_STREAM_EVENT_TYPES",
+    "SdkCompatibilityPolicy",
+    "SdkDeprecationSpec",
     "SdkErrorSpec",
     "SdkEventFieldSpec",
     "SdkEventSpec",
@@ -1345,6 +1465,7 @@ __all__ = [
     "SdkStreamSpec",
     "SdkTypeFieldSpec",
     "SdkTypeSpec",
+    "deprecation_specs_to_list",
     "error_specs_to_dict",
     "event_field_specs_to_dict",
     "event_specs_to_dict",
