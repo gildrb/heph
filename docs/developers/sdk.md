@@ -158,6 +158,9 @@ For native clients that cannot embed Python directly, spawn the stdio service:
 heph sdk serve --armory ~/my-armory
 ```
 
+The serve command accepts startup overrides for provider/model settings,
+generation limits, reasoning level, thinking visibility, and temperature.
+
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
 single JSON object with an `id`, `method`, and optional `params` object:
 

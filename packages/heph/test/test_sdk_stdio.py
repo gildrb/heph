@@ -1482,6 +1482,10 @@ def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> No
             "sdk-model",
             "--temperature",
             "0.5",
+            "--reasoning-level",
+            "medium",
+            "--thinking-visibility",
+            "all",
             "--max-tokens",
             "512",
         ],
@@ -1494,6 +1498,8 @@ def test_sdk_serve_cli_dispatches_options(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured.start_session
     assert captured.model == "sdk-model"
     assert captured.temperature == 0.5
+    assert captured.reasoning_level == "medium"
+    assert captured.thinking_visibility == "all"
     assert captured.max_tokens == 512
 
 

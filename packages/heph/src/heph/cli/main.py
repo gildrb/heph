@@ -148,6 +148,7 @@ def _cmd_sdk_serve(args: argparse.Namespace) -> None:
         max_tokens=args.max_tokens,
         rag_context_budget=args.rag_context_budget,
         reasoning_level=args.reasoning_level,
+        thinking_visibility=args.thinking_visibility,
         temperature=args.temperature,
     )
     sdk_stdio.serve_stdio(options)
@@ -685,6 +686,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the retrieval context token budget.",
     )
     sdk_serve.add_argument("--reasoning-level", help="Override the reasoning level.")
+    sdk_serve.add_argument(
+        "--thinking-visibility",
+        help="Override model thinking visibility.",
+    )
     sdk_serve.add_argument("--temperature", type=float, help="Override generation temperature.")
     sdk_serve.set_defaults(handler=_cmd_sdk_serve)
 

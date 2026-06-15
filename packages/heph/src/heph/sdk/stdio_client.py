@@ -93,6 +93,7 @@ class JsonlSdkProcessOptions:
     rag_context_budget: int | None = None
     reasoning_level: str | None = None
     temperature: float | None = None
+    thinking_visibility: str | None = None
 
     def command(self) -> tuple[str, ...]:
         """Return the argv tuple for ``heph sdk serve``."""
@@ -110,6 +111,7 @@ class JsonlSdkProcessOptions:
         _append_optional_value(command, "--max-tokens", self.max_tokens)
         _append_optional_value(command, "--rag-context-budget", self.rag_context_budget)
         _append_optional_value(command, "--reasoning-level", self.reasoning_level)
+        _append_optional_value(command, "--thinking-visibility", self.thinking_visibility)
         _append_optional_value(command, "--temperature", self.temperature)
         return tuple(command)
 

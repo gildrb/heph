@@ -258,6 +258,7 @@ def test_jsonl_sdk_process_options_build_command() -> None:
         max_tokens=512,
         rag_context_budget=4096,
         reasoning_level="medium",
+        thinking_visibility="all",
         temperature=0.5,
     )
 
@@ -280,6 +281,8 @@ def test_jsonl_sdk_process_options_build_command() -> None:
         "4096",
         "--reasoning-level",
         "medium",
+        "--thinking-visibility",
+        "all",
         "--temperature",
         "0.5",
     )
