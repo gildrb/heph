@@ -639,11 +639,36 @@ def _contract_requires_direct_source_support(
     if contract.answer_mode == ANSWER_MODE_REASON_FROM_PRIOR:
         return False
     if contract.direct_evidence_required:
-        return retrieval_strategy != RETRIEVAL_STRATEGY_REUSE_PRIOR or bool(
-            _contract_has_nonliteral_retrieval_surface(contract)
+        return _direct_evidence_requirement_needs_source_support(
+            contract,
+            retrieval_strategy=retrieval_strategy,
         )
     if retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
         return False
+    return _source_qa_retrieval_requires_direct_support(
+        plan,
+        contract,
+        retrieval_strategy=retrieval_strategy,
+    )
+
+
+def _direct_evidence_requirement_needs_source_support(
+    contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    return (
+        retrieval_strategy != RETRIEVAL_STRATEGY_REUSE_PRIOR
+        or _contract_has_nonliteral_retrieval_surface(contract)
+    )
+
+
+def _source_qa_retrieval_requires_direct_support(
+    plan: LearningTurnPlan,
+    contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
     return (
         plan.action is LearningAction.SOURCE_QA
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
