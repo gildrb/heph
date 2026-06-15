@@ -1098,6 +1098,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     server.handle_request({"id": "state-during-index", "method": "state"})
     server.handle_request({"id": "caps-during-index", "method": "capabilities"})
     server.handle_request({"id": "settings-during-index", "method": "settings"})
+    server.handle_request({"id": "index-1", "method": "state"})
     server.handle_request(
         {
             "id": "prompt-during-index",
@@ -1127,6 +1128,11 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     settings_response = next(
         payload for payload in payloads if payload.get("id") == "settings-during-index"
     )
+    collision_error = next(
+        payload
+        for payload in payloads
+        if payload.get("id") == "index-1" and payload["type"] == "error"
+    )
     prompt_error = next(
         payload for payload in payloads if payload.get("id") == "prompt-during-index"
     )
@@ -1139,6 +1145,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     )
     capability_service = _payload_mapping(capabilities["service"])
     settings = _payload_mapping(_payload_mapping(settings_response["result"])["settings"])
+    collision_error_payload = _payload_mapping(collision_error["error"])
     prompt_error_payload = _payload_mapping(prompt_error["error"])
     events = [
         _payload_mapping(payload["event"])
@@ -1152,6 +1159,8 @@ def test_jsonl_sdk_server_streams_build_index_progress(
     assert "settings" in _payload_list(capability_service["busy_allowed_call_methods"])
     assert settings_response["type"] == "response"
     assert settings["theme"] in {"dark", "light"}
+    assert collision_error_payload["code"] == "invalid_request"
+    assert "already in use by an active stream" in str(collision_error_payload["message"])
     assert prompt_error_payload["code"] == "busy"
     assert prompt_error_payload["unavailable_reason"] == "busy"
     assert events == [

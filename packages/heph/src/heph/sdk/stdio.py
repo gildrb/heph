@@ -153,6 +153,7 @@ class JsonlSdkServer:
             self._write_error(request_id, error)
 
     def _dispatch_request(self, request: _JsonlRequest) -> None:
+        self._ensure_request_id_not_active_stream(request.request_id)
         if request.method == "prompt":
             self._start_prompt_stream(
                 request.request_id,
@@ -176,6 +177,22 @@ class JsonlSdkServer:
             route.dispatch(self, request.request_id, params)
             return
         self._write_service_call_response(request.request_id, request.method, params)
+
+    def _ensure_request_id_not_active_stream(self, request_id: RequestId) -> None:
+        if not self._request_matches_active_stream(request_id):
+            return
+        raise SdkProtocolError(
+            "invalid_request",
+            f"SDK request id {request_id!r} is already in use by an active stream.",
+        )
+
+    def _request_matches_active_stream(self, request_id: RequestId) -> bool:
+        with self._state_lock:
+            active_prompt = self._active_prompt
+            active_operation = self._active_operation
+        return (active_prompt is not None and request_id == active_prompt.request_id) or (
+            active_operation is not None and request_id == active_operation.request_id
+        )
 
     def _write_service_call_response(
         self,
