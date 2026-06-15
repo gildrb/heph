@@ -126,8 +126,11 @@ from heph.sdk.service import (
     validate_sdk_service_contract,
 )
 from heph.sdk.settings import (
+    SDK_APP_SETTING_CONTRACTS,
+    SDK_APP_SETTING_VALUE_TYPES,
     SDK_MUTABLE_APP_SETTINGS,
     PrivacySettingsSummary,
+    SdkAppSettingContract,
     SdkAppSettings,
     SdkSettingsError,
     SettingChoice,
@@ -207,6 +210,8 @@ __all__ = [  # noqa: RUF022 - keep spec exports grouped away from lower-level or
     "SDK_METHOD_REQUIREMENT_SESSION",
     "SDK_METHOD_REQUIREMENT_SESSION_SOURCES",
     "SDK_METHOD_UNAVAILABLE_REASONS",
+    "SDK_APP_SETTING_CONTRACTS",
+    "SDK_APP_SETTING_VALUE_TYPES",
     "SDK_MUTABLE_APP_SETTINGS",
     "SDK_STABILITY_INTERNAL",
     "SDK_STABILITY_LEVELS",
@@ -266,6 +271,7 @@ __all__ = [  # noqa: RUF022 - keep spec exports grouped away from lower-level or
     "PrivacySettingsSummary",
     "ProviderSummary",
     "ReasoningDelta",
+    "SdkAppSettingContract",
     "SdkAppSettings",
     "SdkClientCompatibilityError",
     "SdkCompatibilityPolicy",

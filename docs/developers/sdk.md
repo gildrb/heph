@@ -143,7 +143,9 @@ status, valid choice lists, and `mutable_keys`. `update_settings` persists
 supported app preferences and applies display settings such as thinking
 visibility and live token/cost visibility to the active runtime/session when one
 exists. Privacy consent is intentionally summarized but not mutated through this
-generic SDK method.
+generic SDK method. Python GUI clients can import `SdkAppSettingContract`,
+`SDK_APP_SETTING_CONTRACTS`, and `SDK_APP_SETTING_VALUE_TYPES` from `heph.sdk`
+when building typed settings forms.
 
 For transport-style integration, use the service facade:
 

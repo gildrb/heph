@@ -82,6 +82,7 @@ from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
 from heph.sdk import service_routes as sdk_service_routes
+from heph.sdk import settings as sdk_settings
 from heph.sdk import value_types as sdk_value_types
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
@@ -185,6 +186,21 @@ def test_sdk_public_facade_exports_contract_spec_types() -> None:
     assert all(name in sdk.__all__ for name in expected_exports)
     for name in expected_exports:
         assert getattr(sdk, name) is getattr(sdk_methods, name)
+
+
+def test_sdk_public_facade_exports_settings_contracts() -> None:
+    expected_exports = (
+        "SDK_APP_SETTING_CONTRACTS",
+        "SDK_APP_SETTING_VALUE_TYPES",
+        "SDK_MUTABLE_APP_SETTINGS",
+        "SdkAppSettingContract",
+    )
+
+    assert all(name in sdk.__all__ for name in expected_exports)
+    assert sdk.SDK_APP_SETTING_CONTRACTS == sdk_settings.SDK_APP_SETTING_CONTRACTS
+    assert sdk.SDK_APP_SETTING_VALUE_TYPES == sdk_settings.SDK_APP_SETTING_VALUE_TYPES
+    assert sdk.SDK_MUTABLE_APP_SETTINGS == sdk_settings.SDK_MUTABLE_APP_SETTINGS
+    assert sdk.SdkAppSettingContract is sdk_settings.SdkAppSettingContract
 
 
 def _pollinations_config(monkeypatch: pytest.MonkeyPatch) -> ChatConfig:
