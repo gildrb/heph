@@ -465,6 +465,28 @@ def test_sdk_result_validation_rejects_nonfinite_numbers(value: float) -> None:
         validate_result_payload("check", {"latency": value}, specs)
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {1: "integer key"},
+        {"nested": float("nan")},
+        {"items": [{"bad": object()}]},
+    ],
+)
+def test_sdk_result_validation_rejects_non_json_safe_objects(
+    payload: dict[object, object],
+) -> None:
+    specs = (
+        sdk_methods.SdkResultSpec(
+            "check",
+            fields=(sdk_methods.SdkResultFieldSpec("payload", "object"),),
+        ),
+    )
+
+    with pytest.raises(HephSdkError, match="JSON-safe values"):
+        validate_result_payload("check", {"payload": payload}, specs)
+
+
 def test_sdk_result_validation_accepts_nested_advertised_dto_shape() -> None:
     type_specs = (
         sdk_methods.SdkTypeSpec(
@@ -650,6 +672,15 @@ def test_sdk_stream_event_validation_accepts_advertised_event_shape() -> None:
             {"type": "assistant_delta", "delta": 7},
             r"event 'assistant_delta' field 'delta' must be a string",
         ),
+        (
+            {
+                "type": "notice",
+                "message": "Working.",
+                "code": "status",
+                "metadata": {"latency": float("nan")},
+            },
+            "JSON-safe values",
+        ),
     ],
 )
 def test_sdk_stream_event_validation_rejects_contract_drift(
@@ -715,6 +746,15 @@ def test_sdk_jsonl_message_validation_accepts_advertised_stream_event_shape() ->
         (
             {"type": "stream_event", "id": "turn-1", "event": {"type": "assistant_delta"}},
             "event 'assistant_delta' requires field: delta",
+        ),
+        (
+            {
+                "type": "response",
+                "id": "state-1",
+                "ok": True,
+                "result": {"state": {"latency": float("nan")}},
+            },
+            "JSON-safe values",
         ),
     ],
 )

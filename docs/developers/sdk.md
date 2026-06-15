@@ -169,6 +169,7 @@ The serve command accepts startup overrides for provider/model settings,
 generation limits, reasoning level, thinking visibility, and temperature. SDK
 values advertised as `number` or `number_or_null` must be finite JSON numbers;
 `NaN` and infinities are rejected before config or transport state changes.
+Values advertised as `object` must use string keys and JSON-safe nested values.
 
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
 single JSON object with an `id`, `method`, and optional `params` object:

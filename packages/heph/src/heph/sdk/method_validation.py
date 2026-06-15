@@ -24,6 +24,7 @@ from heph.sdk.runtime import HephSdkError
 from heph.sdk.value_types import (
     sdk_array_item_type,
     sdk_json_number_is_finite,
+    sdk_json_object_is_safe,
     sdk_literal_value,
     sdk_map_item_type,
 )
@@ -72,7 +73,7 @@ def validate_result_payload(
     if spec is None:
         return payload
     type_map = _type_specs_by_name(type_specs)
-    _validate_result_type(surface, method, payload, spec.value_type, type_map)
+    _validate_result_type(surface, method, payload, spec, type_map)
     _validate_unknown_result_fields(surface, method, payload, spec)
     _validate_required_result_fields(surface, method, payload, spec)
     _validate_supplied_result_fields(surface, method, payload, spec, type_map)
@@ -259,15 +260,18 @@ def _validate_result_type(
     surface: str,
     method: str,
     payload: Mapping[str, object],
-    value_type: str,
+    spec: SdkResultSpec,
     type_map: Mapping[str, SdkTypeSpec],
 ) -> None:
+    if spec.value_type == "object" and spec.fields:
+        _string_keyed_result_object(surface, method, "result", payload)
+        return
     _validate_result_value_type(
         surface,
         method,
         "result",
         payload,
-        value_type,
+        spec.value_type,
         type_map,
     )
 
@@ -1037,7 +1041,7 @@ def _is_json_string_or_integer(value: object) -> bool:
 
 
 def _is_json_object(value: object) -> bool:
-    return isinstance(value, Mapping)
+    return sdk_json_object_is_safe(value)
 
 
 def _type_message(value_type: str) -> str:
@@ -1074,7 +1078,7 @@ _TYPE_RULES: Mapping[str, _TypeRule] = {
     "number": _TypeRule("a finite number", _is_json_number),
     "number_or_null": _TypeRule("a finite number or null", _is_json_number_or_null),
     "string_or_integer": _TypeRule("a string or integer", _is_json_string_or_integer),
-    "object": _TypeRule("an object", _is_json_object),
+    "object": _TypeRule("an object with string keys and JSON-safe values", _is_json_object),
 }
 
 

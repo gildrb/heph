@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 _ARRAY_PREFIX = "array<"
@@ -42,6 +42,36 @@ def sdk_json_finite_float(value: object) -> float | None:
         return float(value)
     except OverflowError:
         return None
+
+
+def sdk_json_value_is_safe(value: object) -> bool:
+    """Return whether a value can be emitted as SDK JSON without coercion."""
+    if _sdk_json_scalar_is_safe(value):
+        return True
+    return _sdk_json_mapping_is_safe(value) or _sdk_json_sequence_is_safe(value)
+
+
+def sdk_json_object_is_safe(value: object) -> bool:
+    """Return whether a value is a JSON-safe SDK object."""
+    return _sdk_json_mapping_is_safe(value)
+
+
+def _sdk_json_scalar_is_safe(value: object) -> bool:
+    return value is None or isinstance(value, str | bool) or sdk_json_number_is_finite(value)
+
+
+def _sdk_json_mapping_is_safe(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    return all(
+        isinstance(key, str) and sdk_json_value_is_safe(item) for key, item in value.items()
+    )
+
+
+def _sdk_json_sequence_is_safe(value: object) -> bool:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+        return False
+    return all(sdk_json_value_is_safe(item) for item in value)
 
 
 def sdk_array_item_type(value_type: str) -> str | None:
