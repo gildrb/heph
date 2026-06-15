@@ -305,6 +305,12 @@ def _overview_strategy_conflicts_with_intent(
 
 
 def _apply_replayability_state(state: _PlanContractApplication) -> None:
+    if _apply_unreplayable_followup_state(state):
+        return
+    _apply_missing_prior_evidence_reuse_marker(state)
+
+
+def _apply_unreplayable_followup_state(state: _PlanContractApplication) -> bool:
     if _followup_lacks_replayable_prior_surface(
         state.contract,
         prior_contract=state.prior_contract,
@@ -312,14 +318,23 @@ def _apply_replayability_state(state: _PlanContractApplication) -> None:
         state.contract = replace(state.contract, prior_answer_reference=True)
         state.retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
         state.retrieval_query = None
-    elif (
+        return True
+    return False
+
+
+def _apply_missing_prior_evidence_reuse_marker(state: _PlanContractApplication) -> None:
+    if _followup_reuses_missing_prior_evidence(state):
+        state.contract = replace(state.contract, prior_answer_reference=True)
+
+
+def _followup_reuses_missing_prior_evidence(state: _PlanContractApplication) -> bool:
+    return (
         state.prior_contract is not None
         and not state.prior_contract.evidence_refs
         and state.contract.is_followup
         and state.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
         and not state.retrieval_query
-    ):
-        state.contract = replace(state.contract, prior_answer_reference=True)
+    )
 
 
 def _apply_current_topic_retrieval_state(state: _PlanContractApplication) -> None:
