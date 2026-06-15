@@ -449,7 +449,9 @@ Python clients can use `validate_sdk_client_compatibility()` /
 `ensure_sdk_client_payload_compatibility()` with the JSON-ready capability payload
 from a transport handshake. These helpers accept only `public` SDK stability by
 default; clients that intentionally bind to `preview` or `internal` surfaces
-must pass `accepted_stability_levels` explicitly.
+must pass `accepted_stability_levels` explicitly. Empty, non-string, or unknown
+accepted stability levels are reported as compatibility issues so startup
+negotiation can fail through one SDK error family.
 The top-level `deprecations` list advertises planned removals as structured
 entries with `surface`, `name`, `since_version`, nullable `removal_version`,
 `replacement`, and `message`. Clients should prefer replacements when present and

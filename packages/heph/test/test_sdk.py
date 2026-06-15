@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import get_type_hints
+from typing import cast, get_type_hints
 
 import pytest
 from ai.providers.config import default_config
@@ -2090,6 +2090,46 @@ def test_sdk_client_compatibility_helpers_require_accepted_stability() -> None:
         )
 
     assert exc.value.issues == native_issues
+
+
+def test_sdk_client_compatibility_helpers_validate_accepted_stability_levels() -> None:
+    capabilities = get_sdk_capabilities()
+    payload = capabilities.to_dict()
+
+    empty_issues = validate_sdk_client_compatibility(
+        capabilities,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        accepted_stability_levels=(),
+    )
+    invalid_type_issues = validate_sdk_client_compatibility(
+        capabilities,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        accepted_stability_levels=cast(
+            "Sequence[str]",
+            (sdk_methods.SDK_STABILITY_PUBLIC, 7),
+        ),
+    )
+    unknown_issues = validate_sdk_client_payload_compatibility(
+        payload,
+        client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+        accepted_stability_levels=(sdk_methods.SDK_STABILITY_PUBLIC, "beta"),
+    )
+
+    assert empty_issues == ("SDK client accepted stability levels must not be empty.",)
+    assert invalid_type_issues == ("SDK client accepted stability levels must be strings.",)
+    assert unknown_issues == (
+        "SDK client accepted stability levels contain unknown values: beta.",
+    )
+    with pytest.raises(SdkClientCompatibilityError, match="unknown values") as exc:
+        ensure_sdk_client_payload_compatibility(
+            payload,
+            client_capabilities_version=sdk_methods.SDK_CAPABILITIES_VERSION,
+            accepted_stability_levels=("beta",),
+        )
+
+    assert exc.value.issues == (
+        "SDK client accepted stability levels contain unknown values: beta.",
+    )
 
 
 def test_sdk_client_payload_compatibility_reports_malformed_payload() -> None:

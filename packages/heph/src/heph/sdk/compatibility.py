@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from heph.sdk.capabilities import HephSdkCapabilities
-from heph.sdk.methods import SDK_STABILITY_PUBLIC
+from heph.sdk.methods import SDK_STABILITY_LEVELS, SDK_STABILITY_PUBLIC
 
 _DEFAULT_ACCEPTED_STABILITY_LEVELS = (SDK_STABILITY_PUBLIC,)
 
@@ -246,9 +246,9 @@ def _append_stability_issues(
     stability: str,
     accepted_stability_levels: Sequence[str],
 ) -> None:
-    accepted_levels = _accepted_stability_levels(accepted_stability_levels)
+    accepted_levels, accepted_level_issues = _accepted_stability_levels(accepted_stability_levels)
+    issues.extend(accepted_level_issues)
     if not accepted_levels:
-        issues.append("SDK client accepted stability levels must not be empty.")
         return
     if stability in accepted_levels:
         return
@@ -258,10 +258,58 @@ def _append_stability_issues(
     )
 
 
-def _accepted_stability_levels(levels: Sequence[str]) -> tuple[str, ...]:
-    if isinstance(levels, str):
-        return (levels,)
-    return tuple(level for level in levels if level)
+def _accepted_stability_levels(levels: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    accepted_levels: list[str] = []
+    invalid_type_found = False
+    unknown_levels: list[str] = []
+    for level in _raw_stability_levels(levels):
+        if not _accept_stability_level(level, accepted_levels, unknown_levels):
+            invalid_type_found = True
+    return tuple(accepted_levels), _accepted_stability_level_issues(
+        accepted_levels,
+        invalid_type_found=invalid_type_found,
+        unknown_levels=unknown_levels,
+    )
+
+
+def _raw_stability_levels(levels: Sequence[str]) -> tuple[object, ...]:
+    return (levels,) if isinstance(levels, str) else tuple(levels)
+
+
+def _accept_stability_level(
+    level: object,
+    accepted_levels: list[str],
+    unknown_levels: list[str],
+) -> bool:
+    if not isinstance(level, str):
+        return False
+    if not level:
+        return True
+    if level not in SDK_STABILITY_LEVELS:
+        unknown_levels.append(level)
+        return True
+    if level not in accepted_levels:
+        accepted_levels.append(level)
+    return True
+
+
+def _accepted_stability_level_issues(
+    accepted_levels: list[str],
+    *,
+    invalid_type_found: bool,
+    unknown_levels: list[str],
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    if invalid_type_found:
+        issues.append("SDK client accepted stability levels must be strings.")
+    if unknown_levels:
+        issues.append(
+            "SDK client accepted stability levels contain unknown values: "
+            f"{', '.join(unknown_levels)}."
+        )
+    if not accepted_levels and not issues:
+        issues.append("SDK client accepted stability levels must not be empty.")
+    return tuple(issues)
 
 
 def _append_capability_version_issues(
