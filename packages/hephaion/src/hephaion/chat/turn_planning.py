@@ -620,14 +620,43 @@ def _source_request_needs_current_retrieval(
     retrieval_strategy: str,
     retrieval_query: str | None,
 ) -> bool:
-    return (
-        (prior_contract is None or not prior_contract.evidence_refs)
-        and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
-        and contract.resolved_intent in _CONTINUABLE_MATERIAL_INTENTS
-        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
-        and not retrieval_query
-        and len(_content_terms(contract.original_user_input)) >= _FRESH_CURRENT_REQUEST_MIN_TERMS
-    )
+    if not _source_request_lacks_prior_evidence(prior_contract):
+        return False
+    if not _contract_allows_current_source_retrieval(contract):
+        return False
+    if not _retrieval_state_is_unplanned(
+        retrieval_strategy=retrieval_strategy,
+        retrieval_query=retrieval_query,
+    ):
+        return False
+    return _contract_has_fresh_current_request(contract)
+
+
+def _source_request_lacks_prior_evidence(prior_contract: TurnContract | None) -> bool:
+    if prior_contract is None:
+        return True
+    return not prior_contract.evidence_refs
+
+
+def _contract_allows_current_source_retrieval(contract: TurnContract) -> bool:
+    if contract.answer_mode != ANSWER_MODE_FROM_EVIDENCE:
+        return False
+    return contract.resolved_intent in _CONTINUABLE_MATERIAL_INTENTS
+
+
+def _retrieval_state_is_unplanned(
+    *,
+    retrieval_strategy: str,
+    retrieval_query: str | None,
+) -> bool:
+    if retrieval_strategy != RETRIEVAL_STRATEGY_NONE:
+        return False
+    return not retrieval_query
+
+
+def _contract_has_fresh_current_request(contract: TurnContract) -> bool:
+    content_terms = _content_terms(contract.original_user_input)
+    return len(content_terms) >= _FRESH_CURRENT_REQUEST_MIN_TERMS
 
 
 def _contract_requires_direct_source_support(
