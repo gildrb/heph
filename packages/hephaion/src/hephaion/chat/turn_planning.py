@@ -786,10 +786,9 @@ def _contract_requires_overview_sampling(
     *,
     prior_contract: TurnContract | None,
 ) -> bool:
-    if contract.resolved_intent != "material_overview" or (
-        contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
-        and contract.answer_format == ANSWER_FORMAT_PLAIN
-    ):
+    if contract.resolved_intent != "material_overview":
+        return False
+    if _contract_is_plain_prior_transform(contract):
         return False
     if contract.answer_format != ANSWER_FORMAT_PLAIN:
         return True
@@ -799,7 +798,21 @@ def _contract_requires_overview_sampling(
         return True
     if contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW:
         return True
-    return not (
+    return not _overview_followup_can_reuse_prior_evidence(contract, prior_contract)
+
+
+def _contract_is_plain_prior_transform(contract: TurnContract) -> bool:
+    return (
+        contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
+        and contract.answer_format == ANSWER_FORMAT_PLAIN
+    )
+
+
+def _overview_followup_can_reuse_prior_evidence(
+    contract: TurnContract,
+    prior_contract: TurnContract | None,
+) -> bool:
+    return (
         contract.is_followup and prior_contract is not None and bool(prior_contract.evidence_refs)
     )
 
