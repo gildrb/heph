@@ -238,6 +238,13 @@ def _apply_prior_answer_followup_state(state: _PlanContractApplication) -> None:
 
 
 def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> None:
+    _apply_source_request_retrieval_state(state)
+    _apply_reasoning_followup_retrieval_state(state)
+    _apply_expanded_prior_current_request_query(state)
+    _apply_non_overview_intent_retrieval_state(state)
+
+
+def _apply_source_request_retrieval_state(state: _PlanContractApplication) -> None:
     if _source_request_needs_current_retrieval(
         state.contract,
         prior_contract=state.prior_contract,
@@ -246,6 +253,9 @@ def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> N
     ):
         state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
         state.retrieval_query = _fresh_current_request_query(state.contract)
+
+
+def _apply_reasoning_followup_retrieval_state(state: _PlanContractApplication) -> None:
     application = _apply_reasoning_followup_contract(
         state.contract,
         prior_contract=state.prior_contract,
@@ -255,30 +265,43 @@ def _apply_current_request_retrieval_state(state: _PlanContractApplication) -> N
     state.contract = application.contract
     state.retrieval_strategy = application.retrieval.strategy
     state.retrieval_query = application.retrieval.query
-    if (
-        _expanded_prior_should_use_current_request(
-            state.contract,
-            prior_contract=state.prior_contract,
-            retrieval_strategy=state.retrieval_strategy,
-            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
-        )
-        and state.prior_contract is not None
+
+
+def _apply_expanded_prior_current_request_query(state: _PlanContractApplication) -> None:
+    if state.prior_contract is None:
+        return
+    if not _expanded_prior_should_use_current_request(
+        state.contract,
+        prior_contract=state.prior_contract,
+        retrieval_strategy=state.retrieval_strategy,
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
     ):
-        state.retrieval_query = _expanded_prior_followup_query(
-            state.contract,
-            state.prior_contract,
-            fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
-        )
-    if (
-        state.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
-        and state.contract.resolved_intent != "material_overview"
-    ):
+        return
+    state.retrieval_query = _expanded_prior_followup_query(
+        state.contract,
+        state.prior_contract,
+        fresh_request_min_terms=_FRESH_CURRENT_REQUEST_MIN_TERMS,
+    )
+
+
+def _apply_non_overview_intent_retrieval_state(state: _PlanContractApplication) -> None:
+    if _overview_strategy_conflicts_with_intent(state.contract, state.retrieval_strategy):
         state.retrieval_strategy = RETRIEVAL_STRATEGY_RETRIEVE
         state.retrieval_query = (
             state.contract.retrieval_query
             or state.contract.canonical_request
             or state.retrieval_query
         )
+
+
+def _overview_strategy_conflicts_with_intent(
+    contract: TurnContract,
+    retrieval_strategy: str,
+) -> bool:
+    return (
+        retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
+        and contract.resolved_intent != "material_overview"
+    )
 
 
 def _apply_replayability_state(state: _PlanContractApplication) -> None:
