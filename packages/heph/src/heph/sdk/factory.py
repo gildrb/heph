@@ -86,7 +86,7 @@ def create_heph_service(
 ) -> CreateHephServiceResult:
     resolved_options = options or HephSdkOptions()
     _validate_service_options(resolved_options)
-    runtime_result = create_heph_runtime(resolved_options)
+    runtime_result = create_heph_runtime(replace(resolved_options, session_id=None))
     service = HephService(runtime=runtime_result.runtime)
     session = _start_session_if_requested(service, resolved_options)
     return CreateHephServiceResult(
@@ -101,6 +101,7 @@ def create_heph_session(
     options: HephSdkOptions | None = None,
 ) -> CreateHephSessionResult:
     resolved_options = options or HephSdkOptions()
+    _validate_session_options(resolved_options)
     service_result = create_heph_service(
         replace(resolved_options, start_session=True),
     )
@@ -130,11 +131,18 @@ def _start_session_if_requested(
 def _validate_runtime_options(options: HephSdkOptions) -> None:
     if options.create_armory and options.armory_path is None:
         raise HephSdkError("create_armory=True requires an armory_path.")
+    if options.session_id is not None:
+        raise HephSdkError("session_id cannot be used with create_heph_runtime().")
 
 
 def _validate_service_options(options: HephSdkOptions) -> None:
     if options.session_id is not None and not options.start_session:
         raise HephSdkError("session_id cannot be used with start_session=False.")
+
+
+def _validate_session_options(options: HephSdkOptions) -> None:
+    if not options.start_session:
+        raise HephSdkError("create_heph_session() requires start_session=True.")
 
 
 def _normalized_optional_path(path: str | Path | None) -> Path | None:

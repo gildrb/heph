@@ -3053,6 +3053,36 @@ def test_factory_rejects_session_id_when_session_start_is_disabled() -> None:
         create_heph_service(options)
 
 
+def test_factory_runtime_rejects_session_id_option() -> None:
+    options = HephSdkOptions(session_id="session-1", config=_config())
+
+    with pytest.raises(HephSdkError, match="create_heph_runtime"):
+        create_heph_runtime(options)
+
+
+def test_factory_session_rejects_disabled_session_start() -> None:
+    options = HephSdkOptions(start_session=False, config=_config())
+
+    with pytest.raises(HephSdkError, match="requires start_session=True"):
+        create_heph_session(options)
+
+
+def test_factory_service_resumes_session_id(tmp_path: Path) -> None:
+    runtime = HephRuntime.open_armory(_armory(tmp_path), config=_config())
+    session = runtime.new_session()
+    session.save()
+    options = HephSdkOptions(
+        armory_path=runtime.armory_path,
+        session_id=session.session_id,
+        config=_config(),
+    )
+
+    service_result = create_heph_service(options)
+
+    assert service_result.session is not None
+    assert service_result.session.session_id == session.session_id
+
+
 def test_plain_runtime_cannot_resume_saved_session() -> None:
     runtime = HephRuntime.plain(config=_config())
 

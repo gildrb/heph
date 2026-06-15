@@ -558,6 +558,9 @@ itself, and `create_heph_service()` when it wants a stateful transport-ready
 facade. Factory helpers validate the same startup invariants as the process
 wrapper: `create_armory=True` requires `armory_path`, and
 `create_heph_service()` rejects `session_id` when `start_session=False`.
+`create_heph_runtime()` rejects `session_id` because runtime construction does
+not resume sessions, while `create_heph_session()` requires `start_session=True`
+because it always returns a live session result.
 
 ## Subscriptions and Abort
 
