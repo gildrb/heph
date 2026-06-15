@@ -17,8 +17,16 @@ from heph.sdk.compatibility import ensure_sdk_client_payload_compatibility
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
     validate_jsonl_request_payload,
+    validate_method_params,
 )
-from heph.sdk.methods import SDK_CAPABILITIES_VERSION, SDK_JSONL_PROTOCOL, SDK_JSONL_VERSION
+from heph.sdk.methods import (
+    JSONL_CALL_METHOD_SPECS,
+    JSONL_STREAM_METHOD_SPECS,
+    SDK_CAPABILITIES_VERSION,
+    SDK_JSONL_PROTOCOL,
+    SDK_JSONL_VERSION,
+    SdkMethodSpec,
+)
 from heph.sdk.runtime import HephSdkError
 
 type JsonlRequestId = str | int | None
@@ -345,13 +353,33 @@ def jsonl_request_payload(
     request_id: JsonlRequestId = None,
 ) -> JsonlPayload:
     """Build and validate a JSON-ready SDK JSONL request payload."""
+    parameters = validate_jsonl_request_params(method, params)
     payload: JsonlPayload = {"method": method}
     if request_id is not None:
         payload["id"] = request_id
     if params is not None:
-        payload["params"] = dict(params)
+        payload["params"] = parameters
     try:
         return validate_jsonl_request_payload(payload)
+    except HephSdkError as exc:
+        raise JsonlSdkClientProtocolError(str(exc)) from exc
+
+
+def validate_jsonl_request_params(
+    method: str,
+    params: Mapping[str, object] | None = None,
+) -> JsonlPayload:
+    """Validate request params against the advertised JSONL method specs."""
+    specs = _jsonl_request_method_specs(method)
+    if not specs:
+        raise JsonlSdkClientProtocolError(f"Unknown SDK JSONL method: {method}")
+    try:
+        return validate_method_params(
+            method,
+            params,
+            specs,
+            surface="SDK JSONL client",
+        )
     except HephSdkError as exc:
         raise JsonlSdkClientProtocolError(str(exc)) from exc
 
@@ -437,6 +465,14 @@ def _read_ready_with_timeout(
     if isinstance(result, Exception):
         raise result
     return result
+
+
+def _jsonl_request_method_specs(method: str) -> tuple[SdkMethodSpec, ...]:
+    return tuple(
+        spec
+        for spec in (*JSONL_CALL_METHOD_SPECS, *JSONL_STREAM_METHOD_SPECS)
+        if spec.method == method
+    )
 
 
 def _message_type(message: Mapping[str, object]) -> str:

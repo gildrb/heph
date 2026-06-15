@@ -204,7 +204,9 @@ server error envelopes, while `stream()` yields event payloads until
 advanced clients can use `JsonlSdkClient`, `encode_jsonl_request()`,
 `parse_jsonl_message()`, `jsonl_ready_from_message()`, and
 `jsonl_error_from_message()` directly when they need their own subprocess
-lifecycle, request routing, or UI event loop.
+lifecycle, request routing, or UI event loop. `encode_jsonl_request()` and
+`JsonlSdkClient.write_request()` validate method names and params against the
+advertised JSONL method specs before writing to the transport.
 
 ## Session and Runtime Split
 

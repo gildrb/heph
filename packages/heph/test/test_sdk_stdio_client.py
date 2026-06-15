@@ -23,6 +23,7 @@ from heph.sdk import (
     JsonlSdkServerError,
     SdkClientCompatibilityError,
     parse_jsonl_message,
+    validate_jsonl_request_params,
 )
 from heph.sdk import runtime as sdk_runtime
 from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
@@ -138,6 +139,25 @@ def test_jsonl_sdk_client_raises_server_error_for_call() -> None:
     assert exc.value.request_id == "ask-1"
     assert exc.value.code == "unavailable"
     assert exc.value.unavailable_reason == "missing_session"
+
+
+def test_jsonl_sdk_client_validates_request_params_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
+
+    with pytest.raises(JsonlSdkClientProtocolError, match="requires parameter: text"):
+        client.write_request("prompt")
+    with pytest.raises(JsonlSdkClientProtocolError, match="does not accept parameter: extra"):
+        client.write_request("state", {"extra": True})
+    with pytest.raises(JsonlSdkClientProtocolError, match="Unknown SDK JSONL method"):
+        client.write_request("missing_method")
+
+    assert output.getvalue() == ""
+
+
+def test_jsonl_request_param_validation_returns_normalized_params() -> None:
+    assert validate_jsonl_request_params("prompt", {"text": "hello"}) == {"text": "hello"}
+    assert validate_jsonl_request_params("state") == {}
 
 
 def test_jsonl_sdk_client_raises_server_error_for_stream_end() -> None:

@@ -132,6 +132,7 @@ from heph.sdk.stdio_client import (
     jsonl_ready_from_message,
     jsonl_request_payload,
     parse_jsonl_message,
+    validate_jsonl_request_params,
 )
 
 __all__ = [
@@ -237,6 +238,7 @@ __all__ = [
     "sdk_error_code_for_engine_error",
     "serve_stdio",
     "update_sdk_app_settings",
+    "validate_jsonl_request_params",
     "validate_sdk_capabilities",
     "validate_sdk_client_compatibility",
     "validate_sdk_client_payload_compatibility",
