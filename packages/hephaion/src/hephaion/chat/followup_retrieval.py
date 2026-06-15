@@ -263,31 +263,84 @@ def _prior_followup_retrieval_state(
     retrieval_query: str | None,
     fresh_request_min_terms: int,
 ) -> _FollowupRetrievalDecision:
-    if (
-        prior_contract is not None
-        and prior_contract.evidence_refs
-        and contract.is_followup
-        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
-    ):
-        retrieval_query = _fresh_current_request_query(contract)
-        if _current_request_introduces_fresh_content(
-            contract,
-            prior_contract,
-            fresh_request_min_terms=fresh_request_min_terms,
-        ):
-            retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        else:
-            retrieval_strategy = RETRIEVAL_STRATEGY_REUSE_PRIOR
-            retrieval_query = None
-    if _reuse_prior_needs_current_retrieval(
+    retrieval = _FollowupRetrievalDecision(
+        strategy=retrieval_strategy,
+        query=retrieval_query,
+    )
+    if prior_retrieval := _seeded_prior_followup_retrieval(
         contract,
         prior_contract=prior_contract,
         retrieval_strategy=retrieval_strategy,
         fresh_request_min_terms=fresh_request_min_terms,
     ):
-        retrieval_strategy = RETRIEVAL_STRATEGY_EXPAND_PRIOR
-        retrieval_query = _fresh_current_request_query(contract)
-    return _FollowupRetrievalDecision(strategy=retrieval_strategy, query=retrieval_query)
+        retrieval = prior_retrieval
+    if current_retrieval := _reuse_prior_current_request_retrieval(
+        contract,
+        prior_contract=prior_contract,
+        retrieval_strategy=retrieval.strategy,
+        fresh_request_min_terms=fresh_request_min_terms,
+    ):
+        return current_retrieval
+    return retrieval
+
+
+def _seeded_prior_followup_retrieval(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    fresh_request_min_terms: int,
+) -> _FollowupRetrievalDecision | None:
+    if prior_contract is None:
+        return None
+    if not _prior_followup_can_seed_retrieval(
+        contract,
+        prior_contract,
+        retrieval_strategy=retrieval_strategy,
+    ):
+        return None
+    if _current_request_introduces_fresh_content(
+        contract,
+        prior_contract,
+        fresh_request_min_terms=fresh_request_min_terms,
+    ):
+        return _FollowupRetrievalDecision(
+            RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+            _fresh_current_request_query(contract),
+        )
+    return _FollowupRetrievalDecision(RETRIEVAL_STRATEGY_REUSE_PRIOR, None)
+
+
+def _prior_followup_can_seed_retrieval(
+    contract: TurnContract,
+    prior_contract: TurnContract,
+    *,
+    retrieval_strategy: str,
+) -> bool:
+    return (
+        _contract_has_prior_evidence_followup(contract, prior_contract)
+        and retrieval_strategy == RETRIEVAL_STRATEGY_NONE
+    )
+
+
+def _reuse_prior_current_request_retrieval(
+    contract: TurnContract,
+    *,
+    prior_contract: TurnContract | None,
+    retrieval_strategy: str,
+    fresh_request_min_terms: int,
+) -> _FollowupRetrievalDecision | None:
+    if not _reuse_prior_needs_current_retrieval(
+        contract,
+        prior_contract=prior_contract,
+        retrieval_strategy=retrieval_strategy,
+        fresh_request_min_terms=fresh_request_min_terms,
+    ):
+        return None
+    return _FollowupRetrievalDecision(
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+        _fresh_current_request_query(contract),
+    )
 
 
 def _reuse_prior_needs_current_retrieval(
