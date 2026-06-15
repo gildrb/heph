@@ -64,6 +64,13 @@ def _require_string_update(name: str, value: SdkConfigUpdateValue) -> str:
     raise HephSdkError(f"SDK config field '{name}' must be a string.")
 
 
+def _require_nonempty_string_update(name: str, value: SdkConfigUpdateValue) -> str:
+    string = _require_string_update(name, value)
+    if string.strip():
+        return string
+    raise HephSdkError(f"SDK config field '{name}' must be a non-empty string.")
+
+
 def _require_integer_update(name: str, value: SdkConfigUpdateValue) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -93,12 +100,12 @@ def _require_feature_flags_update(value: SdkConfigUpdateValue) -> frozenset[str]
 
 
 def _apply_base_url(config: ChatConfig, value: SdkConfigUpdateValue) -> None:
-    base_url = _require_string_update("base_url", value)
+    base_url = _require_nonempty_string_update("base_url", value)
     config.base_url = base_url
 
 
 def _apply_model(config: ChatConfig, value: SdkConfigUpdateValue) -> None:
-    model = _require_string_update("model", value)
+    model = _require_nonempty_string_update("model", value)
     config.model = model
 
 

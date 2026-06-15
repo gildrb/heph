@@ -132,6 +132,11 @@ class JsonlSdkProcessOptions:
             raise JsonlSdkProcessError("--session-id cannot be used with start_session=False.")
         if self.create_armory and self.armory_path is None:
             raise JsonlSdkProcessError("create_armory=True requires an armory_path.")
+        _validate_process_string_option(self.session_id, "session_id")
+        _validate_process_string_option(self.base_url, "base_url")
+        _validate_process_string_option(self.model, "model")
+        _validate_process_string_option(self.reasoning_level, "reasoning_level")
+        _validate_process_string_option(self.thinking_visibility, "thinking_visibility")
         _validate_process_integer_option(self.max_tokens, "max_tokens")
         _validate_process_integer_option(self.rag_context_budget, "rag_context_budget")
         _validate_process_number_option(self.temperature, "temperature")
@@ -1134,6 +1139,16 @@ def _validate_process_integer_option(value: object, label: str) -> None:
             raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be non-negative.")
         return
     raise JsonlSdkProcessError(f"SDK JSONL process option '{label}' must be an integer or None.")
+
+
+def _validate_process_string_option(value: object, label: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, str) and value.strip():
+        return
+    raise JsonlSdkProcessError(
+        f"SDK JSONL process option '{label}' must be a non-empty string or None."
+    )
 
 
 def _validate_process_number_option(value: object, label: str) -> None:

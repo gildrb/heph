@@ -1246,6 +1246,24 @@ def test_jsonl_sdk_process_options_reject_invalid_session_combination() -> None:
         options.command()
 
 
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (JsonlSdkProcessOptions(session_id=""), "session_id"),
+        (JsonlSdkProcessOptions(base_url=" "), "base_url"),
+        (JsonlSdkProcessOptions(model=""), "model"),
+        (JsonlSdkProcessOptions(reasoning_level=" "), "reasoning_level"),
+        (JsonlSdkProcessOptions(thinking_visibility=""), "thinking_visibility"),
+    ],
+)
+def test_jsonl_sdk_process_options_reject_empty_string_options(
+    options: JsonlSdkProcessOptions,
+    message: str,
+) -> None:
+    with pytest.raises(JsonlSdkProcessError, match=message):
+        options.command()
+
+
 def test_jsonl_sdk_process_options_reject_create_armory_without_path() -> None:
     options = JsonlSdkProcessOptions(create_armory=True)
 

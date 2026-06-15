@@ -3472,6 +3472,21 @@ def test_factory_rejects_negative_generation_limits(
         create_chat_config(options)
 
 
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (HephSdkOptions(config=_config(), base_url=""), "base_url"),
+        (HephSdkOptions(config=_config(), model="   "), "model"),
+    ],
+)
+def test_factory_rejects_empty_string_config_overrides(
+    options: HephSdkOptions,
+    message: str,
+) -> None:
+    with pytest.raises(HephSdkError, match=message):
+        create_chat_config(options)
+
+
 def test_factory_rejects_create_armory_without_path() -> None:
     options = HephSdkOptions(create_armory=True)
 
@@ -5126,6 +5141,27 @@ def test_service_update_config_rejects_negative_generation_limits(key: str) -> N
 
     assert original.max_tokens == 4096
     assert original.rag_context_budget == 2000
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("base_url", ""),
+        ("model", "   "),
+    ],
+)
+def test_service_update_config_rejects_empty_string_overrides(
+    key: str,
+    value: str,
+) -> None:
+    service = HephService.plain(config=_config())
+    original = service.runtime.config
+
+    with pytest.raises(HephSdkError, match="non-empty string"):
+        service.call("update_config", {key: value})
+
+    assert original.base_url == "https://api.openai.com/v1"
+    assert original.model == "gpt-4o-mini"
 
 
 @pytest.mark.parametrize("temperature", [float("nan"), float("inf"), float("-inf")])

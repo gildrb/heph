@@ -171,6 +171,8 @@ values advertised as `number` or `number_or_null` must be finite JSON numbers;
 `NaN` and infinities are rejected before config or transport state changes.
 Generation limits such as `max_tokens` and `rag_context_budget` must be
 non-negative integers.
+Provider/model string overrides such as `base_url` and `model` must be
+non-empty strings.
 Values advertised as `object` must use string keys and JSON-safe nested values.
 
 The service speaks newline-delimited JSON on stdin/stdout. Each request is a
@@ -222,7 +224,8 @@ errors before touching transport state.
 `create_armory=True` requires `armory_path`; `session_id` cannot be combined
 with `start_session=False`. Launch option validation also runs before spawning:
 `max_tokens` and `rag_context_budget` must be non-negative integers, while
-`temperature` must be a finite number.
+`temperature` must be a finite number. Optional string overrides such as
+`session_id`, `base_url`, and `model` must be non-empty when supplied.
 Apps that launch Heph from a sandbox, app bundle, or test harness can pass an
 explicit `cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned
 paths, settings, and dependency resolution. Startup failures that happen before
