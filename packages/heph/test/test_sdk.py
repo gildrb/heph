@@ -3037,6 +3037,22 @@ def test_factory_creates_runtime_service_and_session(tmp_path: Path) -> None:
     assert config.thinking_visibility == "all"
 
 
+def test_factory_rejects_create_armory_without_path() -> None:
+    options = HephSdkOptions(create_armory=True)
+
+    with pytest.raises(HephSdkError, match="create_armory=True requires an armory_path"):
+        create_heph_runtime(options)
+    with pytest.raises(HephSdkError, match="create_armory=True requires an armory_path"):
+        create_heph_service(options)
+
+
+def test_factory_rejects_session_id_when_session_start_is_disabled() -> None:
+    options = HephSdkOptions(session_id="session-1", start_session=False, config=_config())
+
+    with pytest.raises(HephSdkError, match="session_id cannot be used"):
+        create_heph_service(options)
+
+
 def test_plain_runtime_cannot_resume_saved_session() -> None:
     runtime = HephRuntime.plain(config=_config())
 

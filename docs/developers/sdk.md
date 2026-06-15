@@ -555,7 +555,9 @@ session = result.session
 
 Use `create_heph_runtime()` when an app wants to own session replacement
 itself, and `create_heph_service()` when it wants a stateful transport-ready
-facade.
+facade. Factory helpers validate the same startup invariants as the process
+wrapper: `create_armory=True` requires `armory_path`, and
+`create_heph_service()` rejects `session_id` when `start_session=False`.
 
 ## Subscriptions and Abort
 
