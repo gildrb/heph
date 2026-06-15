@@ -1152,13 +1152,24 @@ def _turn_contract_can_seed_followup(
 ) -> bool:
     if contract is None:
         return False
-    return (
-        visible_evidence is not None
-        or bool(contract.evidence_refs)
-        or (contract.prior_answer_reference and bool(contract.prior_turn_evidence_refs))
-        or contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR
-        or contract.resolved_intent in {"heph_action", "heph_help"}
-    )
+    if _contract_has_followup_evidence_seed(
+        contract,
+        visible_evidence=visible_evidence,
+    ):
+        return True
+    if contract.answer_mode == ANSWER_MODE_TRANSFORM_PRIOR:
+        return True
+    return contract.resolved_intent in {"heph_action", "heph_help"}
+
+
+def _contract_has_followup_evidence_seed(
+    contract: TurnContract,
+    *,
+    visible_evidence: TurnEvidence | None,
+) -> bool:
+    if visible_evidence is not None or contract.evidence_refs:
+        return True
+    return contract.prior_answer_reference and bool(contract.prior_turn_evidence_refs)
 
 
 def _prior_contract_for_followup_seed(session: ChatSession) -> TurnContract | None:
