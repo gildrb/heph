@@ -111,6 +111,8 @@ class JsonlSdkProcess:
     jsonl_version: int = SDK_JSONL_VERSION
     startup_timeout: float | None = 10.0
     shutdown_timeout: float = 5.0
+    cwd: str | Path | None = None
+    env: Mapping[str, str] | None = None
     _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
     _client: JsonlSdkClient | None = field(default=None, init=False, repr=False)
     _ready: JsonlSdkReady | None = field(default=None, init=False, repr=False)
@@ -142,6 +144,8 @@ class JsonlSdkProcess:
                 self.command or self.options.command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
+                cwd=str(self.cwd) if self.cwd is not None else None,
+                env=dict(self.env) if self.env is not None else None,
                 text=True,
                 bufsize=1,
             )

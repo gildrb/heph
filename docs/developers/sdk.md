@@ -196,7 +196,10 @@ with JsonlSdkProcess(options) as process:
 
 `JsonlSdkProcess` starts `heph sdk serve`, reads the ready handshake with a
 startup timeout, and closes stdin on exit so the service can shut down cleanly;
-if the process does not exit within its shutdown timeout, it is killed.
+if the process does not exit within its shutdown timeout, it is killed. Apps
+that launch Heph from a sandbox, app bundle, or test harness can pass an explicit
+`cwd` and `env` to `JsonlSdkProcess` so the child process uses app-owned paths,
+settings, and dependency resolution.
 `JsonlSdkClient.read_ready()` validates the protocol/version handshake and the advertised capability
 compatibility policy. `call()` raises `JsonlSdkServerError` for structured
 server error envelopes, while `stream()` yields event payloads until

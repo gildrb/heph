@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,36 @@ def _jsonl(*requests: dict[str, object]) -> str:
 def _payload_mapping(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return {str(key): item for key, item in value.items()}
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _source_python_path(repo_root: Path, environment: Mapping[str, str]) -> str:
+    source_roots = (
+        repo_root / "packages" / "ai" / "src",
+        repo_root / "packages" / "extensions" / "src",
+        repo_root / "packages" / "hephaion" / "src",
+        repo_root / "packages" / "heph" / "src",
+        repo_root / "packages" / "interfaces" / "src",
+    )
+    entries = [str(path) for path in source_roots]
+    existing_python_path = environment.get("PYTHONPATH")
+    if existing_python_path:
+        entries.append(existing_python_path)
+    return os.pathsep.join(entries)
+
+
+def _real_sdk_serve_environment(tmp_path: Path) -> dict[str, str]:
+    home = tmp_path / "home"
+    home.mkdir()
+    environment = os.environ.copy()
+    environment["HOME"] = str(home)
+    environment["HEPHAION_DISABLE_LIVE_MODELS"] = "1"
+    environment["HEPHAION_NO_VENV_REEXEC"] = "1"
+    environment["PYTHONPATH"] = _source_python_path(_repo_root(), environment)
+    return environment
 
 
 def _ready_message(service: HephService) -> dict[str, object]:
@@ -295,6 +326,42 @@ def test_jsonl_sdk_process_reads_ready_and_closes(tmp_path: Path) -> None:
     assert process.poll() == 0
     with pytest.raises(JsonlSdkProcessError, match="not running"):
         _ = transport.process
+
+
+def test_jsonl_sdk_process_runs_real_sdk_serve_cli(tmp_path: Path) -> None:
+    command = (
+        sys.executable,
+        "-c",
+        "from heph.cli.main import build_parser, run_argv; "
+        "run_argv(build_parser(), ['sdk', 'serve', '--no-session'])",
+    )
+    transport = JsonlSdkProcess(
+        command=command,
+        cwd=_repo_root(),
+        env=_real_sdk_serve_environment(tmp_path),
+    )
+
+    with transport as running:
+        ready = running.ready
+        state = running.client.call("state", request_id="state-1")
+        capabilities = running.client.call("capabilities", request_id="caps-1")
+
+        state_service = _payload_mapping(state["service"])
+        capability_payload = _payload_mapping(capabilities["capabilities"])
+
+        assert ready.protocol == SDK_JSONL_PROTOCOL
+        assert ready.version == SDK_JSONL_VERSION
+        assert ready.capabilities["version"] == SDK_CAPABILITIES_VERSION
+        assert state_service["available_stream_methods"] == []
+        assert capability_payload["version"] == SDK_CAPABILITIES_VERSION
+
+        with pytest.raises(
+            JsonlSdkServerError, match="SDK JSONL server returned unavailable"
+        ) as exc:
+            running.client.call("ask", {"text": "hello"}, request_id="ask-1")
+
+        assert exc.value.code == "unavailable"
+        assert exc.value.unavailable_reason == "missing_session"
 
 
 def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
