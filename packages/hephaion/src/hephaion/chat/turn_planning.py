@@ -82,6 +82,13 @@ _CURRENT_TOPIC_QUERY_BLOCKED_STRATEGIES = frozenset(
         RETRIEVAL_STRATEGY_REUSE_PRIOR,
     }
 )
+_EMPTY_QUERY_NO_RETRIEVAL_STRATEGIES = frozenset(
+    {
+        RETRIEVAL_STRATEGY_NONE,
+        RETRIEVAL_STRATEGY_REUSE_PRIOR,
+        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
+    }
+)
 _CONTINUABLE_MATERIAL_INTENTS = frozenset(
     {
         "material_overview",
@@ -893,21 +900,37 @@ def _current_topic_query_for_contract(
 def _semantic_retrieval_query(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
     if not _plan_uses_material_retrieval(plan):
         return plan.retrieval_query
-    if (
+    if _overview_query_should_follow_plan(contract):
+        return plan.retrieval_query
+    if _empty_contract_query_disables_retrieval(contract):
+        return None
+    if _contract_strategy_disables_empty_retrieval(contract):
+        return None
+    return _semantic_retrieval_surface(plan, contract)
+
+
+def _overview_query_should_follow_plan(contract: TurnContract) -> bool:
+    return (
         contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
         and not _contract_has_specific_material_target(contract)
-    ):
-        return plan.retrieval_query
-    if _contract_has_empty_retrieval_query(contract) and contract.retrieval_strategy in {
-        RETRIEVAL_STRATEGY_NONE,
-        RETRIEVAL_STRATEGY_REUSE_PRIOR,
-        RETRIEVAL_STRATEGY_EXPAND_PRIOR,
-    }:
-        return None
-    if contract.retrieval_strategy == RETRIEVAL_STRATEGY_NONE and not _contract_retrieval_query(
-        contract
-    ):
-        return None
+    )
+
+
+def _empty_contract_query_disables_retrieval(contract: TurnContract) -> bool:
+    return (
+        _contract_has_empty_retrieval_query(contract)
+        and contract.retrieval_strategy in _EMPTY_QUERY_NO_RETRIEVAL_STRATEGIES
+    )
+
+
+def _contract_strategy_disables_empty_retrieval(contract: TurnContract) -> bool:
+    return (
+        contract.retrieval_strategy == RETRIEVAL_STRATEGY_NONE
+        and not _contract_retrieval_query(contract)
+    )
+
+
+def _semantic_retrieval_surface(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
     retrieval_query = _contract_retrieval_query(contract)
     return retrieval_query or contract.canonical_request or plan.retrieval_query
 
