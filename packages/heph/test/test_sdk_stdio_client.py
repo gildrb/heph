@@ -98,6 +98,10 @@ def _wait_for_output(output: io.StringIO, needle: str) -> None:
     assert needle in output.getvalue()
 
 
+def _written_requests(output: io.StringIO) -> list[dict[str, object]]:
+    return [_payload_mapping(json.loads(line)) for line in output.getvalue().splitlines()]
+
+
 def test_jsonl_sdk_client_reads_ready_call_and_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -577,6 +581,81 @@ def test_jsonl_sdk_client_rejects_unsafe_active_stream_call_before_write() -> No
         client.call_active_stream("ask", {"text": "hello"}, timeout=0.01)
 
     assert output.getvalue() == ""
+
+
+def test_jsonl_sdk_client_rejects_active_stream_call_id_collision_before_write() -> None:
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    with pytest.raises(JsonlSdkClientProtocolError, match="already in use by an active stream"):
+        client.call_active_stream("state", request_id="index-1", timeout=0.01)
+
+    assert list(stream) == []
+    assert _written_requests(output) == [{"method": "build_index_stream", "id": "index-1"}]
+
+
+def test_jsonl_sdk_client_rejects_duplicate_active_stream_control_id_before_write() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {
+                    "type": "response",
+                    "id": "abort-1",
+                    "ok": True,
+                    "result": {"aborted": True, "state": state},
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+
+    assert next(stream)["type"] == "index_progress"
+    assert client.abort_active_stream(request_id="abort-1") == "abort-1"
+    with pytest.raises(
+        JsonlSdkClientProtocolError,
+        match="already in use by an active stream control request",
+    ):
+        client.abort_active_stream(request_id="abort-1")
+
+    assert list(stream) == []
+    assert _written_requests(output) == [
+        {"method": "build_index_stream", "id": "index-1"},
+        {"method": "abort", "id": "abort-1"},
+    ]
 
 
 def test_jsonl_sdk_client_reports_malformed_server_message() -> None:

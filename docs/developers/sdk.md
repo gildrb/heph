@@ -243,6 +243,10 @@ For status panels that need to refresh during a long stream, use
 `JsonlSdkClient.call_active_stream()` for busy-safe methods such as `state`,
 `capabilities`, and `settings`; the stream iterator keeps ownership of the
 reader and routes the interleaved response back to the waiting caller.
+When you provide explicit request ids, keep active stream and stream-control ids
+unique. The Python client tracks those ids and rejects collisions before writing
+to the transport, which prevents stream events from being routed to the wrong
+waiting caller.
 
 ## Session and Runtime Split
 

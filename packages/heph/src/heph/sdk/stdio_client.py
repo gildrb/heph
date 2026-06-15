@@ -341,11 +341,11 @@ class _StreamControlRequest:
 
 @dataclass(slots=True)
 class JsonlSdkClient:
-    """Small sequential client for the Heph SDK JSONL stdio transport.
+    """Validated client for the Heph SDK JSONL stdio transport.
 
-    The client validates framing and compatibility for the simple one-request-at-a-time path.
-    Advanced GUI clients can still use ``read_message`` and ``write_request`` directly and route
-    messages by id in their own event loop.
+    The client validates framing and compatibility for simple calls, streams, and busy-safe
+    calls interleaved with an active stream. Advanced GUI clients can still use ``read_message``
+    and ``write_request`` directly and route messages by id in their own event loop.
     """
 
     input_stream: IO[str]
@@ -356,6 +356,11 @@ class JsonlSdkClient:
     _write_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _stream_control_lock: threading.Lock = field(
         default_factory=threading.Lock,
+        init=False,
+        repr=False,
+    )
+    _active_stream_request_ids: set[str | int] = field(
+        default_factory=set,
         init=False,
         repr=False,
     )
@@ -503,22 +508,43 @@ class JsonlSdkClient:
     ) -> Iterator[JsonlPayload]:
         """Write a stream request and yield each stream event payload."""
         validate_jsonl_stream_params(method, params)
-        actual_request_id = self.write_request(method, params, request_id=request_id)
-        start = self.read_message()
-        _require_request_id(start, actual_request_id)
-        start_type = _message_type(start)
-        if start_type == "error":
-            raise _server_error_from_message(actual_request_id, start)
-        if start_type != "stream_start":
-            raise JsonlSdkClientProtocolError(
-                f"Expected SDK JSONL stream_start for {actual_request_id!r}, got {start_type!r}."
-            )
-        if start.get("method") != method:
-            raise JsonlSdkClientProtocolError(
-                f"SDK JSONL stream_start for {actual_request_id!r} reported method "
-                f"{start.get('method')!r}, expected {method!r}."
-            )
-        yield from self._stream_events(actual_request_id, method)
+        actual_request_id = self._write_stream_request(method, params, request_id=request_id)
+        try:
+            start = self.read_message()
+            _require_request_id(start, actual_request_id)
+            start_type = _message_type(start)
+            if start_type == "error":
+                raise _server_error_from_message(actual_request_id, start)
+            if start_type != "stream_start":
+                raise JsonlSdkClientProtocolError(
+                    f"Expected SDK JSONL stream_start for {actual_request_id!r}, "
+                    f"got {start_type!r}."
+                )
+            if start.get("method") != method:
+                raise JsonlSdkClientProtocolError(
+                    f"SDK JSONL stream_start for {actual_request_id!r} reported method "
+                    f"{start.get('method')!r}, expected {method!r}."
+                )
+            yield from self._stream_events(actual_request_id, method)
+        finally:
+            self._forget_active_stream_request(actual_request_id)
+
+    def _write_stream_request(
+        self,
+        method: str,
+        params: Mapping[str, object] | None,
+        *,
+        request_id: str | int | None,
+    ) -> str | int:
+        with self._write_lock:
+            actual_request_id = self._request_id_for_write(method, request_id)
+            self._track_active_stream_request(actual_request_id)
+            try:
+                self._write_request_line(method, params, actual_request_id)
+            except Exception:
+                self._forget_active_stream_request(actual_request_id)
+                raise
+        return actual_request_id
 
     def _stream_events(self, request_id: str | int, method: str) -> Iterator[JsonlPayload]:
         pending_end: _JsonlStreamEnd | None = None
@@ -554,6 +580,7 @@ class JsonlSdkClient:
         response_queue: queue.Queue[_StreamControlResult] | None = None,
     ) -> None:
         with self._stream_control_lock:
+            self._ensure_request_id_available_locked(request_id)
             self._stream_control_requests[request_id] = _StreamControlRequest(
                 method=method,
                 response_queue=response_queue,
@@ -566,6 +593,26 @@ class JsonlSdkClient:
     def _has_stream_control_requests(self) -> bool:
         with self._stream_control_lock:
             return bool(self._stream_control_requests)
+
+    def _track_active_stream_request(self, request_id: str | int) -> None:
+        with self._stream_control_lock:
+            self._ensure_request_id_available_locked(request_id)
+            self._active_stream_request_ids.add(request_id)
+
+    def _forget_active_stream_request(self, request_id: str | int) -> None:
+        with self._stream_control_lock:
+            self._active_stream_request_ids.discard(request_id)
+
+    def _ensure_request_id_available_locked(self, request_id: str | int) -> None:
+        if request_id in self._active_stream_request_ids:
+            raise JsonlSdkClientProtocolError(
+                f"SDK JSONL request id {request_id!r} is already in use by an active stream."
+            )
+        if request_id in self._stream_control_requests:
+            raise JsonlSdkClientProtocolError(
+                f"SDK JSONL request id {request_id!r} is already in use by "
+                "an active stream control request."
+            )
 
     def _consume_stream_control_if_tracked(self, message: Mapping[str, object]) -> bool:
         control_request_id = self._stream_control_request_id(message)
