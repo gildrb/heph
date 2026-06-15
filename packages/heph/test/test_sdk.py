@@ -68,6 +68,7 @@ from heph.sdk import models as sdk_models
 from heph.sdk import providers as sdk_providers
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import service as sdk_service
+from heph.sdk import service_routes as sdk_service_routes
 from heph.sdk import value_types as sdk_value_types
 from heph.sdk.method_validation import (
     validate_jsonl_message_payload,
@@ -970,7 +971,7 @@ def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = HephService.plain(config=_config())
-    config_params = sdk_service._CONFIG_PARAMS
+    config_params = sdk_service_routes._CONFIG_PARAMS
 
     broken_config_params = tuple(
         replace(param, choices=("turbo",)) if param.name == "reasoning_level" else param
@@ -978,11 +979,15 @@ def test_sdk_service_contract_validator_reports_bulk_param_contract_drift(
     )
     broken_setting_contracts = tuple(
         replace(contract, choices=("neon",)) if contract.name == "theme" else contract
-        for contract in sdk_service.SDK_APP_SETTING_CONTRACTS
+        for contract in sdk_service_routes.SDK_APP_SETTING_CONTRACTS
     )
 
-    monkeypatch.setattr(sdk_service, "_CONFIG_PARAMS", broken_config_params)
-    monkeypatch.setattr(sdk_service, "SDK_APP_SETTING_CONTRACTS", broken_setting_contracts)
+    monkeypatch.setattr(sdk_service_routes, "_CONFIG_PARAMS", broken_config_params)
+    monkeypatch.setattr(
+        sdk_service_routes,
+        "SDK_APP_SETTING_CONTRACTS",
+        broken_setting_contracts,
+    )
 
     issues = validate_sdk_service_contract(service)
 
