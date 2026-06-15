@@ -79,6 +79,13 @@ class _JsonlErrorPayload:
         }
 
 
+class JsonlSdkTransportClosedError(HephSdkError):
+    """Raised when the JSONL stdio transport closes while the server is active."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="transport_closed")
+
+
 @dataclass(slots=True)
 class JsonlSdkServer:
     """Run a stateful SDK service over newline-delimited JSON."""
@@ -113,7 +120,7 @@ class JsonlSdkServer:
                 "state": self._state_with_transport_busy(),
             }
         )
-        for raw_line in self.input_stream:
+        for raw_line in self._read_lines():
             self.handle_line(raw_line)
         self._wait_for_streams()
 
@@ -124,6 +131,8 @@ class JsonlSdkServer:
         try:
             request = _parse_request(line)
             self.handle_request(request)
+        except JsonlSdkTransportClosedError:
+            raise
         except SdkProtocolError as exc:
             self._write_error(None, _request_error_payload(exc))
 
@@ -133,6 +142,8 @@ class JsonlSdkServer:
             parsed_request = _jsonl_request_from_mapping(request)
             request_id = parsed_request.request_id
             self._dispatch_request(parsed_request)
+        except JsonlSdkTransportClosedError:
+            raise
         except Exception as exc:
             error = _request_error_payload(exc)
             self._write_error(request_id, error)
@@ -258,7 +269,6 @@ class JsonlSdkServer:
         events: JsonlStreamEvents,
         cleanup: JsonlStreamCleanup,
     ) -> None:
-        self._write({"type": "stream_start", "id": request_id, "method": method})
         thread = threading.Thread(
             target=self._run_stream,
             args=(request_id, events, cleanup),
@@ -266,6 +276,7 @@ class JsonlSdkServer:
         )
         self._track_stream_thread(thread)
         try:
+            self._write({"type": "stream_start", "id": request_id, "method": method})
             thread.start()
         except BaseException:
             self._forget_stream_thread(thread)
@@ -280,10 +291,18 @@ class JsonlSdkServer:
     ) -> None:
         try:
             self._write_stream_events(request_id, events())
+        except JsonlSdkTransportClosedError:
+            return
         except Exception as exc:
-            self._write_stream_end(request_id, ok=False, error=_stream_error(exc))
+            try:
+                self._write_stream_end(request_id, ok=False, error=_stream_error(exc))
+            except JsonlSdkTransportClosedError:
+                return
         else:
-            self._write_stream_end(request_id, ok=True, error=None)
+            try:
+                self._write_stream_end(request_id, ok=True, error=None)
+            except JsonlSdkTransportClosedError:
+                return
         finally:
             try:
                 cleanup()
@@ -389,8 +408,21 @@ class JsonlSdkServer:
     def _write(self, payload: dict[str, object]) -> None:
         message = validate_jsonl_message_payload(payload)
         with self._write_lock:
-            self.output_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
-            self.output_stream.flush()
+            try:
+                self.output_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
+                self.output_stream.flush()
+            except (OSError, ValueError) as exc:
+                raise JsonlSdkTransportClosedError(
+                    f"SDK JSONL output stream closed while writing: {exc}"
+                ) from exc
+
+    def _read_lines(self) -> Iterator[str]:
+        try:
+            yield from self.input_stream
+        except (OSError, ValueError) as exc:
+            raise JsonlSdkTransportClosedError(
+                f"SDK JSONL input stream closed while reading: {exc}"
+            ) from exc
 
 
 def serve_stdio(
@@ -405,7 +437,10 @@ def serve_stdio(
         input_stream=input_stream or sys.stdin,
         output_stream=output_stream or sys.stdout,
     )
-    server.serve()
+    try:
+        server.serve()
+    except JsonlSdkTransportClosedError:
+        return
 
 
 def _request_error_payload(exc: Exception) -> _JsonlErrorPayload:
@@ -439,6 +474,7 @@ __all__ = [
     "SDK_JSONL_PROTOCOL",
     "SDK_JSONL_VERSION",
     "JsonlSdkServer",
+    "JsonlSdkTransportClosedError",
     "SdkProtocolError",
     "serve_stdio",
     "validate_sdk_jsonl_transport_contract",

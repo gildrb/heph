@@ -221,7 +221,9 @@ methods, and `stream()` only accepts JSONL stream methods; wrong-category
 requests are rejected before anything is written to the child process. Low-level
 read/write failures from app-owned pipes are raised as
 `JsonlSdkClientProtocolError` so callers can handle transport failures through
-one SDK error family. More
+one SDK error family. On the server side, `heph sdk serve` treats a closed
+stdin/stdout transport as normal shutdown, while direct `JsonlSdkServer` callers
+can catch `JsonlSdkTransportClosedError` if they need custom lifecycle handling. More
 advanced clients can use `JsonlSdkClient`, `encode_jsonl_request()`,
 `parse_jsonl_message()`, `jsonl_ready_from_message()`, and
 `jsonl_error_from_message()` directly when they need their own subprocess

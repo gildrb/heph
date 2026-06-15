@@ -20,6 +20,7 @@ from heph.sdk import (
     HephSdkOptions,
     HephService,
     JsonlSdkServer,
+    JsonlSdkTransportClosedError,
     validate_sdk_jsonl_transport_contract,
 )
 from heph.sdk import methods as sdk_methods
@@ -78,6 +79,19 @@ def _availability_by_method(value: object) -> dict[str, dict[str, object]]:
         record = _payload_mapping(item)
         records[str(record["method"])] = record
     return records
+
+
+class _BrokenPipeOutput(io.StringIO):
+    def __init__(self, *, fail_on_write: int) -> None:
+        super().__init__()
+        self.fail_on_write = fail_on_write
+        self.writes = 0
+
+    def write(self, text: str) -> int:
+        self.writes += 1
+        if self.writes == self.fail_on_write:
+            raise BrokenPipeError("client closed")
+        return super().write(text)
 
 
 def _available_method_order(value: object) -> list[str]:
@@ -292,6 +306,77 @@ def test_jsonl_sdk_server_rejects_outgoing_stream_event_drift() -> None:
         )
 
     assert output.getvalue() == ""
+
+
+def test_serve_stdio_returns_when_transport_closes_during_ready() -> None:
+    output = _BrokenPipeOutput(fail_on_write=1)
+
+    sdk_stdio.serve_stdio(
+        HephSdkOptions(start_session=False),
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    assert output.writes == 1
+
+
+def test_jsonl_sdk_server_clears_stream_state_when_start_write_fails() -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+    output = _BrokenPipeOutput(fail_on_write=1)
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    with pytest.raises(
+        JsonlSdkTransportClosedError,
+        match="SDK JSONL output stream closed while writing",
+    ):
+        server.handle_request(
+            {"id": "turn-1", "method": "prompt", "params": {"text": "closed pipe"}}
+        )
+
+    assert server._active_prompt is None
+    with server._stream_threads_lock:
+        assert server._stream_threads == []
+
+
+@pytest.mark.parametrize("fail_on_write", [2, 3])
+def test_jsonl_sdk_server_clears_stream_state_when_output_closes_mid_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    fail_on_write: int,
+) -> None:
+    service = HephService.plain(config=_config())
+    service.new_session()
+
+    def fake_iter_chat_events(
+        raw_session: ChatSession,
+        prompt: str,
+        *,
+        abort: threading.Event | None = None,
+    ) -> Iterator[TurnEvent]:
+        _ = raw_session, abort
+        assert prompt == "closed pipe"
+        yield AssistantDeltaEvent("before close")
+        yield TurnCompleteEvent("done", 0, 1.0, "stop", 100)
+
+    monkeypatch.setattr(sdk_runtime, "iter_chat_events", fake_iter_chat_events)
+    output = _BrokenPipeOutput(fail_on_write=fail_on_write)
+    server = JsonlSdkServer(
+        service=service,
+        input_stream=io.StringIO(""),
+        output_stream=output,
+    )
+
+    server.handle_request({"id": "turn-1", "method": "prompt", "params": {"text": "closed pipe"}})
+    server._wait_for_streams()
+
+    assert server._active_prompt is None
+    with server._stream_threads_lock:
+        assert server._stream_threads == []
+    assert output.writes == fail_on_write
 
 
 def test_jsonl_transport_contract_validator_matches_advertised_routes() -> None:
