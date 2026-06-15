@@ -242,7 +242,9 @@ raises `JsonlSdkStreamCancelledError` from the stream's final error envelope.
 For status panels that need to refresh during a long stream, use
 `JsonlSdkClient.call_active_stream()` for busy-safe methods such as `state`,
 `capabilities`, and `settings`; the stream iterator keeps ownership of the
-reader and routes the interleaved response back to the waiting caller.
+reader and routes the interleaved response back to the waiting caller. If a
+timed active-stream call returns late, the stream iterator drains and discards
+that late response so it cannot leak into the next request.
 Use the high-level `call()` and `stream()` helpers only while no stream is being
 consumed. During an active stream, `call_active_stream()` and
 `abort_active_stream()` require the stream iterator to be running so their

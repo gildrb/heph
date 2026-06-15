@@ -337,6 +337,7 @@ class _JsonlStreamMessage:
 class _StreamControlRequest:
     method: str
     response_queue: queue.Queue[_StreamControlResult] | None = None
+    discard_result: bool = False
 
 
 @dataclass(slots=True)
@@ -606,6 +607,16 @@ class JsonlSdkClient:
         with self._stream_control_lock:
             self._stream_control_requests.pop(request_id, None)
 
+    def _discard_stream_control_response(self, request_id: str | int) -> None:
+        with self._stream_control_lock:
+            control_request = self._stream_control_requests.get(request_id)
+            if control_request is None:
+                return
+            self._stream_control_requests[request_id] = _StreamControlRequest(
+                method=control_request.method,
+                discard_result=True,
+            )
+
     def _has_stream_control_requests(self) -> bool:
         with self._stream_control_lock:
             return bool(self._stream_control_requests)
@@ -748,6 +759,8 @@ class JsonlSdkClient:
         control_request: _StreamControlRequest,
         result: _StreamControlResult,
     ) -> None:
+        if control_request.discard_result:
+            return
         if control_request.response_queue is None:
             if isinstance(result, Exception):
                 raise result
@@ -763,7 +776,7 @@ class JsonlSdkClient:
         try:
             result = response_queue.get(timeout=timeout)
         except queue.Empty as exc:
-            self._forget_stream_control_request(request_id)
+            self._discard_stream_control_response(request_id)
             raise JsonlSdkClientProtocolError(
                 f"Timed out waiting for SDK JSONL stream control response {request_id!r}."
             ) from exc

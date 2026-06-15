@@ -521,6 +521,104 @@ def test_jsonl_sdk_client_drains_late_active_stream_call_response_after_stream_e
     assert next_state == state
 
 
+def test_jsonl_sdk_client_discards_timed_out_active_stream_call_response() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "response", "id": "state-1", "ok": True, "result": state},
+                {"type": "stream_end", "id": "index-1", "ok": True},
+                {"type": "response", "id": "state-2", "ok": True, "result": state},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+    errors: list[Exception] = []
+
+    def call_state() -> None:
+        try:
+            client.call_active_stream("state", request_id="state-1", timeout=0.01)
+        except Exception as exc:
+            errors.append(exc)
+
+    assert next(stream)["type"] == "index_progress"
+    thread = threading.Thread(target=call_state, name="test-sdk-jsonl-timeout-state")
+    thread.start()
+    _wait_for_output(output, '"id": "state-1"')
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    assert list(stream) == []
+    next_state = client.call("state", request_id="state-2")
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], JsonlSdkClientProtocolError)
+    assert "Timed out waiting" in str(errors[0])
+    assert next_state == state
+
+
+def test_jsonl_sdk_client_discards_timed_out_active_stream_call_after_stream_end() -> None:
+    service = HephService.plain(config=_config())
+    state = service.state()
+    output = io.StringIO()
+    client = JsonlSdkClient(
+        input_stream=io.StringIO(
+            _jsonl(
+                {"type": "stream_start", "id": "index-1", "method": "build_index_stream"},
+                {
+                    "type": "stream_event",
+                    "id": "index-1",
+                    "event": {
+                        "type": "index_progress",
+                        "action": "reading",
+                        "detail": "materials/notes.md",
+                    },
+                },
+                {"type": "stream_end", "id": "index-1", "ok": True},
+                {"type": "response", "id": "state-1", "ok": True, "result": state},
+                {"type": "response", "id": "state-2", "ok": True, "result": state},
+            )
+        ),
+        output_stream=output,
+    )
+    stream = client.stream("build_index_stream", request_id="index-1")
+    errors: list[Exception] = []
+
+    def call_state() -> None:
+        try:
+            client.call_active_stream("state", request_id="state-1", timeout=0.01)
+        except Exception as exc:
+            errors.append(exc)
+
+    assert next(stream)["type"] == "index_progress"
+    thread = threading.Thread(target=call_state, name="test-sdk-jsonl-timeout-late-state")
+    thread.start()
+    _wait_for_output(output, '"id": "state-1"')
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    assert list(stream) == []
+    next_state = client.call("state", request_id="state-2")
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], JsonlSdkClientProtocolError)
+    assert "Timed out waiting" in str(errors[0])
+    assert next_state == state
+
+
 def test_jsonl_sdk_client_routes_active_stream_call_errors_to_waiting_caller() -> None:
     output = io.StringIO()
     client = JsonlSdkClient(
