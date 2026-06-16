@@ -190,6 +190,11 @@ single JSON object with an `id`, `method`, and optional `params` object:
 {"id":"cancel-1","method":"abort"}
 ```
 
+String request IDs, method names, and direct prompt text must not contain null
+bytes. Invalid request envelopes return `invalid_request` errors before
+dispatch, so clients can report malformed bridge messages without guessing
+whether runtime state changed.
+
 Responses are JSON objects with explicit transport types:
 
 ```json

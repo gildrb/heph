@@ -78,7 +78,10 @@ def _validate_jsonl_stream_params(
 
 
 def _request_id(value: object) -> RequestId:
-    if value is None or isinstance(value, str):
+    if value is None:
+        return value
+    if isinstance(value, str):
+        _raise_if_null_string(value, "SDK request id")
         return value
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -89,6 +92,7 @@ def _request_method(request: dict[str, object]) -> str:
     method = request.get("method")
     if not isinstance(method, str) or not method.strip():
         raise SdkProtocolError("invalid_request", "SDK request method must be a non-empty string.")
+    _raise_if_null_string(method, "SDK request method")
     return method
 
 
@@ -108,4 +112,11 @@ def _required_string(params: dict[str, object], key: str) -> str:
             "invalid_request",
             f"SDK request parameter '{key}' must be a string.",
         )
+    _raise_if_null_string(value, f"SDK request parameter '{key}'")
     return value
+
+
+def _raise_if_null_string(value: str, label: str) -> None:
+    if "\0" not in value:
+        return
+    raise SdkProtocolError("invalid_request", f"{label} must not contain null bytes.")

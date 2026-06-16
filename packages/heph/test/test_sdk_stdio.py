@@ -1612,6 +1612,14 @@ def test_jsonl_sdk_server_reports_operation_stream_errors_and_clears_state(
 def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     service = HephService.plain(config=_config())
     output = io.StringIO()
+    bad_request_id = "bad\0id"
+    bad_method = "state\0"
+    bad_prompt = "hi\0"
+    bad_prompt_request: dict[str, object] = {
+        "id": "bad-prompt-null",
+        "method": "prompt",
+        "params": {"text": bad_prompt},
+    }
     server = JsonlSdkServer(
         service=service,
         input_stream=io.StringIO(
@@ -1619,6 +1627,9 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
             "[]\n"
             f"{json.dumps({'id': 'extra-field', 'method': 'state', 'extra': True})}\n"
             f"{json.dumps({'id': True, 'method': 'state'})}\n"
+            f"{json.dumps({'id': bad_request_id, 'method': 'state'})}\n"
+            f"{json.dumps({'id': 'bad-method-null', 'method': bad_method})}\n"
+            f"{json.dumps(bad_prompt_request)}\n"
             f"{json.dumps({'id': 'state-after-protocol-errors', 'method': 'state'})}\n"
         ),
         output_stream=output,
@@ -1630,6 +1641,9 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
     errors = [payload for payload in payloads if payload["type"] == "error"]
     assert [_payload_mapping(error["error"])["code"] for error in errors] == [
         "invalid_json",
+        "invalid_request",
+        "invalid_request",
+        "invalid_request",
         "invalid_request",
         "invalid_request",
         "invalid_request",
@@ -1651,6 +1665,14 @@ def test_jsonl_sdk_server_reports_protocol_errors() -> None:
         in str(_payload_mapping(payload["error"])["message"])
     )
     assert invalid_id_error["id"] is None
+    null_string_errors = [
+        payload
+        for payload in errors
+        if "must not contain null bytes" in str(_payload_mapping(payload["error"])["message"])
+    ]
+    assert len(null_string_errors) == 3
+    assert all(payload.get("id") is None for payload in null_string_errors[:2])
+    assert null_string_errors[2]["id"] == "bad-prompt-null"
     state_response = next(
         payload for payload in payloads if payload.get("id") == "state-after-protocol-errors"
     )
