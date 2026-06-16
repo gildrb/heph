@@ -109,6 +109,7 @@ Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`
 - [docs/models.md](docs/models.md) — provider choices, model selection, and API keys
 - [docs/privacy.md](docs/privacy.md) — local-first storage, diagnostics, and network behavior
 - [docs/architecture.md](docs/architecture.md) — package boundaries and data flow
+- [docs/developers/sdk.md](docs/developers/sdk.md) — SDK for native apps, GUI shells, and automation
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup, indexing, and provider issues
 - [docs/developers/index.md](docs/developers/index.md) — developer docs and internal guides
 - [docs/developers/runbooks/index.md](docs/developers/runbooks/index.md) — operational debugging runbooks

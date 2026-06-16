@@ -572,6 +572,7 @@ def render_home_docs_section(*, docs_index: bool) -> str:
         (f"{prefix}models.md", "provider choices, model selection, and API keys"),
         (f"{prefix}privacy.md", "local-first storage, diagnostics, and network behavior"),
         (f"{prefix}architecture.md", "package boundaries and data flow"),
+        (f"{prefix}developers/sdk.md", "SDK for native apps, GUI shells, and automation"),
         (f"{prefix}troubleshooting.md", "common setup, indexing, and provider issues"),
         (f"{prefix}developers/index.md", "developer docs and internal guides"),
         (f"{prefix}developers/runbooks/index.md", "operational debugging runbooks"),
@@ -606,6 +607,8 @@ def render_home_footer(*, docs_index: bool) -> str:
             "- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.\n"
             "- Read the [architecture guide](architecture.md) for package boundaries"
             " and data flow.\n"
+            "- Read the [Heph SDK](developers/sdk.md) for native apps, GUI shells,"
+            " and automation.\n"
             "- Read [agentic development](developers/agentic-development.md) for"
             " agent-readiness conventions.\n"
             "- Read the [runbooks](developers/runbooks/index.md) for operational"

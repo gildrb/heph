@@ -105,6 +105,7 @@ Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`
 - [models.md](models.md) — provider choices, model selection, and API keys
 - [privacy.md](privacy.md) — local-first storage, diagnostics, and network behavior
 - [architecture.md](architecture.md) — package boundaries and data flow
+- [developers/sdk.md](developers/sdk.md) — SDK for native apps, GUI shells, and automation
 - [troubleshooting.md](troubleshooting.md) — common setup, indexing, and provider issues
 - [developers/index.md](developers/index.md) — developer docs and internal guides
 - [developers/runbooks/index.md](developers/runbooks/index.md) — operational debugging runbooks
@@ -127,5 +128,6 @@ Model-generated terminal commands are not exposed as a default agent tool. Expli
 
 - Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.
 - Read the [architecture guide](architecture.md) for package boundaries and data flow.
+- Read the [Heph SDK](developers/sdk.md) for native apps, GUI shells, and automation.
 - Read [agentic development](developers/agentic-development.md) for agent-readiness conventions.
 - Read the [runbooks](developers/runbooks/index.md) for operational debugging.
