@@ -25,9 +25,11 @@ from heph.sdk import (
     HephService,
     JsonlSdkClient,
     JsonlSdkClientProtocolError,
+    JsonlSdkErrorPayload,
     JsonlSdkProcess,
     JsonlSdkProcessError,
     JsonlSdkProcessOptions,
+    JsonlSdkReady,
     JsonlSdkServer,
     JsonlSdkServerError,
     JsonlSdkStreamCancelledError,
@@ -1187,6 +1189,38 @@ def test_jsonl_sdk_client_rejects_malformed_known_ready_state_fields() -> None:
 
     with pytest.raises(JsonlSdkClientProtocolError, match=r"is_busy.*boolean"):
         client.read_ready()
+
+
+def test_jsonl_ready_and_error_payloads_export_snapshots() -> None:
+    capabilities: dict[str, object] = {"version": SDK_CAPABILITIES_VERSION}
+    state: dict[str, object] = {"service": {"is_busy": False}}
+    ready = JsonlSdkReady(
+        SDK_JSONL_PROTOCOL,
+        SDK_JSONL_VERSION,
+        capabilities,
+        state,
+    )
+    capabilities["version"] = 0
+    state["service"] = {"is_busy": True}
+
+    ready_payload = ready.to_dict()
+
+    assert ready_payload["capabilities"] == {"version": SDK_CAPABILITIES_VERSION}
+    assert ready_payload["state"] == {"service": {"is_busy": False}}
+    exported_capabilities = cast("dict[str, object]", ready_payload["capabilities"])
+    exported_state = cast("dict[str, object]", ready_payload["state"])
+    exported_capabilities["version"] = 0
+    exported_state["service"] = {"is_busy": True}
+    assert ready.to_dict()["capabilities"] == {"version": SDK_CAPABILITIES_VERSION}
+    assert ready.to_dict()["state"] == {"service": {"is_busy": False}}
+
+    error = JsonlSdkErrorPayload("unavailable", "No active SDK session.", "missing_session")
+
+    assert error.to_dict() == {
+        "code": "unavailable",
+        "message": "No active SDK session.",
+        "unavailable_reason": "missing_session",
+    }
 
 
 def test_jsonl_sdk_process_options_build_command() -> None:

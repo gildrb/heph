@@ -68,6 +68,13 @@ class JsonlSdkErrorPayload:
     message: str
     unavailable_reason: str | None
 
+    def to_dict(self) -> JsonlPayload:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "unavailable_reason": self.unavailable_reason,
+        }
+
 
 class JsonlSdkServerError(JsonlSdkClientError):
     """Raised when the SDK JSONL server returns an error envelope."""
@@ -375,6 +382,19 @@ class JsonlSdkReady:
     version: int
     capabilities: JsonlPayload
     state: JsonlPayload
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "capabilities", dict(self.capabilities))
+        object.__setattr__(self, "state", dict(self.state))
+
+    def to_dict(self) -> JsonlPayload:
+        return {
+            "type": "ready",
+            "protocol": self.protocol,
+            "version": self.version,
+            "capabilities": dict(self.capabilities),
+            "state": dict(self.state),
+        }
 
 
 type _ReadyResult = JsonlSdkReady | Exception
