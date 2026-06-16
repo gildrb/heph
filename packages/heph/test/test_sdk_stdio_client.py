@@ -199,6 +199,14 @@ def test_jsonl_sdk_client_validates_request_params_before_write() -> None:
     output = io.StringIO()
     client = JsonlSdkClient(input_stream=io.StringIO(""), output_stream=output)
 
+    with pytest.raises(JsonlSdkClientProtocolError, match="request method"):
+        client.write_request("")
+    with pytest.raises(JsonlSdkClientProtocolError, match=r"request method.*null bytes"):
+        client.write_request("state\0")
+    with pytest.raises(JsonlSdkClientProtocolError, match="request id"):
+        client.write_request("state", request_id=cast("str | int | None", True))
+    with pytest.raises(JsonlSdkClientProtocolError, match=r"request id.*null bytes"):
+        client.write_request("state", request_id="bad\0id")
     with pytest.raises(JsonlSdkClientProtocolError, match="requires parameter: text"):
         client.write_request("prompt")
     with pytest.raises(JsonlSdkClientProtocolError, match="does not accept parameter: extra"):

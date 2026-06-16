@@ -899,6 +899,7 @@ def jsonl_request_payload(
     request_id: JsonlRequestId = None,
 ) -> JsonlPayload:
     """Build and validate a JSON-ready SDK JSONL request payload."""
+    _validate_jsonl_request_envelope(method, request_id)
     parameters = validate_jsonl_request_params(method, params)
     payload: JsonlPayload = {"method": method}
     if request_id is not None:
@@ -909,6 +910,26 @@ def jsonl_request_payload(
         return validate_jsonl_request_payload(payload)
     except HephSdkError as exc:
         raise JsonlSdkClientProtocolError(str(exc)) from exc
+
+
+def _validate_jsonl_request_envelope(method: object, request_id: JsonlRequestId) -> None:
+    if not isinstance(method, str) or not method.strip():
+        raise JsonlSdkClientProtocolError("SDK JSONL request method must be a non-empty string.")
+    _raise_if_jsonl_request_null_string(method, "SDK JSONL request method")
+    if request_id is None:
+        return
+    if isinstance(request_id, str):
+        _raise_if_jsonl_request_null_string(request_id, "SDK JSONL request id")
+        return
+    if isinstance(request_id, int) and not isinstance(request_id, bool):
+        return
+    raise JsonlSdkClientProtocolError("SDK JSONL request id must be a string, integer, or null.")
+
+
+def _raise_if_jsonl_request_null_string(value: str, label: str) -> None:
+    if "\0" not in value:
+        return
+    raise JsonlSdkClientProtocolError(f"{label} must not contain null bytes.")
 
 
 def validate_jsonl_request_params(
