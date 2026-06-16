@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal
 
 from hephaion.chat.events import (
@@ -18,6 +19,11 @@ from hephaion.chat.events import (
     TurnCompleteEvent,
     TurnEvent,
 )
+
+
+def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
+    snapshot = dict(value)
+    return MappingProxyType(snapshot)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,16 +49,19 @@ class ReasoningDelta:
 class ToolCall:
     call_id: str
     name: str
-    arguments: dict[str, object]
+    arguments: Mapping[str, object]
     display: str
     kind: Literal["tool_call"] = field(default="tool_call", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "arguments", _freeze_mapping(self.arguments))
 
     def to_dict(self) -> dict[str, object]:
         return {
             "type": self.kind,
             "call_id": self.call_id,
             "name": self.name,
-            "arguments": self.arguments,
+            "arguments": dict(self.arguments),
             "display": self.display,
         }
 
@@ -64,9 +73,12 @@ class ToolResult:
     content: str
     summary: str
     success: bool
-    metadata: dict[str, object]
+    metadata: Mapping[str, object]
     error: str | None
     kind: Literal["tool_result"] = field(default="tool_result", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -78,7 +90,7 @@ class ToolResult:
             "success": self.success,
         }
         if self.metadata:
-            payload["metadata"] = self.metadata
+            payload["metadata"] = dict(self.metadata)
         if self.error is not None:
             payload["error"] = self.error
         return payload
@@ -88,8 +100,11 @@ class ToolResult:
 class MaterialOperation:
     operation: str
     message: str
-    metadata: dict[str, object]
+    metadata: Mapping[str, object]
     kind: Literal["material_operation"] = field(default="material_operation", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -98,7 +113,7 @@ class MaterialOperation:
             "message": self.message,
         }
         if self.metadata:
-            payload["metadata"] = self.metadata
+            payload["metadata"] = dict(self.metadata)
         return payload
 
 
@@ -106,15 +121,18 @@ class MaterialOperation:
 class CompactRequest:
     call_id: str
     name: str
-    arguments: dict[str, object]
+    arguments: Mapping[str, object]
     kind: Literal["compact_request"] = field(default="compact_request", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "arguments", _freeze_mapping(self.arguments))
 
     def to_dict(self) -> dict[str, object]:
         return {
             "type": self.kind,
             "call_id": self.call_id,
             "name": self.name,
-            "arguments": self.arguments,
+            "arguments": dict(self.arguments),
         }
 
 
@@ -142,8 +160,11 @@ class TurnComplete:
 class Notice:
     message: str
     code: str
-    metadata: dict[str, object]
+    metadata: Mapping[str, object]
     kind: Literal["notice"] = field(default="notice", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -152,7 +173,7 @@ class Notice:
             "code": self.code,
         }
         if self.metadata:
-            payload["metadata"] = self.metadata
+            payload["metadata"] = dict(self.metadata)
         return payload
 
 
@@ -161,8 +182,11 @@ class Guardrail:
     stage: str
     action: str
     message: str
-    metadata: dict[str, object]
+    metadata: Mapping[str, object]
     kind: Literal["guardrail"] = field(default="guardrail", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -172,7 +196,7 @@ class Guardrail:
             "message": self.message,
         }
         if self.metadata:
-            payload["metadata"] = self.metadata
+            payload["metadata"] = dict(self.metadata)
         return payload
 
 

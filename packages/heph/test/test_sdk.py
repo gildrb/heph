@@ -366,6 +366,70 @@ def test_sdk_event_conversion_keeps_json_ready_shape() -> None:
     }
 
 
+def test_sdk_event_mapping_payloads_are_snapshots() -> None:
+    tool_arguments: dict[str, object] = {"query": "notes"}
+    tool_call = ToolCall("call-1", "search_materials", tool_arguments, "search")
+    tool_arguments["query"] = "mutated"
+    tool_call_payload = event_to_dict(tool_call)
+    assert tool_call_payload["arguments"] == {"query": "notes"}
+    exported_tool_arguments = cast("dict[str, object]", tool_call_payload["arguments"])
+    exported_tool_arguments["query"] = "exported"
+    assert event_to_dict(tool_call)["arguments"] == {"query": "notes"}
+
+    result_metadata: dict[str, object] = {"latency_ms": 12}
+    tool_result = ToolResult(
+        "call-1",
+        "search_materials",
+        "full result",
+        "summary",
+        True,
+        result_metadata,
+        None,
+    )
+    result_metadata["latency_ms"] = 99
+    tool_result_payload = event_to_dict(tool_result)
+    assert tool_result_payload["metadata"] == {"latency_ms": 12}
+    exported_result_metadata = cast("dict[str, object]", tool_result_payload["metadata"])
+    exported_result_metadata["latency_ms"] = 100
+    assert event_to_dict(tool_result)["metadata"] == {"latency_ms": 12}
+
+    material_metadata: dict[str, object] = {"path": "materials/notes.md"}
+    material = MaterialOperation("import", "Imported material.", material_metadata)
+    material_metadata["path"] = "materials/changed.md"
+    material_payload = event_to_dict(material)
+    assert material_payload["metadata"] == {"path": "materials/notes.md"}
+    exported_material_metadata = cast("dict[str, object]", material_payload["metadata"])
+    exported_material_metadata["path"] = "materials/exported.md"
+    assert event_to_dict(material)["metadata"] == {"path": "materials/notes.md"}
+
+    compact_arguments: dict[str, object] = {"ratio": 0.5}
+    compact = CompactRequest("compact-1", "compact", compact_arguments)
+    compact_arguments["ratio"] = 0.25
+    compact_payload = event_to_dict(compact)
+    assert compact_payload["arguments"] == {"ratio": 0.5}
+    exported_compact_arguments = cast("dict[str, object]", compact_payload["arguments"])
+    exported_compact_arguments["ratio"] = 0.75
+    assert event_to_dict(compact)["arguments"] == {"ratio": 0.5}
+
+    notice_metadata: dict[str, object] = {"source": "citation"}
+    notice = Notice("Checking citations.", "verification", notice_metadata)
+    notice_metadata["source"] = "changed"
+    notice_payload = event_to_dict(notice)
+    assert notice_payload["metadata"] == {"source": "citation"}
+    exported_notice_metadata = cast("dict[str, object]", notice_payload["metadata"])
+    exported_notice_metadata["source"] = "exported"
+    assert event_to_dict(notice)["metadata"] == {"source": "citation"}
+
+    guardrail_metadata: dict[str, object] = {"reason": "policy"}
+    guardrail = Guardrail("input", "block", "Blocked locally.", guardrail_metadata)
+    guardrail_metadata["reason"] = "changed"
+    guardrail_payload = event_to_dict(guardrail)
+    assert guardrail_payload["metadata"] == {"reason": "policy"}
+    exported_guardrail_metadata = cast("dict[str, object]", guardrail_payload["metadata"])
+    exported_guardrail_metadata["reason"] = "exported"
+    assert event_to_dict(guardrail)["metadata"] == {"reason": "policy"}
+
+
 def test_sdk_object_field_spec_keeps_compatible_aliases() -> None:
     assert sdk_methods.SdkEventFieldSpec is sdk_methods.SdkObjectFieldSpec
     assert sdk_methods.SdkTypeFieldSpec is sdk_methods.SdkObjectFieldSpec
