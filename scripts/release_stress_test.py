@@ -31,6 +31,22 @@ assert isinstance(sdk.__version__, str)
 assert sdk.__version__
 assert "HephService" in sdk.__all__
 assert "JsonlSdkProcess" in sdk.__all__
+ready = sdk.JsonlSdkReady(
+    sdk.SDK_JSONL_PROTOCOL,
+    sdk.SDK_JSONL_VERSION,
+    {"version": sdk.SDK_CAPABILITIES_VERSION},
+    {"service": {"is_busy": False}},
+)
+ready_payload = ready.to_dict()
+assert ready_payload["type"] == "ready"
+ready_payload["capabilities"]["version"] = 0
+assert ready.to_dict()["capabilities"]["version"] == sdk.SDK_CAPABILITIES_VERSION
+error_payload = sdk.JsonlSdkErrorPayload("sdk_error", "message", None).to_dict()
+assert error_payload == {
+    "code": "sdk_error",
+    "message": "message",
+    "unavailable_reason": None,
+}
 """
 
 
