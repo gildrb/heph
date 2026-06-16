@@ -8,6 +8,8 @@ from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 
+from heph import __version__
+
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
 _HELP_EXAMPLES_HEADER = "Examples:"
@@ -25,11 +27,7 @@ class HephArgumentParser(argparse.ArgumentParser):
 
 
 def _package_version() -> str:
-    metadata = importlib.import_module("importlib.metadata")
-    try:
-        return metadata.version("heph")
-    except Exception:
-        return "0.1.0"
+    return __version__
 
 
 def _hide_subparser(

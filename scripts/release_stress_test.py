@@ -27,6 +27,8 @@ capabilities = sdk.get_sdk_capabilities()
 assert capabilities.version == sdk.SDK_CAPABILITIES_VERSION
 assert sdk.validate_sdk_capabilities(capabilities) == ()
 assert resources.files("heph").joinpath("py.typed").is_file()
+assert isinstance(sdk.__version__, str)
+assert sdk.__version__
 assert "HephService" in sdk.__all__
 assert "JsonlSdkProcess" in sdk.__all__
 """

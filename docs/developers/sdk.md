@@ -51,6 +51,11 @@ SwiftUI / GUI / automation client
 - `ArmorySummary`, `ArmoryValidationSummary`, `SessionSummary`, `ProviderSummary`,
   `ModelChoiceSummary`, and `HephMessage` value objects.
 
+Python clients can read `heph.sdk.__version__` for the installed package
+version. Cross-language clients should still negotiate the runtime contract from
+the capability payload because `SDK_CAPABILITIES_VERSION` can change separately
+from the package version.
+
 ```python
 from heph.sdk import AssistantDelta, HephRuntime
 

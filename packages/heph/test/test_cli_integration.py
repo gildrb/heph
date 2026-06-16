@@ -7,6 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+import heph
 import hephaion.rag.health as rag_health
 import pytest
 from ai.providers.llama_cpp import LlamaCppCandidate, LlamaCppModelRecord
@@ -58,6 +59,18 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "source" not in help_text
     assert "tui" not in help_text
     assert "parameters" not in help_text
+
+
+def test_cli_version_uses_public_package_version(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--version"])
+
+    assert exc.value.code == 0
+    assert f"heph {heph.__version__}" in capsys.readouterr().out
 
 
 def test_update_command_is_not_treated_as_armory(

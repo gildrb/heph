@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from heph import __version__
 from heph.sdk.capabilities import (
     JSONL_ERROR_CODES,
     JSONL_MESSAGE_SPECS,
@@ -188,6 +189,7 @@ from heph.sdk.stdio_client import (
 )
 
 __all__ = [  # noqa: RUF022 - keep spec exports grouped away from lower-level order.
+    "__version__",
     "BUSY_ALLOWED_CALL_METHODS",
     "JSONL_CALL_METHODS",
     "JSONL_ERROR_CODES",

@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import cast, get_type_hints
 
+import heph
 import pytest
 from ai.providers.config import default_config
 from ai.providers.reasoning import REASONING_LEVELS
@@ -132,8 +133,11 @@ def test_sdk_public_facade_exports_are_resolvable() -> None:
     missing = [name for name in exports if not hasattr(sdk, name)]
 
     assert len(exports) == len(set(exports))
-    assert all(not name.startswith("_") for name in exports)
+    assert all(not name.startswith("_") or name == "__version__" for name in exports)
     assert missing == []
+    assert sdk.__version__ == heph.__version__
+    assert isinstance(sdk.__version__, str)
+    assert sdk.__version__
 
 
 def test_sdk_public_facade_exports_stable_contract_constants() -> None:
