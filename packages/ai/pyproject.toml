@@ -3,7 +3,7 @@ name = "heph-ai"
 version = "0.1.0"
 description = "Provider, model, and runtime primitives for Heph"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "certifi==2026.2.25",

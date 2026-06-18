@@ -18,6 +18,14 @@ repos:
     hooks:
       - id: gitleaks
 
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.50
+    hooks:
+      - id: ty
+        # Keep pre-commit aligned with the repo's pinned ty version in uv.lock.
+        entry: uv check --quiet --preview-features=check-command --ty-version=0.0.34
+        args: [--isolated, --no-python-downloads]
+
   - repo: local
     hooks:
       - id: sync-docs
@@ -48,12 +56,6 @@ repos:
         language: python
         entry: python -m scripts.check_dependency_sdist_allowlist
         files: ^uv\.lock$
-        pass_filenames: false
-      - id: ty
-        name: ty (type-check)
-        language: system
-        entry: uv run ty check
-        types: [python]
         pass_filenames: false
       - id: vulture
         name: vulture (dead-code)

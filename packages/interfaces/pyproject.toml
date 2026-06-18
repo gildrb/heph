@@ -3,7 +3,7 @@ name = "heph-interfaces"
 version = "0.1.0"
 description = "CLI/TUI adapter interfaces for Heph"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "heph-ai==0.1.0",

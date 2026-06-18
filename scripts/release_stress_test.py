@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import tempfile
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
 from hephaion._types import is_string_mapping
@@ -15,6 +16,11 @@ from scripts.check_dependency_sdist_allowlist import allowed_source_only_package
 
 EXPECTED_DISTRIBUTIONS = frozenset(
     {"heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"}
+)
+SUPPORTED_RELEASE_PLATFORMS = (
+    "x86_64-pc-windows-msvc",
+    "x86_64-manylinux_2_28",
+    "aarch64-apple-darwin",
 )
 _SDK_IMPORT_SMOKE = """
 from __future__ import annotations
@@ -54,6 +60,7 @@ def main() -> int:
     args = _build_parser().parse_args()
     wheels = _release_artifacts(args.dist, suffix=".whl")
     sdists = _release_artifacts(args.dist, suffix=".tar.gz")
+    version = _artifact_version(wheels["heph"], suffix=".whl")
     with tempfile.TemporaryDirectory(prefix="heph-release-stress-", dir=Path.cwd()) as temp_dir:
         work_dir = Path(temp_dir)
         venv = work_dir / "venv"
@@ -61,8 +68,11 @@ def main() -> int:
         python = _venv_python(venv)
         _run(_wheel_install_command(python, wheels.values()), cwd=work_dir)
         heph = _venv_executable(venv, "heph")
-        _run([str(heph), "--version"], cwd=work_dir)
+        _stress_heph_executable(heph, expected_version=version, cwd=work_dir)
         _stress_installed_sdk(python, heph, cwd=work_dir)
+        _stress_uv_tool_install(args.dist.resolve(), version, args.python, work_dir)
+        _stress_cross_platform_resolution(args.dist.resolve(), version, work_dir)
+        _stress_pip_install(args.dist.resolve(), version, args.python, work_dir)
         for name, sdist in sdists.items():
             _run(
                 [
@@ -105,6 +115,90 @@ def _wheel_install_command(python: Path, wheels: Collection[Path]) -> list[str]:
     ]
 
 
+def _uv_tool_install_command(dist: Path, version: str, python: str) -> list[str]:
+    return [
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        python,
+        "--find-links",
+        str(dist),
+        "--no-sources",
+        f"heph=={version}",
+    ]
+
+
+def _pip_install_command(python: Path, dist: Path, version: str) -> list[str]:
+    return [
+        str(python),
+        "-m",
+        "pip",
+        "install",
+        "--find-links",
+        str(dist),
+        f"heph=={version}",
+    ]
+
+
+def _pip_compile_command(
+    requirements: Path,
+    dist: Path,
+    platform: str,
+    output_file: Path,
+) -> list[str]:
+    return [
+        "uv",
+        "--quiet",
+        "pip",
+        "compile",
+        str(requirements),
+        "--find-links",
+        str(dist),
+        "--no-sources",
+        "--python-platform",
+        platform,
+        "--output-file",
+        str(output_file),
+    ]
+
+
+def _stress_uv_tool_install(dist: Path, version: str, python: str, work_dir: Path) -> None:
+    tool_dir = work_dir / "uv-tools"
+    tool_bin = work_dir / "uv-tool-bin"
+    tool_bin.mkdir()
+    env = _isolated_uv_tool_env(tool_dir, tool_bin)
+    _run(_uv_tool_install_command(dist, version, python), cwd=work_dir, env=env)
+    heph = _tool_executable(tool_bin, "heph")
+    _stress_heph_executable(heph, expected_version=version, cwd=work_dir, env=env)
+
+
+def _stress_cross_platform_resolution(dist: Path, version: str, work_dir: Path) -> None:
+    requirements = work_dir / "heph-release.in"
+    requirements.write_text(f"heph=={version}\n", encoding="utf-8")
+    for platform in SUPPORTED_RELEASE_PLATFORMS:
+        _run(
+            _pip_compile_command(
+                requirements,
+                dist,
+                platform,
+                work_dir / f"heph-release-{platform}.txt",
+            ),
+            cwd=work_dir,
+        )
+
+
+def _stress_pip_install(dist: Path, version: str, python: str, work_dir: Path) -> None:
+    venv = work_dir / "pip-venv"
+    _run(["uv", "venv", str(venv), "--python", python, "--seed"], cwd=work_dir)
+    venv_python = _venv_python(venv)
+    _run(_pip_install_command(venv_python, dist, version), cwd=work_dir)
+    _run([str(venv_python), "-m", "pip", "check"], cwd=work_dir)
+    heph = _venv_executable(venv, "heph")
+    _stress_heph_executable(heph, expected_version=version, cwd=work_dir)
+
+
 def _stress_installed_sdk(python: Path, heph: Path, *, cwd: Path) -> None:
     _run([str(python), "-c", _SDK_IMPORT_SMOKE], cwd=cwd)
     raw_capabilities = _run_output([str(heph), "sdk", "capabilities"], cwd=cwd)
@@ -113,6 +207,24 @@ def _stress_installed_sdk(python: Path, heph: Path, *, cwd: Path) -> None:
     except json.JSONDecodeError as exc:
         raise SystemExit("heph sdk capabilities did not emit valid JSON") from exc
     _validate_sdk_capability_payload(payload)
+
+
+def _stress_heph_executable(
+    heph: Path,
+    *,
+    expected_version: str,
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    version_output = _run_output([str(heph), "--version"], cwd=cwd, env=env).strip()
+    if version_output != f"heph {expected_version}":
+        raise SystemExit(f"heph --version returned {version_output!r}")
+    raw_release_state = _run_output([str(heph), "release", "status", "--json"], cwd=cwd, env=env)
+    try:
+        payload: object = json.loads(raw_release_state)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("heph release status --json did not emit valid JSON") from exc
+    _validate_release_state_payload(payload, expected_version=expected_version)
 
 
 def _validate_sdk_capability_payload(payload: object) -> None:
@@ -128,6 +240,29 @@ def _validate_sdk_capability_payload(payload: object) -> None:
         raise SystemExit("heph sdk capabilities returned an unexpected JSONL protocol")
     if not _is_json_integer(jsonl.get("version")):
         raise SystemExit("heph sdk capabilities returned a non-integer JSONL version")
+
+
+def _validate_release_state_payload(payload: object, *, expected_version: str) -> None:
+    if not is_string_mapping(payload):
+        raise SystemExit("heph release status did not return a JSON object")
+    if payload.get("package_version") != expected_version:
+        raise SystemExit("heph release status returned the wrong package version")
+    official = payload.get("official")
+    if not is_string_mapping(official):
+        raise SystemExit("heph release status returned no official release object")
+    if official.get("package") != "heph":
+        raise SystemExit("heph release status returned the wrong package name")
+    if official.get("command") != "heph":
+        raise SystemExit("heph release status returned the wrong command name")
+    if official.get("version") != expected_version:
+        raise SystemExit("heph release status returned the wrong official version")
+    if official.get("tag") != f"v{expected_version}":
+        raise SystemExit("heph release status returned the wrong official tag")
+    runtime = payload.get("runtime")
+    if not is_string_mapping(runtime):
+        raise SystemExit("heph release status returned no runtime object")
+    if not runtime.get("python"):
+        raise SystemExit("heph release status returned no Python executable")
 
 
 def _is_json_integer(value: object) -> bool:
@@ -157,6 +292,19 @@ def _distribution_name(path: Path, *, suffix: str) -> str:
     return stem.rsplit("-", maxsplit=1)[0]
 
 
+def _artifact_version(path: Path, *, suffix: str) -> str:
+    stem = path.name.removesuffix(suffix)
+    if suffix == ".whl":
+        parts = stem.split("-")
+        if len(parts) < 2:
+            raise SystemExit(f"cannot parse wheel version from {path.name}")
+        return parts[1]
+    parts = stem.rsplit("-", maxsplit=1)
+    if len(parts) != 2:
+        raise SystemExit(f"cannot parse sdist version from {path.name}")
+    return parts[1]
+
+
 def _venv_python(venv: Path) -> Path:
     return _venv_executable(venv, "python")
 
@@ -171,14 +319,37 @@ def _venv_executable(venv: Path, name: str) -> Path:
     raise SystemExit(f"{name} not found in {venv}")
 
 
-def _run(command: list[str], *, cwd: Path) -> None:
-    subprocess.run(command, cwd=cwd, check=True)
+def _tool_executable(tool_bin: Path, name: str) -> Path:
+    posix = tool_bin / name
+    if posix.exists():
+        return posix
+    windows = tool_bin / f"{name}.exe"
+    if windows.exists():
+        return windows
+    raise SystemExit(f"{name} not found in {tool_bin}")
 
 
-def _run_output(command: list[str], *, cwd: Path) -> str:
+def _isolated_uv_tool_env(tool_dir: Path, tool_bin: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["UV_TOOL_DIR"] = str(tool_dir)
+    env["UV_TOOL_BIN_DIR"] = str(tool_bin)
+    return env
+
+
+def _run(command: list[str], *, cwd: Path, env: Mapping[str, str] | None = None) -> None:
+    subprocess.run(command, cwd=cwd, env=env, check=True)
+
+
+def _run_output(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+) -> str:
     return subprocess.run(
         command,
         cwd=cwd,
+        env=env,
         check=True,
         capture_output=True,
         text=True,

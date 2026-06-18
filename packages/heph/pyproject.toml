@@ -3,7 +3,7 @@ name = "heph"
 version = "0.1.0"
 description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 authors = [
     { name = "Gil", email = "hi@gildrb.com" },
 ]

@@ -186,7 +186,8 @@ Additional configured gates:
   docstrings, and imports.
 - Architecture guardrails enforce no regression against current module size, function size,
   class size, complexity, and package-facade import baselines.
-- Pre-commit also runs check-large-files, gitleaks, docs sync, deptry, and radon.
+- Pre-commit also runs check-large-files, gitleaks, docs sync, ty via
+  `astral-sh/ty-pre-commit`, deptry, and radon.
 - Bandit is configured in `pyproject.toml`; run it when touching security-sensitive code.
 
 ## Test
@@ -255,9 +256,10 @@ Testing rules:
 ## Build & Release
 ```bash
 uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources  # build workspace sdists + wheels
+uv run python -m scripts.check_release_state --current-version-must-match-stable  # verify stable release metadata
 uv run python -m scripts.release_stress_test                   # stress-test built artifacts
 ```
-Releases are dispatched manually from protected `main` for reviewed `v*` tags.
+Releases are published from reviewed `v*` tags that are reachable from protected `main`.
 Edge deploys are published manually via `.github/workflows/deploy.yml`.
 
 ## Runbooks

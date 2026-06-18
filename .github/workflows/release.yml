@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -135,6 +138,14 @@ jobs:
 
       - name: Build package
         run: uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
+
+      - name: Release state check
+        run: |
+          uv run python -m scripts.check_release_state \
+            --current-version-must-match-stable \
+            --require-tag \
+            --tag "${RELEASE_TAG}" \
+            --commit "$(git rev-parse HEAD)"
 
       - name: Generate runtime SBOM
         run: |

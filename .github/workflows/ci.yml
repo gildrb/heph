@@ -393,6 +393,13 @@ jobs:
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| build uv-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Release state check
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.check_release_state
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| build release-state | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Release stress test
         run: |
           start=$(date +%s%N)

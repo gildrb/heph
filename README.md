@@ -129,4 +129,4 @@ Model-generated terminal commands are not exposed as a default agent tool. Expli
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0 only](LICENSE).
+This project is licensed under the [MIT License](LICENSE).

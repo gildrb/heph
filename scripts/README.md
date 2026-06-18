@@ -17,6 +17,8 @@ runs do not belong here.
   and `validate_agents_md.py` enforce repository-specific quality rules.
 - `check_lockfile_change.py`, `check_dependency_pinning.py`, and
   `check_dependency_sdist_allowlist.py` guard dependency and lockfile changes.
+- `check_release_state.py` verifies the official stable release pointer, package
+  versions, license metadata, and optional git tag target.
 - `check_dependency_vulnerability_audit.py` runs `uv audit --frozen` with reviewed,
   lockfile-scoped `--ignore-until-fixed` waivers. PyTorch is an intentional core
   dependency for Docling and Pufferlib; while `GHSA-rrmf-rvhw-rf47` has no upstream
@@ -25,6 +27,8 @@ runs do not belong here.
 
 ## Release And Build Helpers
 
-- `release_stress_test.py` validates built release artifacts in isolation.
+- `release_stress_test.py` validates built release artifacts in isolation,
+  including `uv tool install`, pip install, cross-platform dependency resolution,
+  CLI startup, and SDK JSON output.
 - `record_metrics.py` records CI timing/test metrics.
 - `sync_labels.py` syncs GitHub labels from `.github/labels.yml`.

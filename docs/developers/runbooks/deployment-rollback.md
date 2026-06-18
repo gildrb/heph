@@ -29,8 +29,20 @@ refresh the rolling edge prerelease.
 
 ## PyPI Release (version tags)
 
-Stable releases are published to PyPI by manually dispatching
-`.github/workflows/release.yml` from protected `main` for a reviewed `v*` tag.
+Stable releases are published to PyPI by pushing a reviewed `v*` tag reachable
+from protected `main`. The same `.github/workflows/release.yml` workflow can be
+manually dispatched from `main` for an existing tag.
+The official stable pointer lives in
+`packages/heph/src/heph/state/release.toml`; update it only when a reviewed
+version is ready to become the public `heph@latest` release.
+
+Before dispatching a release, run:
+
+```bash
+uv run python -m scripts.check_release_state --current-version-must-match-stable --require-tag
+uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
+uv run python -m scripts.release_stress_test
+```
 
 ### Rollback Steps
 

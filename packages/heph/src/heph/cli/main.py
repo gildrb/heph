@@ -165,6 +165,16 @@ def _cmd_sdk_capabilities(args: argparse.Namespace) -> None:
     _write_stdout(json.dumps(payload, ensure_ascii=False, indent=indent, separators=separators))
 
 
+def _cmd_release_status(args: argparse.Namespace) -> None:
+    release_state = importlib.import_module("heph.release_state")
+    if args.json:
+        json = importlib.import_module("json")
+        payload = release_state.current_release_state()
+        _write_stdout(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return
+    _write_stdout(release_state.format_current_release_state())
+
+
 def _write_stdout(text: str) -> None:
     try:
         sys.stdout.write(text)
@@ -727,6 +737,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print the capability JSON.",
     )
     sdk_capabilities.set_defaults(handler=_cmd_sdk_capabilities)
+
+    release = subparsers.add_parser(
+        "release",
+        help="Show installed release state.",
+    )
+    release_sub = release.add_subparsers(dest="release_command", required=True)
+    release_status = release_sub.add_parser(
+        "status",
+        help="Show installed package, official stable, and release channel state.",
+    )
+    release_status.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit release state as JSON.",
+    )
+    release_status.set_defaults(handler=_cmd_release_status)
 
     # Chat automation is hidden from the main help, but kept for scripts and
     # harness audits that need a structured non-interactive turn stream.

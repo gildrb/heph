@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 
 from scripts.check_dependency_sdist_allowlist import allowed_source_only_package_names
-from scripts.release_stress_test import _validate_sdk_capability_payload, _wheel_install_command
+from scripts.release_stress_test import (
+    _pip_compile_command,
+    _pip_install_command,
+    _uv_tool_install_command,
+    _validate_release_state_payload,
+    _validate_sdk_capability_payload,
+    _wheel_install_command,
+)
 
 
 def test_release_stress_binary_policy_uses_reviewed_source_allowlist() -> None:
@@ -51,4 +58,98 @@ def test_release_stress_validates_sdk_capability_payload() -> None:
                     "version": 1,
                 },
             }
+        )
+
+
+def test_release_stress_builds_uv_tool_install_command() -> None:
+    command = _uv_tool_install_command(Path("/tmp/dist"), "0.1.0", "3.13")
+
+    assert command == [
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        "3.13",
+        "--find-links",
+        "/tmp/dist",
+        "--no-sources",
+        "heph==0.1.0",
+    ]
+
+
+def test_release_stress_builds_pip_install_command() -> None:
+    command = _pip_install_command(Path("/tmp/venv/bin/python"), Path("/tmp/dist"), "0.1.0")
+
+    assert command == [
+        "/tmp/venv/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "--find-links",
+        "/tmp/dist",
+        "heph==0.1.0",
+    ]
+
+
+def test_release_stress_builds_platform_compile_command() -> None:
+    command = _pip_compile_command(
+        Path("/tmp/heph-release.in"),
+        Path("/tmp/dist"),
+        "x86_64-pc-windows-msvc",
+        Path("/tmp/heph-release-windows.txt"),
+    )
+
+    assert command == [
+        "uv",
+        "--quiet",
+        "pip",
+        "compile",
+        "/tmp/heph-release.in",
+        "--find-links",
+        "/tmp/dist",
+        "--no-sources",
+        "--python-platform",
+        "x86_64-pc-windows-msvc",
+        "--output-file",
+        "/tmp/heph-release-windows.txt",
+    ]
+
+
+def test_release_stress_validates_release_state_payload() -> None:
+    _validate_release_state_payload(
+        {
+            "package_version": "0.1.0",
+            "official": {
+                "package": "heph",
+                "command": "heph",
+                "version": "0.1.0",
+                "tag": "v0.1.0",
+            },
+            "runtime": {
+                "channel": "source",
+                "version": "",
+                "python": "/tmp/python",
+            },
+        },
+        expected_version="0.1.0",
+    )
+
+    with pytest.raises(SystemExit, match="wrong official tag"):
+        _validate_release_state_payload(
+            {
+                "package_version": "0.1.0",
+                "official": {
+                    "package": "heph",
+                    "command": "heph",
+                    "version": "0.1.0",
+                    "tag": "v0.0.0",
+                },
+                "runtime": {
+                    "channel": "source",
+                    "version": "",
+                    "python": "/tmp/python",
+                },
+            },
+            expected_version="0.1.0",
         )

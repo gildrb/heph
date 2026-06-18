@@ -158,6 +158,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph update": "Show how to update the active Heph install.",
     "heph sdk serve": "Run the SDK JSONL stdio service for native clients.",
     "heph sdk capabilities": "Print the SDK capability contract as JSON.",
+    "heph release status": ("Show installed package, official stable, and release channel state."),
     "heph chat ask --jsonl <path> [prompt]": (
         "Emit structured turn events as JSON Lines for harness audits."
     ),
@@ -266,6 +267,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         "local",
         "update",
         "sdk",
+        "release",
         "config",
     }
     if not required_visible.issubset(top_level):
@@ -278,12 +280,14 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     config_parser = subparsers.choices["config"]
     local_parser = subparsers.choices["local"]
     sdk_parser = subparsers.choices["sdk"]
+    release_parser = subparsers.choices["release"]
     chat_parser = subparsers.choices["chat"]
 
     armory_sub = get_subparsers_action(armory_parser)
     materials_sub = get_subparsers_action(materials_parser)
     config_sub = get_subparsers_action(config_parser)
     sdk_sub = get_subparsers_action(sdk_parser)
+    release_sub = get_subparsers_action(release_parser)
     chat_sub = get_subparsers_action(chat_parser)
 
     armory_help = build_help_map(armory_sub)
@@ -292,6 +296,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     local_sub = get_subparsers_action(local_parser)
     local_help = build_help_map(local_sub)
     sdk_help = build_help_map(sdk_sub)
+    release_help = build_help_map(release_sub)
     chat_help = build_help_map(chat_sub)
 
     return (
@@ -345,6 +350,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),
         CommandLine(f"{short_command} sdk capabilities", sdk_help["capabilities"]),
+        CommandLine(f"{short_command} release status", release_help["status"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),
@@ -378,6 +384,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} local install <repo-or-path>",
         f"{short_command} local status",
         f"{short_command} update",
+        f"{short_command} release status",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat ask --jsonl <path> [prompt]",
         f"{short_command} tui [path]",
@@ -614,11 +621,7 @@ def render_home_footer(*, docs_index: bool) -> str:
             "- Read the [runbooks](developers/runbooks/index.md) for operational"
             " debugging.\n"
         )
-    return (
-        "## License\n\n"
-        "This project is licensed under the "
-        "[GNU General Public License v3.0 only](LICENSE).\n"
-    )
+    return "## License\n\nThis project is licensed under the [MIT License](LICENSE).\n"
 
 
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:

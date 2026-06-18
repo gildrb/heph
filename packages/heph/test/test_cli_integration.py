@@ -52,6 +52,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "health" in help_text
     assert "update" in help_text
     assert "sdk" in help_text
+    assert "release" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text
@@ -83,6 +84,19 @@ def test_update_command_is_not_treated_as_armory(
     out = capsys.readouterr().out
     assert "Heph update" in out
     assert "uv tool upgrade heph" in out
+
+
+def test_release_status_command_reports_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    run_argv(parser, ["release", "status", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["package_version"] == heph.__version__
+    assert payload["official"]["tag"] == "v0.1.0"
+    assert payload["runtime"]["channel"] in {"source", "edge", "pypi"}
 
 
 def test_project_root_resolves_workspace_checkout() -> None:

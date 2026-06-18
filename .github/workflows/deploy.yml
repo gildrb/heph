@@ -124,6 +124,9 @@ jobs:
       - name: Build package
         run: uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
 
+      - name: Release state check
+        run: uv run python -m scripts.check_release_state
+
       - name: Generate runtime SBOM
         run: |
           mkdir -p .artifacts/release
