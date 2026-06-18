@@ -14,16 +14,8 @@ from hephaion._types import is_string_mapping
 
 from scripts.check_dependency_sdist_allowlist import allowed_source_only_package_names
 
-EXPECTED_DISTRIBUTIONS = frozenset(
-    {"heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"}
-)
-EXPECTED_PACKAGE_NAMES = (
-    "heph",
-    "heph-ai",
-    "heph-extensions",
-    "heph-interfaces",
-    "hephaion",
-)
+EXPECTED_DISTRIBUTIONS = frozenset({"heph"})
+EXPECTED_PACKAGE_NAMES = ("heph",)
 DEFAULT_WORK_ROOT = Path(".artifacts") / "release-stress"
 SUPPORTED_RELEASE_PLATFORMS = (
     "x86_64-pc-windows-msvc",
@@ -41,6 +33,11 @@ capabilities = sdk.get_sdk_capabilities()
 assert capabilities.version == sdk.SDK_CAPABILITIES_VERSION
 assert sdk.validate_sdk_capabilities(capabilities) == ()
 assert resources.files("heph").joinpath("py.typed").is_file()
+assert resources.files("heph").joinpath("state", "release.toml").is_file()
+assert resources.files("hephaion").joinpath("parameters", "default.toml").is_file()
+assert resources.files("ai").joinpath("py.typed").is_file()
+assert resources.files("extensions").joinpath("py.typed").is_file()
+assert resources.files("interfaces").joinpath("py.typed").is_file()
 assert isinstance(sdk.__version__, str)
 assert sdk.__version__
 assert "HephService" in sdk.__all__

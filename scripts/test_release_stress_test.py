@@ -84,14 +84,6 @@ def test_release_stress_builds_uv_tool_install_command() -> None:
         "--no-sources",
         "--refresh-package",
         "heph",
-        "--refresh-package",
-        "heph-ai",
-        "--refresh-package",
-        "heph-extensions",
-        "--refresh-package",
-        "heph-interfaces",
-        "--refresh-package",
-        "hephaion",
         "heph==0.0.49",
     ]
 
