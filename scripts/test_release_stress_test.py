@@ -6,6 +6,8 @@ import pytest
 
 from scripts.check_dependency_sdist_allowlist import allowed_source_only_package_names
 from scripts.release_stress_test import (
+    DEFAULT_WORK_ROOT,
+    _build_parser,
     _pip_compile_command,
     _pip_install_command,
     _uv_tool_install_command,
@@ -13,6 +15,12 @@ from scripts.release_stress_test import (
     _validate_sdk_capability_payload,
     _wheel_install_command,
 )
+
+
+def test_release_stress_uses_ignored_artifact_scratch_root_by_default() -> None:
+    args = _build_parser().parse_args([])
+
+    assert args.work_root == DEFAULT_WORK_ROOT
 
 
 def test_release_stress_binary_policy_uses_reviewed_source_allowlist() -> None:

@@ -24,6 +24,7 @@ EXPECTED_PACKAGE_NAMES = (
     "heph-interfaces",
     "hephaion",
 )
+DEFAULT_WORK_ROOT = Path(".artifacts") / "release-stress"
 SUPPORTED_RELEASE_PLATFORMS = (
     "x86_64-pc-windows-msvc",
     "x86_64-manylinux_2_28",
@@ -68,7 +69,9 @@ def main() -> int:
     wheels = _release_artifacts(args.dist, suffix=".whl")
     sdists = _release_artifacts(args.dist, suffix=".tar.gz")
     version = _artifact_version(wheels["heph"], suffix=".whl")
-    with tempfile.TemporaryDirectory(prefix="heph-release-stress-", dir=Path.cwd()) as temp_dir:
+    scratch_root = args.work_root
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="run-", dir=scratch_root) as temp_dir:
         work_dir = Path(temp_dir)
         venv = work_dir / "venv"
         _run(["uv", "venv", str(venv), "--python", args.python], cwd=work_dir)
@@ -123,6 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--build-constraints", type=Path, default=Path("build-constraints.txt"))
     parser.add_argument("--python", default="3.13")
+    parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--expect-runtime-channel")
     parser.add_argument("--expect-runtime-version")
     return parser

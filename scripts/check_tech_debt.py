@@ -21,7 +21,15 @@ PATTERNS = [
 
 ISSUE_RE = re.compile(r"#\d+|GH-\d+|https?://\S+/issues/\d+")
 
-EXCLUDE_DIRS = {".venv", "__pycache__", ".git", "node_modules", "dist", ".mypy_cache"}
+EXCLUDE_DIRS = {
+    ".artifacts",
+    ".venv",
+    "__pycache__",
+    ".git",
+    "node_modules",
+    "dist",
+    ".mypy_cache",
+}
 
 
 def find_python_files(root: Path) -> list[Path]:
