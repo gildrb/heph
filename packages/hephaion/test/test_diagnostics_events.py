@@ -52,7 +52,7 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("hephaion.diagnostics.events.get_distinct_id", lambda: "heph_test")
     monkeypatch.setattr(
         "hephaion.diagnostics.events.runtime_context",
-        lambda: {"app_version": "0.1.49", "release_channel": "pypi"},
+        lambda: {"app_version": "0.0.49", "release_channel": "pypi"},
     )
     monkeypatch.setattr("hephaion.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
 

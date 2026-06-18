@@ -35,10 +35,10 @@ The official stable pointer lives in
 `packages/heph/src/heph/state/release.toml`; update it only when a reviewed
 version is ready to become the public `heph@latest` release.
 
-The first public PyPI train is `v0.1.49`, matching the "late 0.1.x before
-0.2.0" cadence used by uv's early releases. Keep follow-up fixes on `0.1.x`
-until the next larger public train is ready, then move the stable pointer to
-`v0.2.0`.
+The first public PyPI train is `v0.0.49`, marking the installable beta line.
+Keep beta fixes on `0.0.x` until the first stable public train is ready, then
+move the stable pointer to `v0.1.0`. Later `0.1.x` fixes can climb toward
+`0.1.49` before the next larger `v0.2.0` train.
 
 Before publishing, run from `main` with the release tag fetched. The release
 builder verifies package inputs still match the stable tag before it injects
@@ -47,7 +47,7 @@ runtime release metadata:
 ```bash
 uv run python -m scripts.check_release_state --current-version-must-match-stable --require-tag
 uv run python -m scripts.build_release_artifacts
-uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.1.49
+uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.0.49
 uv publish --dry-run dist/*
 ```
 
@@ -61,19 +61,19 @@ uv publish dist/*
 Then verify the public install paths:
 
 ```bash
-uv run python -m scripts.check_public_install --expect-runtime-version v0.1.49
+uv run python -m scripts.check_public_install --expect-runtime-version v0.0.49
 ```
 
 ### Rollback Steps
 
 1. **Yank the release from PyPI** (prevents new installs):
    ```bash
-   uvx twine yank heph 0.1.49 --repository pypi
+   uvx twine yank heph 0.0.49 --repository pypi
    ```
 
 2. **Delete the GitHub Release** (if needed):
    ```bash
-   gh release delete v0.1.49 --yes
+   gh release delete v0.0.49 --yes
    ```
 
 3. **Fix forward** — create a new version with the fix, tag it, and publish the
