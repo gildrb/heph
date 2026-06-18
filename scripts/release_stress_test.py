@@ -17,6 +17,13 @@ from scripts.check_dependency_sdist_allowlist import allowed_source_only_package
 EXPECTED_DISTRIBUTIONS = frozenset(
     {"heph", "heph_ai", "heph_extensions", "heph_interfaces", "hephaion"}
 )
+EXPECTED_PACKAGE_NAMES = (
+    "heph",
+    "heph-ai",
+    "heph-extensions",
+    "heph-interfaces",
+    "hephaion",
+)
 SUPPORTED_RELEASE_PLATFORMS = (
     "x86_64-pc-windows-msvc",
     "x86_64-manylinux_2_28",
@@ -68,11 +75,31 @@ def main() -> int:
         python = _venv_python(venv)
         _run(_wheel_install_command(python, wheels.values()), cwd=work_dir)
         heph = _venv_executable(venv, "heph")
-        _stress_heph_executable(heph, expected_version=version, cwd=work_dir)
+        _stress_heph_executable(
+            heph,
+            expected_version=version,
+            expected_runtime_channel=args.expect_runtime_channel,
+            expected_runtime_version=args.expect_runtime_version,
+            cwd=work_dir,
+        )
         _stress_installed_sdk(python, heph, cwd=work_dir)
-        _stress_uv_tool_install(args.dist.resolve(), version, args.python, work_dir)
+        _stress_uv_tool_install(
+            args.dist.resolve(),
+            version,
+            args.python,
+            work_dir,
+            expected_runtime_channel=args.expect_runtime_channel,
+            expected_runtime_version=args.expect_runtime_version,
+        )
         _stress_cross_platform_resolution(args.dist.resolve(), version, work_dir)
-        _stress_pip_install(args.dist.resolve(), version, args.python, work_dir)
+        _stress_pip_install(
+            args.dist.resolve(),
+            version,
+            args.python,
+            work_dir,
+            expected_runtime_channel=args.expect_runtime_channel,
+            expected_runtime_version=args.expect_runtime_version,
+        )
         for name, sdist in sdists.items():
             _run(
                 [
@@ -96,6 +123,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--build-constraints", type=Path, default=Path("build-constraints.txt"))
     parser.add_argument("--python", default="3.13")
+    parser.add_argument("--expect-runtime-channel")
+    parser.add_argument("--expect-runtime-version")
     return parser
 
 
@@ -126,6 +155,7 @@ def _uv_tool_install_command(dist: Path, version: str, python: str) -> list[str]
         "--find-links",
         str(dist),
         "--no-sources",
+        *_refresh_package_args(),
         f"heph=={version}",
     ]
 
@@ -164,14 +194,36 @@ def _pip_compile_command(
     ]
 
 
-def _stress_uv_tool_install(dist: Path, version: str, python: str, work_dir: Path) -> None:
+def _refresh_package_args() -> list[str]:
+    args: list[str] = []
+    for package in EXPECTED_PACKAGE_NAMES:
+        args.extend(("--refresh-package", package))
+    return args
+
+
+def _stress_uv_tool_install(
+    dist: Path,
+    version: str,
+    python: str,
+    work_dir: Path,
+    *,
+    expected_runtime_channel: str | None = None,
+    expected_runtime_version: str | None = None,
+) -> None:
     tool_dir = work_dir / "uv-tools"
     tool_bin = work_dir / "uv-tool-bin"
     tool_bin.mkdir()
     env = _isolated_uv_tool_env(tool_dir, tool_bin)
     _run(_uv_tool_install_command(dist, version, python), cwd=work_dir, env=env)
     heph = _tool_executable(tool_bin, "heph")
-    _stress_heph_executable(heph, expected_version=version, cwd=work_dir, env=env)
+    _stress_heph_executable(
+        heph,
+        expected_version=version,
+        expected_runtime_channel=expected_runtime_channel,
+        expected_runtime_version=expected_runtime_version,
+        cwd=work_dir,
+        env=env,
+    )
 
 
 def _stress_cross_platform_resolution(dist: Path, version: str, work_dir: Path) -> None:
@@ -189,14 +241,28 @@ def _stress_cross_platform_resolution(dist: Path, version: str, work_dir: Path) 
         )
 
 
-def _stress_pip_install(dist: Path, version: str, python: str, work_dir: Path) -> None:
+def _stress_pip_install(
+    dist: Path,
+    version: str,
+    python: str,
+    work_dir: Path,
+    *,
+    expected_runtime_channel: str | None = None,
+    expected_runtime_version: str | None = None,
+) -> None:
     venv = work_dir / "pip-venv"
     _run(["uv", "venv", str(venv), "--python", python, "--seed"], cwd=work_dir)
     venv_python = _venv_python(venv)
     _run(_pip_install_command(venv_python, dist, version), cwd=work_dir)
     _run([str(venv_python), "-m", "pip", "check"], cwd=work_dir)
     heph = _venv_executable(venv, "heph")
-    _stress_heph_executable(heph, expected_version=version, cwd=work_dir)
+    _stress_heph_executable(
+        heph,
+        expected_version=version,
+        expected_runtime_channel=expected_runtime_channel,
+        expected_runtime_version=expected_runtime_version,
+        cwd=work_dir,
+    )
 
 
 def _stress_installed_sdk(python: Path, heph: Path, *, cwd: Path) -> None:
@@ -213,6 +279,8 @@ def _stress_heph_executable(
     heph: Path,
     *,
     expected_version: str,
+    expected_runtime_channel: str | None = None,
+    expected_runtime_version: str | None = None,
     cwd: Path,
     env: Mapping[str, str] | None = None,
 ) -> None:
@@ -224,7 +292,12 @@ def _stress_heph_executable(
         payload: object = json.loads(raw_release_state)
     except json.JSONDecodeError as exc:
         raise SystemExit("heph release status --json did not emit valid JSON") from exc
-    _validate_release_state_payload(payload, expected_version=expected_version)
+    _validate_release_state_payload(
+        payload,
+        expected_version=expected_version,
+        expected_runtime_channel=expected_runtime_channel,
+        expected_runtime_version=expected_runtime_version,
+    )
 
 
 def _validate_sdk_capability_payload(payload: object) -> None:
@@ -242,7 +315,13 @@ def _validate_sdk_capability_payload(payload: object) -> None:
         raise SystemExit("heph sdk capabilities returned a non-integer JSONL version")
 
 
-def _validate_release_state_payload(payload: object, *, expected_version: str) -> None:
+def _validate_release_state_payload(
+    payload: object,
+    *,
+    expected_version: str,
+    expected_runtime_channel: str | None = None,
+    expected_runtime_version: str | None = None,
+) -> None:
     if not is_string_mapping(payload):
         raise SystemExit("heph release status did not return a JSON object")
     if payload.get("package_version") != expected_version:
@@ -261,6 +340,10 @@ def _validate_release_state_payload(payload: object, *, expected_version: str) -
     runtime = payload.get("runtime")
     if not is_string_mapping(runtime):
         raise SystemExit("heph release status returned no runtime object")
+    if expected_runtime_channel is not None and runtime.get("channel") != expected_runtime_channel:
+        raise SystemExit("heph release status returned the wrong runtime channel")
+    if expected_runtime_version is not None and runtime.get("version") != expected_runtime_version:
+        raise SystemExit("heph release status returned the wrong runtime version")
     if not runtime.get("python"):
         raise SystemExit("heph release status returned no Python executable")
 

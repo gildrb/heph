@@ -24,34 +24,50 @@ refresh the rolling edge prerelease.
 
 3. **Verify** — check the new edge release and confirm the app works.
 
-4. **Monitor** — watch the follow-up GitHub Actions run and do a quick stress test
-   with `heph --version` plus a basic armory command.
+4. **Monitor** — do a quick stress test with `heph --version` plus a basic
+   armory command.
 
 ## PyPI Release (version tags)
 
-Stable releases are published to PyPI by pushing a reviewed `v*` tag reachable
-from protected `main`. The same `.github/workflows/release.yml` workflow can be
-manually dispatched from `main` for an existing tag.
+Stable releases are published to PyPI from a reviewed `v*` tag reachable from
+protected `main`.
 The official stable pointer lives in
 `packages/heph/src/heph/state/release.toml`; update it only when a reviewed
 version is ready to become the public `heph@latest` release.
 
-Before dispatching a release, run:
+Before publishing, run from `main` with the release tag fetched. The release
+builder verifies package inputs still match the stable tag before it injects
+runtime release metadata:
 
 ```bash
 uv run python -m scripts.check_release_state --current-version-must-match-stable --require-tag
-uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
-uv run python -m scripts.release_stress_test
+uv run python -m scripts.build_release_artifacts
+uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.1.0
+uv publish --dry-run dist/*
+```
+
+Publish from an authenticated maintainer shell:
+
+```bash
+export UV_PUBLISH_TOKEN="pypi-..."
+uv publish dist/*
+```
+
+Then verify the public install paths:
+
+```bash
+uv tool install --force heph@latest
+heph --version
+python -m venv /tmp/heph-pip-smoke
+/tmp/heph-pip-smoke/bin/python -m pip install heph
+/tmp/heph-pip-smoke/bin/python -m pip check
 ```
 
 ### Rollback Steps
 
 1. **Yank the release from PyPI** (prevents new installs):
    ```bash
-   pip install twine
-   twine register --repository pypi "heph==0.1.0"  # if not registered
-   # Yank:
-   pip run twine yank heph 0.1.0 --repository pypi
+   uvx twine yank heph 0.1.0 --repository pypi
    ```
 
 2. **Delete the GitHub Release** (if needed):
@@ -59,8 +75,8 @@ uv run python -m scripts.release_stress_test
    gh release delete v0.1.0 --yes
    ```
 
-3. **Fix forward** — create a new version with the fix, tag it, and dispatch the
-   release workflow from `main` with that tag:
+3. **Fix forward** — create a new version with the fix, tag it, and publish the
+   new tag:
    ```bash
    git tag v0.1.1
    git push origin v0.1.1
@@ -71,7 +87,6 @@ uv run python -m scripts.release_stress_test
 ## Where to Check Deploy Impact
 
 - **GitHub Deployments** — https://github.com/gildrb/heph/deployments
-- **GitHub Actions** — check the latest deploy/release workflow run
 - **Published package** — verify the expected wheel and sdist exist on the GitHub release and PyPI
 
 ## Prevention

@@ -81,7 +81,7 @@ def release_state_errors(
     tag: str | None,
     commit: str | None,
 ) -> list[str]:
-    manifest = _load_release_manifest()
+    manifest = load_release_manifest()
     errors = [
         *_manifest_errors(manifest),
         *_license_errors(),
@@ -95,7 +95,7 @@ def release_state_errors(
     return errors
 
 
-def _load_release_manifest() -> ReleaseManifest:
+def load_release_manifest() -> ReleaseManifest:
     data = cast(
         "dict[str, object]",
         tomllib.loads(RELEASE_MANIFEST_PATH.read_text(encoding="utf-8")),

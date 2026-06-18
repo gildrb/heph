@@ -74,6 +74,16 @@ def test_release_stress_builds_uv_tool_install_command() -> None:
         "--find-links",
         "/tmp/dist",
         "--no-sources",
+        "--refresh-package",
+        "heph",
+        "--refresh-package",
+        "heph-ai",
+        "--refresh-package",
+        "heph-extensions",
+        "--refresh-package",
+        "heph-interfaces",
+        "--refresh-package",
+        "hephaion",
         "heph==0.1.0",
     ]
 
@@ -134,6 +144,25 @@ def test_release_stress_validates_release_state_payload() -> None:
         },
         expected_version="0.1.0",
     )
+    _validate_release_state_payload(
+        {
+            "package_version": "0.1.0",
+            "official": {
+                "package": "heph",
+                "command": "heph",
+                "version": "0.1.0",
+                "tag": "v0.1.0",
+            },
+            "runtime": {
+                "channel": "pypi",
+                "version": "v0.1.0",
+                "python": "/tmp/python",
+            },
+        },
+        expected_version="0.1.0",
+        expected_runtime_channel="pypi",
+        expected_runtime_version="v0.1.0",
+    )
 
     with pytest.raises(SystemExit, match="wrong official tag"):
         _validate_release_state_payload(
@@ -152,4 +181,24 @@ def test_release_stress_validates_release_state_payload() -> None:
                 },
             },
             expected_version="0.1.0",
+        )
+
+    with pytest.raises(SystemExit, match="wrong runtime channel"):
+        _validate_release_state_payload(
+            {
+                "package_version": "0.1.0",
+                "official": {
+                    "package": "heph",
+                    "command": "heph",
+                    "version": "0.1.0",
+                    "tag": "v0.1.0",
+                },
+                "runtime": {
+                    "channel": "source",
+                    "version": "v0.1.0",
+                    "python": "/tmp/python",
+                },
+            },
+            expected_version="0.1.0",
+            expected_runtime_channel="pypi",
         )

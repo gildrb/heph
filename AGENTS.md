@@ -255,11 +255,14 @@ Testing rules:
 
 ## Build & Release
 ```bash
-uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources  # build workspace sdists + wheels
 uv run python -m scripts.check_release_state --current-version-must-match-stable  # verify stable release metadata
-uv run python -m scripts.release_stress_test                   # stress-test built artifacts
+uv run python -m scripts.build_release_artifacts                # build official sdists + wheels for the stable tag
+uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.1.0
+uv publish --dry-run dist/*                                     # validate upload payloads before publishing
 ```
-Releases are published from reviewed `v*` tags that are reachable from protected `main`.
+Publish PyPI releases manually from a reviewed `v*` tag with `UV_PUBLISH_TOKEN`
+set in the environment, then verify `uv tool install heph@latest` and
+`pip install heph` from a clean environment.
 Edge deploys are published manually via `.github/workflows/deploy.yml`.
 
 ## Runbooks

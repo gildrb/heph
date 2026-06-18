@@ -27,6 +27,9 @@ runs do not belong here.
 
 ## Release And Build Helpers
 
+- `build_release_artifacts.py` builds official release artifacts for the stable
+  tag, verifies package inputs still match that tag, temporarily injects release
+  channel/version metadata, and restores the tracked safe privacy stub.
 - `release_stress_test.py` validates built release artifacts in isolation,
   including `uv tool install`, pip install, cross-platform dependency resolution,
   CLI startup, and SDK JSON output.
