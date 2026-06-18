@@ -33,5 +33,7 @@ runs do not belong here.
 - `release_stress_test.py` validates built release artifacts in isolation,
   including `uv tool install`, pip install, cross-platform dependency resolution,
   CLI startup, and SDK JSON output.
+- `check_public_install.py` verifies the published PyPI package through isolated
+  `uv tool install heph@latest` and `pip install heph` paths.
 - `record_metrics.py` records CI timing/test metrics.
 - `sync_labels.py` syncs GitHub labels from `.github/labels.yml`.

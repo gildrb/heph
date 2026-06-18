@@ -56,11 +56,7 @@ uv publish dist/*
 Then verify the public install paths:
 
 ```bash
-uv tool install --force heph@latest
-heph --version
-python -m venv /tmp/heph-pip-smoke
-/tmp/heph-pip-smoke/bin/python -m pip install heph
-/tmp/heph-pip-smoke/bin/python -m pip check
+uv run python -m scripts.check_public_install --expect-runtime-version v0.1.0
 ```
 
 ### Rollback Steps
