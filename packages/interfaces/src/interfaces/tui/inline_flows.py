@@ -33,11 +33,14 @@ from hephaion.privacy.consent import (
 from interfaces.palette import TRANSPARENT
 from interfaces.terminal import current_palette, set_theme
 from interfaces.tui.auth_flows import TuiAuthFlowMixin
+from interfaces.tui.cell_text import cell_width as _cell_width
+from interfaces.tui.cell_text import truncate_with_ellipsis as _truncate_with_ellipsis
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER
 from interfaces.tui.display_text import label_value_line as menu_label_value
 from interfaces.tui.flow_state import InlineFlow
 from interfaces.tui.ids import COMPLETION_MENU_CLASS
 from interfaces.tui.inline_menu import (
+    _INLINE_MENU_DESCRIPTION_GAP,
     _consume_inline_key,
     _dedupe_inline_options,
     _filtered_inline_options,
@@ -46,6 +49,7 @@ from interfaces.tui.inline_menu import (
     _inline_menu_scrolled_label_width,
     _inline_menu_visible_label_width,
     _inline_option_index,
+    _inline_selection_prefix,
     _local_model_option_text,
     _local_model_scrolled_metadata_widths,
     _local_model_visible_metadata_widths,
@@ -147,10 +151,11 @@ _KEYMAP_MENU_STEP = "menu"
 _KEYMAP_REVIEW_STEP = "review"
 _KEYMAP_CAPTURE_STEP = "capture"
 _KEYMAP_RESET_ALL_STEP = "reset-all"
-_KEYMAP_RESET_ALL_LABEL = "RESET ALL KEYBINDS"
-_KEYMAP_RESET_ALL_CONFIRM_LABEL = "RESET ALL"
+_KEYMAP_RESET_ALL_LABEL = "RESET"
+_KEYMAP_RESET_ALL_CONFIRM_LABEL = "CONFIRM"
 _KEYMAP_CANCEL_LABEL = "CANCEL"
 _KEYMAP_OPTION_SEPARATOR = "\t"
+_KEYMAP_MIN_DESCRIPTION_WIDTH = 10
 _INLINE_MENU_MAX_VISIBLE_ROWS = 7
 _INLINE_MENU_WIDTH_REFRESH_DELAY_SECONDS = 0.01
 
@@ -538,7 +543,7 @@ def _inline_flow_menu_prompts(
         )
     if _inline_flow_uses_keymap_renderer(host._inline_flow):
         return _keymap_inline_menu_prompts(
-            options, selected=selected, rendered_height=rendered_height
+            host, suggestions, options, selected=selected, rendered_height=rendered_height
         )
     return _standard_inline_menu_prompts(
         options, selected=selected, rendered_height=rendered_height
@@ -593,20 +598,24 @@ def _local_inline_menu_prompts(
 
 
 def _keymap_inline_menu_prompts(
+    host: _InlineMenuHighlightHost,
+    suggestions: OptionList,
     options: list[tuple[str, str]],
     *,
     selected: int,
     rendered_height: int,
 ) -> list[str | Text]:
+    prompt_width = _inline_menu_prompt_width(host, suggestions)
     rendered_options = _keymap_visible_render_options(
         options,
         highlighted=selected,
         rendered_height=rendered_height,
     )
-    return _standard_inline_menu_prompts(
+    return _keymap_render_prompts(
         rendered_options,
         selected=selected,
         rendered_height=rendered_height,
+        prompt_width=prompt_width,
     )
 
 
@@ -709,24 +718,105 @@ def _refresh_keymap_inline_menu_highlight(
         scroll_y=scroll_y,
         rendered_height=suggestions.size.height,
     )
-    label_width = _inline_menu_scrolled_label_width(
+    prompt_width = _inline_menu_prompt_width(host, suggestions)
+    prompts = _keymap_render_prompts(
         rendered_options,
-        scroll_y=scroll_y,
+        selected=highlighted,
         rendered_height=suggestions.size.height,
+        prompt_width=prompt_width,
     )
-    prompts = [
-        _inline_menu_option_text(
-            label,
-            description,
-            selected=option_index == highlighted,
-            label_width=label_width,
-        )
-        for option_index, (label, description) in enumerate(rendered_options)
-    ]
     _replace_inline_menu_prompts(
         host, suggestions, prompts, highlighted=highlighted, scroll_y=scroll_y
     )
     return True
+
+
+def _keymap_render_prompts(
+    rendered_options: list[tuple[str, str]],
+    *,
+    selected: int,
+    rendered_height: int,
+    prompt_width: int,
+) -> list[str | Text]:
+    label_width = _inline_menu_scrolled_label_width(
+        rendered_options,
+        scroll_y=0,
+        rendered_height=rendered_height,
+    )
+    return [
+        _keymap_option_text(
+            label,
+            description,
+            selected=option_index == selected,
+            label_width=label_width,
+            prompt_width=prompt_width,
+        )
+        for option_index, (label, description) in enumerate(rendered_options)
+    ]
+
+
+def _keymap_option_text(
+    label: str,
+    description: str,
+    *,
+    selected: bool,
+    label_width: int,
+    prompt_width: int,
+) -> str | Text:
+    prefix_width = _cell_width(_inline_selection_prefix(selected))
+    available_width = max(1, prompt_width - prefix_width)
+    label_width = max(label_width, _cell_width(label))
+    if not description:
+        fitted_label = _truncate_with_ellipsis(label, available_width)
+        return _inline_menu_option_text(
+            fitted_label,
+            "",
+            selected=selected,
+            label_width=_cell_width(fitted_label),
+        )
+
+    content_width = available_width - _INLINE_MENU_DESCRIPTION_GAP
+    if content_width <= 1:
+        fitted_label = _truncate_with_ellipsis(label, available_width)
+        return _inline_menu_option_text(
+            fitted_label,
+            "",
+            selected=selected,
+            label_width=_cell_width(fitted_label),
+        )
+
+    description_width = _cell_width(description)
+    if label_width + description_width <= content_width:
+        return _inline_menu_option_text(
+            label,
+            description,
+            selected=selected,
+            label_width=label_width,
+        )
+
+    minimum_description_width = min(description_width, _KEYMAP_MIN_DESCRIPTION_WIDTH)
+    fitted_label_width = min(
+        label_width,
+        max(1, content_width - minimum_description_width),
+    )
+    fitted_description_width = max(0, content_width - fitted_label_width)
+    if fitted_description_width <= 0:
+        fitted_label = _truncate_with_ellipsis(label, available_width)
+        return _inline_menu_option_text(
+            fitted_label,
+            "",
+            selected=selected,
+            label_width=_cell_width(fitted_label),
+        )
+
+    fitted_label = _truncate_with_ellipsis(label, fitted_label_width)
+    fitted_description = _truncate_with_ellipsis(description, fitted_description_width)
+    return _inline_menu_option_text(
+        fitted_label,
+        fitted_description,
+        selected=selected,
+        label_width=fitted_label_width,
+    )
 
 
 def _replace_inline_menu_prompts(
@@ -1368,7 +1458,7 @@ def _inline_flow_uses_keymap_renderer(flow: InlineFlow) -> bool:
 def _keymap_options(keymap: RuntimeKeymap) -> list[tuple[str, str]]:
     options: list[tuple[str, str]] = []
     for action in TUI_KEYMAP_ACTIONS:
-        keys = _keymap_action_keys_text(action, keymap)
+        keys = _keymap_action_menu_keys_text(action, keymap)
         state = _keymap_action_state(action, keymap)
         options.append(
             (
@@ -1376,7 +1466,7 @@ def _keymap_options(keymap: RuntimeKeymap) -> list[tuple[str, str]]:
                 _keymap_raw_description(keys, action.context, state),
             )
         )
-    options.append((_KEYMAP_RESET_ALL_LABEL, menu_label_value("action", "restore all defaults")))
+    options.append((_KEYMAP_RESET_ALL_LABEL, "restores all defaults"))
     return options
 
 
@@ -1561,7 +1651,7 @@ def _open_keymap_reset_all_flow(host: _InlineFlowHost) -> None:
         options=[
             (
                 _KEYMAP_RESET_ALL_CONFIRM_LABEL,
-                menu_label_value("action", "restore all defaults"),
+                "restores all defaults",
             ),
             (_KEYMAP_CANCEL_LABEL, ""),
         ],
@@ -1666,6 +1756,17 @@ def _keymap_capture_options(
 
 def _keymap_action_keys_text(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
     return "/".join(display_key(key) for key in keymap.keys_for_action(action.id)) or "unbound"
+
+
+def _keymap_action_menu_keys_text(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
+    keys = keymap.keys_for_action(action.id)
+    if not keys:
+        return "unbound"
+    primary = display_key(keys[0])
+    extra_count = len(keys) - 1
+    if extra_count <= 0:
+        return primary
+    return f"{primary} (+{extra_count})"
 
 
 def _keymap_action_state(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:

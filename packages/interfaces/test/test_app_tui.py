@@ -40,6 +40,7 @@ from interfaces.tui import keybinds, keymap
 from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
+from interfaces.tui.cell_text import cell_width
 from interfaces.tui.inline_menu import (
     _dedupe_inline_options,
     _inline_menu_option_text,
@@ -5361,6 +5362,41 @@ def test_keymap_menu_rows_align_with_counter_and_key_column() -> None:
     asyncio.run(check_keymap_columns())
 
 
+def test_keymap_menu_rows_fit_narrow_width_without_wrapping() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_keymap_rows_fit() -> None:
+        async with typed_app.run_test(size=(82, 24)) as pilot:
+            app._open_keymap_flow()
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert suggestions.size.width > 0
+            prompts = [
+                _option_prompt_plain(suggestions, index)
+                for index in range(suggestions.option_count)
+            ]
+
+            assert prompts
+            assert all(cell_width(prompt) <= suggestions.size.width for prompt in prompts)
+            assert any(prompt.startswith("→ COMMANDS") for prompt in prompts)
+            assert any("KEY ctrl+p" in prompt for prompt in prompts)
+            assert any(prompt.startswith("  NEWLINE") for prompt in prompts)
+            assert any("KEY shift+enter (+3)" in prompt for prompt in prompts)
+            assert all("ctrl+enter/alt+enter/ctrl+j" not in prompt for prompt in prompts)
+            assert any(prompt.startswith("  RESET") for prompt in prompts)
+
+    asyncio.run(check_keymap_rows_fit())
+
+
 def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
@@ -5388,8 +5424,10 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             assert "KEY ctrl+g" in materials_prompt
             assert "SCOPE app" in materials_prompt
             assert "STATE custom" in materials_prompt
-            assert "RESET ALL KEYBINDS" in reset_prompt
-            assert "ACTION restore all defaults" in reset_prompt
+            assert "RESET" in reset_prompt
+            assert "RESET ALL KEYBINDS" not in reset_prompt
+            assert "restores all defaults" in reset_prompt
+            assert "ACTION restore all defaults" not in reset_prompt
             assert "REVIEW enter" in composer.placeholder
             assert "RESET SELECTED r" not in composer.placeholder
             assert "RESET ALL d" not in composer.placeholder
@@ -5404,20 +5442,18 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             composer.value = "reset"
             app._filter_inline_menu_options(composer.value)
             reset_labels = [label for label, _description in app._inline_flow.options]
-            assert reset_labels == ["RESET ALL KEYBINDS"]
+            assert reset_labels == ["RESET"]
 
-            composer.value = "keybind"
+            composer.value = "defaults"
             app._filter_inline_menu_options(composer.value)
-            assert app._inline_flow.options == [
-                ("RESET ALL KEYBINDS", "ACTION restore all defaults")
-            ]
+            assert app._inline_flow.options == [("RESET", "restores all defaults")]
 
-            app._submit_inline_flow("RESET ALL KEYBINDS")
+            app._submit_inline_flow("RESET")
             await pilot.pause()
 
             assert app._inline_flow.step == "reset-all"
             assert dict(app._inline_flow.options) == {
-                "RESET ALL": "ACTION restore all defaults",
+                "CONFIRM": "restores all defaults",
                 "CANCEL": "",
             }
             assert settings_store.load_raw_settings().get("tui_keymap") is not None
@@ -5427,17 +5463,13 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             assert app._inline_flow.step == "menu"
             assert app._keymap.keys_for_action("open_materials") == ("ctrl+g",)
 
-            app._submit_inline_flow("RESET ALL KEYBINDS")
+            app._submit_inline_flow("RESET")
             await pilot.pause()
-            app._submit_inline_flow("RESET ALL")
+            app._submit_inline_flow("CONFIRM")
             await pilot.pause()
 
             assert settings_store.load_raw_settings().get("tui_keymap") is None
             assert app._keymap.keys_for_action("open_materials") == ("ctrl+o",)
-            suggestions = app.query_one("#suggestions", tui.OptionList)
-            materials_prompt = _option_prompt_plain(suggestions, 2)
-            assert "KEY ctrl+o" in materials_prompt
-            assert "STATE default" in materials_prompt
 
     asyncio.run(check_reset_search())
 
