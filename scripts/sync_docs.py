@@ -35,6 +35,10 @@ PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
 HEPH_PYPROJECT_PATH: Final[Path] = ROOT / "packages" / "heph" / "pyproject.toml"
 README_PATH: Final[Path] = ROOT / "README.md"
 DOCS_INDEX_PATH: Final[Path] = ROOT / "docs" / "index.md"
+README_LOGO_PATH: Final[Path] = ROOT / "docs" / "assets" / "logo-auto.svg"
+README_LOGO_RAW_URL: Final[str] = (
+    "https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg"
+)
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
 AGENTS_PATH: Final[Path] = ROOT / "AGENTS.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
@@ -599,12 +603,8 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     if docs_index:
         return ""
 
-    return (
-        '<p align="center">\n'
-        '  <img alt="Hephaion" src="https://gildrb.github.io/heph/logo-auto.svg" '
-        'width="128">\n'
-        "</p>\n\n"
-    )
+    logo_path = README_LOGO_PATH.relative_to(ROOT).as_posix()
+    return f'<p align="center">\n  <img alt="Hephaion" src="{logo_path}" width="128">\n</p>\n\n'
 
 
 def render_home_footer(*, docs_index: bool) -> str:

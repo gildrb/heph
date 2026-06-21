@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Hephaion" src="https://gildrb.github.io/heph/logo-auto.svg" width="128">
+  <img alt="Hephaion" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="128">
 </p>
 
 # Extensions

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Hephaion</title>
+  <desc id="desc">A source-controlled Hephaion mark for README and package documentation.</desc>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+
+    .frame {
+      fill: #111827;
+    }
+
+    .inner {
+      fill: #f8fafc;
+    }
+
+    .accent {
+      fill: #f59e0b;
+    }
+
+    .spark {
+      fill: #0ea5e9;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .frame {
+        fill: #f8fafc;
+      }
+
+      .inner {
+        fill: #0f172a;
+      }
+
+      .accent {
+        fill: #fbbf24;
+      }
+
+      .spark {
+        fill: #38bdf8;
+      }
+    }
+  </style>
+  <path class="frame" d="M64 8 112 35.7v55.4L64 118.8 16 91.1V35.7L64 8Z" />
+  <path class="inner" d="M64 20.9 100.8 42.2v42.6L64 106.1 27.2 84.8V42.2L64 20.9Z" />
+  <path class="frame" d="M64 34.9 88.7 49.2v28.6L64 92.1 39.3 77.8V49.2L64 34.9Z" />
+  <path class="accent" d="M64 45.4c9.7 8.2 14.6 16.1 14.6 23.5 0 8.1-5.9 14.1-14.6 14.1s-14.6-6-14.6-14.1c0-7.4 4.9-15.3 14.6-23.5Z" />
+  <path class="inner" d="M64 56.9c4.4 4.6 6.6 8.9 6.6 12.7 0 4-2.6 6.9-6.6 6.9s-6.6-2.9-6.6-6.9c0-3.8 2.2-8.1 6.6-12.7Z" />
+  <circle class="spark" cx="64" cy="24" r="4.8" />
+  <circle class="spark" cx="92.5" cy="82.5" r="4.2" />
+  <circle class="spark" cx="35.5" cy="82.5" r="4.2" />
+</svg>
