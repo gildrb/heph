@@ -80,10 +80,16 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert sync_docs.README_LOGO_PATH.is_file()
     ET.parse(sync_docs.README_LOGO_PATH)
 
+    logo_text = sync_docs.README_LOGO_PATH.read_text(encoding="utf-8")
+    assert "prefers-color-scheme: dark" in logo_text
+    assert "fill: #000000" in logo_text
+    assert "fill: #ffffff" in logo_text
+
     root_readme = sync_docs.README_PATH
     root_logo_path = os.path.relpath(sync_docs.README_LOGO_PATH, root_readme.parent)
     root_text = root_readme.read_text(encoding="utf-8")
     assert f'src="{Path(root_logo_path).as_posix()}"' in root_text
+    assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
 
     package_readmes = (
         sync_docs.ROOT / "packages" / "ai" / "README.md",
@@ -95,4 +101,5 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     for readme in package_readmes:
         text = readme.read_text(encoding="utf-8")
         assert f'src="{sync_docs.README_LOGO_RAW_URL}"' in text
+        assert f'width="{sync_docs.README_LOGO_WIDTH}"' in text
         assert "https://gildrb.github.io/heph/logo-auto.svg" not in text
