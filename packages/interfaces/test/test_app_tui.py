@@ -5279,11 +5279,11 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             app._submit_inline_flow("MATERIALS")
             await pilot.pause()
             assert app._inline_flow.step == "review"
-            assert composer.placeholder.startswith("Keymap  ACTION materials  RECORD enter")
+            assert composer.placeholder.startswith("Keymap  materials  RECORD enter")
             review_options = dict(app._inline_flow.options)
             assert list(review_options) == ["RECORD", "RESET"]
-            assert review_options["RECORD"] == "KEY enter  CURRENT ctrl+o"
-            assert review_options["RESET"] == "KEY r  DEFAULT ctrl+o  STATE default"
+            assert review_options["RECORD"] == "current ctrl+o"
+            assert review_options["RESET"] == "restores ctrl+o"
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5293,9 +5293,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             app._submit_inline_flow("RECORD")
             await pilot.pause()
             assert app._inline_flow.step == "capture"
-            assert dict(app._inline_flow.options)["PRESS KEY"] == (
-                "ACTION materials  CURRENT ctrl+o"
-            )
+            assert dict(app._inline_flow.options)["NEXT KEY"] == "materials current ctrl+o"
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5472,6 +5470,71 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             assert app._keymap.keys_for_action("open_materials") == ("ctrl+o",)
 
     asyncio.run(check_reset_search())
+
+
+def test_keymap_flow_copy_avoids_internal_metadata_labels() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    seen_surfaces: list[str] = []
+
+    def capture_surface() -> None:
+        composer = app.query_one("#composer", tui.Input)
+        suggestions = app.query_one("#suggestions", tui.OptionList)
+        status = app.query_one("#status", tui.Static)
+        seen_surfaces.append(composer.placeholder)
+        seen_surfaces.append(str(status.render()))
+        seen_surfaces.extend(
+            _option_prompt_plain(suggestions, index) for index in range(suggestions.option_count)
+        )
+
+    async def check_keymap_copy() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_keymap_flow()
+            await pilot.pause()
+            capture_surface()
+
+            for action in keymap.TUI_KEYMAP_ACTIONS:
+                app._open_keymap_flow()
+                app._submit_inline_flow(action.label.upper())
+                await pilot.pause()
+                capture_surface()
+
+                app._submit_inline_flow("RECORD")
+                await pilot.pause()
+                capture_surface()
+
+            app._open_keymap_flow()
+            app._submit_inline_flow("RESET")
+            await pilot.pause()
+            capture_surface()
+
+    asyncio.run(check_keymap_copy())
+
+    rendered_copy = "\n".join(seen_surfaces)
+    forbidden_fragments = (
+        "ACTION ",
+        "CURRENT ",
+        "DEFAULT ",
+        "RESET ALL",
+        "RESET ALL KEYBINDS",
+        "PRESS KEY",
+        "ctrl+enter/alt+enter/ctrl+j",
+    )
+    for fragment in forbidden_fragments:
+        assert fragment not in rendered_copy
+    assert "Keymap  newline" in rendered_copy
+    assert "current shift+enter (+3)" in rendered_copy
+    assert "restores shift+enter (+3)" in rendered_copy
+    assert "newline current shift+enter (+3)" in rendered_copy
+    assert "CONFIRM" in rendered_copy
+    assert "restores all defaults" in rendered_copy
 
 
 def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:

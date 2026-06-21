@@ -1626,7 +1626,7 @@ def _keymap_action_for_label(label: str) -> TuiKeymapAction | None:
 
 
 def _keymap_action_title(action: TuiKeymapAction) -> str:
-    return f"Keymap  {menu_label_value('action', action.label.casefold())}"
+    return f"Keymap  {action.label.casefold()}"
 
 
 def _open_keymap_action_flow(host: _InlineFlowHost, action: TuiKeymapAction) -> None:
@@ -1643,7 +1643,7 @@ def _open_keymap_action_flow(host: _InlineFlowHost, action: TuiKeymapAction) -> 
 
 
 def _open_keymap_reset_all_flow(host: _InlineFlowHost) -> None:
-    title = f"Keymap  {menu_label_value('action', 'reset all')}"
+    title = "Keymap  reset all"
     host._open_inline_menu(
         name="keymap",
         step=_KEYMAP_RESET_ALL_STEP,
@@ -1724,19 +1724,11 @@ def _keymap_review_options(
     action: TuiKeymapAction,
     keymap: RuntimeKeymap,
 ) -> list[tuple[str, str]]:
-    current = _keymap_action_keys_text(action, keymap)
-    default = "/".join(display_key(key) for key in action.default_keys) or "unbound"
-    state = _keymap_action_state(action, keymap)
+    current = _keymap_action_menu_keys_text(action, keymap)
+    default = _keymap_keys_summary(action.default_keys)
     return [
-        (
-            "RECORD",
-            f"{menu_label_value('key', 'enter')}  {menu_label_value('current', current)}",
-        ),
-        (
-            "RESET",
-            f"{menu_label_value('key', 'r')}  {menu_label_value('default', default)}  "
-            f"{menu_label_value('state', state)}",
-        ),
+        ("RECORD", f"current {current}"),
+        ("RESET", f"restores {default}"),
     ]
 
 
@@ -1744,22 +1736,20 @@ def _keymap_capture_options(
     action: TuiKeymapAction,
     keymap: RuntimeKeymap,
 ) -> list[tuple[str, str]]:
-    current = _keymap_action_keys_text(action, keymap)
+    current = _keymap_action_menu_keys_text(action, keymap)
     return [
         (
-            "PRESS KEY",
-            f"{menu_label_value('action', action.label.casefold())}  "
-            f"{menu_label_value('current', current)}",
+            "NEXT KEY",
+            f"{action.label.casefold()} current {current}",
         )
     ]
 
 
-def _keymap_action_keys_text(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
-    return "/".join(display_key(key) for key in keymap.keys_for_action(action.id)) or "unbound"
-
-
 def _keymap_action_menu_keys_text(action: TuiKeymapAction, keymap: RuntimeKeymap) -> str:
-    keys = keymap.keys_for_action(action.id)
+    return _keymap_keys_summary(keymap.keys_for_action(action.id))
+
+
+def _keymap_keys_summary(keys: Sequence[str]) -> str:
     if not keys:
         return "unbound"
     primary = display_key(keys[0])
