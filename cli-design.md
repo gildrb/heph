@@ -22,8 +22,8 @@ text hierarchy, exact evidence labels, and no decorative color.
 
 This file documents the CLI and TUI only. It is not the website system. Terminal cells,
 Textual CSS, ANSI styles, one-line status bars, and fixed-width side panels belong here.
-Website layout, responsive spacing, radius, and shadcn component composition belong in
-`design.md`.
+Website layout, responsive spacing, radius, media, and native browser interaction rules
+belong in `design.md`.
 
 The CLI source of truth is the current repository. Concrete color values live in
 `packages/interfaces/src/interfaces/palette/__init__.py`; terminal ANSI style names are
@@ -49,44 +49,150 @@ the same palette through `packages/interfaces/src/interfaces/tui/style.py`.
 
 ## CLI Theme Tokens
 
-This table must match `interfaces.palette.Theme` exactly after normalizing hex case.
+The TOML block below is the agent-readable contract. It must match
+`interfaces.palette.Theme` exactly after normalizing hex case.
 
-| role | dark | light | intent |
-|---|---|---|---|
-| bg_app | transparent | #fafafa | Root app and screen background. Dark mode lets the terminal background show through. |
-| bg_surface | transparent | #ffffff | Primary shell, transcript, lists, status, footer, and side-panel surface. |
-| bg_raised | #161616 | #f2f2f2 | Raised user/composer panels and user transcript blocks. |
-| text_primary | #cfcfcf | #000000 | Main transcript text, composer input, selected content text, and primary readable text. |
-| text_secondary | #8f8f8f | #404040 | Chrome labels, shortcuts, metadata labels, and quiet selected labels. |
-| text_muted | #6f6f6f | #666666 | Values, footer body text, disabled items, activity, notice, and secondary detail. |
-| text_inverse | #000000 | #ffffff | Inverse text role for solid action fills. |
-| border_subtle | #3d3d3d | #d9d9d9 | Reserved subtle border role; current TUI avoids visible borders. |
-| brand_primary | #ffffff | #000000 | Heph title, brand emphasis, selected quiet highlights, and focused list labels. |
-| action_primary_bg | #d06a4a | #0f7a3a | Solid selection/action fill for generic `OptionList` and accent/warning ANSI styles. |
-| action_primary_text | #000000 | #ffffff | Text on `action_primary_bg`. |
-| status_success_text | #57c785 | #006b32 | Success messages and successful terminal output. |
-| status_error_text | #ff6b5a | #b00020 | Error messages, auth/config warnings, and hidden armory errors. |
+```toml
+[cli_theme_tokens.bg_app]
+dark = "transparent"
+light = "#fafafa"
+intent = "Root app and screen background. Dark mode lets the terminal background show through."
+
+[cli_theme_tokens.bg_surface]
+dark = "transparent"
+light = "#ffffff"
+intent = "Primary shell, transcript, lists, status, footer, and side-panel surface."
+
+[cli_theme_tokens.bg_raised]
+dark = "#161616"
+light = "#f2f2f2"
+intent = "Raised user/composer panels and user transcript blocks."
+
+[cli_theme_tokens.text_primary]
+dark = "#cfcfcf"
+light = "#000000"
+intent = "Main transcript text, composer input, selected content text, and primary readable text."
+
+[cli_theme_tokens.text_secondary]
+dark = "#8f8f8f"
+light = "#404040"
+intent = "Chrome labels, shortcuts, metadata labels, and quiet selected labels."
+
+[cli_theme_tokens.text_muted]
+dark = "#6f6f6f"
+light = "#666666"
+intent = "Values, footer body text, disabled items, activity, notice, and secondary detail."
+
+[cli_theme_tokens.text_inverse]
+dark = "#000000"
+light = "#ffffff"
+intent = "Inverse text role for solid action fills."
+
+[cli_theme_tokens.border_subtle]
+dark = "#3d3d3d"
+light = "#d9d9d9"
+intent = "Reserved subtle border role; current TUI avoids visible borders."
+
+[cli_theme_tokens.brand_primary]
+dark = "#ffffff"
+light = "#000000"
+intent = "Heph title, brand emphasis, selected quiet highlights, and focused list labels."
+
+[cli_theme_tokens.action_primary_bg]
+dark = "#d06a4a"
+light = "#0f7a3a"
+intent = "Solid selection/action fill for generic OptionList and accent/warning ANSI styles."
+
+[cli_theme_tokens.action_primary_text]
+dark = "#000000"
+light = "#ffffff"
+intent = "Text on action_primary_bg."
+
+[cli_theme_tokens.status_success_text]
+dark = "#57c785"
+light = "#006b32"
+intent = "Success messages and successful terminal output."
+
+[cli_theme_tokens.status_error_text]
+dark = "#ff6b5a"
+light = "#b00020"
+intent = "Error messages, auth/config warnings, and hidden armory errors."
+```
 
 ## Terminal ANSI Roles
 
 Terminal command output uses `_StyleToken` values from `interfaces.terminal`.
 
-| style token | semantic role | color source | weight | current use |
-|---|---|---|---|---|
-| `STYLE_PROMPT` | prompt | `text_primary` | bold | Menu titles, section labels, current state badges. |
-| `STYLE_BRAND` | brand | `brand_primary` | bold | Brand emphasis. |
-| `STYLE_ACCENT` | accent | `action_primary_bg` | bold | Accent and warning emphasis. |
-| `STYLE_WARNING` | warning | `action_primary_bg` | bold | Warning-style terminal text. |
-| `STYLE_SUCCESS` | success | `status_success_text` | bold | `print_success()` and success output. |
-| `STYLE_ERROR` | error | `status_error_text` | bold | `print_error()` and `error:` prefixes. |
-| `STYLE_CHROME_LABEL` | chrome label | `text_secondary` | regular | Labels and metadata labels. |
-| `STYLE_SHORTCUT` | shortcut | `text_secondary` | regular | Shortcut labels. |
-| `STYLE_METADATA` | metadata | `text_secondary` | regular | Metadata labels. |
-| `STYLE_CHROME_DETAIL` | chrome detail | `text_muted` | regular | Secondary details. |
-| `STYLE_DIM` | dim | `text_muted` | dim | `info:`, notices, inactive details, cancel rows. |
-| `STYLE_EMPHASIS` | emphasis | `text_primary` | bold | Inline emphasis. |
-| `STYLE_ASSISTANT` | assistant | `text_primary` | bold | Assistant role emphasis. |
-| `STYLE_EMBER` | ember | `brand_primary` | bold | Brand-adjacent emphasis. |
+- `STYLE_PROMPT`
+  - semantic role: prompt
+  - color source: `text_primary`
+  - weight: bold
+  - current use: Menu titles, section labels, current state badges.
+- `STYLE_BRAND`
+  - semantic role: brand
+  - color source: `brand_primary`
+  - weight: bold
+  - current use: Brand emphasis.
+- `STYLE_ACCENT`
+  - semantic role: accent
+  - color source: `action_primary_bg`
+  - weight: bold
+  - current use: Accent and warning emphasis.
+- `STYLE_WARNING`
+  - semantic role: warning
+  - color source: `action_primary_bg`
+  - weight: bold
+  - current use: Warning-style terminal text.
+- `STYLE_SUCCESS`
+  - semantic role: success
+  - color source: `status_success_text`
+  - weight: bold
+  - current use: `print_success()` and success output.
+- `STYLE_ERROR`
+  - semantic role: error
+  - color source: `status_error_text`
+  - weight: bold
+  - current use: `print_error()` and `error:` prefixes.
+- `STYLE_CHROME_LABEL`
+  - semantic role: chrome label
+  - color source: `text_secondary`
+  - weight: regular
+  - current use: Labels and metadata labels.
+- `STYLE_SHORTCUT`
+  - semantic role: shortcut
+  - color source: `text_secondary`
+  - weight: regular
+  - current use: Shortcut labels.
+- `STYLE_METADATA`
+  - semantic role: metadata
+  - color source: `text_secondary`
+  - weight: regular
+  - current use: Metadata labels.
+- `STYLE_CHROME_DETAIL`
+  - semantic role: chrome detail
+  - color source: `text_muted`
+  - weight: regular
+  - current use: Secondary details.
+- `STYLE_DIM`
+  - semantic role: dim
+  - color source: `text_muted`
+  - weight: dim
+  - current use: `info:`, notices, inactive details, cancel rows.
+- `STYLE_EMPHASIS`
+  - semantic role: emphasis
+  - color source: `text_primary`
+  - weight: bold
+  - current use: Inline emphasis.
+- `STYLE_ASSISTANT`
+  - semantic role: assistant
+  - color source: `text_primary`
+  - weight: bold
+  - current use: Assistant role emphasis.
+- `STYLE_EMBER`
+  - semantic role: ember
+  - color source: `brand_primary`
+  - weight: bold
+  - current use: Brand-adjacent emphasis.
 
 `print_error(msg)` renders `error:` in `STYLE_ERROR`, then the message. `print_info(msg)`
 renders `info:` in `STYLE_DIM`, then the message. `print_success(msg)` renders the full
@@ -144,122 +250,297 @@ The TUI is a full-height vertical shell with a fixed side panel:
 Use terminal cells and content width rules rather than web spacing units. The current
 important dimensions are:
 
-| token | value | source |
-|---|---:|---|
-| `info_panel_width` | 38 columns | `#info-panel` CSS and display text truncation |
-| `composer_min_height` | 3 cells | `#composer-frame` |
-| `composer_max_height` | 8 cells | `#composer-frame` |
-| `composer_compact_height` | 1 cell | `#composer-frame.compact` |
-| `completion_stack_height` | 9 cells | `#completion-stack` |
-| `suggestions_max_height` | 7 cells | `#suggestions` |
-| `model_picker_max_height` | 20 cells | `#suggestions.model-picker` |
-| `transcript_horizontal_padding` | 0 cells | `interfaces.tui.transcript` |
-| `reply_horizontal_padding` | 2 cells | assistant replies |
-| `user_horizontal_padding` | 2 cells | user transcript blocks |
-| `user_vertical_padding` | 1 cell | user transcript blocks |
-| `material_two_column_min_width` | 72 columns | materials browser |
+Each entry uses `value` and `source` fields so this remains readable in narrow editors:
+
+- `info_panel_width`
+  - value: 38 columns
+  - source: `#info-panel` CSS and display text truncation
+- `composer_min_height`
+  - value: 3 cells
+  - source: `#composer-frame`
+- `composer_max_height`
+  - value: 8 cells
+  - source: `#composer-frame`
+- `composer_compact_height`
+  - value: 1 cell
+  - source: `#composer-frame.compact`
+- `completion_stack_height`
+  - value: 9 cells
+  - source: `#completion-stack`
+- `suggestions_max_height`
+  - value: 7 cells
+  - source: `#suggestions`
+- `model_picker_max_height`
+  - value: 20 cells
+  - source: `#suggestions.model-picker`
+- `transcript_horizontal_padding`
+  - value: 0 cells
+  - source: `interfaces.tui.transcript`
+- `reply_horizontal_padding`
+  - value: 2 cells
+  - source: assistant replies
+- `user_horizontal_padding`
+  - value: 2 cells
+  - source: user transcript blocks
+- `user_vertical_padding`
+  - value: 1 cell
+  - source: user transcript blocks
+- `material_two_column_min_width`
+  - value: 72 columns
+  - source: materials browser
 
 ## TUI Component Tokens
 
+Component entries use the same `background`, `text`, and `notes` fields everywhere.
+This makes the section easier to scan by eye while keeping token names easy for agents
+and scripts to extract.
+
 ### App And Screen
 
-| component | background | text | notes |
-|---|---|---|---|
-| `App` | `bg_app` | `text_primary` | Root Textual app. |
-| `Screen` | `bg_app` | `text_primary` | Vertical layout with `base` and `suggestions` layers. |
-| `Screen .screen--selection` | `bg_app` | reverse video | Selection uses reverse video, not accent fill. |
-| `Horizontal`, `Vertical`, `Static`, `RichLog` | `bg_surface` | inherited | Transparent tint prevents opaque stripes. |
+- `App`
+  - background: `bg_app`
+  - text: `text_primary`
+  - notes: Root Textual app.
+- `Screen`
+  - background: `bg_app`
+  - text: `text_primary`
+  - notes: Vertical layout with `base` and `suggestions` layers.
+- `Screen .screen--selection`
+  - background: `bg_app`
+  - text: reverse video
+  - notes: Selection uses reverse video, not accent fill.
+- `Horizontal`, `Vertical`, `Static`, `RichLog`
+  - background: `bg_surface`
+  - text: inherited
+  - notes: Transparent tint prevents opaque stripes.
 
 ### Shell And Transcript
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#main-layout` | `bg_app` | `text_primary` | Horizontal root layout. |
-| `#shell` | `bg_surface` | `text_primary` | Main vertical column. |
-| `#transcript` | `bg_surface` | `text_primary` | Wraps markdown, hides scrollbars. |
-| Assistant markdown | inherited | `text_primary` | Markdown is rendered through Rich/Textual. |
-| Evidence citations | inherited | `text_muted` | Citation badges and source footers are dimmed. |
-| Startup card | `bg_surface` | `text_muted` | Uses label/value guidance lines. |
-| Notice/activity | `bg_surface` | `text_muted` | Activity is clipped to one visible row per event line. |
-| User transcript block | `bg_raised` | `text_primary` | Bold user text with 2-column horizontal padding and 1-row vertical padding. |
+- `#main-layout`
+  - background: `bg_app`
+  - text: `text_primary`
+  - notes: Horizontal root layout.
+- `#shell`
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Main vertical column.
+- `#transcript`
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Wraps markdown, hides scrollbars.
+- Assistant markdown
+  - background: inherited
+  - text: `text_primary`
+  - notes: Markdown is rendered through Rich/Textual.
+- Evidence citations
+  - background: inherited
+  - text: `text_muted`
+  - notes: Citation badges and source footers are dimmed.
+- Startup card
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Uses label/value guidance lines.
+- Notice/activity
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Activity is clipped to one visible row per event line.
+- User transcript block
+  - background: `bg_raised`
+  - text: `text_primary`
+  - notes: Bold user text with 2-column horizontal padding and 1-row vertical padding.
 
 ### Status
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#status` | `bg_surface` | `text_muted` | One-cell top status line. |
-| Status title | `bg_surface` | `brand_primary` | Bold; normally `Heph`, changes to active menu title. |
-| Status labels | `bg_surface` | `text_secondary` | `ARMORY`, `MODEL`, `REASONING`, `TOKENS`, `COST`. |
-| Status values | `bg_surface` | `text_muted` | Preserve provider/model casing when needed. |
+- `#status`
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: One-cell top status line.
+- Status title
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: Bold; normally `Heph`, changes to active menu title.
+- Status labels
+  - background: `bg_surface`
+  - text: `text_secondary`
+  - notes: `ARMORY`, `MODEL`, `REASONING`, `TOKENS`, `COST`.
+- Status values
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Preserve provider/model casing when needed.
 
 ### Composer
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#composer-frame` | `bg_raised` | `text_primary` | Raised input block. |
-| `#composer-prompt` | `bg_raised` | `text_primary` | Fixed 2-column prompt cell, currently `->` in docs and `→` in app. |
-| `#composer` | `bg_raised` | `text_primary` | Input widget. |
-| Placeholder/suggestion | `bg_raised` | `text_secondary` | Placeholder: `Ask a cited question about your materials...`. |
-| Cursor | `text_primary` | `bg_raised` | Cursor background is primary text color. |
-| Input selection | `bg_surface` | reverse video | Selection uses reverse video. |
+- `#composer-frame`
+  - background: `bg_raised`
+  - text: `text_primary`
+  - notes: Raised input block.
+- `#composer-prompt`
+  - background: `bg_raised`
+  - text: `text_primary`
+  - notes: Fixed 2-column prompt cell, currently `->` in docs and `→` in app.
+- `#composer`
+  - background: `bg_raised`
+  - text: `text_primary`
+  - notes: Input widget.
+- Placeholder/suggestion
+  - background: `bg_raised`
+  - text: `text_secondary`
+  - notes: Placeholder: `Ask a cited question about your materials...`.
+- Cursor
+  - background: `text_primary`
+  - text: `bg_raised`
+  - notes: Cursor background is primary text color.
+- Input selection
+  - background: `bg_surface`
+  - text: reverse video
+  - notes: Selection uses reverse video.
 
 ### Suggestions And Inline Menus
 
-| component | background | text | notes |
-|---|---|---|---|
-| Default `OptionList` row | `bg_surface` | `text_primary` | Regular list option. |
-| Default `OptionList` highlighted | `action_primary_bg` | `action_primary_text` | Solid selection for generic lists. |
-| Completion/suggestion highlighted | `bg_surface` | `brand_primary` | Quiet selection, not bold. |
-| Inline-menu selected prefix | `bg_surface` | `brand_primary` | Prefix is `->` in docs and `→` in app. |
-| Inline-menu selected label | `bg_surface` | `brand_primary` | No accent stripe. |
-| Inline-menu unselected label | `bg_surface` | `text_secondary` | Quiet scan color. |
-| Inline-menu description | `bg_surface` | `text_muted` | Four-column gap after label. |
-| Completion position | `bg_surface` | `text_muted` | Renders `(n/total)` when visible. |
+- Default `OptionList` row
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Regular list option.
+- Default `OptionList` highlighted
+  - background: `action_primary_bg`
+  - text: `action_primary_text`
+  - notes: Solid selection for generic lists.
+- Completion/suggestion highlighted
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: Quiet selection, not bold.
+- Inline-menu selected prefix
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: Prefix is `->` in docs and `→` in app.
+- Inline-menu selected label
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: No accent stripe.
+- Inline-menu unselected label
+  - background: `bg_surface`
+  - text: `text_secondary`
+  - notes: Quiet scan color.
+- Inline-menu description
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Four-column gap after label.
+- Completion position
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Renders `(n/total)` when visible.
 
 ### Footer
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#footer-hints` | `bg_surface` | `text_muted` | One-cell footer hint line. |
-| Footer labels | `bg_surface` | `text_secondary` | Uppercase action labels. |
-| Footer keys | `bg_surface` | `text_muted` | Key names stay lowercase. |
-| `api missing` | `bg_surface` | `status_error_text` | Error state paired with text. |
+- `#footer-hints`
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: One-cell footer hint line.
+- Footer labels
+  - background: `bg_surface`
+  - text: `text_secondary`
+  - notes: Uppercase action labels.
+- Footer keys
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Key names stay lowercase.
+- `api missing`
+  - background: `bg_surface`
+  - text: `status_error_text`
+  - notes: Error state paired with text.
 
 ### Info Panel
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#info-panel` | `bg_surface` | `text_muted` | Fixed 38-column side panel. |
-| Panel labels | `bg_surface` | `text_secondary` | Uppercase labels such as `SCOPE`, `EVIDENCE`, `MODEL`. |
-| Active material token | `bg_surface` | `text_primary` | Material entries render as `@name`. |
-| Disabled material token | `bg_surface` | `text_muted` | Disabled materials lose primary emphasis. |
-| Hidden counts | `bg_surface` | `text_muted` | `MORE +n`. |
-| Focused message title | `bg_surface` | `text_primary` | Bold title. |
-| Focused message labels | `bg_surface` | `text_muted` | Dim uppercase labels. |
+- `#info-panel`
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Fixed 38-column side panel.
+- Panel labels
+  - background: `bg_surface`
+  - text: `text_secondary`
+  - notes: Uppercase labels such as `SCOPE`, `EVIDENCE`, `MODEL`.
+- Active material token
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Material entries render as `@name`.
+- Disabled material token
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Disabled materials lose primary emphasis.
+- Hidden counts
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: `MORE +n`.
+- Focused message title
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Bold title.
+- Focused message labels
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Dim uppercase labels.
 
 ### Armory Browser
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#armory-inline` | `bg_surface` | `text_primary` | Replaces transcript while active. |
-| Armory header/hints | `bg_surface` | `text_muted` | Header starts with `ITEMS n`. |
-| Armory selected prefix | `bg_surface` | `brand_primary` | Quiet selected row. |
-| Armory selected label | `bg_surface` | `brand_primary` | No accent fill. |
-| Armory unselected label | `bg_surface` | `text_primary` | Regular row. |
-| Armory section label | `bg_surface` | `text_muted` | Dim section heading. |
-| Armory description | `bg_surface` | `text_muted` | `FILES n`, `STATE empty`, etc. |
-| Armory error | `bg_surface` | `status_error_text` | One-cell hidden error row. |
+- `#armory-inline`
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Replaces transcript while active.
+- Armory header/hints
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Header starts with `ITEMS n`.
+- Armory selected prefix
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: Quiet selected row.
+- Armory selected label
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: No accent fill.
+- Armory unselected label
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Regular row.
+- Armory section label
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Dim section heading.
+- Armory description
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: `FILES n`, `STATE empty`, etc.
+- Armory error
+  - background: `bg_surface`
+  - text: `status_error_text`
+  - notes: One-cell hidden error row.
 
 ### Materials Browser
 
-| component | background | text | notes |
-|---|---|---|---|
-| `#materials-inline` | `bg_surface` | `text_primary` | Replaces transcript while active. |
-| Materials header/gaps | `bg_surface` | `text_muted` | Header starts with `SCOPE materials`. |
-| Materials highlighted row | `bg_surface` | `brand_primary` | Neutral selected color for enabled and disabled rows. |
-| Enabled material | `bg_surface` | `text_primary` | `@` marker muted when unselected. |
-| Disabled material | `bg_surface` | `text_muted` | No red/error state. |
-| Materials footer | `bg_surface` | `text_muted` | Hidden in CSS for the inline list footer; footer hints carry actions. |
+- `#materials-inline`
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: Replaces transcript while active.
+- Materials header/gaps
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Header starts with `SCOPE materials`.
+- Materials highlighted row
+  - background: `bg_surface`
+  - text: `brand_primary`
+  - notes: Neutral selected color for enabled and disabled rows.
+- Enabled material
+  - background: `bg_surface`
+  - text: `text_primary`
+  - notes: `@` marker muted when unselected.
+- Disabled material
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: No red/error state.
+- Materials footer
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Hidden in CSS for the inline list footer; footer hints carry actions.
 
 ## Voice
 
