@@ -24,12 +24,12 @@ def test_release_build_config_from_env_uses_release_backend_values() -> None:
             "HEPHAION_SENTRY_DSN": " https://sentry.example/1 ",
         },
         channel="pypi",
-        release_version="v0.0.49",
+        release_version="v0.0.50",
     )
 
     assert config == ReleaseBuildConfig(
         channel="pypi",
-        version="v0.0.49",
+        version="v0.0.50",
         posthog_host=" https://posthog.example ",
         posthog_project_token=" phc_release ",
         sentry_dsn=" https://sentry.example/1 ",
@@ -39,14 +39,14 @@ def test_release_build_config_from_env_uses_release_backend_values() -> None:
     assert 'POSTHOG_PROJECT_TOKEN: str | None = "phc_release"' in rendered
     assert 'SENTRY_DSN: str | None = "https://sentry.example/1"' in rendered
     assert 'RELEASE_CHANNEL: str | None = "pypi"' in rendered
-    assert 'RELEASE_VERSION: str | None = "v0.0.49"' in rendered
+    assert 'RELEASE_VERSION: str | None = "v0.0.50"' in rendered
 
 
 def test_release_build_config_renders_empty_values_as_safe_stub() -> None:
     rendered = render_release_config(
         ReleaseBuildConfig(
             channel="pypi",
-            version="v0.0.49",
+            version="v0.0.50",
             posthog_host="",
             posthog_project_token=None,
             sentry_dsn="   ",
@@ -63,7 +63,7 @@ def test_patched_release_config_restores_original_after_error(tmp_path) -> None:
     path.write_text("original\n", encoding="utf-8")
     config = ReleaseBuildConfig(
         channel="pypi",
-        version="v0.0.49",
+        version="v0.0.50",
         posthog_host=None,
         posthog_project_token=None,
         sentry_dsn=None,
@@ -76,8 +76,8 @@ def test_patched_release_config_restores_original_after_error(tmp_path) -> None:
 
 
 def test_clean_dist_removes_release_artifacts_only(tmp_path) -> None:
-    (tmp_path / "heph-0.0.49-py3-none-any.whl").write_text("", encoding="utf-8")
-    (tmp_path / "heph-0.0.49.tar.gz").write_text("", encoding="utf-8")
+    (tmp_path / "heph-0.0.50-py3-none-any.whl").write_text("", encoding="utf-8")
+    (tmp_path / "heph-0.0.50.tar.gz").write_text("", encoding="utf-8")
     (tmp_path / "keep.txt").write_text("", encoding="utf-8")
 
     clean_dist(tmp_path)
@@ -93,7 +93,7 @@ def test_release_dependencies_collapse_internal_workspace_packages() -> None:
     assert "rich==14.3.3" in dependencies
     assert dependencies.count("unicodeit==0.7.5") == 1
     assert all(not dependency.startswith("heph-") for dependency in dependencies)
-    assert "hephaion==0.0.49" not in dependencies
+    assert "hephaion==0.0.50" not in dependencies
 
 
 def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
@@ -120,7 +120,7 @@ def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
     assert '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]' in pyproject
     assert "heph-ai" not in pyproject
     assert "heph-interfaces" not in pyproject
-    assert "hephaion==0.0.49" not in pyproject
+    assert "hephaion==0.0.50" not in pyproject
 
 
 def test_stage_release_project_excludes_generated_source_artifacts(tmp_path) -> None:
@@ -134,7 +134,7 @@ def test_stage_release_project_excludes_generated_source_artifacts(tmp_path) -> 
 
 
 def test_release_build_inputs_match_stable_tag() -> None:
-    assert release_build_input_errors("v0.0.49") == []
+    assert release_build_input_errors("v0.0.50") == []
 
 
 def _raise_after_checking_patched_release_config(

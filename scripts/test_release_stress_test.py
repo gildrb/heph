@@ -26,7 +26,7 @@ def test_release_stress_uses_ignored_artifact_scratch_root_by_default() -> None:
 def test_release_stress_binary_policy_uses_reviewed_source_allowlist() -> None:
     command = _wheel_install_command(
         Path("/tmp/venv/bin/python"),
-        [Path("/tmp/dist/heph-0.0.49-py3-none-any.whl")],
+        [Path("/tmp/dist/heph-0.0.50-py3-none-any.whl")],
     )
 
     no_binary = command[command.index("--no-binary") + 1]
@@ -70,7 +70,7 @@ def test_release_stress_validates_sdk_capability_payload() -> None:
 
 
 def test_release_stress_builds_uv_tool_install_command() -> None:
-    command = _uv_tool_install_command(Path("/tmp/dist"), "0.0.49", "3.13")
+    command = _uv_tool_install_command(Path("/tmp/dist"), "0.0.50", "3.13")
 
     assert command == [
         "uv",
@@ -84,12 +84,12 @@ def test_release_stress_builds_uv_tool_install_command() -> None:
         "--no-sources",
         "--refresh-package",
         "heph",
-        "heph==0.0.49",
+        "heph==0.0.50",
     ]
 
 
 def test_release_stress_builds_pip_install_command() -> None:
-    command = _pip_install_command(Path("/tmp/venv/bin/python"), Path("/tmp/dist"), "0.0.49")
+    command = _pip_install_command(Path("/tmp/venv/bin/python"), Path("/tmp/dist"), "0.0.50")
 
     assert command == [
         "/tmp/venv/bin/python",
@@ -98,7 +98,7 @@ def test_release_stress_builds_pip_install_command() -> None:
         "install",
         "--find-links",
         "/tmp/dist",
-        "heph==0.0.49",
+        "heph==0.0.50",
     ]
 
 
@@ -129,12 +129,12 @@ def test_release_stress_builds_platform_compile_command() -> None:
 def test_release_stress_validates_release_state_payload() -> None:
     _validate_release_state_payload(
         {
-            "package_version": "0.0.49",
+            "package_version": "0.0.50",
             "official": {
                 "package": "heph",
                 "command": "heph",
-                "version": "0.0.49",
-                "tag": "v0.0.49",
+                "version": "0.0.50",
+                "tag": "v0.0.50",
             },
             "runtime": {
                 "channel": "source",
@@ -142,36 +142,36 @@ def test_release_stress_validates_release_state_payload() -> None:
                 "python": "/tmp/python",
             },
         },
-        expected_version="0.0.49",
+        expected_version="0.0.50",
     )
     _validate_release_state_payload(
         {
-            "package_version": "0.0.49",
+            "package_version": "0.0.50",
             "official": {
                 "package": "heph",
                 "command": "heph",
-                "version": "0.0.49",
-                "tag": "v0.0.49",
+                "version": "0.0.50",
+                "tag": "v0.0.50",
             },
             "runtime": {
                 "channel": "pypi",
-                "version": "v0.0.49",
+                "version": "v0.0.50",
                 "python": "/tmp/python",
             },
         },
-        expected_version="0.0.49",
+        expected_version="0.0.50",
         expected_runtime_channel="pypi",
-        expected_runtime_version="v0.0.49",
+        expected_runtime_version="v0.0.50",
     )
 
     with pytest.raises(SystemExit, match="wrong official tag"):
         _validate_release_state_payload(
             {
-                "package_version": "0.0.49",
+                "package_version": "0.0.50",
                 "official": {
                     "package": "heph",
                     "command": "heph",
-                    "version": "0.0.49",
+                    "version": "0.0.50",
                     "tag": "v0.0.0",
                 },
                 "runtime": {
@@ -180,25 +180,25 @@ def test_release_stress_validates_release_state_payload() -> None:
                     "python": "/tmp/python",
                 },
             },
-            expected_version="0.0.49",
+            expected_version="0.0.50",
         )
 
     with pytest.raises(SystemExit, match="wrong runtime channel"):
         _validate_release_state_payload(
             {
-                "package_version": "0.0.49",
+                "package_version": "0.0.50",
                 "official": {
                     "package": "heph",
                     "command": "heph",
-                    "version": "0.0.49",
-                    "tag": "v0.0.49",
+                    "version": "0.0.50",
+                    "tag": "v0.0.50",
                 },
                 "runtime": {
                     "channel": "source",
-                    "version": "v0.0.49",
+                    "version": "v0.0.50",
                     "python": "/tmp/python",
                 },
             },
-            expected_version="0.0.49",
+            expected_version="0.0.50",
             expected_runtime_channel="pypi",
         )

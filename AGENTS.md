@@ -257,9 +257,9 @@ Testing rules:
 ```bash
 uv run python -m scripts.check_release_state --current-version-must-match-stable  # verify stable release metadata
 uv run python -m scripts.build_release_artifacts                # build official sdists + wheels for the stable tag
-uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.0.49
+uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.0.50
 uv publish --dry-run dist/*                                     # validate upload payloads before publishing
-uv run python -m scripts.check_public_install --expect-runtime-version v0.0.49
+uv run python -m scripts.check_public_install --expect-runtime-version v0.0.50
 ```
 Publish PyPI releases manually from a reviewed `v*` tag with `UV_PUBLISH_TOKEN`
 set in the environment, then verify `uv tool install heph@latest` and
