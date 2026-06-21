@@ -63,6 +63,12 @@ RELEASE_PACKAGE_SOURCES = (
     PackageSource("hephaion", ROOT / "packages" / "hephaion" / "src" / "hephaion"),
     PackageSource("interfaces", ROOT / "packages" / "interfaces" / "src" / "interfaces"),
 )
+RELEASE_SOURCE_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.egg-info",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +190,11 @@ def stage_release_project(build_root: Path) -> Path:
     src_dir = project_dir / "src"
     src_dir.mkdir(parents=True)
     for package_source in RELEASE_PACKAGE_SOURCES:
-        shutil.copytree(package_source.source, src_dir / package_source.package)
+        shutil.copytree(
+            package_source.source,
+            src_dir / package_source.package,
+            ignore=shutil.ignore_patterns(*RELEASE_SOURCE_IGNORE_PATTERNS),
+        )
     shutil.copy2(ROOT / "LICENSE", project_dir / "LICENSE")
     shutil.copy2(ROOT / "packages" / "heph" / "README.md", project_dir / "README.md")
     (project_dir / "pyproject.toml").write_text(
@@ -230,7 +240,7 @@ def render_release_project(
         'include = ["ai*", "extensions*", "heph*", "hephaion*", "interfaces*"]',
         "",
         "[tool.setuptools.package-data]",
-        '"*" = ["*.md", "*.toml", "py.typed"]',
+        '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',
         "",
     ]
     return "\n".join(lines)

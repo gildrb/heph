@@ -107,11 +107,30 @@ def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
     assert (project_dir / "src" / "interfaces" / "__init__.py").is_file()
     assert (project_dir / "src" / "heph" / "state" / "release.toml").is_file()
     assert (project_dir / "src" / "hephaion" / "parameters" / "default.toml").is_file()
+    assert (
+        project_dir
+        / "src"
+        / "hephaion"
+        / "learning"
+        / "fixtures"
+        / "public_synthetic_replay.jsonl"
+    ).is_file()
     assert 'name = "heph"' in pyproject
     assert 'build-backend = "setuptools.build_meta"' in pyproject
+    assert '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]' in pyproject
     assert "heph-ai" not in pyproject
     assert "heph-interfaces" not in pyproject
     assert "hephaion==0.0.49" not in pyproject
+
+
+def test_stage_release_project_excludes_generated_source_artifacts(tmp_path) -> None:
+    project_dir = stage_release_project(tmp_path)
+
+    staged_paths = tuple(project_dir.rglob("*"))
+
+    assert not any("__pycache__" in path.parts for path in staged_paths)
+    assert not any(path.suffix in {".pyc", ".pyo"} for path in staged_paths)
+    assert not any(path.name.endswith(".egg-info") for path in staged_paths)
 
 
 def test_release_build_inputs_match_stable_tag() -> None:

@@ -83,5 +83,5 @@ autoresearch.jsonl
 autoresearch.ideas.md
 autoresearch_helper.py
 
-# Legacy top-level test scratch files. Tracked tests live under packages/*/test.
-tests/*
+# Root-level tests are part of the official pytest suite. Put temporary test
+# scratch data under .artifacts/ or qa-results/ instead.
