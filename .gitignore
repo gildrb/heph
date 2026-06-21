@@ -75,13 +75,5 @@ benchmarks/
 /*-armory/
 **/.hephaion/
 
-# Autoresearch (local experiment state, not for upload)
-autoresearch.md
-autoresearch.sh
-autoresearch.checks.sh
-autoresearch.jsonl
-autoresearch.ideas.md
-autoresearch_helper.py
-
 # Root-level tests are part of the official pytest suite. Put temporary test
 # scratch data under .artifacts/ or qa-results/ instead.
