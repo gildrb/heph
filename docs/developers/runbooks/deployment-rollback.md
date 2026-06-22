@@ -30,7 +30,8 @@ refresh the rolling edge prerelease.
 ## PyPI Release (version tags)
 
 Stable releases are published to PyPI from a reviewed `v*` tag reachable from
-protected `main`.
+protected `main`. See [Stable Release](stable-release.md) for the full
+trusted-publishing workflow.
 The official stable pointer lives in
 `packages/heph/src/heph/state/release.toml`; update it only when a reviewed
 version is ready to become the public `heph@latest` release.
@@ -42,27 +43,22 @@ the first stable public train is ready, then move the stable pointer to
 `v0.2.0` train.
 
 Before publishing, run from `main` with the release tag fetched. The release
-builder verifies package inputs still match the stable tag before it injects
+workflow verifies package inputs still match the stable tag before it injects
 runtime release metadata:
 
 ```bash
 uv run python -m scripts.check_release_state --current-version-must-match-stable --require-tag
 uv run python -m scripts.build_release_artifacts
 uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version v0.0.51
-uv publish --dry-run dist/*
 ```
 
-Publish from an authenticated maintainer shell:
+Publish by pushing the reviewed tag. The release workflow uploads through PyPI
+Trusted Publishing, verifies the public install paths, and creates the GitHub
+Release:
 
 ```bash
-export UV_PUBLISH_TOKEN="pypi-..."
-uv publish dist/*
-```
-
-Then verify the public install paths:
-
-```bash
-uv run python -m scripts.check_public_install --expect-runtime-version v0.0.51
+git push origin main
+git push origin v0.0.51
 ```
 
 ### Rollback Steps

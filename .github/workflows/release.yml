@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -165,8 +169,38 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
 
+  pypi-public-check:
+    needs: pypi-publish
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dev dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Verify public PyPI install
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          uv run python -m scripts.check_public_install \
+            --version "${RELEASE_VERSION}" \
+            --expect-runtime-version "${RELEASE_TAG}"
+
   github-release:
-    needs: build
+    needs:
+      - build
+      - pypi-public-check
     runs-on: ubuntu-latest
     permissions:
       contents: write

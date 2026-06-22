@@ -7,6 +7,7 @@ Operational playbooks for diagnosing and resolving issues in Hephaion.
 | Runbook | When to use |
 |---------|-------------|
 | [CI Failure](ci-failure.md) | CI pipeline fails on `main` branch |
+| [Stable Release](stable-release.md) | Publishing a reviewed `heph` release to PyPI and GitHub |
 | [Slow LLM Response](slow-llm-response.md) | Debugging slow or unresponsive LLM interactions |
 | [Deployment Rollback](deployment-rollback.md) | Reverting a bad release or edge deploy |
 | [RAG Retrieval Issues](rag-retrieval-issues.md) | Debugging poor RAG search quality or index problems |
