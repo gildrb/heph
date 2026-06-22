@@ -109,8 +109,9 @@ class TestSwitchModel:
         result = switch_model(chat_session, "zai", "nonexistent-model")
         assert result is False
 
-    def test_switch_to_valid_model(self, chat_session, providers_toml) -> None:
+    def test_switch_to_valid_model(self, chat_session, providers_toml, monkeypatch) -> None:
         _providers = providers_toml  # fixture creates file that ProviderConfig.load() reads
+        monkeypatch.setenv("ZAI_API_KEY", "test-key")
         pc = ProviderConfig.load()
         pc.apply_to_config(chat_session.config)
 

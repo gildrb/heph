@@ -1122,7 +1122,7 @@ wheels = [
 
 [[package]]
 name = "heph"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "packages/heph" }
 dependencies = [
     { name = "heph-ai" },
@@ -1141,7 +1141,7 @@ requires-dist = [
 
 [[package]]
 name = "heph-ai"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "packages/ai" }
 dependencies = [
     { name = "certifi" },
@@ -1158,12 +1158,12 @@ requires-dist = [
 
 [[package]]
 name = "heph-extensions"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "packages/extensions" }
 
 [[package]]
 name = "heph-interfaces"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "packages/interfaces" }
 dependencies = [
     { name = "heph-ai" },
@@ -1184,7 +1184,7 @@ requires-dist = [
 
 [[package]]
 name = "hephaion"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "packages/hephaion" }
 dependencies = [
     { name = "docling" },

@@ -1,5 +1,5 @@
 ---
-version: "0.0.49"
+version: "0.0.51"
 name: "Heph"
 description: "Website and brand design specification for the Heph local document harness."
 source_of_truth:

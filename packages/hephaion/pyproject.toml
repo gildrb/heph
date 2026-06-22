@@ -1,14 +1,14 @@
 [project]
 name = "hephaion"
-version = "0.0.50"
+version = "0.0.51"
 description = "Correctness harness for grounded, cited Heph answers"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "docling==2.94.0",
-    "heph-ai==0.0.50",
-    "heph-extensions==0.0.50",
+    "heph-ai==0.0.51",
+    "heph-extensions==0.0.51",
     "unicodeit==0.7.5",
 ]
 

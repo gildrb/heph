@@ -1,6 +1,6 @@
 [project]
 name = "heph"
-version = "0.0.50"
+version = "0.0.51"
 description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
 readme = "README.md"
 license = "MIT"
@@ -20,10 +20,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "heph-ai==0.0.50",
-    "heph-extensions==0.0.50",
-    "heph-interfaces==0.0.50",
-    "hephaion==0.0.50",
+    "heph-ai==0.0.51",
+    "heph-extensions==0.0.51",
+    "heph-interfaces==0.0.51",
+    "hephaion==0.0.51",
 ]
 
 [project.urls]
