@@ -5,7 +5,6 @@ import stat
 from pathlib import Path
 
 import pytest
-
 from hephaion.parameters import settings as settings_store
 from hephaion.privacy import consent
 

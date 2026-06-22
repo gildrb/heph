@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from hephaion.parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
+from hephaion.vocab import drill
 from hephaion.vocab.parser import (
     VocabCard,
     parse_vocab_file,
@@ -23,8 +24,6 @@ from hephaion.vocab.state import (
     VocabScheduleStore,
     load_schedule,
 )
-
-from hephaion.vocab import drill
 
 # ---------------------------------------------------------------------------
 # Fixtures

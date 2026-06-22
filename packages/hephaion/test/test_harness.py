@@ -10,6 +10,7 @@ import hephaion.agent.dispatch as dispatch_mod
 import hephaion.agent.model_stream as model_stream_mod
 import pytest
 from ai.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
+from hephaion.agent import web_tools
 from hephaion.agent.dispatch import summarize_result
 from hephaion.agent.tool_execution import (
     ToolCall,
@@ -40,7 +41,6 @@ from hephaion.chat.events import (
 )
 
 from conftest import message_text
-from hephaion.agent import web_tools
 
 # ---------------------------------------------------------------------------
 # safe_path

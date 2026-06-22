@@ -28,6 +28,7 @@ from hephaion.chat.session import (
     save_session,
 )
 from hephaion.chat.session_persistence import save_dirty_session_if_needed
+from hephaion.materials import MATERIALS_DIR, material_manifest
 from hephaion.materials.importing import import_material_files, resolve_import_source
 from hephaion.parameters.cli import load_config
 from hephaion.rag.health import scan_extraction_health as scan_extraction_health_report
@@ -59,7 +60,6 @@ from heph.sdk.providers import (
     list_providers as list_config_providers,
 )
 from heph.sdk.state import HephMessage, HephSdkSessionState
-from hephaion.materials import MATERIALS_DIR, material_manifest
 
 type HephEventListener = Callable[[HephEvent], None]
 type HephSessionStreamGuard = Callable[[threading.Event], AbstractContextManager[None]]

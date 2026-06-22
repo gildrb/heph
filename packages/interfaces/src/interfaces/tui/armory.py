@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Protocol, overload
 from hephaion.armory.search import remember_armory, set_last_armory
 from hephaion.armory.storage import ArmoryError, armory_display_name, initialize
 from hephaion.armory.storage import validate as _validate_armory
-
 from hephaion.materials import count_material_files
+
 from interfaces.terminal import current_palette
 from interfaces.tui.armory_browser import (
     _creation_parent_error,

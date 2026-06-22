@@ -110,12 +110,11 @@ except ImportError:
     Widget = object  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
+    from hephaion.chat import storage as chat_storage
     from hephaion.chat.session import ChatSession
     from hephaion.chat.turn_history import TurnSnapshot
     from rich.text import Text
     from textual import events
-
-    from hephaion.chat import storage as chat_storage
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")

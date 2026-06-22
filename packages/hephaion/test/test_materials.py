@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from hephaion.armory.storage import initialize
-
 from hephaion.materials import (
     count_material_files,
     infer_material_role,

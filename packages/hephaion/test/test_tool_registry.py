@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from hephaion.agent import tool_execution as tool_execution_mod
 from hephaion.agent.dispatch import ToolCall, execute_tool_calls
 from hephaion.agent.tools import (
     TOOL_SCHEMAS,
@@ -17,7 +18,6 @@ from hephaion.agent.tools import (
 )
 
 from conftest import make_tool_spec, message_text
-from hephaion.agent import tool_execution as tool_execution_mod
 
 # ---------------------------------------------------------------------------
 # ToolSpec

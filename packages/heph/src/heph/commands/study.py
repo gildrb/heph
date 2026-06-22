@@ -8,7 +8,13 @@ from pathlib import Path
 
 from hephaion.chat.session import ChatSession
 from hephaion.diagnostics.events import capture as capture_analytics
+from hephaion.materials import material_display_name
 from hephaion.rag.index import load_or_build
+from hephaion.study import (
+    LearningFeedbackType,
+    LearningPhase,
+    RecallRating,
+)
 from hephaion.study.exam_bank import (
     ExamBank,
     ExamBankItem,
@@ -45,12 +51,6 @@ from interfaces.terminal import (
 )
 
 from heph.commands._base import Command, CommandResult, ensure_session
-from hephaion.materials import material_display_name
-from hephaion.study import (
-    LearningFeedbackType,
-    LearningPhase,
-    RecallRating,
-)
 
 _HARD_OPTION = MenuOption("HARD", menu_label_value("effort", "had to think"))
 _GOOD_OPTION = MenuOption("GOOD", menu_label_value("effort", "knew it"))

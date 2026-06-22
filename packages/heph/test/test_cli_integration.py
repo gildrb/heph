@@ -18,6 +18,7 @@ from heph.cli.main import sys as cli_sys
 from hephaion.agent.dispatch import iter_agent_events
 from hephaion.armory.search import remember_armory
 from hephaion.armory.storage import initialize
+from hephaion.chat import cli as chat_cli
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -28,8 +29,6 @@ from hephaion.chat.session import create_session
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from hephaion.rag.index import load_or_build
 from interfaces.tui import TuiDependencyError
-
-from hephaion.chat import cli as chat_cli
 
 cli_main_module = sys.modules[cli_main.__module__]
 

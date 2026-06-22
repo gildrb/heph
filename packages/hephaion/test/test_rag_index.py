@@ -17,6 +17,7 @@ from heph import commands
 from heph.commands import model as _commands_model
 from hephaion.armory.storage import initialize
 from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.rag import index as rag_index
 from hephaion.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from hephaion.rag.index import (
@@ -28,8 +29,6 @@ from hephaion.rag.index import (
 )
 from interfaces.terminal.history import InputHistory
 from interfaces.terminal.input import handle_input
-
-from hephaion.rag import index as rag_index
 
 
 @pytest.fixture

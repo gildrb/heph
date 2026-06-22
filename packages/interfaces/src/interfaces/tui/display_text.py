@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-
 from hephaion.materials import material_display_name
+
 from interfaces.terminal import current_palette
 from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
 from interfaces.tui.keybinds import footer_keybind_hints

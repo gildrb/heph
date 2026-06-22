@@ -21,6 +21,7 @@ from ai.runtime import ChatConfig, Conversation, EngineError, EngineErrorCode
 from hephaion._types import is_string_mapping
 from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
 from hephaion.armory.storage import initialize
+from hephaion.chat import storage as chat_storage
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     NoticeEvent,
@@ -30,6 +31,7 @@ from hephaion.chat.events import (
 )
 from hephaion.chat.session import ChatSession, record_turn_snapshot, save_session
 from hephaion.chat.usage import TokenUsage
+from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from interfaces import tui
@@ -65,9 +67,6 @@ from rich.text import Text
 from textual import events
 from textual._xterm_parser import XTermParser
 from textual.strip import Strip
-
-from hephaion.chat import storage as chat_storage
-from hephaion.parameters import settings as settings_store
 
 tui.set_command_registry_fn(heph_commands.get_registry)
 

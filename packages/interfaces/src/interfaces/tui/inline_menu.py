@@ -6,11 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
+from hephaion.chat import storage as chat_storage
 from hephaion.chat.titles import sanitize_title_text
 from hephaion.chat.turn_history import TurnSnapshot
-
-from hephaion.chat import storage as chat_storage
 from hephaion.matching import ranked_matches
+
 from interfaces.terminal import current_palette
 from interfaces.tui.cell_text import cell_width as _cell_width
 from interfaces.tui.cell_text import chop_to_cell_width as _chop_to_cell_width

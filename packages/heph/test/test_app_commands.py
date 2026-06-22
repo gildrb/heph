@@ -25,18 +25,17 @@ from ai.providers.registry import ModelInfo
 from ai.runtime import ChatConfig, Conversation
 from heph import commands
 from hephaion.armory.storage import initialize
+from hephaion.chat import model_selection as _model_selection
 from hephaion.chat.session import ChatSession, create_plain_session
+from hephaion.memory import MemoryStore
+from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
 from hephaion.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from hephaion.study.schedule import load_recall_schedule
 from interfaces.terminal import MenuOption
 from interfaces.terminal.source_open import SourceOpenResult
-
-from hephaion.chat import model_selection as _model_selection
-from hephaion.memory import MemoryStore
-from hephaion.parameters import settings as settings_store
-from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
 
 
 class _FakePriorityPdfCompiler:

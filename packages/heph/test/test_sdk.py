@@ -109,14 +109,13 @@ from hephaion.chat.events import (
     TurnEvent,
 )
 from hephaion.chat.session import ChatSession
+from hephaion.parameters import settings as settings_store
 from hephaion.parameters.settings import (
     ACTIVITY_TRACE_MODES,
     THEME_PRESETS,
     VOCAB_STRICTNESS_MODES,
 )
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
-
-from hephaion.parameters import settings as settings_store
 
 
 class _FakeIndex:

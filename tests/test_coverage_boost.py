@@ -26,10 +26,9 @@ from hephaion.chat.events import (
 from hephaion.chat.model_selection import switch_model
 from hephaion.chat.titles import derive_title
 from hephaion.memory.workflow import schedule_memory_extraction
+from hephaion.parameters import settings as settings_store
 from interfaces.tui.routing import pending_input_requires_terminal
 from interfaces.tui.streaming import run_tui_turn
-
-from hephaion.parameters import settings as settings_store
 
 # ---------------------------------------------------------------------------
 # CLI entry point ownership

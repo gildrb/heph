@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from ai.runtime import ChatConfig
-from hephaion.memory.extract import extract_and_store, extract_from_exchange
-
 from hephaion.memory import MemoryStore
+from hephaion.memory.extract import extract_and_store, extract_from_exchange
 
 
 def _make_config() -> ChatConfig:

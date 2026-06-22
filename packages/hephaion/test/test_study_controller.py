@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from hephaion.chat.intent import MODEL_NORMALIZED_INTENTS
-
 from hephaion.study import (
     LearningAction,
     LearningFeedbackType,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, overload
 
 from hephaion.materials import material_display_name
+
 from interfaces.terminal import current_palette
 from interfaces.tui.display_text import COMPOSER_PLACEHOLDER, label_value_line
 from interfaces.tui.inline_menu import _inline_selection_prefix

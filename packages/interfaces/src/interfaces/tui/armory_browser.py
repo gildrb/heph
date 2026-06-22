@@ -12,9 +12,9 @@ from hephaion.armory.search import (
     load_remembered_armory_entries,
 )
 from hephaion.armory.storage import MARKER_FILE
-
 from hephaion.matching import ranked_matches
 from hephaion.materials import count_material_files
+
 from interfaces.tui.display_text import label_value_line
 from interfaces.tui.startup_discovery import discover_available_armories
 
