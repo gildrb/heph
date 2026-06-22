@@ -19,7 +19,7 @@ from hephaion.armory.state_files import (
 from hephaion.learning.storage import AttemptRecord, LearningStore
 from hephaion.learning.training import (
     PUBLIC_SYNTHETIC_REPLAY,
-    PUFFERLIB_BACKEND_NAME,
+    REWARD_TABLE_BACKEND_NAME,
     TrainingReport,
     train_attempt_policy,
 )
@@ -113,7 +113,7 @@ def maybe_auto_train_attempt_policy(
         armory_path=armory_path,
         dataset_paths=_dataset_paths(config),
         include_local=True,
-        backend=PUFFERLIB_BACKEND_NAME,
+        backend=REWARD_TABLE_BACKEND_NAME,
         promote=True,
         clear_failed_promotion=False,
     )

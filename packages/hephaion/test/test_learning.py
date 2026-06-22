@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -26,11 +24,6 @@ from hephaion.chat.turn_orchestrator import TurnOrchestrator
 from hephaion.chat.turn_outputs import _LearningAgentOutput
 from hephaion.learning.actions import AttemptAction
 from hephaion.learning.automation import AutoTrainingConfig, maybe_auto_train_attempt_policy
-from hephaion.learning.constellation import (
-    CONSTELLATION_EXPERIMENTS_PATH,
-    export_armory_constellation,
-    export_constellation_records,
-)
 from hephaion.learning.environment import ReplayHephEnv
 from hephaion.learning.observation import AttemptObservation, build_attempt_observation
 from hephaion.learning.observation_audit import (
@@ -46,12 +39,6 @@ from hephaion.learning.policy_artifact import (
     observation_bucket,
     write_exported_policy,
 )
-from hephaion.learning.puffer_backend import (
-    masked_observation_features,
-    observation_feature_names,
-    observation_features,
-    randomized_segment_observation,
-)
 from hephaion.learning.reward import (
     RewardComponent,
     score_action_outcome_reward,
@@ -66,16 +53,15 @@ from hephaion.learning.storage import (
 )
 from hephaion.learning.training import (
     PUBLIC_SYNTHETIC_REPLAY,
-    PUFFERLIB_BACKEND_NAME,
+    REWARD_TABLE_BACKEND_NAME,
     _evaluate_actions,
     load_records_from_jsonl,
     train_attempt_policy,
 )
+from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaion.study.policy import EvidenceAssessment
 from hephaion.study.prompt_plans import LearningTurnPlan, material_overview_plan
 from hephaion.study.state import LearningAction, LearningPhase
-
-from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 
 
 class _FinalizationProbe(TurnFinalizationMixin):
@@ -87,45 +73,6 @@ class _FinalizationProbe(TurnFinalizationMixin):
         self._learning_action_override = None
         self._learning_recommended_action_override = None
         self._learning_followup_seed_blocked = False
-
-
-def test_puffer_backend_import_preserves_process_globals(tmp_path: Path) -> None:
-    script = """
-from pathlib import Path
-import signal
-import warnings
-
-warning_filters = list(warnings.filters)
-sigint_handler = signal.getsignal(signal.SIGINT)
-
-import_errors = []
-def import_from_worker():
-    try:
-        import hephaion.learning.puffer_backend
-    except Exception as exc:
-        import_errors.append(repr(exc))
-
-import threading
-worker = threading.Thread(target=import_from_worker)
-worker.start()
-worker.join()
-if import_errors:
-    raise SystemExit(import_errors[0])
-if warnings.filters != warning_filters:
-    raise SystemExit("warning filters changed")
-if signal.getsignal(signal.SIGINT) != sigint_handler:
-    raise SystemExit("sigint handler changed")
-if Path("resources").exists():
-    raise SystemExit("pufferlib resources leaked into cwd")
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=tmp_path,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def _chunk(source: str = "notes.md", index: int = 0) -> Chunk:
@@ -511,53 +458,10 @@ def test_observation_audit_randomizes_probe_order_by_seed() -> None:
     assert first != second
 
 
-def test_masked_puffer_features_zero_inactive_observation_slots() -> None:
-    probe = next(
-        probe
-        for probe in randomized_observation_probes(seed=41)
-        if probe.name == "bad_answer_shape"
+def test_observation_bucket_keeps_retrieval_strategy_distinct() -> None:
+    assert observation_bucket(AttemptObservation(retrieval_strategy="overview")) != (
+        observation_bucket(AttemptObservation(retrieval_strategy="targeted"))
     )
-    feature_names = observation_feature_names()
-    features = masked_observation_features(probe.observation, probe.active_feature_names)
-
-    for index, name in enumerate(feature_names):
-        if name not in probe.active_feature_names:
-            assert features[index] == 0.0
-    assert features[feature_names.index("answer_shape_failed")] > 0.0
-    assert features[feature_names.index("retrieval_strategy_overview")] > 0.0
-
-
-def test_puffer_features_include_retrieval_strategy_signal() -> None:
-    feature_names = observation_feature_names()
-    index = feature_names.index("retrieval_strategy_overview")
-
-    assert observation_features(AttemptObservation(retrieval_strategy="overview"))[index] == 1.0
-    assert observation_features(AttemptObservation(retrieval_strategy="targeted"))[index] == -1.0
-
-
-def test_puffer_segment_features_zero_missing_evidence_slots() -> None:
-    observation = AttemptObservation(
-        evidence_count=5,
-        distinct_source_count=3,
-        sampled_source_count=3,
-        total_source_count=3,
-        top_score=0.8,
-        evidence_sufficient=True,
-        evidence_confidence=0.9,
-    )
-    visible = randomized_segment_observation(observation, active_segment_count=2)
-    feature_names = observation_feature_names()
-    features = observation_features(visible)
-
-    assert visible.evidence_count == 2
-    assert visible.distinct_source_count == 2
-    assert not visible.evidence_sufficient
-    assert features[feature_names.index("evidence_segment_1_mask")] == 1.0
-    assert features[feature_names.index("evidence_segment_2_mask")] == 1.0
-    assert features[feature_names.index("evidence_segment_3_mask")] == 0.0
-    assert features[feature_names.index("source_segment_1_mask")] == 1.0
-    assert features[feature_names.index("source_segment_3_mask")] == 0.0
-    assert features[feature_names.index("evidence_segment_3_score")] == 0.0
 
 
 def test_off_topic_accepted_answer_is_rewarded_terribly() -> None:
@@ -919,63 +823,6 @@ def test_trajectory_shaping_rewards_progress_and_penalizes_bad_window() -> None:
     assert good_metrics.grounded_progress_rate == 1.0
     assert bad_metrics.average_reward < unshaped_bad_average
     assert bad_metrics.bad_accept_rate > 0
-
-
-def test_constellation_export_writes_puffer_numeric_string_shape(tmp_path: Path) -> None:
-    output_path = tmp_path / "resources" / "constellation" / "experiments.json"
-    records = (_record(), _abstain_record())
-
-    export = export_constellation_records(records, output_path=output_path, env_name="heph-test")
-
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    group = payload["heph-test"]
-    lengths = {
-        key: len(value.split(","))
-        for key, value in group.items()
-        if isinstance(value, str) and value
-    }
-
-    assert export.groups == {"heph-test": 2}
-    assert group["agent_steps"] == "1,2"
-    assert group["env/score"].split(",")[0] == f"{records[0].reward.total:.6g}"
-    assert group["train/learning_rate"] == "0.02,0.02"
-    assert "tsne1" in group
-    assert "heph/evidence_count" in group
-    assert set(lengths.values()) == {2}
-
-
-def test_constellation_export_reads_armory_learning_attempts(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-
-    export = export_armory_constellation(tmp_path)
-
-    output_path = tmp_path / CONSTELLATION_EXPERIMENTS_PATH
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert export.groups == {tmp_path.name: 1}
-    assert export.output_path == output_path
-    assert payload[tmp_path.name]["env/perf"]
-
-
-def test_constellation_export_rejects_symlinked_default_output_dir(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-    outside = tmp_path.parent / f"{tmp_path.name}-outside"
-    outside.mkdir()
-    (tmp_path / CONSTELLATION_EXPERIMENTS_PATH.parent).symlink_to(
-        outside,
-        target_is_directory=True,
-    )
-
-    with pytest.raises(OSError, match="armory state directory must not be a symlink"):
-        export_armory_constellation(tmp_path)
-
-    assert not (outside / CONSTELLATION_EXPERIMENTS_PATH.name).exists()
-
-
-def test_constellation_export_rejects_empty_records(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="no learning attempts available"):
-        export_constellation_records(
-            (), output_path=tmp_path / "experiments.json", env_name="heph"
-        )
 
 
 def test_finalized_turn_records_accepted_action_when_policy_would_retry(tmp_path: Path) -> None:
@@ -1706,13 +1553,12 @@ def test_training_promotes_when_trained_policy_beats_static_on_balanced_fixture(
     )
 
     assert report.decision == "promote"
-    assert report.backend == PUFFERLIB_BACKEND_NAME
+    assert report.backend == REWARD_TABLE_BACKEND_NAME
     assert report.trained_metrics.average_reward > report.baseline_metrics.average_reward
     assert report.reasons == ()
     manifest = json.loads(report.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["backend_metadata"]["algorithm"] == "ppo"
-    assert manifest["backend_metadata"]["trainer"] == "pufferlib.pufferl.PuffeRL"
-    assert manifest["backend_metadata"]["export"] == "ppo_reward_checked_bucket_table"
+    assert manifest["backend_metadata"]["algorithm"] == "structural_reward_table"
+    assert manifest["backend_metadata"]["export"] == "best_average_reward_bucket_table"
     assert report.dataset_counts == {"public": 3, "synthetic": 5}
     assert manifest["trajectory_window_size"] == 7
     assert report.artifact_path.is_file()
@@ -1761,19 +1607,21 @@ def test_training_rejects_unknown_backend(tmp_path: Path) -> None:
         )
 
 
-def test_pufferlib_training_smoke_trains_exports_loads_and_infers(tmp_path: Path) -> None:
+def test_reward_table_training_smoke_trains_exports_loads_and_infers(
+    tmp_path: Path,
+) -> None:
     report = train_attempt_policy(
         armory_path=tmp_path,
         dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
         include_local=False,
-        backend=PUFFERLIB_BACKEND_NAME,
+        backend=REWARD_TABLE_BACKEND_NAME,
         promote=True,
     )
     records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
     loaded_policy = load_runtime_policy(tmp_path)
 
     assert report.decision == "promote"
-    assert report.backend == PUFFERLIB_BACKEND_NAME
+    assert report.backend == REWARD_TABLE_BACKEND_NAME
     assert report.artifact_path.is_file()
     assert report.reasons == ()
     assert loaded_policy.choose(records[0].observation) is AttemptAction.ACCEPT
@@ -1794,7 +1642,7 @@ def test_training_rejects_symlinked_policies_dir(tmp_path: Path) -> None:
             armory_path=tmp_path,
             dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
             include_local=False,
-            backend=PUFFERLIB_BACKEND_NAME,
+            backend=REWARD_TABLE_BACKEND_NAME,
             promote=True,
         )
 
@@ -1829,7 +1677,7 @@ def test_auto_training_runs_once_for_new_attempt_digest(tmp_path: Path) -> None:
     store = LearningStore(tmp_path)
     assert first.status == "trained"
     assert first.report is not None
-    assert first.report.backend == PUFFERLIB_BACKEND_NAME
+    assert first.report.backend == REWARD_TABLE_BACKEND_NAME
     assert store.automation_state_path.is_file()
     assert store.automation_events_path.is_file()
     event_text = store.automation_events_path.read_text(encoding="utf-8")

@@ -97,6 +97,7 @@ def main() -> int:
         _stress_cross_platform_resolution(args.dist.resolve(), version, work_dir)
         _stress_pip_install(
             args.dist.resolve(),
+            wheels["heph"],
             version,
             args.python,
             work_dir,
@@ -164,7 +165,7 @@ def _uv_tool_install_command(dist: Path, version: str, python: str) -> list[str]
     ]
 
 
-def _pip_install_command(python: Path, dist: Path, version: str) -> list[str]:
+def _pip_install_command(python: Path, dist: Path, wheel: Path) -> list[str]:
     return [
         str(python),
         "-m",
@@ -172,7 +173,7 @@ def _pip_install_command(python: Path, dist: Path, version: str) -> list[str]:
         "install",
         "--find-links",
         str(dist),
-        f"heph=={version}",
+        str(wheel),
     ]
 
 
@@ -247,6 +248,7 @@ def _stress_cross_platform_resolution(dist: Path, version: str, work_dir: Path) 
 
 def _stress_pip_install(
     dist: Path,
+    wheel: Path,
     version: str,
     python: str,
     work_dir: Path,
@@ -257,7 +259,7 @@ def _stress_pip_install(
     venv = work_dir / "pip-venv"
     _run(["uv", "venv", str(venv), "--python", python, "--seed"], cwd=work_dir)
     venv_python = _venv_python(venv)
-    _run(_pip_install_command(venv_python, dist, version), cwd=work_dir)
+    _run(_pip_install_command(venv_python, dist, wheel), cwd=work_dir)
     _run([str(venv_python), "-m", "pip", "check"], cwd=work_dir)
     heph = _venv_executable(venv, "heph")
     _stress_heph_executable(

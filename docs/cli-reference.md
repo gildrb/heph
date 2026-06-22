@@ -16,9 +16,8 @@
 | `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph index [path]` | Build or refresh the materials index; defaults to the current armory. |
 | `heph health [path]` | Check indexed materials for generic extraction problems; defaults to the current armory. |
-| `heph learning train [path]` | Train a local PufferLib harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
-| `heph learning auto-train [path]` | Run the local learning automation gate; trains with PufferLib only when enough new armory attempts exist. |
-| `heph learning constellation-export [path]` | Export local numeric learning-attempt data to an armory-local PufferLib Constellation `experiments.json` file. |
+| `heph learning train [path]` | Train a local harness action policy from replay data; writes reports and artifacts under the armory's `.hephaion/learning/policies/` tree. |
+| `heph learning auto-train [path]` | Run the local learning automation gate when enough new armory attempts exist. |
 | `heph local search [query]` | Browse curated GGUF models. |
 | `heph local install <repo-or-path>` | Install a curated GGUF model or local `.gguf` path after confirmation, then activate it only if it passes Heph's tool-call probe. |
 | `heph local status` | Show local llama.cpp status. |

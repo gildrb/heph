@@ -14,21 +14,9 @@ _ALLOWED_SOURCE_ONLY_SDISTS = {
         "4.9.3",
     ): "sha256:f224469b4168294902bb1efa80a8bf7855f24c99aef99cbefc1bcd3cce77881b",
     (
-        "gym",
-        "0.23.0",
-    ): "sha256:dbd3d0c50fc1260b57e6f12ba792152b73551730512623b7653d6dfb2f7a105d",
-    (
-        "numpy",
-        "1.26.4",
-    ): "sha256:2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010",
-    (
         "pylatexenc",
         "2.10",
     ): "sha256:3dd8fd84eb46dc30bee1e23eaab8d8fb5a7f507347b23e5f38ad9675c84f40d3",
-    (
-        "pufferlib",
-        "3.0.0",
-    ): "sha256:7df3a3e3f5f894d78d2a1f5374097890aec01473183e748abefe4f3faa10eaa9",
     (
         "unicodeit",
         "0.7.5",

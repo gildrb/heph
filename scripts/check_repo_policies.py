@@ -162,19 +162,6 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "openai",
         }
     ),
-    "hephaion/learning/training.py": frozenset(
-        {
-            "hephaion.learning.puffer_backend",
-        }
-    ),
-    "hephaion/learning/puffer_backend.py": frozenset(
-        {
-            "gymnasium",
-            "numpy",
-            "pufferlib",
-            "torch",
-        }
-    ),
     "interfaces/terminal/input.py": frozenset(
         {
             "hephaion.chat.session",

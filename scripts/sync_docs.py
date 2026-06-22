@@ -17,6 +17,7 @@ from heph.cli.main import build_parser
 from heph.commands import get_registry
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.memory.extract import EXTRACTION_MODEL_ENV
+from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
@@ -27,8 +28,6 @@ from hephaion.privacy.consent import (
 from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
-
-from hephaion.parameters import cli as parameters_cli
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -172,16 +171,11 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     ),
     "heph index [path]": "Build or refresh the materials index; defaults to the current armory.",
     "heph learning train [path]": (
-        "Train a local PufferLib harness action policy from replay data; writes reports and "
+        "Train a local harness action policy from replay data; writes reports and "
         "artifacts under the armory's `.hephaion/learning/policies/` tree."
     ),
     "heph learning auto-train [path]": (
-        "Run the local learning automation gate; trains with PufferLib only when enough new "
-        "armory attempts exist."
-    ),
-    "heph learning constellation-export [path]": (
-        "Export local numeric learning-attempt data to an armory-local "
-        "PufferLib Constellation `experiments.json` file."
+        "Run the local learning automation gate when enough new armory attempts exist."
     ),
     "heph local search [query]": "Browse curated GGUF models.",
     "heph local install <repo-or-path>": (
@@ -333,10 +327,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} learning auto-train [path]",
             CLI_COMMAND_DESCRIPTIONS["heph learning auto-train [path]"],
-        ),
-        CommandLine(
-            f"{short_command} learning constellation-export [path]",
-            CLI_COMMAND_DESCRIPTIONS["heph learning constellation-export [path]"],
         ),
         CommandLine(
             f"{short_command} local search [query]",

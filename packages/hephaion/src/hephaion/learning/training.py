@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from hephaion.armory.state_files import ensure_armory_state_dir, write_armory_state_text
-from hephaion.learning.actions import AttemptAction
+from hephaion.learning.actions import FALLBACK_ACTION_ORDER, AttemptAction
 from hephaion.learning.observation import AttemptObservation
 from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.learning.policy_artifact import (
@@ -27,10 +25,11 @@ from hephaion.learning.storage import AttemptRecord, LearningStore
 
 PUBLIC_SYNTHETIC_REPLAY = Path(__file__).parent / "fixtures" / "public_synthetic_replay.jsonl"
 TRAINING_REPORT_SCHEMA_VERSION = 1
-PUFFERLIB_BACKEND_NAME = "pufferlib"
+REWARD_TABLE_BACKEND_NAME = "reward-table"
 TRAJECTORY_WINDOW_SIZE = 7
 _TRAJECTORY_FAILURE_PENALTY = -0.08
 _TRAJECTORY_PROGRESS_BONUS = 0.04
+_TRAINING_ACTION_ORDER: tuple[AttemptAction, ...] = (AttemptAction.ACCEPT, *FALLBACK_ACTION_ORDER)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,11 +229,11 @@ def train_attempt_policy(
     armory_path: Path,
     dataset_paths: Sequence[Path] | None = None,
     include_local: bool = True,
-    backend: str = PUFFERLIB_BACKEND_NAME,
+    backend: str = REWARD_TABLE_BACKEND_NAME,
     promote: bool = False,
     clear_failed_promotion: bool = True,
 ) -> TrainingReport:
-    if backend != PUFFERLIB_BACKEND_NAME:
+    if backend != REWARD_TABLE_BACKEND_NAME:
         raise ValueError(f"unknown learning backend: {backend}")
     store = LearningStore(armory_path)
     records = load_training_records(
@@ -334,18 +333,55 @@ def _train_policy_table(
     records: Sequence[AttemptRecord],
     backend: str,
 ) -> tuple[dict[str, AttemptAction], Mapping[str, object]]:
-    if backend == PUFFERLIB_BACKEND_NAME:
-        with tempfile.TemporaryDirectory(prefix="heph-pufferlib-import-") as import_dir:
-            original_cwd = Path.cwd()
-            try:
-                os.chdir(import_dir)
-                from hephaion.learning.puffer_backend import train_pufferlib_policy_table
-            finally:
-                os.chdir(original_cwd)
-
-        result = train_pufferlib_policy_table(records, bucket=observation_bucket)
-        return dict(result.table), result.metadata
+    if backend == REWARD_TABLE_BACKEND_NAME:
+        return _train_reward_table(records), _reward_table_metadata(records)
     raise ValueError(f"unknown learning backend: {backend}")
+
+
+def _train_reward_table(records: Sequence[AttemptRecord]) -> dict[str, AttemptAction]:
+    totals: dict[str, dict[AttemptAction, float]] = {}
+    counts: dict[str, dict[AttemptAction, int]] = {}
+    for record in records:
+        bucket = observation_bucket(record.observation)
+        bucket_totals = totals.setdefault(bucket, {})
+        bucket_counts = counts.setdefault(bucket, {})
+        for action in _TRAINING_ACTION_ORDER:
+            outcome = record.outcome_for(action)
+            bucket_totals[action] = bucket_totals.get(action, 0.0) + outcome.reward.total
+            bucket_counts[action] = bucket_counts.get(action, 0) + 1
+
+    table: dict[str, AttemptAction] = {}
+    for bucket in sorted(totals):
+        table[bucket] = _best_reward_action(totals[bucket], counts[bucket])
+    return table
+
+
+def _best_reward_action(
+    totals: Mapping[AttemptAction, float],
+    counts: Mapping[AttemptAction, int],
+) -> AttemptAction:
+    best_action = AttemptAction.ACCEPT
+    best_reward = float("-inf")
+    for action in _TRAINING_ACTION_ORDER:
+        count = counts.get(action, 0)
+        if count <= 0:
+            continue
+        reward = totals.get(action, 0.0) / count
+        if reward > best_reward:
+            best_action = action
+            best_reward = reward
+    return best_action
+
+
+def _reward_table_metadata(records: Sequence[AttemptRecord]) -> dict[str, object]:
+    return {
+        "backend": REWARD_TABLE_BACKEND_NAME,
+        "algorithm": "structural_reward_table",
+        "bucket_count": len({observation_bucket(record.observation) for record in records}),
+        "record_count": len(records),
+        "action_order": [action.value for action in _TRAINING_ACTION_ORDER],
+        "export": "best_average_reward_bucket_table",
+    }
 
 
 def _clear_promoted_policy(store: LearningStore) -> None:

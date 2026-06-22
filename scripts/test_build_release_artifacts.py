@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
+import scripts.build_release_artifacts as release_artifacts
 from scripts.build_release_artifacts import (
     ReleaseBuildConfig,
     clean_dist,
     patched_release_config,
     release_build_config_from_env,
-    release_build_input_errors,
     release_dependencies,
     render_release_config,
     stage_release_project,
@@ -133,8 +134,35 @@ def test_stage_release_project_excludes_generated_source_artifacts(tmp_path) -> 
     assert not any(path.name.endswith(".egg-info") for path in staged_paths)
 
 
-def test_release_build_inputs_match_stable_tag() -> None:
-    assert release_build_input_errors("v0.0.50") == []
+def test_release_build_input_errors_reports_dirty_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_release_input_repo(tmp_path)
+    _point_release_input_guard(tmp_path, monkeypatch)
+
+    (tmp_path / "packages" / "marker.txt").write_text("dirty\n", encoding="utf-8")
+
+    errors = release_artifacts.release_build_input_errors("v1.0.0")
+
+    assert len(errors) == 1
+    assert errors[0].startswith("release build inputs have uncommitted changes:")
+    assert "packages/marker.txt" in errors[0]
+
+
+def test_release_build_input_errors_reports_tag_diff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_release_input_repo(tmp_path)
+    _point_release_input_guard(tmp_path, monkeypatch)
+    (tmp_path / "packages" / "marker.txt").write_text("changed\n", encoding="utf-8")
+    _git(tmp_path, "add", "packages/marker.txt")
+    _git(tmp_path, "commit", "-m", "change release input")
+
+    assert release_artifacts.release_build_input_errors("v1.0.0") == [
+        "release build inputs differ from v1.0.0: packages/marker.txt"
+    ]
 
 
 def _raise_after_checking_patched_release_config(
@@ -144,3 +172,38 @@ def _raise_after_checking_patched_release_config(
     with patched_release_config(path, config):
         assert 'RELEASE_CHANNEL: str | None = "pypi"' in path.read_text(encoding="utf-8")
         raise RuntimeError("boom")
+
+
+def _init_release_input_repo(path: Path) -> None:
+    packages = path / "packages"
+    packages.mkdir()
+    (packages / "marker.txt").write_text("stable\n", encoding="utf-8")
+    _git(path, "init")
+    _git(path, "add", "packages/marker.txt")
+    _git(path, "commit", "-m", "stable release input")
+    _git(path, "tag", "v1.0.0")
+
+
+def _point_release_input_guard(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(release_artifacts, "ROOT", path)
+    monkeypatch.setattr(release_artifacts, "BUILD_INPUT_PATHS", ("packages",))
+
+
+def _git(path: Path, *args: str) -> None:
+    command = ["git", *args]
+    if args and args[0] == "commit":
+        command = [
+            "git",
+            "-c",
+            "user.name=Heph Test",
+            "-c",
+            "user.email=heph@example.invalid",
+            *args,
+        ]
+    subprocess.run(
+        command,
+        cwd=path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

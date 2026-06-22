@@ -31,8 +31,6 @@ def test_release_stress_binary_policy_uses_reviewed_source_allowlist() -> None:
 
     no_binary = command[command.index("--no-binary") + 1]
     assert no_binary.split(",") == list(allowed_source_only_package_names())
-    assert "numpy" in no_binary
-    assert "pufferlib" in no_binary
 
 
 def test_release_stress_validates_sdk_capability_payload() -> None:
@@ -89,7 +87,11 @@ def test_release_stress_builds_uv_tool_install_command() -> None:
 
 
 def test_release_stress_builds_pip_install_command() -> None:
-    command = _pip_install_command(Path("/tmp/venv/bin/python"), Path("/tmp/dist"), "0.0.50")
+    command = _pip_install_command(
+        Path("/tmp/venv/bin/python"),
+        Path("/tmp/dist"),
+        Path("/tmp/dist/heph-0.0.50-py3-none-any.whl"),
+    )
 
     assert command == [
         "/tmp/venv/bin/python",
@@ -98,7 +100,7 @@ def test_release_stress_builds_pip_install_command() -> None:
         "install",
         "--find-links",
         "/tmp/dist",
-        "heph==0.0.50",
+        "/tmp/dist/heph-0.0.50-py3-none-any.whl",
     ]
 
 
