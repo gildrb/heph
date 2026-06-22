@@ -168,6 +168,8 @@ def _uv_tool_install_command(version: str, python: str, index: str) -> list[str]
         python,
         "--default-index",
         index,
+        "--refresh-package",
+        "heph",
         spec,
     ]
 

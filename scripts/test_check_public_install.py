@@ -38,6 +38,8 @@ def test_public_install_builds_latest_uv_tool_command() -> None:
         "3.13",
         "--default-index",
         "https://pypi.org/simple",
+        "--refresh-package",
+        "heph",
         "heph@latest",
     ]
 
