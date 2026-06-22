@@ -775,8 +775,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_config_commands = importlib.import_module("hephaion.parameters.cli").register
     register_config_commands(subparsers)
-    register_learning_commands = importlib.import_module("hephaion.learning.cli").register
-    register_learning_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 
     return parser

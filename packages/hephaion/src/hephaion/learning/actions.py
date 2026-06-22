@@ -1,4 +1,4 @@
-"""Discrete harness actions for local attempt-policy learning."""
+"""Discrete structural actions for answer-attempt guards."""
 
 from __future__ import annotations
 

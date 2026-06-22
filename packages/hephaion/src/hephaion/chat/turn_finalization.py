@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from collections.abc import Iterator
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ai.logging import Timer, get_logger
@@ -67,17 +67,8 @@ from hephaion.chat.turn_predicates import (
 from hephaion.chat.usage import save_usage
 from hephaion.diagnostics.crashes import get_meter, get_tracer
 from hephaion.learning.actions import AttemptAction
-from hephaion.learning.automation import maybe_auto_train_attempt_policy
-from hephaion.learning.environment import LiveHephEnv
 from hephaion.learning.observation import AttemptObservation, build_attempt_observation
-from hephaion.learning.policy_artifact import ExportedAttemptPolicy, load_runtime_policy
-from hephaion.learning.reward import score_attempt_reward
-from hephaion.learning.storage import (
-    ActionOutcome,
-    AttemptRecord,
-    ValidationState,
-    new_attempt_record,
-)
+from hephaion.learning.policy import StaticAttemptPolicy
 from hephaion.memory.workflow import schedule_memory_extraction
 from hephaion.rag.context import TurnEvidence
 from hephaion.study.prompt_plans import LearningTurnPlan
@@ -96,26 +87,16 @@ _rag_duration_hist = _meter.create_histogram(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _RecordedLearningAttempt:
-    record: AttemptRecord
-    observation: AttemptObservation
-    action: AttemptAction
-    recommended_action: AttemptAction
-
-
 class TurnFinalizationMixin:
     session: ChatSession
     last_reply: str
     last_internal_passes: int
     _last_reply_citation_required: bool | None
     _learning_action_override: AttemptAction | None
-    _learning_recommended_action_override: AttemptAction | None
     _learning_followup_seed_blocked: bool
 
     def _reset_learning_attempt_overrides(self) -> None:
         self._learning_action_override = None
-        self._learning_recommended_action_override = None
         self._learning_followup_seed_blocked = False
 
     def _resolve_timed_turn_plan(self, plan: LearningTurnPlan) -> ResolvedTurnPlan:
@@ -188,12 +169,6 @@ class TurnFinalizationMixin:
             self.last_reply,
             visible_evidence,
         )
-        resolved = self._apply_promoted_runtime_action(
-            resolved,
-            visible_evidence,
-            user_input=user_input,
-            latency_ms=latency_ms,
-        )
         resolved = self._apply_structural_validation_guard(
             resolved,
             visible_evidence,
@@ -262,12 +237,6 @@ class TurnFinalizationMixin:
             self.last_reply,
             visible_evidence,
         )
-        resolved = self._apply_promoted_runtime_action(
-            resolved,
-            visible_evidence,
-            user_input=user_input,
-            latency_ms=latency_ms,
-        )
         resolved = self._apply_structural_validation_guard(
             resolved,
             visible_evidence,
@@ -309,125 +278,12 @@ class TurnFinalizationMixin:
         notice: str,
     ) -> None:
         self._log_successful_reply(visible_evidence, latency_ms=latency_ms)
-        self._record_learning_attempt(
-            resolved,
-            visible_evidence,
-            user_input=user_input,
-            latency_ms=latency_ms,
-        )
         self._trace_successful_reply(
             resolved,
             visible_evidence,
             latency_ms=latency_ms,
             notice=notice,
         )
-
-    def _record_learning_attempt(
-        self,
-        resolved: ResolvedTurnPlan,
-        visible_evidence: TurnEvidence | None,
-        *,
-        user_input: str,
-        latency_ms: float,
-    ) -> None:
-        session = self.session
-        if session.armory_path is None:
-            return
-        runtime_policy = load_runtime_policy(session.armory_path)
-        attempt = _recorded_learning_attempt(
-            session,
-            resolved,
-            visible_evidence,
-            user_input=user_input,
-            reply=self.last_reply,
-            internal_passes=self.last_internal_passes,
-            latency_ms=latency_ms,
-            action_override=getattr(self, "_learning_action_override", None),
-            recommended_action_override=getattr(
-                self,
-                "_learning_recommended_action_override",
-                None,
-            ),
-            runtime_action=runtime_policy.choose,
-        )
-        try:
-            env = LiveHephEnv(session.armory_path)
-            env.choose_action(attempt.observation, attempt.recommended_action)
-            env.finalize(attempt.record)
-        except OSError:
-            _log.warning("failed to record local learning attempt", exc_info=True)
-            return
-        session.trace.record_session_event(
-            "learning_attempt",
-            action=attempt.action.value,
-            recommended_action=attempt.recommended_action.value,
-            reward=attempt.record.reward.total,
-            reward_components={
-                component.name: round(component.value, 4)
-                for component in attempt.record.reward.components
-            },
-        )
-        self._maybe_auto_train_learning_policy()
-
-    def _maybe_auto_train_learning_policy(self) -> None:
-        session = self.session
-        if session.armory_path is None:
-            return
-        try:
-            decision = maybe_auto_train_attempt_policy(session.armory_path)
-        except (OSError, RuntimeError, ValueError):
-            _log.warning("automated learning-policy training failed", exc_info=True)
-            return
-        session.trace.record_session_event(
-            "learning_auto_train",
-            status=decision.status,
-            reason=decision.reason,
-            attempt_count=decision.attempt_count,
-            new_attempt_count=decision.new_attempt_count,
-            policy_id=decision.report.policy_id if decision.report is not None else "",
-            training_decision=(decision.report.decision if decision.report is not None else ""),
-        )
-
-    def _apply_promoted_runtime_action(
-        self,
-        resolved: ResolvedTurnPlan,
-        visible_evidence: TurnEvidence | None,
-        *,
-        user_input: str,
-        latency_ms: float,
-    ) -> ResolvedTurnPlan:
-        session = self.session
-        if session.armory_path is None:
-            return resolved
-        runtime_policy = load_runtime_policy(session.armory_path)
-        if not isinstance(runtime_policy, ExportedAttemptPolicy):
-            return resolved
-        observation = _policy_observation(
-            resolved,
-            visible_evidence,
-            reply=self.last_reply,
-            latency_ms=latency_ms,
-            internal_passes=self.last_internal_passes,
-        )
-        action = runtime_policy.choose(observation)
-        if action is not AttemptAction.ABSTAIN:
-            # Retry actions require a separate retrieval/generation executor. Until one exists,
-            # keep them as policy recommendations in replay metadata rather than pretending
-            # the completed turn actually retried.
-            return resolved
-        runtime_reply = _runtime_abstain_reply(resolved)
-        if not runtime_reply:
-            return resolved
-        self._learning_action_override = AttemptAction.ABSTAIN
-        self._learning_recommended_action_override = action
-        self.last_reply = runtime_reply
-        self._replace_last_assistant_message(self.last_reply)
-        self._last_reply_citation_required = False
-        self.session.last_turn_evidence = None
-        self.session.last_turn_contract = None
-        self._learning_followup_seed_blocked = True
-        resolved = _resolved_with_citation_requirement(resolved, citation_required=False)
-        return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
 
     def _apply_structural_validation_guard(
         self,
@@ -447,13 +303,11 @@ class TurnFinalizationMixin:
         )
         if not _unsafe_validation_failure(observation):
             return resolved
-        runtime_policy = load_runtime_policy(self.session.armory_path)
-        recommended_action = runtime_policy.choose(observation)
+        recommended_action = StaticAttemptPolicy().choose(observation)
         if recommended_action is AttemptAction.ACCEPT:
             recommended_action = _validation_failure_action(observation)
         guard_reply = _validation_guard_abstain_reply(resolved, observation)
         self._learning_action_override = AttemptAction.ABSTAIN
-        self._learning_recommended_action_override = recommended_action
         self.last_reply = guard_reply
         self._replace_last_assistant_message(self.last_reply)
         self.session.trace.record_session_event(
@@ -490,7 +344,6 @@ class TurnFinalizationMixin:
         if not abstain_reply:
             return resolved
         self._learning_action_override = AttemptAction.ABSTAIN
-        self._learning_recommended_action_override = AttemptAction.ABSTAIN
         self.last_reply = abstain_reply
         self._replace_last_assistant_message(self.last_reply)
         self._last_reply_citation_required = False
@@ -602,190 +455,6 @@ class TurnFinalizationMixin:
             save_usage(session.armory_path, session.session_id, session.usage)
 
 
-def _citation_validation_states(
-    citation_result: VerificationResult,
-    *,
-    required: bool,
-) -> tuple[ValidationState, ...]:
-    verified = getattr(citation_result, "verified", [])
-    unverified = getattr(citation_result, "unverified", [])
-    has_citations = bool(getattr(citation_result, "has_citations", False))
-    all_verified = bool(getattr(citation_result, "all_verified", True))
-    return (
-        ValidationState(
-            name="citation_present",
-            passed=has_citations or not required,
-            detail=f"verified={len(verified)} unverified={len(unverified)}",
-        ),
-        ValidationState(
-            name="citation_verified",
-            passed=all_verified,
-            detail=", ".join(str(item) for item in unverified),
-        ),
-    )
-
-
-def _recorded_learning_attempt(
-    session: ChatSession,
-    resolved: ResolvedTurnPlan,
-    visible_evidence: TurnEvidence | None,
-    *,
-    user_input: str,
-    reply: str,
-    internal_passes: int,
-    latency_ms: float,
-    action_override: AttemptAction | None,
-    recommended_action_override: AttemptAction | None,
-    runtime_action: Callable[[AttemptObservation], AttemptAction],
-) -> _RecordedLearningAttempt:
-    turn_cost_usd = _turn_cost_usd(session)
-    citation_result = verify_citations(reply, visible_evidence)
-    observation = _policy_observation(
-        resolved,
-        visible_evidence,
-        reply=reply,
-        latency_ms=latency_ms,
-        internal_passes=internal_passes,
-        cost_usd=turn_cost_usd,
-        citation_result=citation_result,
-    )
-    action = action_override or _final_action_for_observation(observation)
-    recommended_action = recommended_action_override or runtime_action(observation)
-    record = _attempt_record(
-        session,
-        resolved,
-        visible_evidence,
-        user_input=user_input,
-        reply=reply,
-        latency_ms=latency_ms,
-        cost_usd=turn_cost_usd,
-        citation_result=citation_result,
-        observation=observation,
-        action=action,
-        recommended_action=recommended_action,
-    )
-    return _RecordedLearningAttempt(
-        record=record,
-        observation=observation,
-        action=action,
-        recommended_action=recommended_action,
-    )
-
-
-def _attempt_record(
-    session: ChatSession,
-    resolved: ResolvedTurnPlan,
-    visible_evidence: TurnEvidence | None,
-    *,
-    user_input: str,
-    reply: str,
-    latency_ms: float,
-    cost_usd: float,
-    citation_result: VerificationResult,
-    observation: AttemptObservation,
-    action: AttemptAction,
-    recommended_action: AttemptAction,
-) -> AttemptRecord:
-    accepted = action is AttemptAction.ACCEPT
-    abstained = action is AttemptAction.ABSTAIN
-    final_outcome = _final_outcome_for_action(action)
-    reward = score_attempt_reward(observation, accepted=accepted, abstained=abstained)
-    citation_validation = _citation_validation_states(
-        citation_result,
-        required=observation.citation_required,
-    )
-    evidence_validation = _evidence_validation_states(resolved, observation)
-    validation_states = (*citation_validation, *evidence_validation)
-    turn_id = _learning_turn_id(session)
-    return new_attempt_record(
-        session_id=session.session_id,
-        turn_id=turn_id,
-        episode_id=turn_id,
-        attempt_index=1,
-        action=action,
-        observation=observation,
-        reward=reward,
-        user_input=user_input,
-        reply=reply,
-        evidence=visible_evidence,
-        accepted=accepted,
-        abstained=abstained,
-        final_outcome=final_outcome,
-        failed_validation_states=tuple(state for state in validation_states if not state.passed),
-        evidence_validation=evidence_validation,
-        citation_validation=citation_validation,
-        action_outcomes=(
-            ActionOutcome(
-                action=action,
-                observation=observation,
-                reward=reward,
-                final_outcome=final_outcome,
-                accepted=accepted,
-                abstained=abstained,
-                attempts=1,
-                latency_ms=latency_ms,
-                cost_usd=cost_usd,
-                validation_states=validation_states,
-            ),
-        ),
-        latency_ms=latency_ms,
-        cost_usd=cost_usd,
-        replay_metadata={
-            "data_origin": "local",
-            "dataset_kind": "armory-local",
-            "policy_action": recommended_action.value,
-            "schema": "heph-learning-episode-v2",
-            "trajectory_window_size": 7,
-        },
-    )
-
-
-def _learning_turn_id(session: ChatSession) -> str:
-    return f"{session.session_id}:{len(session.turn_history) + 1}"
-
-
-def _evidence_validation_states(
-    resolved: ResolvedTurnPlan,
-    observation: AttemptObservation,
-) -> tuple[ValidationState, ...]:
-    assessment = resolved.evidence_assessment
-    if assessment is None:
-        return (ValidationState(name="evidence_assessed", passed=False, detail="missing"),)
-    return (
-        ValidationState(
-            name="evidence_sufficient",
-            passed=assessment.sufficient,
-            detail=assessment.recommended_action,
-        ),
-        ValidationState(
-            name="evidence_source_diversity",
-            passed=assessment.source_diversity_score > 0,
-            detail=f"{assessment.source_diversity_score:.3f}",
-        ),
-        ValidationState(
-            name="answer_relevance",
-            passed=not observation.off_topic_answer,
-            detail=f"{observation.answer_relevance_score:.3f}",
-        ),
-        ValidationState(
-            name="answer_shape",
-            passed=not observation.answer_shape_failed,
-            detail="ok" if not observation.answer_shape_failed else "bad_shape",
-        ),
-    )
-
-
-def _turn_cost_usd(session: ChatSession) -> float:
-    summary = session.usage.summary()
-    value = summary.get("cost_usd", 0.0)
-    if isinstance(value, bool):
-        return 0.0
-    total = float(value) if isinstance(value, int | float) else 0.0
-    turn_cost = round(max(0.0, total - session._last_learning_cost_usd), 6)
-    session._last_learning_cost_usd = total
-    return turn_cost
-
-
 def _policy_observation(
     resolved: ResolvedTurnPlan,
     visible_evidence: TurnEvidence | None,
@@ -818,13 +487,6 @@ def _policy_observation(
         answer_relevance_required=_answer_relevance_required(contract),
         answer_shape_failed=_answer_shape_failed(resolved, visible_evidence, reply),
     )
-
-
-def _runtime_abstain_reply(resolved: ResolvedTurnPlan) -> str:
-    plan = resolved.learning_plan
-    if plan is None:
-        return ""
-    return _source_qa_abstain_reply(plan, resolved)
 
 
 def _unsafe_validation_failure(observation: AttemptObservation) -> bool:
@@ -921,25 +583,3 @@ def _structural_abstain_reply(resolved: ResolvedTurnPlan) -> str:
     if plan is None:
         return ""
     return _source_qa_abstain_reply(plan, resolved, force=True)
-
-
-def _final_action_for_observation(observation: AttemptObservation) -> AttemptAction:
-    if _observation_abstained(observation):
-        return AttemptAction.ABSTAIN
-    return AttemptAction.ACCEPT
-
-
-def _observation_abstained(observation: AttemptObservation) -> bool:
-    return bool(
-        not observation.citation_required
-        and not observation.evidence_sufficient
-        and observation.evidence_recommended_action == "abstain"
-    )
-
-
-def _final_outcome_for_action(action: AttemptAction) -> str:
-    if action is AttemptAction.ACCEPT:
-        return "accepted"
-    if action is AttemptAction.ABSTAIN:
-        return "abstained"
-    return "retry_recommended"

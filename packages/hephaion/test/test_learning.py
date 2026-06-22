@@ -1,11 +1,9 @@
-"""Tests for local harness-attempt learning contracts."""
+"""Tests for structural answer-attempt guard contracts."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 from ai.runtime import ChatConfig, Conversation
 from hephaion.agent.citation import VerificationResult
 from hephaion.chat.events import AssistantDeltaEvent
@@ -23,44 +21,15 @@ from hephaion.chat.turn_finalization import TurnFinalizationMixin
 from hephaion.chat.turn_orchestrator import TurnOrchestrator
 from hephaion.chat.turn_outputs import _LearningAgentOutput
 from hephaion.learning.actions import AttemptAction
-from hephaion.learning.automation import AutoTrainingConfig, maybe_auto_train_attempt_policy
-from hephaion.learning.environment import ReplayHephEnv
 from hephaion.learning.observation import AttemptObservation, build_attempt_observation
 from hephaion.learning.observation_audit import (
     audit_observation_probes,
     randomized_observation_probes,
 )
 from hephaion.learning.policy import StaticAttemptPolicy
-from hephaion.learning.policy_artifact import (
-    PROMOTED_POLICY_FILE,
-    PROMOTION_MANIFEST_FILE,
-    ExportedPolicyArtifact,
-    load_runtime_policy,
-    observation_bucket,
-    write_exported_policy,
-)
-from hephaion.learning.reward import (
-    RewardComponent,
-    score_action_outcome_reward,
-    score_attempt_reward,
-)
-from hephaion.learning.storage import (
-    ActionOutcome,
-    AttemptRecord,
-    LearningStore,
-    ValidationState,
-    new_attempt_record,
-)
-from hephaion.learning.training import (
-    PUBLIC_SYNTHETIC_REPLAY,
-    REWARD_TABLE_BACKEND_NAME,
-    _evaluate_actions,
-    load_records_from_jsonl,
-    train_attempt_policy,
-)
 from hephaion.rag import Chunk, EvidenceChunk, TurnEvidence
 from hephaion.study.policy import EvidenceAssessment
-from hephaion.study.prompt_plans import LearningTurnPlan, material_overview_plan
+from hephaion.study.prompt_plans import LearningTurnPlan
 from hephaion.study.state import LearningAction, LearningPhase
 
 
@@ -71,7 +40,6 @@ class _FinalizationProbe(TurnFinalizationMixin):
         self.last_internal_passes = 0
         self._last_reply_citation_required = True
         self._learning_action_override = None
-        self._learning_recommended_action_override = None
         self._learning_followup_seed_blocked = False
 
 
@@ -82,21 +50,6 @@ def _chunk(source: str = "notes.md", index: int = 0) -> Chunk:
         index=index,
         char_start=0,
         char_end=13,
-    )
-
-
-def _evidence() -> TurnEvidence:
-    return TurnEvidence(
-        items=(
-            EvidenceChunk(
-                evidence_id="E1",
-                chunk=_chunk(),
-                score=0.9,
-                content="Evidence text",
-            ),
-        ),
-        sampled_source_count=1,
-        total_source_count=1,
     )
 
 
@@ -119,204 +72,6 @@ def _turn_evidence_with_content(evidence_id: str, source: str, content: str) -> 
         sampled_source_count=1,
         total_source_count=1,
     )
-
-
-def _overview_evidence() -> TurnEvidence:
-    first = "Sorting procedures compare items and arrange them by key."
-    second = "Search trees organize ordered data for lookup operations."
-    third = "Counting arguments connect combinations to probability models."
-    fourth = "Graph examples describe paths, cycles, and reachability."
-    return TurnEvidence(
-        items=(
-            EvidenceChunk(
-                evidence_id="E1",
-                chunk=Chunk(
-                    text=first,
-                    source="materials/algorithms.md",
-                    index=0,
-                    char_start=0,
-                    char_end=len(first),
-                ),
-                score=1.0,
-                content=first,
-            ),
-            EvidenceChunk(
-                evidence_id="E2",
-                chunk=Chunk(
-                    text=second,
-                    source="materials/data-structures.md",
-                    index=0,
-                    char_start=0,
-                    char_end=len(second),
-                ),
-                score=1.0,
-                content=second,
-            ),
-            EvidenceChunk(
-                evidence_id="E3",
-                chunk=Chunk(
-                    text=third,
-                    source="materials/counting.md",
-                    index=0,
-                    char_start=0,
-                    char_end=len(third),
-                ),
-                score=1.0,
-                content=third,
-            ),
-            EvidenceChunk(
-                evidence_id="E4",
-                chunk=Chunk(
-                    text=fourth,
-                    source="materials/graphs.md",
-                    index=0,
-                    char_start=0,
-                    char_end=len(fourth),
-                ),
-                score=1.0,
-                content=fourth,
-            ),
-        ),
-        sampled_source_count=4,
-        total_source_count=4,
-    )
-
-
-def _accepted_observation() -> AttemptObservation:
-    return AttemptObservation(
-        citation_required=True,
-        evidence_count=1,
-        distinct_source_count=1,
-        top_score=0.9,
-        evidence_sufficient=True,
-        evidence_confidence=0.8,
-        evidence_recommended_action="answer",
-        has_citations=True,
-        citation_count=1,
-        all_citations_verified=True,
-        reply_chars=120,
-        latency_ms=100.0,
-    )
-
-
-def _record(action: AttemptAction = AttemptAction.ACCEPT) -> AttemptRecord:
-    observation = _accepted_observation()
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-    return new_attempt_record(
-        session_id="session",
-        turn_id="session:1",
-        action=action,
-        observation=observation,
-        reward=reward,
-        user_input="What does the note say?",
-        reply="The note says this [E1].",
-        evidence=_evidence(),
-        accepted=action is AttemptAction.ACCEPT,
-        final_outcome="accepted" if action is AttemptAction.ACCEPT else "retry_succeeded",
-        replay_metadata={"data_origin": "local", "dataset_kind": "armory-local"},
-    )
-
-
-def _abstain_record() -> AttemptRecord:
-    observation = AttemptObservation(
-        attempt_index=1,
-        citation_required=True,
-        evidence_recommended_action="abstain",
-        evidence_confidence=0.9,
-        missing_required_citation_count=1,
-        reply_chars=0,
-    )
-    abstain_reward = score_action_outcome_reward(observation, AttemptAction.ABSTAIN)
-    retry_reward = score_attempt_reward(observation, accepted=False, abstained=False)
-    return new_attempt_record(
-        session_id="session",
-        turn_id="episode-abstain",
-        action=AttemptAction.RETRY_EXPAND_EVIDENCE,
-        observation=observation,
-        reward=retry_reward,
-        user_input="Missing answer?",
-        reply="",
-        evidence=None,
-        final_outcome="retry_failed",
-        failed_validation_states=(
-            ValidationState(name="evidence_sufficient", passed=False, detail="abstain"),
-        ),
-        action_outcomes=(
-            ActionOutcome(
-                action=AttemptAction.RETRY_EXPAND_EVIDENCE,
-                observation=observation,
-                reward=retry_reward,
-                final_outcome="retry_failed",
-                attempts=2,
-            ),
-            ActionOutcome(
-                action=AttemptAction.ABSTAIN,
-                observation=observation,
-                reward=abstain_reward,
-                final_outcome="abstained",
-                abstained=True,
-                attempts=1,
-            ),
-        ),
-        replay_metadata={"data_origin": "synthetic", "dataset_kind": "synthetic"},
-    )
-
-
-def test_reward_orders_grounded_progress_abstain_and_bad_accepts() -> None:
-    good = score_attempt_reward(_accepted_observation(), accepted=True, abstained=False)
-    partial = score_attempt_reward(
-        AttemptObservation(
-            citation_required=True,
-            evidence_count=1,
-            distinct_source_count=1,
-            top_score=0.78,
-            evidence_sufficient=False,
-            evidence_confidence=0.35,
-            evidence_recommended_action="abstain",
-            has_citations=True,
-            citation_count=1,
-            all_citations_verified=True,
-            answer_relevance_required=True,
-            answer_relevance_score=0.55,
-            grounded_partial_progress=True,
-            reply_chars=190,
-        ),
-        accepted=True,
-        abstained=False,
-    )
-    neutral_abstain = score_attempt_reward(
-        AttemptObservation(
-            citation_required=True,
-            evidence_count=0,
-            evidence_recommended_action="abstain",
-            evidence_confidence=0.9,
-            reply_chars=76,
-        ),
-        accepted=False,
-        abstained=True,
-    )
-    unnecessary_abstain = score_attempt_reward(
-        _accepted_observation(),
-        accepted=False,
-        abstained=True,
-    )
-    bad_accept = score_attempt_reward(
-        AttemptObservation(
-            citation_required=True,
-            evidence_count=1,
-            evidence_sufficient=True,
-            evidence_recommended_action="answer",
-            unsupported_claim_count=1,
-            missing_required_citation_count=1,
-            reply_chars=170,
-        ),
-        accepted=True,
-        abstained=False,
-    )
-
-    assert good.total > partial.total > neutral_abstain.total
-    assert neutral_abstain.total > unnecessary_abstain.total > bad_accept.total
-    assert _component_value(partial.components, "grounded_partial_progress") > 0
 
 
 def test_source_qa_abstain_uses_cited_partial_progress_when_evidence_is_relevant() -> None:
@@ -356,91 +111,14 @@ def test_source_qa_abstain_uses_cited_partial_progress_when_evidence_is_relevant
     )
 
 
-def test_attempt_record_serializes_observation_reward_and_evidence() -> None:
-    record = new_attempt_record(
-        session_id="session",
-        turn_id="session:1",
-        action=AttemptAction.ACCEPT,
-        observation=_accepted_observation(),
-        reward=score_attempt_reward(_accepted_observation(), accepted=True, abstained=False),
-        user_input="What does the note say?",
-        reply="The note says this [E1].",
-        evidence=_evidence(),
-        accepted=True,
-        final_outcome="accepted",
-        failed_validation_states=(
-            ValidationState(name="citation_verified", passed=True, detail=""),
-        ),
-        replay_metadata={"data_origin": "local"},
-    )
-
-    restored = type(record).from_dict(record.to_dict())
-
-    assert restored is not None
-    assert restored.schema_version == 2
-    assert restored.action is AttemptAction.ACCEPT
-    assert restored.observation.evidence_count == 1
-    assert restored.reward.total == record.reward.total
-    assert restored.evidence is not None
-    assert restored.evidence.items[0].evidence_id == "E1"
-    assert restored.final_outcome == "accepted"
-    assert restored.replay_metadata == {"data_origin": "local"}
-
-
-def test_learning_store_writes_only_under_armory_learning_tree(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-
-    store.append_attempt(_record())
-
-    assert store.attempts_path.is_relative_to(tmp_path / ".hephaion" / "learning")
-    assert store.attempts_path.is_file()
-    assert store.policies_dir.is_dir()
-    assert store.replay_dir.is_dir()
-    assert next(store.iter_attempts()).turn_id == "session:1"
-
-
-def test_unsupported_citations_dominate_reward_negatively() -> None:
-    observation = AttemptObservation(
-        citation_required=True,
-        evidence_count=1,
-        evidence_sufficient=True,
-        has_citations=True,
-        citation_count=1,
-        all_citations_verified=False,
-        unverified_citation_count=1,
-        reply_chars=120,
-    )
-
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-
-    assert reward.total < 0
-    assert _component_value(reward.components, "bad_accept") == -0.85
-    assert _component_value(reward.components, "accepted_invalid_or_unverified_citations") < 0
-
-
-def test_necessary_abstention_is_neutral_for_weak_evidence() -> None:
-    observation = AttemptObservation(
-        evidence_count=0,
-        evidence_sufficient=False,
-        evidence_recommended_action="abstain",
-        reply_chars=80,
-    )
-
-    reward = score_attempt_reward(observation, accepted=False, abstained=True)
-
-    assert reward.total == 0.0
-    assert all(component.name != "correct_abstain" for component in reward.components)
-
-
-def test_observation_audit_core_signals_drive_policy_and_reward() -> None:
+def test_observation_audit_core_signals_drive_static_policy() -> None:
     results = audit_observation_probes(seed=41)
     failures = tuple(
         (
             result.probe.name,
             result.chosen_action.value,
             result.probe.expected_action.value,
-            result.reward_margin,
-            [(score.action.value, score.reward) for score in result.action_rewards[:3]],
+            result.probe.active_feature_names,
         )
         for result in results
         if not result.passed
@@ -458,13 +136,7 @@ def test_observation_audit_randomizes_probe_order_by_seed() -> None:
     assert first != second
 
 
-def test_observation_bucket_keeps_retrieval_strategy_distinct() -> None:
-    assert observation_bucket(AttemptObservation(retrieval_strategy="overview")) != (
-        observation_bucket(AttemptObservation(retrieval_strategy="targeted"))
-    )
-
-
-def test_off_topic_accepted_answer_is_rewarded_terribly() -> None:
+def test_off_topic_observation_drives_abstain() -> None:
     evidence = _turn_evidence_with_content(
         "E1",
         "exam.md",
@@ -501,17 +173,12 @@ def test_off_topic_accepted_answer_is_rewarded_terribly() -> None:
         answer_relevance_required=True,
     )
 
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-
     assert observation.off_topic_answer
     assert observation.unsupported_claim_count == 1
-    assert reward.total < 0
-    assert _component_value(reward.components, "bad_accept") == -0.85
-    assert _component_value(reward.components, "accepted_off_topic_answer") < 0
     assert StaticAttemptPolicy().choose(observation) is AttemptAction.ABSTAIN
 
 
-def test_bad_overview_shape_accepted_answer_is_rewarded_terribly() -> None:
+def test_bad_overview_shape_drives_stricter_retry() -> None:
     observation = AttemptObservation(
         intent="material_overview",
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
@@ -534,17 +201,6 @@ def test_bad_overview_shape_accepted_answer_is_rewarded_terribly() -> None:
         internal_passes=2,
     )
 
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-    retry_reward = score_action_outcome_reward(
-        observation,
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER,
-    )
-    abstain_reward = score_action_outcome_reward(observation, AttemptAction.ABSTAIN)
-
-    assert reward.total <= -0.9
-    assert _component_value(reward.components, "bad_accept") == -0.85
-    assert _component_value(reward.components, "accepted_bad_answer_shape") < 0
-    assert retry_reward.total > abstain_reward.total
     assert StaticAttemptPolicy().choose(observation) is (
         AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
     )
@@ -621,11 +277,9 @@ def test_answer_relevance_scores_cited_evidence_not_uncited_context() -> None:
         answer_relevance_required=True,
     )
 
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-
     assert observation.off_topic_answer
     assert observation.answer_relevance_score < 0.12
-    assert reward.total < 0
+    assert StaticAttemptPolicy().choose(observation) is AttemptAction.ABSTAIN
 
 
 def test_answer_relevance_allows_source_backed_paraphrase() -> None:
@@ -665,11 +319,9 @@ def test_answer_relevance_allows_source_backed_paraphrase() -> None:
         answer_relevance_required=True,
     )
 
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-
     assert not observation.off_topic_answer
     assert observation.answer_relevance_score >= 0.12
-    assert reward.total > 0
+    assert StaticAttemptPolicy().choose(observation) is AttemptAction.ACCEPT
 
 
 def test_answer_relevance_rejects_unrelated_reply_with_relevant_citation() -> None:
@@ -709,237 +361,14 @@ def test_answer_relevance_rejects_unrelated_reply_with_relevant_citation() -> No
         answer_relevance_required=True,
     )
 
-    reward = score_attempt_reward(observation, accepted=True, abstained=False)
-
     assert observation.off_topic_answer
     assert observation.answer_relevance_score < 0.12
-    assert reward.total < 0
+    assert StaticAttemptPolicy().choose(observation) is AttemptAction.ABSTAIN
 
 
-def test_replay_environment_is_deterministic_from_saved_records() -> None:
-    records = (_record(), _abstain_record())
-    first = ReplayHephEnv(records)
-    second = ReplayHephEnv(records)
-
-    assert first.reset() == second.reset()
-    first_step = first.step(AttemptAction.ACCEPT)
-    second_step = second.step(AttemptAction.ACCEPT)
-
-    assert first_step.reward == second_step.reward
-    assert not first_step.terminated
-    abstain_step = first.step(AttemptAction.ABSTAIN)
-    assert abstain_step.reward.total == 0
-    assert abstain_step.info["final_outcome"] == "abstained"
-    assert abstain_step.terminated
-
-
-def test_public_synthetic_replay_is_labelled_and_reward_based() -> None:
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-
-    assert {_data_origin(record) for record in records} == {
-        "public",
-        "synthetic",
-    }
-    first = records[0]
-    partial = records[2]
-    no_evidence = records[-1]
-    assert first.action is AttemptAction.ACCEPT
-    assert partial.observation.grounded_partial_progress
-    assert no_evidence.action is AttemptAction.ABSTAIN
-    assert no_evidence.outcome_for(AttemptAction.ABSTAIN).reward.total <= 0
-
-
-def test_trajectory_shaping_rewards_progress_and_penalizes_bad_window() -> None:
-    partial_observation = AttemptObservation(
-        citation_required=True,
-        evidence_count=1,
-        distinct_source_count=1,
-        evidence_sufficient=False,
-        evidence_confidence=0.35,
-        evidence_recommended_action="abstain",
-        has_citations=True,
-        citation_count=1,
-        all_citations_verified=True,
-        grounded_partial_progress=True,
-        reply_chars=160,
-    )
-    partial_reward = score_attempt_reward(
-        partial_observation,
-        accepted=True,
-        abstained=False,
-    )
-    good_records = tuple(
-        new_attempt_record(
-            session_id="trajectory",
-            turn_id=f"trajectory:{index}",
-            action=AttemptAction.ACCEPT,
-            observation=partial_observation,
-            reward=partial_reward,
-            user_input="What does the material say?",
-            reply="The material says this much [E1].",
-            evidence=_evidence(),
-            accepted=True,
-            final_outcome="accepted",
-        )
-        for index in range(1, 8)
-    )
-    bad_observation = AttemptObservation(
-        citation_required=True,
-        evidence_count=1,
-        evidence_sufficient=True,
-        evidence_recommended_action="answer",
-        unsupported_claim_count=1,
-        missing_required_citation_count=1,
-        reply_chars=170,
-    )
-    bad_reward = score_attempt_reward(bad_observation, accepted=True, abstained=False)
-    bad_window = (
-        *good_records[:6],
-        new_attempt_record(
-            session_id="trajectory",
-            turn_id="trajectory:7",
-            action=AttemptAction.ACCEPT,
-            observation=bad_observation,
-            reward=bad_reward,
-            user_input="What does the material say?",
-            reply="Unsupported answer.",
-            evidence=_evidence(),
-            accepted=True,
-            final_outcome="accepted",
-        ),
-    )
-
-    good_metrics = _evaluate_actions(
-        good_records,
-        (AttemptAction.ACCEPT,) * len(good_records),
-    )
-    bad_metrics = _evaluate_actions(
-        bad_window,
-        (AttemptAction.ACCEPT,) * len(bad_window),
-    )
-    unshaped_bad_average = ((partial_reward.total * 6) + bad_reward.total) / 7
-
-    assert good_metrics.average_reward > partial_reward.total
-    assert good_metrics.grounded_progress_rate == 1.0
-    assert bad_metrics.average_reward < unshaped_bad_average
-    assert bad_metrics.bad_accept_rate > 0
-
-
-def test_finalized_turn_records_accepted_action_when_policy_would_retry(tmp_path: Path) -> None:
-    _write_promoted_policy(tmp_path, table={})
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    probe = _FinalizationProbe(session)
-    resolved = ResolvedTurnPlan(
-        turn_evidence=_evidence(),
-        evidence_assessment=EvidenceAssessment(
-            sufficient=True,
-            confidence=0.8,
-            supporting_refs=("E1",),
-            missing_information=(),
-            conflicts=(),
-            source_diversity_score=1.0,
-            recommended_action="answer",
-        ),
-        turn_contract=TurnContract(
-            original_user_input="What does the note say?",
-            resolved_intent="answer note",
-            citation_required=True,
-        ),
-    )
-
-    probe._record_learning_attempt(
-        resolved,
-        _evidence(),
-        user_input="What does the note say?",
-        latency_ms=10.0,
-    )
-
-    record = next(LearningStore(tmp_path).iter_attempts())
-
-    assert StaticAttemptPolicy().choose(record.observation) is (
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
-    )
-    assert record.replay_metadata is not None
-    assert record.replay_metadata["policy_action"] == (
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER.value
-    )
-    assert record.action is AttemptAction.ACCEPT
-    assert record.accepted
-    assert record.reward.total < 0
-    assert len(record.failed_validation_states) == len(set(record.failed_validation_states))
-
-
-def test_finalized_turn_applies_promoted_abstain_policy(tmp_path: Path) -> None:
-    train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-        include_local=False,
-        promote=True,
-    )
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    probe = _FinalizationProbe(session)
-    probe.last_reply = "The current evidence does not contain a direct source answer."
-    probe._last_reply_citation_required = False
-    resolved = _abstain_resolved_turn()
-
-    probe._record_learning_attempt(
-        resolved,
-        None,
-        user_input="What does the source say about the missing topic?",
-        latency_ms=5.0,
-    )
-
-    record = next(LearningStore(tmp_path).iter_attempts())
-
-    assert record.action is AttemptAction.ABSTAIN
-    assert record.abstained
-    assert record.final_outcome == "abstained"
-
-
-def test_promoted_abstain_replaces_reply_before_learning_persistence(tmp_path: Path) -> None:
-    train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-        include_local=False,
-        promote=True,
-    )
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    probe = _FinalizationProbe(session)
-    probe.last_reply = "I can answer this without evidence."
-    session.conversation.add("user", "What does the source say about the missing topic?")
-    session.conversation.add("assistant", probe.last_reply)
-
-    probe._finalize_successful_turn(
-        "What does the source say about the missing topic?",
-        _abstain_resolved_turn(citation_required=True),
-        latency_ms=5.0,
-    )
-
-    record = next(LearningStore(tmp_path).iter_attempts())
-
-    assert "does not contain a direct source answer" in probe.last_reply
-    assert session.conversation.messages[-1].content == probe.last_reply
-    assert record.action is AttemptAction.ABSTAIN
-    assert record.replay_metadata is not None
-    assert record.replay_metadata["policy_action"] == AttemptAction.ABSTAIN.value
-
-
-def test_structural_relevance_guard_replaces_off_topic_prior_followup(tmp_path: Path) -> None:
+def test_structural_relevance_guard_replaces_off_topic_prior_followup(
+    tmp_path: Path,
+) -> None:
     session = ChatSession(
         config=ChatConfig(),
         conversation=Conversation(),
@@ -990,73 +419,11 @@ def test_structural_relevance_guard_replaces_off_topic_prior_followup(tmp_path: 
         resolved,
         latency_ms=10.0,
     )
-    record = next(LearningStore(tmp_path).iter_attempts())
 
     assert "does not contain a direct source answer" in probe.last_reply
     assert "paper notes" not in session.conversation.messages[-1].content
     assert session.last_turn_evidence is None
     assert session.last_turn_contract is None
-    assert record.action is AttemptAction.ABSTAIN
-    assert record.observation.off_topic_answer
-    assert record.reward.total <= 0
-    assert any(
-        state.name == "answer_relevance" and not state.passed
-        for state in record.failed_validation_states
-    )
-
-
-def test_finalized_material_overview_records_bad_answer_shape(tmp_path: Path) -> None:
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    reply = (
-        "The material is mainly about computing concepts, especially: 1. "
-        "**Algorithms** such as sorting and lookup procedures [E1][E2]\n\n"
-        "2. **Discrete structures**, including counting arguments and graph examples [E3][E4]."
-    )
-    session.conversation.add("user", "What is the material about?")
-    session.conversation.add("assistant", reply)
-    probe = _FinalizationProbe(session)
-    probe.last_reply = reply
-    evidence = _overview_evidence()
-    resolved = ResolvedTurnPlan(
-        learning_plan=material_overview_plan("What is the material about?"),
-        turn_evidence=evidence,
-        evidence_assessment=EvidenceAssessment(
-            sufficient=True,
-            confidence=0.95,
-            supporting_refs=("E1", "E2", "E3", "E4"),
-            missing_information=(),
-            conflicts=(),
-            source_diversity_score=1.0,
-            recommended_action="answer",
-        ),
-        turn_contract=TurnContract(
-            original_user_input="What is the material about?",
-            resolved_intent="material_overview",
-            canonical_request="Give a compact overview of the material corpus.",
-            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            citation_required=True,
-        ),
-    )
-
-    probe._finalize_successful_turn("What is the material about?", resolved, latency_ms=10.0)
-    record = next(LearningStore(tmp_path).iter_attempts())
-
-    assert record.action is AttemptAction.ACCEPT
-    assert record.observation.answer_shape_failed
-    assert record.reward.total < 0
-    assert any(
-        state.name == "answer_shape" and not state.passed
-        for state in record.failed_validation_states
-    )
-    assert record.replay_metadata is not None
-    assert record.replay_metadata["policy_action"] == (
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER.value
-    )
 
 
 def test_structural_relevance_guard_does_not_seed_rejected_prior_transform(
@@ -1168,19 +535,11 @@ def test_structural_validation_guard_replaces_uncited_required_answer(
         resolved,
         latency_ms=10.0,
     )
-    record = next(LearningStore(tmp_path).iter_attempts())
 
     assert "verifiable citations" in probe.last_reply
+    assert session.conversation.messages[-1].content == probe.last_reply
     assert session.last_turn_evidence is None
     assert session.last_turn_contract is None
-    assert record.action is AttemptAction.ABSTAIN
-    assert record.replay_metadata["policy_action"] == (
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER.value
-    )
-    assert any(
-        state.name == "citation_present" and not state.passed
-        for state in record.failed_validation_states
-    )
 
 
 def test_structural_validation_guard_is_not_overwritten_by_relevance_guard(
@@ -1230,20 +589,10 @@ def test_structural_validation_guard_is_not_overwritten_by_relevance_guard(
     )
 
     probe._finalize_successful_turn("What does that mean?", resolved, latency_ms=10.0)
-    record = next(LearningStore(tmp_path).iter_attempts())
 
     assert "verifiable citations" in probe.last_reply
     assert "does not contain a direct source answer" not in probe.last_reply
     assert session.conversation.messages[-1].content == probe.last_reply
-    assert record.action is AttemptAction.ABSTAIN
-    assert record.replay_metadata is not None
-    assert record.replay_metadata["policy_action"] == (
-        AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER.value
-    )
-    assert any(
-        state.name == "citation_present" and not state.passed
-        for state in record.failed_validation_states
-    )
 
 
 def test_structural_relevance_guard_replaces_reply_before_emit(tmp_path: Path) -> None:
@@ -1372,7 +721,9 @@ def test_structural_relevance_guard_keeps_learning_state_on_rewrite(
     assert session.learning_state.to_dict() == original_state.to_dict()
 
 
-def test_structural_relevance_guard_allows_concise_prior_transform(tmp_path: Path) -> None:
+def test_structural_relevance_guard_allows_concise_prior_transform(
+    tmp_path: Path,
+) -> None:
     session = ChatSession(
         config=ChatConfig(),
         conversation=Conversation(),
@@ -1430,12 +781,10 @@ def test_structural_relevance_guard_allows_concise_prior_transform(tmp_path: Pat
         resolved,
         latency_ms=10.0,
     )
-    record = next(LearningStore(tmp_path).iter_attempts())
 
     assert probe.last_reply == concise_reply
-    assert record.action is AttemptAction.ACCEPT
-    assert not record.observation.off_topic_answer
-    assert record.reward.total > 0
+    assert session.conversation.messages[-1].content == concise_reply
+    assert session.last_turn_contract is not None
 
 
 def test_structural_relevance_guard_allows_vague_prior_transform(tmp_path: Path) -> None:
@@ -1486,43 +835,10 @@ def test_structural_relevance_guard_allows_vague_prior_transform(tmp_path: Path)
     )
 
     probe._finalize_successful_turn("What does that mean?", resolved, latency_ms=10.0)
-    record = next(LearningStore(tmp_path).iter_attempts())
 
     assert probe.last_reply == concise_reply
-    assert record.action is AttemptAction.ACCEPT
-    assert not record.observation.off_topic_answer
-    assert record.observation.answer_relevance_score >= 0.12
-
-
-def test_learning_attempt_records_turn_cost_delta(tmp_path: Path) -> None:
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    probe = _FinalizationProbe(session)
-    resolved = _accepted_resolved_turn()
-
-    session.usage.total_cost_usd = 0.03
-    probe._record_learning_attempt(
-        resolved,
-        _evidence(),
-        user_input="What does the note say?",
-        latency_ms=10.0,
-    )
-    session.usage.total_cost_usd = 0.05
-    probe._record_learning_attempt(
-        resolved,
-        _evidence(),
-        user_input="What else does the note say?",
-        latency_ms=10.0,
-    )
-
-    records = list(LearningStore(tmp_path).iter_attempts())
-
-    assert records[0].cost_usd == 0.03
-    assert records[1].cost_usd == 0.02
+    assert session.conversation.messages[-1].content == concise_reply
+    assert session.last_turn_contract is not None
 
 
 def test_static_policy_chooses_retry_action_for_failed_citation_validation() -> None:
@@ -1540,412 +856,3 @@ def test_static_policy_chooses_retry_action_for_failed_citation_validation() -> 
     action = StaticAttemptPolicy().choose(observation)
 
     assert action is AttemptAction.RETRY_STRICTER_GROUNDED_ANSWER
-
-
-def test_training_promotes_when_trained_policy_beats_static_on_balanced_fixture(
-    tmp_path: Path,
-) -> None:
-    report = train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-        include_local=False,
-        promote=True,
-    )
-
-    assert report.decision == "promote"
-    assert report.backend == REWARD_TABLE_BACKEND_NAME
-    assert report.trained_metrics.average_reward > report.baseline_metrics.average_reward
-    assert report.reasons == ()
-    manifest = json.loads(report.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["backend_metadata"]["algorithm"] == "structural_reward_table"
-    assert manifest["backend_metadata"]["export"] == "best_average_reward_bucket_table"
-    assert report.dataset_counts == {"public": 3, "synthetic": 5}
-    assert manifest["trajectory_window_size"] == 7
-    assert report.artifact_path.is_file()
-    assert (tmp_path / ".hephaion" / "learning" / "policies" / PROMOTED_POLICY_FILE).exists()
-
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-    policy = load_runtime_policy(tmp_path)
-
-    assert policy.choose(records[0].observation) is AttemptAction.ACCEPT
-
-
-def test_training_keeps_fallback_when_promote_gate_fails(tmp_path: Path) -> None:
-    record = _record()
-    LearningStore(tmp_path).append_attempt(record)
-    empty_dataset = tmp_path / "empty.jsonl"
-    empty_dataset.write_text("", encoding="utf-8")
-
-    report = train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(empty_dataset,),
-        include_local=True,
-        promote=True,
-    )
-
-    assert report.decision == "keep_fallback"
-    assert not (tmp_path / ".hephaion" / "learning" / "policies" / PROMOTED_POLICY_FILE).exists()
-
-
-def test_training_rejects_missing_explicit_dataset(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="learning replay dataset not found"):
-        train_attempt_policy(
-            armory_path=tmp_path,
-            dataset_paths=(tmp_path / "missing.jsonl",),
-            include_local=False,
-            promote=True,
-        )
-
-
-def test_training_rejects_unknown_backend(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="unknown learning backend: mystery"):
-        train_attempt_policy(
-            armory_path=tmp_path,
-            dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-            include_local=False,
-            backend="mystery",
-        )
-
-
-def test_reward_table_training_smoke_trains_exports_loads_and_infers(
-    tmp_path: Path,
-) -> None:
-    report = train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-        include_local=False,
-        backend=REWARD_TABLE_BACKEND_NAME,
-        promote=True,
-    )
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-    loaded_policy = load_runtime_policy(tmp_path)
-
-    assert report.decision == "promote"
-    assert report.backend == REWARD_TABLE_BACKEND_NAME
-    assert report.artifact_path.is_file()
-    assert report.reasons == ()
-    assert loaded_policy.choose(records[0].observation) is AttemptAction.ACCEPT
-
-
-def test_training_rejects_symlinked_policies_dir(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-    store.root.mkdir(parents=True)
-    outside = tmp_path / "outside-policies"
-    outside.mkdir()
-    try:
-        store.policies_dir.symlink_to(outside, target_is_directory=True)
-    except OSError:
-        pytest.skip("symlinks are not supported on this filesystem")
-
-    with pytest.raises(OSError, match="must not be a symlink"):
-        train_attempt_policy(
-            armory_path=tmp_path,
-            dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-            include_local=False,
-            backend=REWARD_TABLE_BACKEND_NAME,
-            promote=True,
-        )
-
-    assert list(outside.iterdir()) == []
-
-
-def test_auto_training_waits_for_enough_local_attempts(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-
-    decision = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(min_total_attempts=2, min_new_attempts=1),
-    )
-
-    assert decision.status == "skipped"
-    assert decision.reason == "not enough local attempts"
-    assert not LearningStore(tmp_path).automation_state_path.exists()
-
-
-def test_auto_training_runs_once_for_new_attempt_digest(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-
-    first = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1),
-    )
-    second = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1),
-    )
-
-    store = LearningStore(tmp_path)
-    assert first.status == "trained"
-    assert first.report is not None
-    assert first.report.backend == REWARD_TABLE_BACKEND_NAME
-    assert store.automation_state_path.is_file()
-    assert store.automation_events_path.is_file()
-    event_text = store.automation_events_path.read_text(encoding="utf-8")
-    assert str(tmp_path) not in event_text
-    assert "artifact_path" not in event_text
-    assert "manifest_path" not in event_text
-    assert second.status == "skipped"
-    assert second.reason == "local attempts unchanged"
-
-
-def test_auto_training_rejects_symlinked_state_file(tmp_path: Path) -> None:
-    store = LearningStore(tmp_path)
-    store.append_attempt(_record())
-    outside = tmp_path / "outside-state.json"
-    outside.write_text("outside\n", encoding="utf-8")
-    try:
-        store.automation_state_path.symlink_to(outside)
-    except OSError:
-        pytest.skip("symlinks are not supported on this filesystem")
-
-    with pytest.raises(OSError, match="must not be a symlink"):
-        maybe_auto_train_attempt_policy(
-            tmp_path,
-            config=AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1),
-        )
-
-    assert outside.read_text(encoding="utf-8") == "outside\n"
-
-
-def test_auto_training_rejects_valid_symlinked_state_before_skip(
-    tmp_path: Path,
-) -> None:
-    store = LearningStore(tmp_path)
-    store.append_attempt(_record())
-    config = AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1)
-    first = maybe_auto_train_attempt_policy(tmp_path, config=config)
-    assert first.status == "trained"
-
-    outside = tmp_path / "outside-state.json"
-    outside.write_text(store.automation_state_path.read_text(encoding="utf-8"), encoding="utf-8")
-    store.automation_state_path.unlink()
-    try:
-        store.automation_state_path.symlink_to(outside)
-    except OSError:
-        pytest.skip("symlinks are not supported on this filesystem")
-
-    with pytest.raises(OSError, match="must not be a symlink"):
-        maybe_auto_train_attempt_policy(tmp_path, config=config)
-
-
-def test_auto_training_no_public_fixture_uses_local_records_only(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-
-    decision = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(
-            min_total_attempts=1,
-            min_new_attempts=1,
-            include_public_fixture=False,
-        ),
-    )
-
-    assert decision.status == "trained"
-    assert decision.report is not None
-    assert decision.report.dataset_counts == {"local": 1}
-
-
-def test_auto_training_retrains_when_corpus_config_changes(tmp_path: Path) -> None:
-    LearningStore(tmp_path).append_attempt(_record())
-
-    first = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(min_total_attempts=1, min_new_attempts=1),
-    )
-    second = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(
-            min_total_attempts=1,
-            min_new_attempts=1,
-            include_public_fixture=False,
-        ),
-    )
-
-    assert first.status == "trained"
-    assert second.status == "trained"
-    assert second.report is not None
-    assert second.report.dataset_counts == {"local": 1}
-
-
-def test_auto_training_failed_promotion_preserves_existing_runtime_policy(
-    tmp_path: Path,
-) -> None:
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-    _write_promoted_policy(
-        tmp_path,
-        table={observation_bucket(records[0].observation): AttemptAction.ACCEPT},
-    )
-    LearningStore(tmp_path).append_attempt(_record())
-
-    decision = maybe_auto_train_attempt_policy(
-        tmp_path,
-        config=AutoTrainingConfig(
-            min_total_attempts=1,
-            min_new_attempts=1,
-            include_public_fixture=False,
-        ),
-    )
-    runtime_policy = load_runtime_policy(tmp_path)
-
-    assert decision.report is not None
-    assert decision.report.decision == "keep_fallback"
-    assert runtime_policy.choose(records[0].observation) is AttemptAction.ACCEPT
-
-
-def test_failed_promotion_clears_existing_runtime_policy(tmp_path: Path) -> None:
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-    _write_promoted_policy(
-        tmp_path,
-        table={observation_bucket(records[3].observation): AttemptAction.ACCEPT},
-    )
-    empty_dataset = tmp_path / "empty.jsonl"
-    empty_dataset.write_text("", encoding="utf-8")
-    LearningStore(tmp_path).append_attempt(_record())
-
-    failed = train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(empty_dataset,),
-        include_local=True,
-        promote=True,
-    )
-    runtime_policy = load_runtime_policy(tmp_path)
-
-    assert failed.decision == "keep_fallback"
-    assert runtime_policy.choose(records[3].observation) is StaticAttemptPolicy().choose(
-        records[3].observation
-    )
-
-
-def test_non_promoting_training_preserves_existing_runtime_policy(tmp_path: Path) -> None:
-    records = load_records_from_jsonl(PUBLIC_SYNTHETIC_REPLAY)
-    _write_promoted_policy(
-        tmp_path,
-        table={observation_bucket(records[3].observation): AttemptAction.ACCEPT},
-    )
-
-    report = train_attempt_policy(
-        armory_path=tmp_path,
-        dataset_paths=(PUBLIC_SYNTHETIC_REPLAY,),
-        include_local=False,
-        promote=False,
-    )
-    runtime_policy = load_runtime_policy(tmp_path)
-
-    assert report.decision == "keep_fallback"
-    assert runtime_policy.choose(records[3].observation) is AttemptAction.ACCEPT
-
-
-def test_runtime_policy_reads_legacy_bucket_keys(tmp_path: Path) -> None:
-    observation = AttemptObservation(
-        citation_required=True,
-        evidence_count=3,
-        distinct_source_count=1,
-        evidence_sufficient=True,
-        evidence_recommended_action="answer",
-        has_citations=True,
-        all_citations_verified=True,
-        reply_chars=80,
-    )
-    _write_promoted_policy(
-        tmp_path,
-        table={
-            "citation_ok|evidence_ok|single_source|normal|targeted": (
-                AttemptAction.RETRY_EXPAND_EVIDENCE
-            )
-        },
-    )
-    runtime_policy = load_runtime_policy(tmp_path)
-
-    assert runtime_policy.choose(observation) is AttemptAction.RETRY_EXPAND_EVIDENCE
-
-
-def test_observation_bucket_is_structural_not_textual() -> None:
-    first = AttemptObservation(
-        citation_required=True,
-        evidence_count=0,
-        evidence_recommended_action="abstain",
-    )
-    second = AttemptObservation(
-        citation_required=True,
-        evidence_count=0,
-        evidence_recommended_action="abstain",
-        intent="different words",
-    )
-
-    assert observation_bucket(first) == observation_bucket(second)
-
-
-def _component_value(components: tuple[RewardComponent, ...], name: str) -> float:
-    for component in components:
-        if component.name == name:
-            return component.value
-    raise AssertionError(name)
-
-
-def _data_origin(record: AttemptRecord) -> object:
-    assert record.replay_metadata is not None
-    return record.replay_metadata["data_origin"]
-
-
-def _write_promoted_policy(
-    armory_path: Path,
-    *,
-    table: dict[str, AttemptAction],
-) -> None:
-    policies_dir = LearningStore(armory_path).policies_dir
-    artifact = ExportedPolicyArtifact(
-        policy_id="test-policy",
-        created_at="2026-06-06T00:00:00+00:00",
-        table=table,
-        manifest={"decision": "promote", "policy_id": "test-policy"},
-    )
-    write_exported_policy(policies_dir / PROMOTED_POLICY_FILE, artifact)
-    (policies_dir / PROMOTION_MANIFEST_FILE).write_text(
-        '{"decision":"promote","policy_id":"test-policy"}\n',
-        encoding="utf-8",
-    )
-
-
-def _accepted_resolved_turn() -> ResolvedTurnPlan:
-    return ResolvedTurnPlan(
-        turn_evidence=_evidence(),
-        evidence_assessment=EvidenceAssessment(
-            sufficient=True,
-            confidence=0.8,
-            supporting_refs=("E1",),
-            missing_information=(),
-            conflicts=(),
-            source_diversity_score=1.0,
-            recommended_action="answer",
-        ),
-        turn_contract=TurnContract(
-            original_user_input="What does the note say?",
-            resolved_intent="answer note",
-            citation_required=True,
-        ),
-    )
-
-
-def _abstain_resolved_turn(*, citation_required: bool = False) -> ResolvedTurnPlan:
-    return ResolvedTurnPlan(
-        learning_plan=LearningTurnPlan(
-            action=LearningAction.SOURCE_QA,
-            phase=LearningPhase.PRESENTING,
-            prompt="",
-        ),
-        turn_evidence=None,
-        evidence_assessment=EvidenceAssessment(
-            sufficient=False,
-            confidence=0.9,
-            supporting_refs=(),
-            missing_information=("missing topic",),
-            conflicts=(),
-            source_diversity_score=0.0,
-            recommended_action="abstain",
-        ),
-        turn_contract=TurnContract(
-            original_user_input="What does the source say about the missing topic?",
-            resolved_intent="fixture abstention",
-            citation_required=citation_required,
-        ),
-    )

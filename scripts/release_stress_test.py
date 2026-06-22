@@ -35,9 +35,6 @@ assert sdk.validate_sdk_capabilities(capabilities) == ()
 assert resources.files("heph").joinpath("py.typed").is_file()
 assert resources.files("heph").joinpath("state", "release.toml").is_file()
 assert resources.files("hephaion").joinpath("parameters", "default.toml").is_file()
-assert resources.files("hephaion").joinpath(
-    "learning", "fixtures", "public_synthetic_replay.jsonl"
-).is_file()
 assert resources.files("ai").joinpath("py.typed").is_file()
 assert resources.files("extensions").joinpath("py.typed").is_file()
 assert resources.files("interfaces").joinpath("py.typed").is_file()

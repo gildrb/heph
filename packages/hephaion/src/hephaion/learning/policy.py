@@ -1,4 +1,4 @@
-"""Policy fallback for local harness-attempt actions."""
+"""Static policy for structural answer-attempt guards."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from hephaion.learning.observation import AttemptObservation
 
 
 class StaticAttemptPolicy:
-    """Dependency-free fallback policy used when no trained policy is available."""
+    """Dependency-free policy for deciding whether an answer attempt is acceptable."""
 
     def choose(self, observation: AttemptObservation) -> AttemptAction:
         if _can_accept(observation):

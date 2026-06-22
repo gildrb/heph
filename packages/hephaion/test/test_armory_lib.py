@@ -98,12 +98,12 @@ def test_validate_armory_rejects_symlinked_internal_dir(tmp_path: Path) -> None:
 
 def test_armory_state_location_uses_armory_internal_dir_boundary(tmp_path: Path) -> None:
     armory_path = tmp_path / ".hephaion" / "course-armory"
-    state_path = armory_path / ".hephaion" / "learning" / "attempts.jsonl"
+    state_path = armory_path / ".hephaion" / "traces" / "session.jsonl"
 
     parsed_armory, rel_path = armory_state_location(state_path)
 
     assert parsed_armory == armory_path
-    assert rel_path == Path(".hephaion/learning/attempts.jsonl")
+    assert rel_path == Path(".hephaion/traces/session.jsonl")
 
 
 def test_write_armory_state_text_falls_back_without_fchmod(

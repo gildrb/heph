@@ -15,7 +15,6 @@ An armory is the core organizational unit in Hephaion. It's a normal directory t
 │   ├── index/          # Retrieval index
 │   ├── memory/         # Learning memory
 │   ├── chats/          # Chat history
-│   ├── learning/       # Local harness attempt logs and policy artifacts
 │   └── ignore          # File ignore patterns
 └── README.md           # Optional description
 ```
@@ -38,7 +37,6 @@ You can:
 Each armory is completely isolated:
 - **Memory**: Learning memory is scoped to the armory
 - **Index**: Retrieval index is armory-specific
-- **Learning**: Harness attempt logs and policy artifacts stay in the armory
 - **Chats**: Chat history stays with the armory
 
 This separation prevents cross-contamination between different projects or domains.
@@ -139,9 +137,6 @@ Each armory maintains its own learning memory:
 - **Follow-up suggestions**: Proactively suggest related topics
 
 Memory is stored in `.hephaion/memory/` and is completely local.
-
-Harness attempt logs and policy artifacts are stored in `.hephaion/learning/`
-and are also local to the armory.
 
 ## Moving Armories
 

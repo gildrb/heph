@@ -32,5 +32,4 @@ class TurnOrchestrator(
     last_internal_passes: int = field(default=1, init=False)
     _last_reply_citation_required: bool | None = field(default=None, init=False)
     _learning_action_override: AttemptAction | None = field(default=None, init=False)
-    _learning_recommended_action_override: AttemptAction | None = field(default=None, init=False)
     _learning_followup_seed_blocked: bool = field(default=False, init=False)

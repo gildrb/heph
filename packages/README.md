@@ -33,7 +33,7 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-      learning/    Local harness attempts, replay data, rewards, and policies
+      learning/    Structural answer-attempt observations and static guard policy
       matching/    Fuzzy matching helpers for human-facing selectors
       materials/   Study-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage

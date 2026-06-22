@@ -17,7 +17,6 @@ All your data is stored locally in your armory:
 │   ├── memory.json     # Learning memory (local only)
 │   ├── chats/          # Chat history (local only)
 │   ├── traces/         # Session traces (local only)
-│   ├── learning/       # Harness attempt logs and local policy artifacts
 │   └── usage/          # Token/cost snapshots (local only)
 ```
 
@@ -28,7 +27,6 @@ All your data is stored locally in your armory:
 - Learning memory is local to each armory
 - Retrieval indexes are built and stored locally
 - Session traces and usage snapshots stay local to the armory
-- Harness learning attempts and policy artifacts stay local to the armory
 - Local llama.cpp model validation state stays in your user config, and managed
   llama.cpp binaries/models stay under `~/.cache/hephaion/llama.cpp/`
 
@@ -45,25 +43,6 @@ they can still include private user content such as:
 
 Treat trace files as private armory data when backing up, syncing, or sharing an
 armory.
-
-### Local Learning Attempts
-
-Heph can record local harness-attempt data under `.hephaion/learning/` so future
-policies can learn which retrieval or retry action helped. These files can
-include raw questions, retrieved excerpts, replies, structural reward
-components, and policy artifacts. They are not sent through analytics or crash
-reporting.
-
-Training uses labeled public/synthetic replay fixtures and, when you choose to
-include it, armory-local replay. Promotion requires a local manifest with
-dataset counts, train/held-out split counts, baseline metrics, trained-policy
-metrics, and the decision. If the trained policy does not beat the unchanged
-static fallback on held-out data, Heph keeps the fallback as the runtime default.
-
-Treat `.hephaion/learning/` as private armory data. Any future export flow must
-be explicit and separate from the normal `.armories` copy/sync workflow;
-metadata-only export should be the default, and private-content export should
-require separate confirmation.
 
 ## What Goes to Model Providers
 

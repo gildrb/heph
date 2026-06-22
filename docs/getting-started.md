@@ -62,7 +62,6 @@ Place your documents in the `materials/` directory of your armory:
 └── .hephaion/
     ├── armory.toml
     ├── chats/
-    ├── learning/
     ├── traces/
     └── usage/
 ```

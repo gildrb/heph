@@ -1,4 +1,4 @@
-"""Compact observations for local harness-attempt policies."""
+"""Compact observations for structural answer-attempt guards."""
 
 from __future__ import annotations
 

@@ -48,8 +48,8 @@ The core should be hard to change accidentally and easy to extend deliberately.
   behavior.
 - **Hephaion is the correctness harness.** It guarantees local-document
   correctness through armory validation, retrieval, evidence selection,
-  citation verification, guardrails, memory persistence, local learning
-  policy artifacts, and diagnostics. It should expose stable harness services
+  citation verification, guardrails, memory persistence, structural answer
+  checks, and diagnostics. It should expose stable harness services
   instead of accumulating agent persona or interface behavior.
 - **Heph is the brain.** Conversational strategy, research orchestration, Heph
   identity, and user-facing command composition belong here. The current
@@ -156,7 +156,7 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-      learning/    Local harness attempts, replay data, rewards, and policies
+      learning/    Structural answer-attempt observations and static guard policy
       matching/    Fuzzy matching helpers for human-facing selectors
       materials/   Study-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage
@@ -255,7 +255,6 @@ my-armory/
     history             # input history for this armory (created on use)
     memory.json         # extracted armory memory
     rag_index.json      # persisted retrieval index
-    learning/           # local harness attempts, replay data, and policies
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
   materials/            # user study files, indexed for RAG

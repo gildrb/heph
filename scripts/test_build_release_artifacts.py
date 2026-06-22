@@ -108,14 +108,6 @@ def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
     assert (project_dir / "src" / "interfaces" / "__init__.py").is_file()
     assert (project_dir / "src" / "heph" / "state" / "release.toml").is_file()
     assert (project_dir / "src" / "hephaion" / "parameters" / "default.toml").is_file()
-    assert (
-        project_dir
-        / "src"
-        / "hephaion"
-        / "learning"
-        / "fixtures"
-        / "public_synthetic_replay.jsonl"
-    ).is_file()
     assert 'name = "heph"' in pyproject
     assert 'build-backend = "setuptools.build_meta"' in pyproject
     assert '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]' in pyproject
