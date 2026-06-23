@@ -41,10 +41,6 @@ dev = [
     { name = "ty", specifier = "==0.0.34" },
     { name = "vulture", specifier = "==2.16" },
 ]
-rag = [
-    { name = "bm25s", specifier = "==0.3.5" },
-    { name = "scikit-learn", specifier = "==1.8.0" },
-]
 visualization = [{ name = "matplotlib", specifier = "==3.10.8" }]
 
 [[package]]
@@ -887,7 +883,7 @@ wheels = [
 
 [[package]]
 name = "heph"
-version = "0.0.52"
+version = "0.0.53"
 source = { editable = "packages/heph" }
 dependencies = [
     { name = "heph-ai" },
@@ -906,7 +902,7 @@ requires-dist = [
 
 [[package]]
 name = "heph-ai"
-version = "0.0.52"
+version = "0.0.53"
 source = { editable = "packages/ai" }
 dependencies = [
     { name = "certifi" },
@@ -923,12 +919,12 @@ requires-dist = [
 
 [[package]]
 name = "heph-extensions"
-version = "0.0.52"
+version = "0.0.53"
 source = { editable = "packages/extensions" }
 
 [[package]]
 name = "heph-interfaces"
-version = "0.0.52"
+version = "0.0.53"
 source = { editable = "packages/interfaces" }
 dependencies = [
     { name = "heph-ai" },
@@ -949,20 +945,26 @@ requires-dist = [
 
 [[package]]
 name = "hephaion"
-version = "0.0.52"
+version = "0.0.53"
 source = { editable = "packages/hephaion" }
 dependencies = [
+    { name = "bm25s" },
     { name = "docling-slim", extra = ["standard"] },
     { name = "heph-ai" },
     { name = "heph-extensions" },
+    { name = "scikit-learn" },
+    { name = "sentence-transformers" },
     { name = "unicodeit" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "bm25s", specifier = "==0.3.5" },
     { name = "docling-slim", extras = ["standard"], specifier = "==2.94.0" },
     { name = "heph-ai", editable = "packages/ai" },
     { name = "heph-extensions", editable = "packages/extensions" },
+    { name = "scikit-learn", specifier = "==1.8.0" },
+    { name = "sentence-transformers", specifier = "==5.3.0" },
     { name = "unicodeit", specifier = "==0.7.5" },
 ]
 
@@ -2994,6 +2996,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a9/a0/ce7e3d6cc76498fd594e667d10a03f17d7cced129e46869daec23523bf5a/semchunk-3.2.5.tar.gz", hash = "sha256:ee15e9a06a69a411937dd8fcf0a25d7ef389c5195863140436872a02c95b0218", size = 17667, upload-time = "2025-10-28T02:12:38.025Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/95/12d226ee4d207cb1f77a216baa7e1a8bae2639733c140abe8d0316d23a18/semchunk-3.2.5-py3-none-any.whl", hash = "sha256:fd09cc5f380bd010b8ca773bd81893f7eaf11d37dd8362a83d46cedaf5dae076", size = 13048, upload-time = "2025-10-28T02:12:36.724Z" },
+]
+
+[[package]]
+name = "sentence-transformers"
+version = "5.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fe/26/448453925b6ce0c29d8b54327caa71ee4835511aef02070467402273079c/sentence_transformers-5.3.0.tar.gz", hash = "sha256:414a0a881f53a4df0e6cbace75f823bfcb6b94d674c42a384b498959b7c065e2", size = 403330, upload-time = "2026-03-12T14:53:40.778Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/9c/2fa7224058cad8df68d84bafee21716f30892cecc7ad1ad73bde61d23754/sentence_transformers-5.3.0-py3-none-any.whl", hash = "sha256:dca6b98db790274a68185d27a65801b58b4caf653a4e556b5f62827509347c7d", size = 512390, upload-time = "2026-03-12T14:53:39.035Z" },
 ]
 
 [[package]]

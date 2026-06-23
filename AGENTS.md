@@ -31,7 +31,6 @@ Protect this shape in every change:
 ```bash
 uv sync --frozen           # install all dependencies
 uv sync --frozen --group dev        # install dev tools (lint, type-check, test)
-uv sync --frozen --group rag        # install optional RAG backends
 ```
 
 ## Run

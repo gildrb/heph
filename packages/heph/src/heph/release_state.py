@@ -118,7 +118,7 @@ def _metadata_version(package: str) -> str:
     try:
         return metadata.version(package)
     except metadata.PackageNotFoundError:
-        return "0.0.52"
+        return "0.0.53"
 
 
 def _release_config() -> object:

@@ -177,14 +177,11 @@ open a copied or synced armory and rebuild what it needs.
 
 ## Advanced Configuration
 
-### Custom Retrieval Backend
+### Retrieval Backends
 
-For advanced users, you can configure custom retrieval backends through optional dependencies:
-
-```bash
-uv sync --frozen --group rag  # Install BM25, embeddings, reranking
-# Docling document extraction is part of the core install.
-```
+Heph ships its document extraction and retrieval stack with the normal install.
+That includes BM25, TF-IDF, embedding retrieval, and reranking support, so users
+do not need to install a separate RAG extra.
 
 ### Profiling
 

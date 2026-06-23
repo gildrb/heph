@@ -62,12 +62,11 @@ Large armories may take a few minutes.
 
 ## Embedding Model
 
-Hephaion uses sentence-transformers for embeddings (optional dependency):
-```bash
-uv sync --frozen --group rag
-```
+Hephaion uses sentence-transformers for embeddings as part of the standard
+Heph install.
 
 If embeddings fail, check:
-- The `sentence-transformers` package is installed
+- The installation has not been externally modified; repair a user install with
+  `uv tool install --force heph@latest`
 - The model can be downloaded (network access)
 - Sufficient RAM for the embedding model

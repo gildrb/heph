@@ -281,15 +281,15 @@ extend_exclude = [
     "packages/interfaces/test",
     "tests",
 ]
-# Docling and optional RAG deps are imported conditionally at runtime;
+# Docling and RAG backend deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on workspace packages is a false positive — each distribution imports its own
 # top-level source packages.
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on docling/nltk/numpy/sklearn — transitive deps of shipped document
-# conversion or optional RAG extras.
-# DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
+# conversion or RAG backends.
+# DEP004 on bm25s — dynamic runtime RAG backend import.
 per_rule_ignores = { DEP002 = ["scikit-learn", "docling-slim", "py-spy", "pathspec", "rapidfuzz", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
@@ -331,10 +331,6 @@ dev = [
     "py-spy==0.4.1",
     "ty==0.0.34",
     "pre-commit==4.6.0",
-]
-rag = [
-    "bm25s==0.3.5",
-    "scikit-learn==1.8.0",
 ]
 visualization = [
     "matplotlib==3.10.8",
