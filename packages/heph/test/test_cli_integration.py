@@ -18,7 +18,6 @@ from heph.cli.main import sys as cli_sys
 from hephaion.agent.dispatch import iter_agent_events
 from hephaion.armory.search import remember_armory
 from hephaion.armory.storage import initialize
-from hephaion.chat import cli as chat_cli
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -29,6 +28,8 @@ from hephaion.chat.session import create_session
 from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from hephaion.rag.index import load_or_build
 from interfaces.tui import TuiDependencyError
+
+from hephaion.chat import cli as chat_cli
 
 cli_main_module = sys.modules[cli_main.__module__]
 
@@ -94,7 +95,7 @@ def test_release_status_command_reports_json(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["package_version"] == heph.__version__
-    assert payload["official"]["tag"] == "v0.0.51"
+    assert payload["official"]["tag"] == "v0.0.52"
     assert payload["runtime"]["channel"] in {"source", "edge", "pypi"}
 
 
@@ -167,7 +168,7 @@ def test_runtime_warning_when_installed_docling_is_missing(
     messages = cli_main_module._runtime_diagnostic_messages()
 
     assert "missing document conversion support" in messages[0]
-    assert any("PDF, DOCX, PPTX, and XLSX" in message for message in messages)
+    assert any("bundled Docling conversion stack" in message for message in messages)
 
 
 def test_source_runtime_reexec_can_be_disabled(

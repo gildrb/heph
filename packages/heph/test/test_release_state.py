@@ -13,17 +13,17 @@ def test_official_release_points_to_current_stable_version() -> None:
     assert release.package == "heph"
     assert release.command == "heph"
     assert release.channel == "stable"
-    assert release.version == "0.0.51"
-    assert release.tag == "v0.0.51"
+    assert release.version == "0.0.52"
+    assert release.tag == "v0.0.52"
     assert release.release_workflow == ".github/workflows/release.yml"
 
 
 def test_current_release_state_exposes_runtime_and_official_stable() -> None:
     state = current_release_state()
 
-    assert state["package_version"] == "0.0.51"
+    assert state["package_version"] == "0.0.52"
     official = state["official"]
-    assert official["tag"] == "v0.0.51"
+    assert official["tag"] == "v0.0.52"
     runtime = state["runtime"]
     assert runtime["channel"] in {"source", "edge", "pypi"}
     assert runtime["python"]
@@ -33,5 +33,5 @@ def test_format_current_release_state_is_human_readable() -> None:
     text = format_current_release_state()
 
     assert "Heph release state" in text
-    assert "official stable: v0.0.51 (0.0.51)" in text
+    assert "official stable: v0.0.52 (0.0.52)" in text
     assert "release workflow: .github/workflows/release.yml" in text

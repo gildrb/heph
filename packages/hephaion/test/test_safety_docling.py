@@ -1,4 +1,4 @@
-"""Tests for quality-first Docling dependency policy."""
+"""Tests for document conversion dependency policy."""
 
 from __future__ import annotations
 
@@ -6,10 +6,22 @@ import tomllib
 from pathlib import Path
 
 
-def test_docling_is_core_dependency_not_optional_extra() -> None:
+def test_docling_slim_standard_is_required_hephaion_dependency() -> None:
     pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
     pyproject = tomllib.loads(pyproject_path.read_text())
 
-    assert "docling==2.94.0" in pyproject["project"]["dependencies"]
-    assert "docling" not in pyproject["project"].get("optional-dependencies", {})
-    assert "docling" not in pyproject.get("dependency-groups", {})
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert "docling-slim[standard]==2.94.0" in dependencies
+    assert all(not dependency.startswith("docling==") for dependency in dependencies)
+
+
+def test_managed_dependency_groups_do_not_add_a_second_pytorch_path() -> None:
+    pyproject_path = Path(__file__).parents[3] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text())
+    groups = pyproject["dependency-groups"]
+
+    flattened = [dependency for group in groups.values() for dependency in group]
+
+    assert all(not dependency.startswith("torch") for dependency in flattened)
+    assert all(not dependency.startswith("sentence-transformers") for dependency in flattened)

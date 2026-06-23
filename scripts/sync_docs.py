@@ -17,7 +17,6 @@ from heph.cli.main import build_parser
 from heph.commands import get_registry
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.memory.extract import EXTRACTION_MODEL_ENV
-from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
@@ -28,6 +27,8 @@ from hephaion.privacy.consent import (
 from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
+
+from hephaion.parameters import cli as parameters_cli
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -516,8 +517,9 @@ def render_pip_install_block() -> str:
         "```bash\n"
         "pip install heph\n"
         "```\n\n"
-        "PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling so\n"
-        "new armories can index common study materials without extra setup."
+        "PDF, DOCX, PPTX, and XLSX conversion support is built in through\n"
+        "`docling-slim[standard]` so new armories can index common study materials\n"
+        "without extra setup."
     )
 
 

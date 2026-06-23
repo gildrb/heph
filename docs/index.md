@@ -35,8 +35,9 @@ Or with pip:
 pip install heph
 ```
 
-PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling so
-new armories can index common study materials without extra setup.
+PDF, DOCX, PPTX, and XLSX conversion support is built in through
+`docling-slim[standard]` so new armories can index common study materials
+without extra setup.
 
 Upgrade with:
 

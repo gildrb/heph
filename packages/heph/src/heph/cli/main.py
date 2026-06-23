@@ -239,8 +239,8 @@ def _runtime_diagnostic_messages() -> list[str]:
         return [
             "warning: this `heph` executable is missing document conversion support.",
             f"  active Python: {executable}",
-            "  install the optional docling extra so PDF, DOCX, PPTX, and XLSX materials can be "
-            "indexed.",
+            "  repair this install with `uv tool install --force heph@latest` so the bundled "
+            "Docling conversion stack is restored.",
         ]
 
     expected_venv = root / ".venv"

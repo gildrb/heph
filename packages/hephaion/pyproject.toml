@@ -1,14 +1,14 @@
 [project]
 name = "hephaion"
-version = "0.0.51"
+version = "0.0.52"
 description = "Correctness harness for grounded, cited Heph answers"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "docling==2.94.0",
-    "heph-ai==0.0.51",
-    "heph-extensions==0.0.51",
+    "docling-slim[standard]==2.94.0",
+    "heph-ai==0.0.52",
+    "heph-extensions==0.0.52",
     "unicodeit==0.7.5",
 ]
 
@@ -25,7 +25,7 @@ module-name = ["hephaion"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extensions"] }
+package_module_name_map = { docling-slim = ["docling"], heph-ai = ["ai"], heph-extensions = ["extensions"] }
 # These imports are optional enhancement paths with in-code fallbacks or
 # dynamic availability checks.
-per_rule_ignores = { DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"], DEP002 = ["docling"] }
+per_rule_ignores = { DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"], DEP002 = ["docling-slim"] }

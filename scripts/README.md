@@ -20,9 +20,9 @@ runs do not belong here.
 - `check_release_state.py` verifies the official stable release pointer, package
   versions, license metadata, and optional git tag target.
 - `check_dependency_vulnerability_audit.py` runs `uv audit --frozen` with reviewed,
-  lockfile-scoped `--ignore-until-fixed` waivers. PyTorch is pulled in by Docling;
-  while `GHSA-rrmf-rvhw-rf47` has no upstream fix, repo policy forbids direct
-  `torch.jit.script` usage in Heph source.
+  lockfile-scoped `--ignore-until-fixed` waivers when a temporary waiver is needed.
+  PyTorch is expected only through Docling's standard conversion runtime, not direct
+  Heph source usage.
 - `check_feature_flags.py` catches stale feature-flag wiring.
 
 ## Release And Build Helpers

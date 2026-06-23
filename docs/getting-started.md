@@ -18,7 +18,8 @@ heph --version
 pip install heph
 ```
 
-PDF, DOCX, PPTX, and XLSX conversion support is built in through Docling.
+PDF, DOCX, PPTX, and XLSX conversion support is built in through
+`docling-slim[standard]`.
 
 ### Upgrade
 
