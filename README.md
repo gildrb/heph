@@ -26,7 +26,7 @@ chats, retrieval index, and local memory. Your documents are not locked into a
 provider.
 
 <p align="center">
-  <img alt="Hephaion CLI" src="docs/assets/app-sc" width="500">
+  <img alt="Hephaion CLI" src="docs/assets/app-sc.png" width="500">
 </p>
 
 ## Install
