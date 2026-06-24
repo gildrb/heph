@@ -419,9 +419,7 @@ class TuiComposerControlsMixin:
 
     @staticmethod
     def _composer_character_for_key(event: events.Key) -> str | None:
-        if event.character and event.is_printable:
-            return event.character
-        return _tui_widgets.csi_u_key_text(event.key)
+        return _tui_widgets.key_event_text(event)
 
     @staticmethod
     def _consume_key(event: events.Key) -> None:

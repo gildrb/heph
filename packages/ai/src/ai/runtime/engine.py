@@ -16,6 +16,8 @@ Streaming error recovery:
 
 from __future__ import annotations
 
+import contextlib
+import os
 import random
 import re
 import sys
@@ -158,6 +160,8 @@ _PROVIDER_CAPACITY_HINT = (
 )
 _CODEX_BACKEND_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _CODEX_BACKEND_TIMEOUT_SECONDS = 30
+_OPENAI_COMPAT_TIMEOUT_SECONDS = 120.0
+_OPENAI_STREAM_PROGRESS_TIMEOUT_SECONDS = 120.0
 _PROVIDER_IP_RE = re.compile(r"\bIP:\s*(?:\d{1,3}\.){3}\d{1,3}\b", re.IGNORECASE)
 _MAX_PROVIDER_DETAIL_CHARS = 260
 
@@ -200,10 +204,15 @@ class _OpenAICompletionAttemptResult:
     error: Exception | None = None
 
 
+def _monotonic() -> float:
+    return time.monotonic()
+
+
 @dataclass(slots=True)
 class _OpenAIStreamProgress:
     partial_parts: list[str] = field(default_factory=list)
     saw_output: bool = False
+    last_useful_delta_at: float = field(default_factory=_monotonic)
 
     def record(self, delta: CompletionDelta) -> None:
         if delta.content:
@@ -211,6 +220,9 @@ class _OpenAIStreamProgress:
         # Reasoning deltas are progress only; answer-safe retries are still possible.
         if delta.content or delta.tool_calls:
             self.saw_output = True
+            self.last_useful_delta_at = time.monotonic()
+        if delta.finish_reason:
+            self.last_useful_delta_at = time.monotonic()
 
     @property
     def partial_content(self) -> str:
@@ -374,7 +386,36 @@ def build_client(config: ChatConfig) -> OpenAI:
             f"Model unavailable for endpoint: {config.model}",
             code=EngineErrorCode.MODEL_UNAVAILABLE,
         )
-    return OpenAI(api_key=_api_key_for_config(config), base_url=config.base_url)
+    return OpenAI(
+        api_key=_api_key_for_config(config),
+        base_url=config.base_url,
+        timeout=_openai_compat_timeout_seconds(),
+    )
+
+
+def _positive_env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    with contextlib.suppress(ValueError):
+        value = float(raw)
+        if value > 0:
+            return value
+    return default
+
+
+def _openai_compat_timeout_seconds() -> float:
+    return _positive_env_float(
+        "HEPHAION_OPENAI_TIMEOUT_SECONDS",
+        _OPENAI_COMPAT_TIMEOUT_SECONDS,
+    )
+
+
+def _openai_stream_progress_timeout_seconds() -> float:
+    return _positive_env_float(
+        "HEPHAION_STREAM_PROGRESS_TIMEOUT_SECONDS",
+        _OPENAI_STREAM_PROGRESS_TIMEOUT_SECONDS,
+    )
 
 
 def _api_key_for_config(config: ChatConfig) -> str:
@@ -728,6 +769,7 @@ def _iter_openai_stream_deltas(
     retry: RetryConfig,
 ) -> Iterator[CompletionDelta]:
     progress = _OpenAIStreamProgress()
+    progress_timeout = _openai_stream_progress_timeout_seconds()
     try:
         for chunk in stream:
             if _completion_aborted(abort):
@@ -741,9 +783,17 @@ def _iter_openai_stream_deltas(
                 prompt_request=prompt_request,
             )
             if delta is None:
+                _raise_if_openai_stream_stalled(
+                    progress,
+                    progress_timeout=progress_timeout,
+                )
                 continue
             progress.record(delta)
             yield delta
+            _raise_if_openai_stream_stalled(
+                progress,
+                progress_timeout=progress_timeout,
+            )
     except Exception as exc:
         _handle_openai_stream_error(
             exc,
@@ -753,6 +803,20 @@ def _iter_openai_stream_deltas(
             span=span,
             timer=timer,
         )
+
+
+def _raise_if_openai_stream_stalled(
+    progress: _OpenAIStreamProgress,
+    *,
+    progress_timeout: float,
+) -> None:
+    elapsed = time.monotonic() - progress.last_useful_delta_at
+    if elapsed < progress_timeout:
+        return
+    raise EngineError(
+        "LLM stream stalled without answer or tool-call progress "
+        f"for {progress_timeout:g} second(s)."
+    )
 
 
 def _openai_stream_delta(

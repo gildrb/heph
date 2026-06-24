@@ -94,6 +94,12 @@ def csi_u_key_text(key: str) -> str | None:
     return _SHIFTED_CSI_U_KEY_TEXT.get(base_key)
 
 
+def key_event_text(event: events.Key) -> str | None:
+    if event.character and event.is_printable:
+        return event.character
+    return csi_u_key_text(event.key)
+
+
 @dataclass
 class WidgetClasses:
     screen: type
@@ -154,7 +160,7 @@ def input_without_ctrl_a_class(base: type) -> type:
             if callable(input_key_handler) and input_key_handler(event):
                 return
 
-            text = csi_u_key_text(event.key)
+            text = key_event_text(event)
             if text is None:
                 return
             if self.selection.is_empty:

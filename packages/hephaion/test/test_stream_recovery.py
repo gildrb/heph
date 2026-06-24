@@ -424,6 +424,22 @@ class TestStreamReplyRetry:
 
         assert mock_client.chat.completions.create.call_count == 1
 
+    def test_stream_with_empty_chunks_times_out(self) -> None:
+        """A live stream that never produces answer progress fails clearly."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter([_make_chunk()])
+
+        retry = RetryConfig(max_retries=0, base_delay=0.01)
+        with (
+            patch("ai.runtime.engine.build_client", return_value=mock_client),
+            patch("ai.runtime.engine._openai_stream_progress_timeout_seconds", return_value=1.0),
+            patch("ai.runtime.engine.time.monotonic", side_effect=[0.0, 2.0]),
+            pytest.raises(EngineError, match="stream stalled without answer"),
+        ):
+            list(stream_reply(_config(), _conv(), retry=retry))
+
+        assert mock_client.chat.completions.create.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # get_reply — integration with retry

@@ -76,6 +76,10 @@ class _ResizableWidget(Protocol):
     def remove_class(self, class_name: str) -> object: ...
 
 
+class _TerminalControlHost(Protocol):
+    def _write_terminal_control(self, sequence: str) -> None: ...
+
+
 class _ResizeHost(Protocol):
     state: TuiRuntimeState
     session: ChatSession
@@ -176,10 +180,8 @@ _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _RESIZE_REDRAW_DELAY_SECONDS = 0.075
 _TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
-_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER = "\x1b[>9u"
-_TERMINAL_XTERM_MODIFIED_KEYS = "\x1b[>4;1m"
+_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER = "\x1b[>1u"
 _TERMINAL_KEYBOARD_PROTOCOL_POP = "\x1b[<u"
-_TERMINAL_XTERM_MODIFIED_KEYS_RESET = "\x1b[>4;0m"
 _RESIZE_SENSITIVE_SELECTORS = (
     "#status",
     TRANSCRIPT_SELECTOR,
@@ -246,12 +248,10 @@ class _ResizeRedrawState:
 
 
 class TuiResizeMixin:
-    def _push_terminal_keyboard_protocol(self: _ResizeHost) -> None:
+    def _push_terminal_keyboard_protocol(self: _TerminalControlHost) -> None:
         self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER)
-        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS)
 
-    def _pop_terminal_keyboard_protocol(self: _ResizeHost) -> None:
-        self._write_terminal_control(_TERMINAL_XTERM_MODIFIED_KEYS_RESET)
+    def _pop_terminal_keyboard_protocol(self: _TerminalControlHost) -> None:
         self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_POP)
 
     def _write_terminal_control(self: _ResizeHost, sequence: str) -> None:
