@@ -25,6 +25,10 @@ An armory is the core idea: a normal portable folder with your source files, sav
 chats, retrieval index, and local memory. Your documents are not locked into a
 provider.
 
+<p align="center">
+  <img alt="Hephaion CLI" src="docs/assets/app-sc" width="500">
+</p>
+
 ## Install
 
 ```bash
