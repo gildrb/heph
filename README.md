@@ -3,7 +3,6 @@
 <p align="center">
   <img alt="Hephaion" src="docs/assets/logo-auto.svg" width="320">
 </p>
-
 # Hephaion
 
 **Hephaion is a local document harness for accurate, cited answers.**
