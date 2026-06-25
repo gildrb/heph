@@ -77,10 +77,10 @@ Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 
 | Shortcut | Action |
 |---|---|
-| `ctrl+p` | Commands: Open the command palette. |
-| `ctrl+a` | Armory: Open the armory home. |
-| `ctrl+o` | Materials: Choose which materials are used for retrieval. |
-| `ctrl+s` | Search: Search across armories. |
+| `f2` | Commands: Open the command palette. |
+| `f3` | Armory: Open the armory home. |
+| `f5` | Materials: Choose which materials are used for retrieval. |
+| `f6` | Search: Search across armories. |
 | `f8` | Evidence: Show evidence details. |
 | `ctrl+l` | Screen: Clear the screen. |
 | `tab` | Complete: Complete the current input. |
@@ -88,7 +88,7 @@ Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 | `shift+enter/ctrl+enter/alt+enter/ctrl+j` | Newline: Insert a composer newline. |
 | `escape` | Stop: Interrupt the active request. |
 | `ctrl+c` | Quit: Quit Heph. |
-| `ctrl+d` | Quit: Quit Heph. |
+| `ctrl+d` | Quit: Quit from an empty composer. |
 
 ## Environment variables
 

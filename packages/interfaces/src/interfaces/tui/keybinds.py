@@ -64,7 +64,7 @@ def tui_keybinds(keymap: RuntimeKeymap | None = None) -> tuple[TuiKeybind, ...]:
     specs.extend(
         (
             TuiKeybind("ctrl+c", "quit", "Quit", "Quit Heph.", priority=True),
-            TuiKeybind("ctrl+d", "quit", "Quit", "Quit Heph.", priority=True),
+            TuiKeybind("ctrl+d", "quit", "Quit", "Quit from an empty composer."),
         )
     )
     return tuple(specs)

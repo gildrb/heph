@@ -17,6 +17,7 @@ from heph.cli.main import build_parser
 from heph.commands import get_registry
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.memory.extract import EXTRACTION_MODEL_ENV
+from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
@@ -28,8 +29,6 @@ from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
 
-from hephaion.parameters import cli as parameters_cli
-
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
 HEPH_PYPROJECT_PATH: Final[Path] = ROOT / "packages" / "heph" / "pyproject.toml"
@@ -40,6 +39,7 @@ README_LOGO_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg"
 )
 README_LOGO_WIDTH: Final[int] = 320
+README_SCREENSHOT_PATH: Final[Path] = ROOT / "docs" / "assets" / "app-sc.png"
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
 AGENTS_PATH: Final[Path] = ROOT / "AGENTS.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
@@ -589,6 +589,18 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     )
 
 
+def render_readme_screenshot_block(*, docs_index: bool) -> str:
+    if docs_index:
+        return ""
+
+    screenshot_path = README_SCREENSHOT_PATH.relative_to(ROOT).as_posix()
+    return (
+        '<p align="center">\n'
+        f'  <img alt="Hephaion CLI" src="{screenshot_path}" width=full>\n'
+        "</p>\n\n"
+    )
+
+
 def render_home_footer(*, docs_index: bool) -> str:
     if docs_index:
         return (
@@ -625,6 +637,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
         "README_LOGO_BLOCK": render_readme_logo_block(docs_index=docs_index),
+        "README_SCREENSHOT_BLOCK": render_readme_screenshot_block(docs_index=docs_index),
         "DOCS_SECTION": render_home_docs_section(docs_index=docs_index),
         "CONTRIBUTING_LINK": "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md",
         "FOOTER_SECTION": render_home_footer(docs_index=docs_index).strip(),

@@ -61,8 +61,8 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     assert any(command.command == "/keymap" for command in model.slash_commands)
     assert not any(command.command == "/persona" for command in model.slash_commands)
     assert not any(command.command == "/edit" for command in model.slash_commands)
-    assert any(shortcut.keys == "ctrl+a" for shortcut in model.keyboard_shortcuts)
-    assert any(shortcut.keys == "ctrl+o" for shortcut in model.keyboard_shortcuts)
+    assert any(shortcut.keys == "f3" for shortcut in model.keyboard_shortcuts)
+    assert any(shortcut.keys == "f5" for shortcut in model.keyboard_shortcuts)
     assert not any(
         shortcut.keys in {"alt+m", "f4", "ctrl+t"} for shortcut in model.keyboard_shortcuts
     )
@@ -90,6 +90,8 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     root_text = root_readme.read_text(encoding="utf-8")
     assert f'src="{Path(root_logo_path).as_posix()}"' in root_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
+    root_screenshot_path = os.path.relpath(sync_docs.README_SCREENSHOT_PATH, root_readme.parent)
+    assert f'src="{Path(root_screenshot_path).as_posix()}"' in root_text
 
     package_readmes = (
         sync_docs.ROOT / "packages" / "ai" / "README.md",

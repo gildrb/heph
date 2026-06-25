@@ -242,9 +242,9 @@ class HephTui(
     TuiTurnMixin,
     App[None],
 ):
+    ENABLE_COMMAND_PALETTE: ClassVar[bool] = False
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
-        Binding("ctrl+d", "quit", "Quit", show=False, priority=True),
     ]
 
     def __init__(

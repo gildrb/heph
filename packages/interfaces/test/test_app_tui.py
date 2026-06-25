@@ -484,14 +484,12 @@ def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> No
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
 
-    assert "ctrl+a" in plain
-    assert "ARMORY ctrl+a" in plain
-    assert "MATERIALS ctrl+o" in plain
-    assert "COMMANDS ctrl+p" in plain
+    assert "f3" in plain
+    assert "ARMORY f3" in plain
+    assert "MATERIALS f5" in plain
+    assert "COMMANDS f2" in plain
     assert "REASONING shift+tab" in plain
-    assert plain.startswith(
-        "ARMORY ctrl+a  MATERIALS ctrl+o  COMMANDS ctrl+p  REASONING shift+tab"
-    )
+    assert plain.startswith("ARMORY f3  MATERIALS f5  COMMANDS f2  REASONING shift+tab")
     assert "enter" not in plain
     assert "tab complete" not in plain
     assert "ctrl+c" not in plain
@@ -507,14 +505,14 @@ def test_footer_hints_derive_labels_and_keys_from_keybind_specs(
     specs_by_action = {spec.action: spec for spec in keybinds.tui_keybinds()}
     hints = keybinds.footer_keybind_hints()
 
-    assert specs_by_action["open_armory_home"].keys == "ctrl+a"
-    assert specs_by_action["open_materials"].keys == "ctrl+o"
-    assert specs_by_action["command_palette"].keys == "ctrl+p"
+    assert specs_by_action["open_armory_home"].keys == "f3"
+    assert specs_by_action["open_materials"].keys == "f5"
+    assert specs_by_action["command_palette"].keys == "f2"
     assert specs_by_action["cycle_reasoning_level"].keys == "shift+tab"
     assert [(hint.label, hint.key) for hint in hints] == [
-        ("ARMORY", "ctrl+a"),
-        ("MATERIALS", "ctrl+o"),
-        ("COMMANDS", "ctrl+p"),
+        ("ARMORY", "f3"),
+        ("MATERIALS", "f5"),
+        ("COMMANDS", "f2"),
         ("REASONING", "shift+tab"),
     ]
 
@@ -542,8 +540,8 @@ def test_keymap_text_lists_materials_shortcut() -> None:
     text = keybinds.keymap_text()
 
     assert text.startswith("KEYMAP shortcuts")
-    assert "ctrl+a" in text
-    assert "ctrl+o" in text
+    assert "f3" in text
+    assert "f5" in text
     assert "MATERIALS" in text
     assert "STATE default" in text
     assert "alt+m" not in text
@@ -616,7 +614,7 @@ def test_keymap_ignores_reserved_manual_config_binding() -> None:
 
     runtime = keymap.load_runtime_keymap()
 
-    assert runtime.keys_for_action("open_materials") == ("ctrl+o",)
+    assert runtime.keys_for_action("open_materials") == ("f5",)
     assert any("alt+m is reserved by macOS" in error for error in runtime.errors)
 
 
@@ -730,7 +728,7 @@ def test_secondary_chrome_details_share_darker_tint(
         return str(text.style)
 
     footer = tui._footer_hints_text(session)
-    for keybind in ("ctrl+a", "ctrl+o", "ctrl+p", "shift+tab"):
+    for keybind in ("f3", "f5", "f2", "shift+tab"):
         assert effective_style(footer, keybind) == palette.text_muted
 
     status = tui._status_text(session)
@@ -3772,7 +3770,7 @@ def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None
     assert "STATE DIR .hephaion/" in detail
 
 
-def test_ctrl_p_opens_command_palette() -> None:
+def test_f2_opens_command_palette() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3785,7 +3783,7 @@ def test_ctrl_p_opens_command_palette() -> None:
 
     async def check_command_palette() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("ctrl+p")
+            await pilot.press("f2")
             await pilot.pause()
             composer = app.query_one("#composer", tui.Input)
             suggestions = cast(
@@ -3801,7 +3799,7 @@ def test_ctrl_p_opens_command_palette() -> None:
     asyncio.run(check_command_palette())
 
 
-def test_ctrl_o_opens_materials_inline() -> None:
+def test_f5_opens_materials_inline() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3816,7 +3814,7 @@ def test_ctrl_o_opens_materials_inline() -> None:
 
     async def check_materials_shortcut() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("ctrl+o")
+            await pilot.press("f5")
             await pilot.pause()
             composer = app.query_one("#composer", tui.Input)
 
@@ -4503,7 +4501,7 @@ def test_tui_launch_does_not_append_startup_copy_to_transcript() -> None:
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "f3")
 
     app = tui.HephTui(
         _plain_session(),
@@ -4517,7 +4515,7 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
             assert app.state.armory_home_shown is True
             assert not any("No armory attached" in entry.content for entry in app.state.transcript)
             assert any("materials/" in entry.content for entry in app.state.transcript)
-            assert any("ctrl+a" in entry.content for entry in app.state.transcript)
+            assert any("f3" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_home_notice())
 
@@ -5104,7 +5102,7 @@ def test_turn_command_branches_from_selected_turn() -> None:
     asyncio.run(check_turn_branch())
 
 
-def test_ctrl_a_opens_armory_without_input_home_conflict() -> None:
+def test_ctrl_a_moves_composer_cursor_home_without_opening_armory() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -5123,10 +5121,97 @@ def test_ctrl_a_opens_armory_without_input_home_conflict() -> None:
             await pilot.press("ctrl+a")
             await pilot.pause()
 
-            assert app._armory_inline_active is True
-            assert composer.cursor_position == len(composer.value)
+            assert app._armory_inline_active is False
+            assert composer.cursor_position == 0
 
     asyncio.run(check_ctrl_a())
+
+
+def test_ctrl_d_deletes_right_in_non_empty_composer() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_ctrl_d() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "abcd"
+            composer.cursor_position = 1
+            await pilot.press("ctrl+d")
+            await pilot.pause()
+
+            assert composer.value == "acd"
+            assert composer.cursor_position == 1
+
+    asyncio.run(check_ctrl_d())
+
+
+def test_ctrl_p_and_ctrl_n_move_composer_history() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    state = tui._TuiRuntimeState(history=["first", "second"])
+    app = tui.HephTui(
+        _plain_session(),
+        state,
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_history_shortcuts() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "draft"
+            composer.cursor_position = len(composer.value)
+
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+
+            assert composer.value == "second"
+            assert app._inline_flow.active is False
+
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+
+            assert composer.value == "draft"
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_history_shortcuts())
+
+
+@pytest.mark.parametrize("key", ["ctrl+o", "ctrl+s"])
+def test_composer_readline_reserved_keys_do_not_trigger_app_shortcuts(key: str) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_reserved_shortcut() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "draft"
+            composer.cursor_position = len(composer.value)
+            await pilot.press(key)
+            await pilot.pause()
+
+            assert composer.value == "draft"
+            assert app._inline_flow.active is False
+            assert app._armory_inline_active is False
+            assert app._materials_inline_active is False
+            assert app.focused is composer
+
+    asyncio.run(check_reserved_shortcut())
 
 
 def test_shift_enter_inserts_visible_composer_newline() -> None:
@@ -5289,7 +5374,7 @@ def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
     assert [(event.key, event.character) for event in key_events] == [("shift+enter", None)]
 
 
-def test_ctrl_a_opens_armory_home() -> None:
+def test_f3_opens_armory_home() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -5300,14 +5385,14 @@ def test_ctrl_a_opens_armory_home() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_ctrl_a() -> None:
+    async def check_armory_shortcut() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("ctrl+a")
+            await pilot.press("f3")
             await pilot.pause()
 
             assert app._armory_inline_active is True
 
-    asyncio.run(check_ctrl_a())
+    asyncio.run(check_armory_shortcut())
 
 
 def test_keymap_flow_rebinds_materials_shortcut() -> None:
@@ -5336,7 +5421,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             suggestions = app.query_one("#suggestions", tui.OptionList)
             materials_prompt = _option_prompt_plain(suggestions, 2)
             assert materials_prompt.startswith("  MATERIALS")
-            assert "KEY ctrl+o" in materials_prompt
+            assert "KEY f5" in materials_prompt
             assert "SCOPE app" in materials_prompt
             assert "STATE default" in materials_prompt
 
@@ -5346,8 +5431,8 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             assert composer.placeholder.startswith("Keymap  materials  RECORD enter")
             review_options = dict(app._inline_flow.options)
             assert list(review_options) == ["RECORD", "RESET"]
-            assert review_options["RECORD"] == "current ctrl+o"
-            assert review_options["RESET"] == "restores ctrl+o"
+            assert review_options["RECORD"] == "current f5"
+            assert review_options["RESET"] == "restores f5"
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5357,7 +5442,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             app._submit_inline_flow("RECORD")
             await pilot.pause()
             assert app._inline_flow.step == "capture"
-            assert dict(app._inline_flow.options)["NEXT KEY"] == "materials current ctrl+o"
+            assert dict(app._inline_flow.options)["NEXT KEY"] == "materials current f5"
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5416,7 +5501,7 @@ def test_keymap_menu_rows_align_with_counter_and_key_column() -> None:
             assert command_prompt.startswith("→ COMMANDS")
             assert materials_prompt.startswith("  MATERIALS")
             assert command_prompt.index("KEY") == materials_prompt.index("KEY")
-            assert command_prompt.index("ctrl+p") == materials_prompt.index("ctrl+o")
+            assert command_prompt.index("f2") == materials_prompt.index("f5")
             assert command_prompt.index("SCOPE") == materials_prompt.index("SCOPE")
             assert command_prompt.index("STATE") == materials_prompt.index("STATE")
             assert "Keyboard shortcuts" not in screen_text
@@ -5450,7 +5535,7 @@ def test_keymap_menu_rows_fit_narrow_width_without_wrapping() -> None:
             assert prompts
             assert all(cell_width(prompt) <= suggestions.size.width for prompt in prompts)
             assert any(prompt.startswith("→ COMMANDS") for prompt in prompts)
-            assert any("KEY ctrl+p" in prompt for prompt in prompts)
+            assert any("KEY f2" in prompt for prompt in prompts)
             assert any(prompt.startswith("  NEWLINE") for prompt in prompts)
             assert any("KEY shift+enter (+3)" in prompt for prompt in prompts)
             assert all("ctrl+enter/alt+enter/ctrl+j" not in prompt for prompt in prompts)
@@ -5531,7 +5616,7 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             await pilot.pause()
 
             assert settings_store.load_raw_settings().get("tui_keymap") is None
-            assert app._keymap.keys_for_action("open_materials") == ("ctrl+o",)
+            assert app._keymap.keys_for_action("open_materials") == ("f5",)
 
     asyncio.run(check_reset_search())
 
@@ -5601,7 +5686,7 @@ def test_keymap_flow_copy_avoids_internal_metadata_labels() -> None:
     assert "restores all defaults" in rendered_copy
 
 
-def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
+def test_composer_input_retains_ctrl_a_home_binding() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -5617,7 +5702,7 @@ def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
             composer = app.query_one("#composer", tui.Input)
             key_to_bindings = composer._bindings.key_to_bindings
 
-            assert "ctrl+a" not in key_to_bindings
+            assert "ctrl+a" in key_to_bindings
             assert "home" in key_to_bindings
 
     asyncio.run(check_composer_bindings())
@@ -5666,7 +5751,7 @@ def test_command_input_executes_without_user_transcript(
                 assert app._inline_flow.step == "menu"
                 suggestions = app.query_one("#suggestions", tui.OptionList)
                 materials_prompt = _option_prompt_plain(suggestions, 2)
-                assert "KEY ctrl+o" in materials_prompt
+                assert "KEY f5" in materials_prompt
                 assert "SCOPE app" in materials_prompt
                 assert "STATE default" in materials_prompt
                 assert not any(

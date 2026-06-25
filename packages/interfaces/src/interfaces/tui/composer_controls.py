@@ -68,6 +68,8 @@ _COMPLETION_DESCRIPTION_GAP = 4
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _COMPLETION_SELECTED_PREFIX = "→ "
 _COMPLETION_UNSELECTED_PREFIX = "  "
+_COMPOSER_READLINE_SHORTCUT_KEYS = frozenset({"ctrl+n", "ctrl+p"})
+_COMPOSER_READLINE_RESERVED_KEYS = frozenset({"ctrl+o", "ctrl+s"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +108,8 @@ class _ComposerControlsHost(Protocol):
     def on_key(self, event: events.Key) -> None: ...
 
     def _handle_active_overlay_key(self, event: events.Key) -> bool: ...
+
+    def _composer_owns_key(self, event: events.Key) -> bool: ...
 
     def _handle_input_key(self, event: events.Key) -> bool: ...
 
@@ -313,7 +317,21 @@ class TuiComposerControlsMixin:
     def _handle_input_key(self: _ComposerControlsHost, event: events.Key) -> bool:
         if self.busy and self._handle_keymap_shortcut(event):
             return True
-        return self._handle_active_overlay_key(event) or self._handle_keymap_shortcut(event)
+        if self._handle_active_overlay_key(event):
+            return True
+        if self._composer_owns_key(event):
+            return False
+        return self._handle_keymap_shortcut(event)
+
+    def _composer_owns_key(self: _ComposerControlsHost, event: events.Key) -> bool:
+        composer = self.query_one(COMPOSER_SELECTOR, Input)
+        if self.focused is not composer:
+            return False
+        if event.key in _COMPOSER_READLINE_SHORTCUT_KEYS | _COMPOSER_READLINE_RESERVED_KEYS:
+            return True
+        if event.key == "ctrl+c":
+            return False
+        return event.key in getattr(composer._bindings, "key_to_bindings", {})
 
     def _handle_composer_shortcut(self: _ComposerControlsHost, event: events.Key) -> bool:
         shortcut = self._composer_shortcut_handler(event.key)
@@ -332,6 +350,8 @@ class TuiComposerControlsMixin:
             "ctrl+down": lambda: self._focus_message(1),
             "up": lambda: self._move_completion_or_history(-1),
             "down": lambda: self._move_completion_or_history(1),
+            "ctrl+p": lambda: self._move_completion_or_history(-1),
+            "ctrl+n": lambda: self._move_completion_or_history(1),
         }
         actions = {
             "escape": self._handle_escape_shortcut,

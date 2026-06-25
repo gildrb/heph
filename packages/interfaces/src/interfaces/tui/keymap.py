@@ -72,7 +72,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Commands",
         "Open the command palette.",
-        ("ctrl+p",),
+        ("f2",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -80,7 +80,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Armory",
         "Open the armory home.",
-        ("ctrl+a",),
+        ("f3",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -88,7 +88,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Materials",
         "Choose which materials are used for retrieval.",
-        ("ctrl+o",),
+        ("f5",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -96,7 +96,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Search",
         "Search across armories.",
-        ("ctrl+s",),
+        ("f6",),
     ),
     TuiKeymapAction(
         "evidence",

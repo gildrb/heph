@@ -210,7 +210,7 @@ class WidgetClasses:
 
     @classmethod
     def from_palette(cls, _palette: Theme) -> WidgetClasses:
-        input_class = input_without_ctrl_a_class(Input)
+        input_class = heph_input_class(Input)
         return cls(
             screen=make_blank_background_cls(Screen),
             vertical=selection_passthrough_transparent_cls(Vertical),
@@ -222,12 +222,12 @@ class WidgetClasses:
         )
 
 
-def input_without_ctrl_a_class(base: type) -> type:
+def heph_input_class(base: type) -> type:
     input_bindings = cast(
         "list[tuple[str, Binding]]",
         base._merged_bindings,  # ty:ignore[unresolved-attribute]
     )
-    bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
+    bindings = [binding for _key, binding in input_bindings]
     bindings.extend(
         Binding(key, action, description, show=False)
         for key, action, description in _SHELL_WORD_EDIT_BINDINGS
@@ -271,6 +271,12 @@ def input_without_ctrl_a_class(base: type) -> type:
                 self.replace(text, *self.selection)
             event.prevent_default()
             event.stop()
+
+        def action_delete_right(self) -> None:
+            if not self.value:
+                self.app.exit()
+                return
+            super().action_delete_right()
 
         def _watch_value(self, value: str) -> None:
             super()._watch_value(value)
@@ -413,7 +419,7 @@ def transparent_rich_log_class() -> type:
 
 
 def transparent_input_class() -> type:
-    return selectable_transparent_input_class(input_without_ctrl_a_class(Input))
+    return selectable_transparent_input_class(heph_input_class(Input))
 
 
 def transparent_option_list_class() -> type:
