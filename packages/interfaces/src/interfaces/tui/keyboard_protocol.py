@@ -37,7 +37,9 @@ else:
     )
 
 _XTERM_MODIFIED_KEY_RE = re.compile(r"\x1b\[27;(?P<modifier>\d+);(?P<codepoint>\d+)~\Z")
+_CSI_U_KEY_RE = re.compile(r"\x1b\[(?P<codepoint>\d+)(?:;(?P<modifier>\d+))?u\Z")
 _XTERM_MODIFIERS = ("shift", "alt", "ctrl")
+_CSI_U_MODIFIERS = ("shift", "alt", "ctrl", "super", "hyper", "meta")
 _installed = False
 
 
@@ -60,7 +62,7 @@ def install_textual_modified_key_compat() -> None:
         sequence: str,
         alt: bool = False,
     ) -> Iterable[Key]:
-        event = _xterm_modified_key_event(sequence)
+        event = _csi_u_key_event(sequence) or _xterm_modified_key_event(sequence)
         if event is not None:
             yield event
             return
@@ -83,18 +85,53 @@ def _xterm_modified_key_event(sequence: str) -> Key | None:
     if key is None:
         return None
 
-    modifier_tokens = _modifier_tokens(modifier)
+    modifier_tokens = _modifier_tokens(modifier, _XTERM_MODIFIERS)
     if not modifier_tokens:
         return None
     modifier_tokens.sort()
     return _TextualKey("+".join((*modifier_tokens, key.lower())), None)
 
 
-def _modifier_tokens(modifier: int) -> list[str]:
+def _csi_u_key_event(sequence: str) -> Key | None:
+    if _TextualKey is None:
+        return None
+    match = _CSI_U_KEY_RE.fullmatch(sequence)
+    if match is None:
+        return None
+
+    codepoint = int(match.group("codepoint"))
+    key = _base_key(codepoint)
+    if key is None:
+        return None
+
+    raw_modifier = match.group("modifier")
+    modifier_tokens = _modifier_tokens(int(raw_modifier), _CSI_U_MODIFIERS) if raw_modifier else []
+    modifier_tokens.sort()
+    character = _csi_u_printable_character(codepoint, modifier_tokens)
+    return _TextualKey("+".join((*modifier_tokens, key.lower())), character)
+
+
+def _csi_u_printable_character(codepoint: int, modifier_tokens: list[str]) -> str | None:
+    if _FUNCTIONAL_KEYS.get(f"{codepoint}u"):
+        return None
+    try:
+        character = chr(codepoint)
+    except ValueError:
+        return None
+    if not character.isprintable():
+        return None
+    if not modifier_tokens:
+        return character
+    if modifier_tokens == ["shift"] and not character.isalnum():
+        return character
+    return None
+
+
+def _modifier_tokens(modifier: int, modifier_names: tuple[str, ...]) -> list[str]:
     modifier_bits = modifier - 1
     return [
         modifier_name
-        for bit, modifier_name in enumerate(_XTERM_MODIFIERS)
+        for bit, modifier_name in enumerate(modifier_names)
         if modifier_bits & (1 << bit)
     ]
 

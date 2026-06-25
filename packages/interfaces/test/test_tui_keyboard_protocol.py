@@ -8,6 +8,7 @@ import pytest
 from ai.runtime import ChatConfig
 from hephaion.chat.session import create_plain_session
 from interfaces import tui
+from interfaces.tui import widgets as tui_widgets
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
 from interfaces.tui.resize import TuiResizeMixin
 from interfaces.tui.widgets import csi_u_key_text, key_event_text
@@ -23,6 +24,16 @@ def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
     ]
 
     assert [(event.key, event.character) for event in key_events] == [("shift+enter", None)]
+
+
+def test_csi_u_modified_printable_sequence_preserves_character() -> None:
+    install_textual_modified_key_compat()
+
+    key_events = [
+        event for event in XTermParser().feed("\x1b[47;2u") if isinstance(event, events.Key)
+    ]
+
+    assert [(event.key, event.character) for event in key_events] == [("shift+slash", "/")]
 
 
 def test_plain_ctrl_m_sequence_decodes_as_enter() -> None:
@@ -59,6 +70,17 @@ def test_terminal_keyboard_protocol_does_not_request_shifted_printable_key_repor
     recorder._pop_terminal_keyboard_protocol()
 
     assert recorder.sequences == ["\x1b[>1u", "\x1b[<u"]
+
+
+def test_german_shift_digit_csi_u_key_uses_active_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPH_TUI_KEYBOARD_LAYOUT", "de")
+    tui_widgets._clear_csi_u_keyboard_layout_cache()
+    try:
+        assert csi_u_key_text("shift+7") == "/"
+    finally:
+        tui_widgets._clear_csi_u_keyboard_layout_cache()
 
 
 def test_armory_home_notice_uses_neutral_text_style() -> None:

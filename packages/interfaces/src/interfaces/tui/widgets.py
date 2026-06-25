@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import cast
 
 from interfaces.terminal import Theme
@@ -39,6 +43,9 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 _MULTILINE_INPUT_MAX_VISIBLE_LINES = 6
+_KEYBOARD_LAYOUT_ENV = "HEPH_TUI_KEYBOARD_LAYOUT"
+_KEYBOARD_VARIANT_ENV = "HEPH_TUI_KEYBOARD_VARIANT"
+_LOCALECTL_TIMEOUT_SECONDS = 0.2
 _CSI_U_KEY_TEXT = {
     "apostrophe": "'",
     "at": "@",
@@ -57,16 +64,6 @@ _CSI_U_KEY_TEXT = {
     "underscore": "_",
 }
 _SHIFTED_CSI_U_KEY_TEXT = {
-    "1": "!",
-    "2": "@",
-    "3": "#",
-    "4": "$",
-    "5": "%",
-    "6": "^",
-    "7": "&",
-    "8": "*",
-    "9": "(",
-    "0": ")",
     "apostrophe": '"',
     "backslash": "|",
     "comma": "<",
@@ -80,6 +77,44 @@ _SHIFTED_CSI_U_KEY_TEXT = {
     "slash": "?",
     "space": " ",
 }
+_US_SHIFTED_DIGIT_TEXT = {
+    "1": "!",
+    "2": "@",
+    "3": "#",
+    "4": "$",
+    "5": "%",
+    "6": "^",
+    "7": "&",
+    "8": "*",
+    "9": "(",
+    "0": ")",
+}
+_SHIFTED_DIGIT_TEXT_BY_LAYOUT = {
+    "de": {
+        "1": "!",
+        "2": '"',
+        "3": "\N{SECTION SIGN}",
+        "4": "$",
+        "5": "%",
+        "6": "&",
+        "7": "/",
+        "8": "(",
+        "9": ")",
+        "0": "=",
+    },
+}
+_SHELL_WORD_EDIT_BINDINGS = (
+    ("alt+backspace", "delete_left_word", "Delete left to start of word"),
+    ("meta+backspace", "delete_left_word", "Delete left to start of word"),
+    ("alt+delete", "delete_right_word", "Delete right to start of word"),
+    ("meta+delete", "delete_right_word", "Delete right to start of word"),
+)
+
+
+@dataclass(frozen=True)
+class _KeyboardLayout:
+    layout: str = ""
+    variant: str = ""
 
 
 def csi_u_key_text(key: str) -> str | None:
@@ -91,6 +126,8 @@ def csi_u_key_text(key: str) -> str | None:
     base_key = key.removeprefix("shift+")
     if len(base_key) == 1 and base_key.isalpha():
         return base_key.upper()
+    if len(base_key) == 1 and base_key.isdecimal():
+        return _layout_shifted_digit_text(base_key)
     return _SHIFTED_CSI_U_KEY_TEXT.get(base_key)
 
 
@@ -98,6 +135,67 @@ def key_event_text(event: events.Key) -> str | None:
     if event.character and event.is_printable:
         return event.character
     return csi_u_key_text(event.key)
+
+
+def _clear_csi_u_keyboard_layout_cache() -> None:
+    _active_keyboard_layout.cache_clear()
+
+
+def _layout_shifted_digit_text(digit: str) -> str | None:
+    layout = _active_keyboard_layout()
+    layout_text = _SHIFTED_DIGIT_TEXT_BY_LAYOUT.get(layout.layout, {}).get(digit)
+    return layout_text or _US_SHIFTED_DIGIT_TEXT.get(digit)
+
+
+@lru_cache(maxsize=1)
+def _active_keyboard_layout() -> _KeyboardLayout:
+    if layout := os.environ.get(_KEYBOARD_LAYOUT_ENV):
+        return _KeyboardLayout(
+            _first_keyboard_layout(layout),
+            _first_keyboard_layout(os.environ.get(_KEYBOARD_VARIANT_ENV, "")),
+        )
+
+    if layout := os.environ.get("XKB_DEFAULT_LAYOUT"):
+        return _KeyboardLayout(
+            _first_keyboard_layout(layout),
+            _first_keyboard_layout(os.environ.get("XKB_DEFAULT_VARIANT", "")),
+        )
+
+    return _localectl_keyboard_layout()
+
+
+def _localectl_keyboard_layout() -> _KeyboardLayout:
+    localectl = shutil.which("localectl")
+    if localectl is None:
+        return _KeyboardLayout()
+    try:
+        result = subprocess.run(
+            [localectl, "status"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=_LOCALECTL_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return _KeyboardLayout()
+
+    values = _localectl_values(result.stdout)
+    layout = values.get("x11 layout") or values.get("vc keymap") or ""
+    variant = values.get("x11 variant", "")
+    return _KeyboardLayout(_first_keyboard_layout(layout), _first_keyboard_layout(variant))
+
+
+def _localectl_values(output: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        label, separator, value = line.partition(":")
+        if separator:
+            values[label.strip().casefold()] = value.strip()
+    return values
+
+
+def _first_keyboard_layout(value: str) -> str:
+    return value.split(",", maxsplit=1)[0].strip().casefold()
 
 
 @dataclass
@@ -130,6 +228,10 @@ def input_without_ctrl_a_class(base: type) -> type:
         base._merged_bindings,  # ty:ignore[unresolved-attribute]
     )
     bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
+    bindings.extend(
+        Binding(key, action, description, show=False)
+        for key, action, description in _SHELL_WORD_EDIT_BINDINGS
+    )
 
     class HephInput(
         base,  # ty:ignore[unsupported-base]

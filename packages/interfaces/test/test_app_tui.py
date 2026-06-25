@@ -41,6 +41,7 @@ from interfaces.tui import armory as tui_armory
 from interfaces.tui import keybinds, keymap
 from interfaces.tui import streaming as tui_streaming
 from interfaces.tui import transcript as tui_transcript
+from interfaces.tui import widgets as tui_widgets
 from interfaces.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from interfaces.tui.cell_text import cell_width
 from interfaces.tui.inline_menu import (
@@ -5210,6 +5211,70 @@ def test_report_all_csi_u_printable_keys_insert_in_focused_composer() -> None:
             assert composer.value == "A/? !"
 
     asyncio.run(check_csi_u_printable_keys())
+
+
+def test_german_report_all_csi_u_shift_7_inserts_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPH_TUI_KEYBOARD_LAYOUT", "de")
+    tui_widgets._clear_csi_u_keyboard_layout_cache()
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_german_shift_7() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            del pilot
+            composer = cast("_InputKeyHandler", app.query_one("#composer", tui.Input))
+
+            composer.on_key(events.Key("shift+7", None))
+
+            assert composer.value == "/"
+
+    try:
+        asyncio.run(check_german_shift_7())
+    finally:
+        tui_widgets._clear_csi_u_keyboard_layout_cache()
+
+
+def test_option_delete_word_editing_aliases_work_in_composer() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_word_editing_aliases() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+
+            composer.value = "hello world"
+            composer.cursor_position = len(composer.value)
+            await pilot.press("alt+backspace")
+            await pilot.pause()
+
+            assert composer.value == "hello "
+            assert composer.cursor_position == len("hello ")
+
+            composer.value = "hello world"
+            composer.cursor_position = 0
+            await pilot.press("alt+delete")
+            await pilot.pause()
+
+            assert composer.value == "world"
+            assert composer.cursor_position == 0
+
+    asyncio.run(check_word_editing_aliases())
 
 
 def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
