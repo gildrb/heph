@@ -6414,6 +6414,54 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(
     asyncio.run(check_create())
 
 
+def test_armory_inline_opens_fresh_empty_armory_after_create(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_create_then_open() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("create")
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "mfi-2"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            armory_path = tmp_path / "mfi-2"
+            assert (armory_path / ".hephaion" / "armory.toml").is_file()
+
+            app._handle_armory_browser("/armory")
+            labels = [entry.label for entry in app._armory_entries]
+            index = next(i for i, label in enumerate(labels) if "mfi-2" in label)
+            current = app.query_one("#armory-current-inline", tui.OptionList)
+            current.highlighted = index
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._armory_inline_active is False
+            assert app.session.armory_path == armory_path
+            assert app.session.source_file_count == 0
+            assert any(entry.content == "Using armory mfi-2" for entry in app.state.transcript)
+            assert any(
+                "No materials yet. Add files to" in entry.content for entry in app.state.transcript
+            )
+            assert not any(
+                "Could not open armory" in entry.content for entry in app.state.transcript
+            )
+
+    asyncio.run(check_create_then_open())
+
+
 def test_armory_inline_create_starts_in_default_armory_home(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

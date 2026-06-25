@@ -9,7 +9,6 @@ import pytest
 from ai.runtime import ChatConfig
 from hephaion.armory.storage import initialize
 from hephaion.chat.session import (
-    SessionError,
     create_session,
     fork_session_at_turn,
     record_turn_snapshot,
@@ -361,22 +360,23 @@ def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
     assert "materials/private/notes.md" not in system_prompt
 
 
-def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
+def test_ignored_sources_start_empty_armory_without_material_context(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)
     (armory / ".hephaionignore").write_text("materials/ignored.md\n", encoding="utf-8")
     (armory / "materials" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
 
-    with pytest.raises(SessionError) as exc_info:
-        create_session(
-            ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
-            armory,
-        )
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
 
-    message = str(exc_info.value)
-    assert "has no materials" in message
-    assert f"Add files to: {armory / 'materials'}" in message
-    assert f"heph {armory.name}" in message
+    assert session.armory_path == armory
+    assert session.source_file_count == 0
+    assert session.source_files == ()
+    system_prompt = session.conversation.messages[0].content
+    assert f"Armory workspace: {armory}" in system_prompt
+    assert "materials/ignored.md" not in system_prompt
 
 
 def test_create_session_does_not_auto_execute_armory_plugins(

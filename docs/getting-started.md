@@ -50,6 +50,9 @@ Named armories are stored in `~/.armories`. To move Heph to another PC, install
 Heph, copy or sync the `.armories` folder, set up provider credentials, and run
 `heph`.
 
+You can open a new armory before adding documents. Heph stays attached to the
+armory and shows a no-materials state until files are present in `materials/`.
+
 ## Add Documents
 
 Place your documents in the `materials/` directory of your armory:

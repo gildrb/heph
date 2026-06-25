@@ -155,7 +155,8 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
 CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph": "Open your current armory or plain chat.",
     "heph <name-or-path>": (
-        "Open an armory by name from `~/.armories`, e.g. `heph gdp`, or by explicit path."
+        "Open an armory by name from `~/.armories`, e.g. `heph gdp`, or by explicit path; "
+        "empty armories open with a no-materials state."
     ),
     "hephaion [path]": "Equivalent long Hephaion harness entrypoint for `heph`.",
     "heph armory init <name>": "Create a named armory in `~/.armories`.",

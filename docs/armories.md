@@ -57,6 +57,10 @@ heph armory init my-project
 # Creates: ~/.armories/my-project/
 ```
 
+New armories can be opened immediately, even before `materials/` contains files.
+Heph will keep the armory attached and show a no-materials state until you add
+documents.
+
 Heph discovers valid armory folders in `.armories` when it starts. Copied or
 synced armories are available as long as their `.hephaion/armory.toml` marker and
 `materials/` folder travel with them.

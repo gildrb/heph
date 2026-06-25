@@ -134,22 +134,6 @@ ARMORY_PLUGINS_TRUST_ENV = "HEPHAION_TRUST_ARMORY_PLUGINS"
 ARMORY_MEMORY_TRUST_ENV = "HEPHAION_TRUST_ARMORY_MEMORY"
 
 
-def empty_armory_guidance(armory_path: Path) -> str:
-    module_name = armory_path.name
-    materials_path = armory_path / "materials"
-    return "\n".join(
-        (
-            f"Armory '{module_name}' has no materials yet.",
-            f"Add files to: {materials_path}",
-            "",
-            "Armories are saved locally in ~/.armories/",
-            "Add PDFs, Markdown, notes, or text files to:",
-            f"  ~/.armories/{module_name}/materials/",
-            f"Then start working with your documents: heph {module_name}",
-        )
-    )
-
-
 def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
     names = [
         str(file_path.relative_to(armory_path)) for file_path in iter_material_files(armory_path)
@@ -329,8 +313,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         raise SessionError("An armory is required. Create one with: heph armory init <name>")
 
     context = _armory_context(armory_path)
-    if context.source_file_count == 0:
-        raise SessionError(empty_armory_guidance(armory_path))
 
     conversation = Conversation()
     conversation.add("system", _armory_system_prompt(armory_path, context.source_files))

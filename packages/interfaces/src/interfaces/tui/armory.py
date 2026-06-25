@@ -803,6 +803,8 @@ class TuiArmoryMixin:
         src_count = self.session.source_file_count or 0
         if src_count:
             self._append_notice(f"Loaded {src_count} file(s).")
+        else:
+            self._append_notice(f"No materials yet. Add files to {path / 'materials'}")
 
     def _append_hidden_armory_error(self: _ArmoryHost, text: str) -> None:
         self.query_one("#armory-error-inline", Static).update(text)

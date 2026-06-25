@@ -39,7 +39,6 @@ def initialized_armory(tmp_path: Path) -> Path:
     """Create a properly initialized armory that passes validate_armory_path."""
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
-    # Add a material file so create_session() doesn't reject the armory
     (armory_path / "materials" / "notes.md").write_text("# Notes\nSome source content.\n")
     return armory_path
 
@@ -326,7 +325,7 @@ class TestCreateStartupSession:
         assert armory_a.resolve() in known
         assert armory_b.resolve() in known
 
-    def test_empty_auto_discovered_armory_falls_back_with_setup_steps(
+    def test_empty_auto_discovered_armory_starts_attached(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -340,9 +339,9 @@ class TestCreateStartupSession:
         session = create_startup_session(config)
 
         captured = capsys.readouterr()
-        assert session.armory_path is None
-        assert "no materials" in captured.out.lower()
-        assert f"Add files to: {armory_path / 'materials'}" in captured.out
+        assert session.armory_path == armory_path
+        assert session.source_file_count == 0
+        assert "no materials" not in captured.out.lower()
 
     def test_creates_armory_session_when_armory_found(
         self, initialized_armory: Path, monkeypatch: pytest.MonkeyPatch

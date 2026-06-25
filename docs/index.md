@@ -55,8 +55,8 @@ uv tool install git+https://github.com/gildrb/heph
 
 ```bash
 heph armory init exams
-# add documents to ~/.armories/exams/materials
 heph exams
+# add documents to ~/.armories/exams/materials when you're ready
 ```
 
 Heph stores named armories under `~/.armories`. To move to another PC, install

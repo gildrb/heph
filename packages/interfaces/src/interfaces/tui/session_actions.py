@@ -15,7 +15,6 @@ from hephaion.chat.session import (
     SessionError,
     create_plain_session,
     create_session,
-    empty_armory_guidance,
     save_session,
     session_has_messages,
 )
@@ -87,9 +86,8 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
         session = create_session(config, armory)
         set_last_armory(armory)
         return apply_display_settings(session)
-    except SessionError:
-        print_error("Auto-discovered armory has no materials.")
-        print_info(empty_armory_guidance(armory))
+    except SessionError as exc:
+        print_error(str(exc))
         return apply_display_settings(create_plain_session(config))
 
 
