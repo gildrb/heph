@@ -1,8 +1,6 @@
 [[GENERATED_NOTICE]]
 
-[[README_LOGO_BLOCK]]<h1 align="center">Heph</h1>
-
-[[BADGES_BLOCK]]
+[[README_LOGO_BLOCK]][[BADGES_BLOCK]]
 
 Local document workspace for accurate, cited answers from files you keep in
 normal folders. Heph indexes armory materials, cites retrieved evidence, and
@@ -26,9 +24,11 @@ details.
 
 ## Quick Start
 
+UV:
+
 [[QUICK_START_BLOCK]]
 
-If you do not use uv:
+Pip:
 
 [[INSTALL_OPTIONS_BLOCK]]
 

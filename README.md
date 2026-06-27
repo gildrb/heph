@@ -4,8 +4,6 @@
   <img alt="Heph" src="docs/assets/logo-auto.svg" width="320">
 </p>
 
-<h1 align="center">Heph</h1>
-
 <p align="center">
   <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9"></a>
   <a href="#quick-start"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
@@ -50,6 +48,8 @@ details.
 
 ## Quick Start
 
+UV:
+
 ```bash
 uv tool install heph@latest
 heph armory init exams
@@ -57,7 +57,7 @@ cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
 heph exams
 ```
 
-If you do not use uv:
+Pip:
 
 ```bash
 pip install heph

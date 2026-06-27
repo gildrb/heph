@@ -171,7 +171,7 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
 
     root_readme = sync_docs.README_PATH
     root_text = root_readme.read_text(encoding="utf-8")
-    assert '<h1 align="center">Heph</h1>' in root_text
+    assert '<h1 align="center">Heph</h1>' not in root_text
     assert 'src="docs/assets/logo-auto.svg"' in root_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     assert "img.shields.io/pypi/v/heph" in root_text
@@ -180,7 +180,9 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
     assert "img.shields.io/badge/license-MIT" in root_text
     assert 'src="docs/assets/app-sc.png"' in root_text
-    assert "If you do not use uv:" in root_text
+    assert "UV:" in root_text
+    assert "Pip:" in root_text
+    assert "If you do not use uv:" not in root_text
     assert "uv tool upgrade heph" not in root_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in root_text
     assert "## Models" not in root_text
@@ -190,13 +192,15 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert "[docs/armories.md](docs/armories.md)" not in root_text
 
     docs_index_text = sync_docs.DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    assert '<h1 align="center">Heph</h1>' in docs_index_text
+    assert '<h1 align="center">Heph</h1>' not in docs_index_text
     assert 'src="assets/logo-auto.svg"' in docs_index_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in docs_index_text
     assert '<a href="#quick-start"><img alt="uv"' in docs_index_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
     assert 'src="assets/app-sc.png"' in docs_index_text
-    assert "If you do not use uv:" in docs_index_text
+    assert "UV:" in docs_index_text
+    assert "Pip:" in docs_index_text
+    assert "If you do not use uv:" not in docs_index_text
     assert "uv tool upgrade heph" not in docs_index_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in docs_index_text
     assert "## Models" not in docs_index_text
