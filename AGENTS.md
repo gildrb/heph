@@ -3,13 +3,11 @@
 
 NEVER create regex label lists / phrase-catching architecture and ALWAYS solve the problem structurally with this mindset: https://mariozechner.at/posts/2025-06-02-prompts-are-code/.
 
-## Product Promise
+## Core Shape
 
-Heph is a **local document harness for accurate, cited answers**. A selected
-model writes; the harness grounds that work in armory materials; together they
-are Heph.
 Protect this shape in every change:
 
+- Heph answers from local armory materials with accurate, cited responses.
 - Armories stay portable normal directories.
 - Answers are grounded in user materials and citations remain verifiable.
 - Memory is scoped to the armory unless the user explicitly opts into a shared service.
@@ -235,16 +233,18 @@ Testing rules:
   `uv run python -m scripts.check_dependency_sdist_allowlist`, and `uv audit --frozen`
   when dependencies change.
 
-## Documentation and Product Style
+## Documentation and Naming Style
 
 - Voice: practical, private, verification-first, and grounded in user files.
-- Product language: `Heph` is the product, public Python package, command, and
-  SDK surface. Use `the harness` for the correctness layer. Use implementation
-  identifiers such as `hephaion.*`, `.hephaion/`, and `HEPHAION_*` only when
-  the exact namespace, state path, or environment variable is actionable.
+- Naming: use `Heph` for the public Python package, command, SDK surface, and
+  user-facing app. Use `the harness` for the correctness layer. Use
+  implementation identifiers such as `hephaion.*`, `.hephaion/`, and
+  `HEPHAION_*` only when the exact namespace, state path, or environment
+  variable is actionable.
 - README and `docs/index.md` stay short and link-forward. Preserve the clickable
-  Docs map. They cover what Heph is, install/start commands, model setup, core
-  commands, safety, and where to read next.
+  Docs map. They cover what Heph does, armory structure, one start path, core
+  commands, safety, and where to read next. Keep provider/model setup inside the
+  command flow and linked docs, not as a standalone README section.
 - User docs belong in `docs/`: armory workflows, materials/source files,
   provider and model setup, CLI and slash commands, privacy/network behavior,
   troubleshooting, and verifiable operational examples.

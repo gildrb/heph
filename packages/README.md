@@ -81,7 +81,7 @@ Core invariants:
   Heph-specific behavior.
 - `hephaion.*` is the harness implementation namespace: guardrails, armories,
   retrieval, citations, memory, local learning, diagnostics, and session state.
-- Heph is the product and composition surface: the selected model plus the
-  harness, exposed through the `heph` command and SDK.
+- Heph owns the `heph` command, SDK surface, agent identity, and composition of
+  the lower packages.
 - Interfaces and Extensions compose the core through public contracts instead
   of owning harness or agent behavior.

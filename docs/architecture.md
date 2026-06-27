@@ -1,8 +1,6 @@
 # Architecture
 
-Heph uses five workspace packages with strict import boundaries. The split
-matches the product model: a selected model plus the local harness, surfaced as
-Heph.
+Heph uses five workspace packages with strict import boundaries.
 
 ```text
 packages/
@@ -19,9 +17,9 @@ dependency flow, not another architecture narrative.
 
 ## Package Ownership
 
-- **Heph** is the product and user-facing surface. It owns the `heph` command,
-  agent identity, research/talking orchestration, slash-command coordination,
-  and composition of the lower packages. Lower packages must not import Heph.
+- **Heph** owns the `heph` command, agent identity, research/talking
+  orchestration, slash-command coordination, SDK surface, and composition of the
+  lower packages. Lower packages must not import Heph.
 - **The harness** lives in the `hephaion.*` implementation namespace. It owns
   turns, guardrails, grounding, citations, retrieval, armory state, memory,
   local learning attempts and policies, study workflows, diagnostics, and
@@ -34,9 +32,9 @@ dependency flow, not another architecture narrative.
 - **Extensions** owns small stable contracts for extension-oriented behavior.
   Concrete behavior belongs in the package that owns the runtime decision.
 
-Heph and the harness are both protected, but in different ways: Heph is the
-product surface lower packages cannot import; the harness is the correctness
-layer adapters and app code compose without owning.
+Heph and the harness are both protected, but in different ways: lower packages
+cannot import Heph; adapters and app code compose the harness without owning its
+correctness logic.
 
 ## Protected Core
 

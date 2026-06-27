@@ -10,7 +10,7 @@ It owns the user-facing agent identity, research/talking orchestration, the
 command entrypoint, slash-command coordination, and the composition needed to
 connect the harness, AI runtime, interfaces, and extension contracts.
 
-Heph is the product surface. The validation layer is the harness.
+The validation layer is the harness.
 
 ## Source Layout
 

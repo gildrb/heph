@@ -1,88 +1,62 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
-<p align="center">
-  <img alt="Heph" src="docs/assets/logo-auto.svg" width="320">
-</p>
-
 # Heph
 
-**Heph is a local document harness for accurate, cited answers.**
-
-Heph is the product: your selected model plus the local harness that keeps work
-grounded in your files. Put source files in an **armory**, start Heph with
-`heph`, and ask questions. The harness retrieves from your materials, checks
-citations against evidence, and keeps memory scoped to that armory.
-
-The model writes. The harness grounds, verifies, and remembers inside the
-armory. Together they are Heph.
-
-An armory is the core idea: a normal portable folder with your source files, saved
-chats, retrieval index, and local memory. Your documents are not locked into a
-provider.
-
 <p align="center">
-  <img alt="Heph TUI" src="docs/assets/app-sc.png" width=full>
+  <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9"></a>
+  <a href="https://docs.astral.sh/uv/"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3FB950?style=for-the-badge&labelColor=000000"></a>
 </p>
 
-## Install
+Local document workspace for accurate, cited answers from files you keep in
+normal folders. Heph indexes armory materials, cites retrieved evidence, and
+keeps learning memory scoped to that armory.
+
+## The armory is the interface
+
+A typical Heph armory has this structure:
+
+```text
+~/.armories/exams/
+├── materials/              # PDFs, Office docs, notes, code to cite
+│   ├── lecture-notes.pdf
+│   └── reference.md
+├── .hephaion/              # Local Heph state
+│   ├── armory.toml         # Armory marker
+│   ├── rag_index.json      # Retrieval index
+│   ├── memory.json         # Learning memory
+│   ├── chats/              # Saved sessions
+│   ├── traces/             # Optional JSONL traces
+│   ├── usage/              # Token and cost snapshots
+│   └── ignore              # Optional indexing ignores
+└── README.md               # Optional notes
+```
+
+Heph reads `materials/`, writes local state under `.hephaion/`, and leaves the
+armory portable. Read [Armories](docs/armories.md) for storage, indexing, and memory
+details.
+
+> [!NOTE]
+> Named armories live in `~/.armories`. Copy or sync that folder to move work
+> between machines; set provider credentials again on each machine.
+
+## Quick Start
 
 ```bash
 uv tool install heph@latest
-heph
-heph --version
-```
-
-Or with pip:
-
-```bash
-pip install heph
-```
-
-The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files.
-
-Upgrade with:
-
-```bash
-uv tool upgrade heph
-```
-
-Install from GitHub:
-
-```bash
-uv tool install git+https://github.com/gildrb/heph
-```
-
-## Start
-
-```bash
 heph armory init exams
-# Add source files to ~/.armories/exams/materials
+cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
 heph exams
 ```
 
-Heph stores named armories under `~/.armories`. To move to another PC, install
-Heph there, copy or sync the `.armories` folder, set up provider credentials,
-and run `heph`.
-
-You can also run Heph from an explicit armory path when needed:
+Other install paths:
 
 ```bash
-heph .
-heph ~/.armories/exams
+pip install heph
+uv tool upgrade heph
+uv tool install git+https://github.com/gildrb/heph
+uv run heph  # from a source checkout
 ```
-
-From a source checkout, use `uv run heph`.
-
-## Models
-
-Use `/login` to connect OAuth or API-key access, then `/models` to choose from the
-models available to those credentials.
-
-Heph works with Pollinations AI, OpenRouter, OpenAI API keys, OpenAI Codex
-subscription login, Z.AI, local tool-capable llama.cpp models, and custom
-OpenAI-compatible endpoints. Environment variables include
-`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`,
-`HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
 
 ## Commands
 
@@ -92,25 +66,26 @@ heph armory init NAME   Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.
+heph sdk serve          Start the JSONL SDK service.
 heph update             Show the update command.
 ```
 
-Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`,
-`/materials`, `/keymap`, `/detach`, `/evidence`, `/turn`, `/settings`, and `/exit`.
+Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
+`/evidence`, `/turn`, `/settings`, `/keymap`, and `/exit`.
 
 ## Docs
 
-- [docs/getting-started.md](docs/getting-started.md) — first armory and materials walkthrough
-- [docs/armories.md](docs/armories.md) — portable armory layout and local storage
-- [docs/cli-reference.md](docs/cli-reference.md) — CLI commands, slash commands, and environment variables
-- [docs/configuration.md](docs/configuration.md) — provider and model configuration
-- [docs/models.md](docs/models.md) — provider choices, model selection, and API keys
-- [docs/privacy.md](docs/privacy.md) — local-first storage, diagnostics, and network behavior
-- [docs/architecture.md](docs/architecture.md) — harness, package boundaries, and data flow
-- [docs/developers/sdk.md](docs/developers/sdk.md) — SDK for native apps, GUI shells, and automation
-- [docs/troubleshooting.md](docs/troubleshooting.md) — common setup, indexing, and provider issues
-- [docs/developers/index.md](docs/developers/index.md) — developer docs and internal guides
-- [docs/developers/runbooks/index.md](docs/developers/runbooks/index.md) — operational debugging runbooks
+- [Getting started](docs/getting-started.md) — first armory, first answer
+- [Armories](docs/armories.md) — layout, portability, memory
+- [CLI reference](docs/cli-reference.md) — commands, shortcuts, env vars
+- [Configuration](docs/configuration.md) — providers, models, settings
+- [Models](docs/models.md) — provider choices and API keys
+- [Privacy](docs/privacy.md) — local state, diagnostics, network behavior
+- [Architecture](docs/architecture.md) — harness, package boundaries, flow
+- [SDK](docs/developers/sdk.md) — native apps, GUI shells, automation
+- [Troubleshooting](docs/troubleshooting.md) — setup, indexing, providers
+- [Developers](docs/developers/index.md) — internal docs
+- [Runbooks](docs/developers/runbooks/index.md) — operational debugging
 
 ## Contributing
 
@@ -124,7 +99,3 @@ not enable hosted diagnostics by default.
 
 Model-generated terminal commands are not exposed as a default agent tool. Explicit
 `!` terminal escapes and armory plugins should only be used in armories you trust.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).

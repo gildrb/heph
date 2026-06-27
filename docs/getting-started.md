@@ -147,7 +147,7 @@ CLI commands:
 - `heph health [path]` - Check indexed materials
 - `heph update` - Show the update command
 
-## Next Steps
+## Read Next
 
 - [Configuration](configuration.md) - Configure models, privacy, and behavior
 - [Armories](armories.md) - Understand how armories work

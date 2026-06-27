@@ -1,8 +1,8 @@
 # Heph Assistant Atlas
 
-Heph = selected model plus local harness for accurate, cited answers. It runs
-inside an armory: a portable folder with indexed `materials/`, local
-`.hephaion/` state, armory-scoped memory, traces, usage, and provider settings.
+Heph answers questions from armory materials with citations. It runs inside an
+armory: a portable folder with indexed `materials/`, local `.hephaion/` state,
+armory-scoped memory, traces, usage, and provider settings.
 
 Use model context like this:
 

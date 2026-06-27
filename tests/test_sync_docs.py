@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -27,6 +26,8 @@ _TEXT_SCAN_FILES = (
 _OLD_PRODUCT_NAME = "Heph" + "aion"
 _PAIRED_PRODUCT_LAYER_NAME = "Heph " + "Harness"
 _PRODUCT_LAYER_INITIALS = "H" + "H"
+_PRODUCT_DECLARATION = "Heph is the " + "product"
+_MODEL_HARNESS_DECLARATION = "selected model " + "plus"
 _PUBLIC_NAMING_PATTERNS = (
     (
         re.compile(rf"\b{_OLD_PRODUCT_NAME}\b"),
@@ -39,6 +40,18 @@ _PUBLIC_NAMING_PATTERNS = (
     (
         re.compile(rf"\b{_PRODUCT_LAYER_INITIALS}\b"),
         "Use product and layer names in full.",
+    ),
+    (
+        re.compile(r"\btogether\s+they\s+are\s+Heph\b", flags=re.IGNORECASE),
+        "Let the app name stand on its own in public copy.",
+    ),
+    (
+        re.compile(rf"\b{_PRODUCT_DECLARATION}\b"),
+        "Use direct descriptions of what Heph does.",
+    ),
+    (
+        re.compile(rf"\b{_MODEL_HARNESS_DECLARATION}\b"),
+        "Use direct descriptions of what Heph does.",
     ),
 )
 
@@ -138,12 +151,24 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert "fill: #ffffff" in logo_text
 
     root_readme = sync_docs.README_PATH
-    root_logo_path = os.path.relpath(sync_docs.README_LOGO_PATH, root_readme.parent)
     root_text = root_readme.read_text(encoding="utf-8")
-    assert f'src="{Path(root_logo_path).as_posix()}"' in root_text
-    assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
-    root_screenshot_path = os.path.relpath(sync_docs.README_SCREENSHOT_PATH, root_readme.parent)
-    assert f'src="{Path(root_screenshot_path).as_posix()}"' in root_text
+    assert f'width="{sync_docs.README_LOGO_WIDTH}"' not in root_text
+    assert "img.shields.io/pypi/v/heph" in root_text
+    assert "img.shields.io/badge/uv-tool%20install" in root_text
+    assert "img.shields.io/badge/license-MIT" in root_text
+    assert "docs/assets/app-sc.png" not in root_text
+    assert "## Models" not in root_text
+    assert "## License" not in root_text
+    assert "[Getting started](docs/getting-started.md)" in root_text
+    assert "[docs/getting-started.md](docs/getting-started.md)" not in root_text
+    assert "[docs/armories.md](docs/armories.md)" not in root_text
+
+    docs_index_text = sync_docs.DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    assert "## Models" not in docs_index_text
+    assert "## Next Steps" not in docs_index_text
+    assert "[Getting started](getting-started.md)" in docs_index_text
+    assert "[getting-started.md](getting-started.md)" not in docs_index_text
+    assert "[armories.md](armories.md)" not in docs_index_text
 
     package_readmes = (
         sync_docs.ROOT / "packages" / "ai" / "README.md",

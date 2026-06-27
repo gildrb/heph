@@ -490,30 +490,90 @@ def render_markdown_table(headers: tuple[str, str], rows: tuple[tuple[str, str],
 
 
 def render_install_block(model: DocsModel) -> str:
-    return (
-        "```bash\n"
-        "uv tool install heph@latest\n"
-        f"{model.short_command}\n"
-        f"{model.short_command} --version\n"
-        "```"
-    )
+    return f"```bash\nuv tool install heph@latest\n{model.short_command} --version\n```"
 
 
 def render_pip_install_block() -> str:
-    return (
-        "```bash\n"
-        "pip install heph\n"
-        "```\n\n"
-        "The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files."
-    )
+    return "```bash\npip install heph\n```"
 
 
 def render_create_armory_block(model: DocsModel) -> str:
     return (
         "```bash\n"
         f"{model.short_command} armory init exams\n"
-        "# Add source files to ~/.armories/exams/materials\n"
+        "# Add files to ~/.armories/exams/materials\n"
         f"{model.short_command} exams\n"
+        "```"
+    )
+
+
+def render_quick_start_block(model: DocsModel) -> str:
+    return (
+        "```bash\n"
+        "uv tool install heph@latest\n"
+        f"{model.short_command} armory init exams\n"
+        "cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/\n"
+        f"{model.short_command} exams\n"
+        "```"
+    )
+
+
+def render_install_options_block() -> str:
+    return (
+        "```bash\n"
+        "pip install heph\n"
+        "uv tool upgrade heph\n"
+        "uv tool install git+https://github.com/gildrb/heph\n"
+        "uv run heph  # from a source checkout\n"
+        "```"
+    )
+
+
+def render_readme_badges_block(*, docs_index: bool) -> str:
+    license_link = "../LICENSE" if docs_index else "LICENSE"
+    badges = (
+        (
+            "PyPI",
+            "https://img.shields.io/pypi/v/heph"
+            "?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9",
+            "https://pypi.org/project/heph/",
+        ),
+        (
+            "uv",
+            "https://img.shields.io/badge/uv-tool%20install"
+            "-654FF0?style=for-the-badge&labelColor=000000",
+            "https://docs.astral.sh/uv/",
+        ),
+        (
+            "License: MIT",
+            "https://img.shields.io/badge/license-MIT"
+            "-3FB950?style=for-the-badge&labelColor=000000",
+            license_link,
+        ),
+    )
+    links = "\n  ".join(
+        f'<a href="{target}"><img alt="{alt}" src="{image}"></a>' for alt, image, target in badges
+    )
+    return f'<p align="center">\n  {links}\n</p>'
+
+
+def render_armory_layout_block(*, docs_index: bool) -> str:
+    root_name = "exams"
+    return (
+        "```text\n"
+        f"~/.armories/{root_name}/\n"
+        "├── materials/              # PDFs, Office docs, notes, code to cite\n"
+        "│   ├── lecture-notes.pdf\n"
+        "│   └── reference.md\n"
+        "├── .hephaion/              # Local Heph state\n"
+        "│   ├── armory.toml         # Armory marker\n"
+        "│   ├── rag_index.json      # Retrieval index\n"
+        "│   ├── memory.json         # Learning memory\n"
+        "│   ├── chats/              # Saved sessions\n"
+        "│   ├── traces/             # Optional JSONL traces\n"
+        "│   ├── usage/              # Token and cost snapshots\n"
+        "│   └── ignore              # Optional indexing ignores\n"
+        "└── README.md               # Optional notes\n"
         "```"
     )
 
@@ -539,66 +599,42 @@ def render_env_vars_table(env_vars: tuple[EnvVarDoc, ...]) -> str:
 def render_home_docs_section(*, docs_index: bool) -> str:
     prefix = "" if docs_index else "docs/"
     rows = [
-        (f"{prefix}getting-started.md", "first armory and materials walkthrough"),
-        (f"{prefix}armories.md", "portable armory layout and local storage"),
-        (f"{prefix}cli-reference.md", "CLI commands, slash commands, and environment variables"),
-        (f"{prefix}configuration.md", "provider and model configuration"),
-        (f"{prefix}models.md", "provider choices, model selection, and API keys"),
-        (f"{prefix}privacy.md", "local-first storage, diagnostics, and network behavior"),
-        (f"{prefix}architecture.md", "harness, package boundaries, and data flow"),
-        (f"{prefix}developers/sdk.md", "SDK for native apps, GUI shells, and automation"),
-        (f"{prefix}troubleshooting.md", "common setup, indexing, and provider issues"),
-        (f"{prefix}developers/index.md", "developer docs and internal guides"),
-        (f"{prefix}developers/runbooks/index.md", "operational debugging runbooks"),
+        ("Getting started", f"{prefix}getting-started.md", "first armory, first answer"),
+        ("Armories", f"{prefix}armories.md", "layout, portability, memory"),
+        ("CLI reference", f"{prefix}cli-reference.md", "commands, shortcuts, env vars"),
+        ("Configuration", f"{prefix}configuration.md", "providers, models, settings"),
+        ("Models", f"{prefix}models.md", "provider choices and API keys"),
+        ("Privacy", f"{prefix}privacy.md", "local state, diagnostics, network behavior"),
+        ("Architecture", f"{prefix}architecture.md", "harness, package boundaries, flow"),
+        ("SDK", f"{prefix}developers/sdk.md", "native apps, GUI shells, automation"),
+        ("Troubleshooting", f"{prefix}troubleshooting.md", "setup, indexing, providers"),
+        ("Developers", f"{prefix}developers/index.md", "internal docs"),
+        ("Runbooks", f"{prefix}developers/runbooks/index.md", "operational debugging"),
     ]
     if docs_index:
         rows.append(
             (
+                "Contributing",
                 "../CONTRIBUTING.md",
-                "repo layout, development workflow, and contribution guidelines",
+                "repo layout and local workflow",
             )
         )
-    bullets = "\n".join(f"- [{path}]({path}) — {description}" for path, description in rows)
+    bullets = "\n".join(
+        f"- [{label}]({path}) — {description}" for label, path, description in rows
+    )
     return f"## Docs\n\n{bullets}"
 
 
 def render_readme_logo_block(*, docs_index: bool) -> str:
-    if docs_index:
-        return ""
-
-    logo_path = README_LOGO_PATH.relative_to(ROOT).as_posix()
-    return (
-        '<p align="center">\n'
-        f'  <img alt="Heph" src="{logo_path}" width="{README_LOGO_WIDTH}">\n'
-        "</p>\n\n"
-    )
+    return ""
 
 
 def render_readme_screenshot_block(*, docs_index: bool) -> str:
-    if docs_index:
-        return ""
-
-    screenshot_path = README_SCREENSHOT_PATH.relative_to(ROOT).as_posix()
-    return (
-        f'<p align="center">\n  <img alt="Heph TUI" src="{screenshot_path}" width=full>\n</p>\n\n'
-    )
+    return ""
 
 
 def render_home_footer(*, docs_index: bool) -> str:
-    if docs_index:
-        return (
-            "## Next Steps\n\n"
-            "- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.\n"
-            "- Read the [architecture guide](architecture.md) for package boundaries"
-            " and data flow.\n"
-            "- Read the [Heph SDK](developers/sdk.md) for native apps, GUI shells,"
-            " and automation.\n"
-            "- Read [agentic development](developers/agentic-development.md) for"
-            " agent-readiness conventions.\n"
-            "- Read the [runbooks](developers/runbooks/index.md) for operational"
-            " debugging.\n"
-        )
-    return "## License\n\nThis project is licensed under the [MIT License](LICENSE).\n"
+    return ""
 
 
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
@@ -609,6 +645,13 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "UPGRADE_BLOCK": "```bash\nuv tool upgrade heph\n```",
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/heph\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
+        "QUICK_START_BLOCK": render_quick_start_block(model),
+        "INSTALL_OPTIONS_BLOCK": render_install_options_block(),
+        "BADGES_BLOCK": render_readme_badges_block(docs_index=docs_index),
+        "ARMORY_LAYOUT_BLOCK": render_armory_layout_block(docs_index=docs_index),
+        "ARMORY_DOC_LINK": "[Armories](docs/armories.md)"
+        if not docs_index
+        else "[Armories](armories.md)",
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),

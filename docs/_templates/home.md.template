@@ -2,63 +2,33 @@
 
 [[README_LOGO_BLOCK]]# Heph
 
-**Heph is a local document harness for accurate, cited answers.**
+[[BADGES_BLOCK]]
 
-Heph is the product: your selected model plus the local harness that keeps work
-grounded in your files. Put source files in an **armory**, start Heph with
-`heph`, and ask questions. The harness retrieves from your materials, checks
-citations against evidence, and keeps memory scoped to that armory.
+Local document workspace for accurate, cited answers from files you keep in
+normal folders. Heph indexes armory materials, cites retrieved evidence, and
+keeps learning memory scoped to that armory.
 
-The model writes. The harness grounds, verifies, and remembers inside the
-armory. Together they are Heph.
+## The armory is the interface
 
-An armory is the core idea: a normal portable folder with your source files, saved
-chats, retrieval index, and local memory. Your documents are not locked into a
-provider.
+A typical Heph armory has this structure:
 
-[[README_SCREENSHOT_BLOCK]]## Install
+[[ARMORY_LAYOUT_BLOCK]]
 
-[[INSTALL_BLOCK]]
+Heph reads `materials/`, writes local state under `.hephaion/`, and leaves the
+armory portable. Read [[ARMORY_DOC_LINK]] for storage, indexing, and memory
+details.
 
-Or with pip:
+> [!NOTE]
+> Named armories live in `~/.armories`. Copy or sync that folder to move work
+> between machines; set provider credentials again on each machine.
 
-[[PIP_INSTALL_BLOCK]]
+## Quick Start
 
-Upgrade with:
+[[QUICK_START_BLOCK]]
 
-[[UPGRADE_BLOCK]]
+Other install paths:
 
-Install from GitHub:
-
-[[GIT_INSTALL_BLOCK]]
-
-## Start
-
-[[CREATE_ARMORY_BLOCK]]
-
-Heph stores named armories under `~/.armories`. To move to another PC, install
-Heph there, copy or sync the `.armories` folder, set up provider credentials,
-and run `heph`.
-
-You can also run Heph from an explicit armory path when needed:
-
-```bash
-heph .
-heph ~/.armories/exams
-```
-
-From a source checkout, use `uv run heph`.
-
-## Models
-
-Use `/login` to connect OAuth or API-key access, then `/models` to choose from the
-models available to those credentials.
-
-Heph works with Pollinations AI, OpenRouter, OpenAI API keys, OpenAI Codex
-subscription login, Z.AI, local tool-capable llama.cpp models, and custom
-OpenAI-compatible endpoints. Environment variables include
-`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`,
-`HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
+[[INSTALL_OPTIONS_BLOCK]]
 
 ## Commands
 
@@ -68,11 +38,12 @@ heph armory init NAME   Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.
+heph sdk serve          Start the JSONL SDK service.
 heph update             Show the update command.
 ```
 
-Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`,
-`/materials`, `/keymap`, `/detach`, `/evidence`, `/turn`, `/settings`, and `/exit`.
+Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
+`/evidence`, `/turn`, `/settings`, `/keymap`, and `/exit`.
 
 [[DOCS_SECTION]]
 

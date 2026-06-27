@@ -12,7 +12,7 @@ It owns the local document machinery that lets Heph answer from user materials
 with verifiable citations, armory-scoped memory, retrieval indexes, learning
 state, diagnostics, and session persistence.
 
-The harness is not the agent brain or persona. The product surface is Heph.
+The harness is not the agent brain or persona. Users talk to Heph.
 
 ## Source Layout
 
