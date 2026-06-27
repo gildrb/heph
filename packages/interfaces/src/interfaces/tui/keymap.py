@@ -72,7 +72,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Commands",
         "Open the command palette.",
-        ("ctrl+alt+p",),
+        ("ctrl+p",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -80,7 +80,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Armory",
         "Open the armory home.",
-        ("ctrl+alt+a",),
+        ("ctrl+a",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -88,7 +88,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Materials",
         "Choose which materials are used for retrieval.",
-        ("ctrl+alt+m",),
+        ("ctrl+o",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -96,14 +96,14 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Search",
         "Search across armories.",
-        ("ctrl+alt+f",),
+        ("ctrl+r",),
     ),
     TuiKeymapAction(
         "evidence",
         _CONTEXT_APP,
         "Evidence",
         "Show evidence details.",
-        ("ctrl+alt+e",),
+        ("ctrl+g",),
     ),
     TuiKeymapAction(
         "clear_transcript",
@@ -395,7 +395,10 @@ def _binding_validation_error(action: TuiKeymapAction, key: str) -> str:
     if reason := _RESERVED_KEY_REASONS.get(key):
         return reason
     if _binding_uses_function_key(key):
-        return "function keys can trigger hardware or desktop actions; use ctrl+alt+<key> instead."
+        return (
+            "function keys can trigger hardware or desktop actions; "
+            "use a non-hardware ctrl shortcut instead."
+        )
     if key == "enter":
         return "enter is reserved for submitting text and selecting rows."
     if key == "escape" and action.id != "cancel_turn":

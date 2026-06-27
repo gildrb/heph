@@ -587,11 +587,11 @@ def test_keymap_normalizes_aliases_and_modifier_order(
 def test_keymap_defaults_avoid_function_keys() -> None:
     runtime = keymap.default_runtime_keymap()
 
-    assert runtime.keys_for_action("command_palette") == ("ctrl+alt+p",)
-    assert runtime.keys_for_action("open_armory_home") == ("ctrl+alt+a",)
-    assert runtime.keys_for_action("open_materials") == ("ctrl+alt+m",)
-    assert runtime.keys_for_action("open_search") == ("ctrl+alt+f",)
-    assert runtime.keys_for_action("evidence") == ("ctrl+alt+e",)
+    assert runtime.keys_for_action("command_palette") == ("ctrl+p",)
+    assert runtime.keys_for_action("open_armory_home") == ("ctrl+a",)
+    assert runtime.keys_for_action("open_materials") == ("ctrl+o",)
+    assert runtime.keys_for_action("open_search") == ("ctrl+r",)
+    assert runtime.keys_for_action("evidence") == ("ctrl+g",)
     assert not any(
         key.startswith("f") and key[1:].isdigit()
         for action in keymap.TUI_KEYMAP_ACTIONS
@@ -670,7 +670,7 @@ def test_keymap_loads_valid_bindings_from_mixed_manual_config() -> None:
         {
             "tui_keymap": {
                 "app": {
-                    "open_materials": ["ctrl+g", "ctrl+g", "ctrl+c", 7],
+                    "open_materials": ["ctrl+y", "ctrl+y", "ctrl+c", 7],
                     "open_search": [],
                     "missing": "ctrl+x",
                 },
@@ -682,7 +682,7 @@ def test_keymap_loads_valid_bindings_from_mixed_manual_config() -> None:
 
     runtime = keymap.load_runtime_keymap()
 
-    assert runtime.keys_for_action("open_materials") == ("ctrl+g",)
+    assert runtime.keys_for_action("open_materials") == ("ctrl+y",)
     assert runtime.keys_for_action("open_search") == ()
     assert any("Unknown keymap action: app.missing" in error for error in runtime.errors)
     assert any("open_materials: ctrl+c is reserved" in error for error in runtime.errors)
@@ -4507,11 +4507,11 @@ def test_armory_home_text_omits_available_armory_list(
 
 def test_armory_home_text_uses_runtime_keymap() -> None:
     runtime = keymap.default_runtime_keymap()
-    runtime.bindings["open_armory_home"] = ("ctrl+g",)
+    runtime.bindings["open_armory_home"] = ("ctrl+y",)
 
     text = tui_display_text.armory_home_text(runtime)
 
-    assert "ctrl+g" in text
+    assert "ctrl+y" in text
     assert "ctrl+a" not in text
 
 
@@ -5487,7 +5487,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             assert review_options["RECORD"] == f"current {materials_default_key}"
             assert review_options["RESET"] == f"restores {materials_default_key}"
 
-            await pilot.press("ctrl+g")
+            await pilot.press("ctrl+y")
             await pilot.pause()
             assert settings_store.load_raw_settings().get("tui_keymap") is None
             assert app._inline_flow.step == "review"
@@ -5500,17 +5500,17 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
                 == f"materials current {materials_default_key}"
             )
 
-            await pilot.press("ctrl+g")
+            await pilot.press("ctrl+y")
             await pilot.pause()
 
             raw_keymap = settings_store.load_raw_settings().get("tui_keymap")
             assert is_string_mapping(raw_keymap)
             app_keymap = raw_keymap.get("app")
             assert is_string_mapping(app_keymap)
-            assert app_keymap.get("open_materials") == "ctrl+g"
-            assert app._keymap.keys_for_action("open_materials") == ("ctrl+g",)
+            assert app_keymap.get("open_materials") == "ctrl+y"
+            assert app._keymap.keys_for_action("open_materials") == ("ctrl+y",)
             assert (
-                "MATERIALS ctrl+g"
+                "MATERIALS ctrl+y"
                 in tui._footer_hints_text(
                     app.session,
                     keymap=app._keymap,
@@ -5521,7 +5521,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             await pilot.pause()
             assert app._inline_flow.active is False
 
-            await pilot.press("ctrl+g")
+            await pilot.press("ctrl+y")
             await pilot.pause()
             assert app._materials_inline_active is True
 
@@ -5607,7 +5607,7 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    result = keymap.save_keymap_binding("open_materials", "ctrl+g")
+    result = keymap.save_keymap_binding("open_materials", "ctrl+y")
     assert result.saved is True
 
     app = tui.HephTui(
@@ -5627,7 +5627,7 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             suggestions = app.query_one("#suggestions", tui.OptionList)
             materials_prompt = _option_prompt_plain(suggestions, 2)
             reset_prompt = _option_prompt_plain(suggestions, suggestions.option_count - 1)
-            assert "KEY ctrl+g" in materials_prompt
+            assert "KEY ctrl+y" in materials_prompt
             assert "SCOPE app" in materials_prompt
             assert "STATE custom" in materials_prompt
             assert "RESET" in reset_prompt
@@ -5667,7 +5667,7 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             app._submit_inline_flow("CANCEL")
             await pilot.pause()
             assert app._inline_flow.step == "menu"
-            assert app._keymap.keys_for_action("open_materials") == ("ctrl+g",)
+            assert app._keymap.keys_for_action("open_materials") == ("ctrl+y",)
 
             app._submit_inline_flow("RESET")
             await pilot.pause()

@@ -104,7 +104,7 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     assert not any(command.command == "/persona" for command in model.slash_commands)
     assert not any(command.command == "/edit" for command in model.slash_commands)
     shortcut_keys = {shortcut.keys for shortcut in model.keyboard_shortcuts}
-    assert {"ctrl+alt+p", "ctrl+alt+a", "ctrl+alt+m"} <= shortcut_keys
+    assert {"ctrl+p", "ctrl+a", "ctrl+o"} <= shortcut_keys
     assert not any(
         _shortcut_uses_function_key(shortcut.keys) for shortcut in model.keyboard_shortcuts
     )

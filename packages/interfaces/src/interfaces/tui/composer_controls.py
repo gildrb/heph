@@ -327,6 +327,8 @@ class TuiComposerControlsMixin:
         composer = self.query_one(COMPOSER_SELECTOR, Input)
         if self.focused is not composer:
             return False
+        if not composer.value and self._keymap.action_for_key(event.key) is not None:
+            return False
         if event.key in _COMPOSER_READLINE_SHORTCUT_KEYS | _COMPOSER_READLINE_RESERVED_KEYS:
             return True
         if event.key == "ctrl+c":
