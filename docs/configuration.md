@@ -1,7 +1,7 @@
 # Configuration
 
-Hephaion can be configured through provider credentials, environment variables,
-the `/settings` TUI, and `heph config`. Armories keep their own materials,
+Heph can be configured through provider credentials, environment variables, the
+`/settings` TUI, and `heph config`. Armories keep their own materials,
 memory, chats, traces, indexes, and learning data, but model/provider preferences
 are machine-local user settings unless overridden by environment variables.
 
@@ -97,11 +97,11 @@ heph local revalidate llama-cpp/<owner>/<repo>:Q4_K_M
 heph local stop
 ```
 
-The guided `/local` list only shows publisher-owned GGUF releases selected for
-laptops and capped at 16 GB recommended RAM. Each entry shows the download size
-and RAM guidance before loading, and Heph asks for confirmation before it
-downloads or starts a model. Heph downloads the managed `llama-server` binary
-into `~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
+The guided `/local` list shows publisher-owned GGUF releases capped at 16 GB
+recommended RAM. Each entry shows the download size and RAM guidance before
+loading, and Heph asks for confirmation before it downloads or starts a model.
+Heph downloads the managed `llama-server` binary into
+`~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
 `~/.cache/hephaion/llama.cpp/models`, and persists local model validation state
 in the user config directory. Local models appear in `/models` only after the
 tool-call probe passes.
@@ -122,8 +122,8 @@ Or use `/login` with your OpenAI account.
 export DEEPSEEK_API_KEY="sk-..."
 ```
 
-DeepSeek uses Heph's provider profile adapter: reasoning models enable DeepSeek
-thinking mode and use DeepSeek's native reasoning effort values.
+DeepSeek reasoning models use DeepSeek thinking mode and native reasoning effort
+values.
 
 ### OpenRouter
 
@@ -179,9 +179,8 @@ open a copied or synced armory and rebuild what it needs.
 
 ### Retrieval Backends
 
-Heph ships its document extraction and retrieval stack with the normal install.
-That includes BM25, TF-IDF, embedding retrieval, and reranking support, so users
-do not need to install a separate RAG extra.
+The standard install includes document extraction, BM25, TF-IDF, embedding
+retrieval, and reranking support.
 
 ### Profiling
 

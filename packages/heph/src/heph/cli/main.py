@@ -507,7 +507,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Open Heph, the agent inside the Hephaion harness.",
+        "Open Heph, the model plus local harness for grounded work.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} gdp                     Open ~/.armories/gdp",

@@ -9,6 +9,7 @@ from typing import cast
 
 import ai.providers
 import ai.runtime
+
 import hephaion.armory
 import hephaion.materials
 import hephaion.memory
@@ -66,8 +67,8 @@ def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
 def test_import_linter_contracts_cover_portability_tiers() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     expected_contracts = (
-        "AI must stay below Heph, Hephaion, extensions, and interfaces",
-        "hephaion harness concerns must not import app or interfaces",
+        "AI must stay below Heph, the harness, extensions, and interfaces",
+        "harness concerns must not import app or interfaces",
         "materials must not import adapters, chat, agent, or rag",
         "rag must not import agent, chat, or adapters",
         "memory must not import adapters, chat, or agent",

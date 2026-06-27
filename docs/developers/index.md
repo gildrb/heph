@@ -1,6 +1,6 @@
 # Developer Documentation
 
-This section contains documentation for developers working on Hephaion itself, rather than end users.
+This section contains documentation for developers working on Heph itself, rather than end users.
 
 ## Architecture
 
@@ -19,4 +19,4 @@ This section contains documentation for developers working on Hephaion itself, r
 - [RAG Retrieval Issues](runbooks/rag-retrieval-issues.md) - Debug RAG quality
 - [Slow LLM Response](runbooks/slow-llm-response.md) - Debug slow model responses
 
-**Note**: For general contribution guidelines, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+For general contribution guidelines, see [CONTRIBUTING.md](../../CONTRIBUTING.md).

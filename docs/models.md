@@ -1,7 +1,7 @@
 # Models
 
-Hephaion works with multiple model providers, giving you flexibility in cost,
-performance, privacy, and availability without binding an armory to one vendor.
+Heph works with multiple model providers without binding an armory to one
+vendor.
 
 ## Supported Providers
 
@@ -10,35 +10,30 @@ performance, privacy, and availability without binding an armory to one vendor.
 - **Cost**: Free
 - **Account**: No account required
 - **Models**: Various open models
-- **Best for**: Testing, casual use, no-budget scenarios
 
 ### OpenRouter
 
 - **Cost**: Pay-per-use
 - **Account**: API key required
 - **Models**: Many hosted models from different labs
-- **Best for**: Access to multiple models through one API
 
 ### OpenAI
 
 - **Cost**: Pay-per-use or subscription
 - **Account**: API key or Codex subscription
 - **Models**: OpenAI API models available to your account
-- **Best for**: Production use, reliable performance
 
 ### DeepSeek
 
 - **Cost**: Pay-per-use
 - **Account**: API key required
 - **Models**: DeepSeek chat and reasoning models available to your account
-- **Best for**: Reasoning models through DeepSeek's official API semantics
 
 ### Z.AI
 
 - **Cost**: Pay-per-use
 - **Account**: API key required
 - **Models**: Various models
-- **Best for**: Alternative to OpenAI/OpenRouter
 
 ### Local llama.cpp
 
@@ -46,7 +41,6 @@ performance, privacy, and availability without binding an armory to one vendor.
 - **Account**: No API key required
 - **Models**: Curated GGUF releases capped at 16 GB recommended RAM,
   plus local `.gguf` files for advanced installs
-- **Best for**: Privacy-first work where the model must run on your machine
 
 Heph manages an official `llama-server` binary, downloads verified release
 assets into `~/.cache/hephaion/llama.cpp/bin/`, stores model cache under
@@ -68,7 +62,6 @@ downloaded and can be revalidated later.
 - **Cost**: Varies
 - **Account**: Depends on endpoint
 - **Models**: Any OpenAI-compatible API
-- **Best for**: Self-hosted models, enterprise deployments
 
 ## Choosing a Model
 
@@ -107,7 +100,7 @@ release.
 
 ### Provider Adapters
 
-Hephaion keeps the document harness provider-swappable, but it does not send
+The harness stays provider-swappable, but it does not send
 every model the same generic payload. Provider request profiles translate Heph's
 reasoning level into each API's native controls:
 
@@ -134,7 +127,7 @@ controls, and pricing. Heph uses retrieval so the full armory does not need to
 fit into one prompt, but larger context windows can still help when an answer
 needs more evidence at once.
 
-### Cost Optimization
+### Cost
 
 1. **Use retrieval**: Heph retrieves only relevant chunks, reducing token usage
 2. **Choose appropriate model**: use faster or cheaper models for simple queries
@@ -188,10 +181,5 @@ If a model isn't showing up in `/models`:
 3. Refresh the index with `heph index`
 4. Use `/evidence` to see what context was retrieved
 
-## Future Models
-
-Hephaion is designed to be model-agnostic. As new models are released, provider
-catalogs and configuration can change without changing your armories or
-documents.
-
-The architecture separates retrieval, citation checking, and model inference, so improvements in one area don't require changes in others.
+Provider catalogs and configuration can change without changing your armories or
+source files.

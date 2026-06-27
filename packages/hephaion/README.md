@@ -1,16 +1,18 @@
 <p align="center">
-  <img alt="Hephaion" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
 </p>
 
-# Hephaion
+# Harness
 
-Hephaion is the validation and correctness harness behind Heph.
+This package contains the validation and correctness harness behind Heph. The
+public Python package is `heph`; this workspace currently imports the harness
+through `hephaion.*`.
 
 It owns the local document machinery that lets Heph answer from user materials
 with verifiable citations, armory-scoped memory, retrieval indexes, learning
 state, diagnostics, and session persistence.
 
-Hephaion is not the agent brain or persona. The agent is Heph.
+The harness is not the agent brain or persona. The product surface is Heph.
 
 ## Source Layout
 
@@ -35,7 +37,7 @@ src/
 
 ## Boundaries
 
-Hephaion may depend on `ai.*` primitives and extension contracts. It must not
+The harness may depend on `ai.*` primitives and extension contracts. It must not
 import Heph app modules or interface adapters. Extension work should call
 harness APIs instead of editing guardrails directly.
 

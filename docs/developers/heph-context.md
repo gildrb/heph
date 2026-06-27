@@ -1,8 +1,8 @@
 # Heph Assistant Atlas
 
-Hephaion = local document harness for accurate, cited answers. Heph is the
-assistant that runs inside an armory: a portable folder with indexed `materials/`, local `.hephaion/` state,
-armory-scoped memory, traces, usage, and provider settings.
+Heph = selected model plus local harness for accurate, cited answers. It runs
+inside an armory: a portable folder with indexed `materials/`, local
+`.hephaion/` state, armory-scoped memory, traces, usage, and provider settings.
 
 Use model context like this:
 

@@ -21,7 +21,6 @@ from ai.runtime import ChatConfig, Conversation, EngineError, EngineErrorCode
 from hephaion._types import is_string_mapping
 from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
 from hephaion.armory.storage import initialize
-from hephaion.chat import storage as chat_storage
 from hephaion.chat.events import (
     AssistantDeltaEvent,
     NoticeEvent,
@@ -31,7 +30,6 @@ from hephaion.chat.events import (
 )
 from hephaion.chat.session import ChatSession, record_turn_snapshot, save_session
 from hephaion.chat.usage import TokenUsage
-from hephaion.parameters import settings as settings_store
 from hephaion.rag.chunker import Chunk
 from hephaion.rag.context import EvidenceChunk, TurnEvidence
 from interfaces import tui
@@ -68,6 +66,9 @@ from rich.text import Text
 from textual import events
 from textual._xterm_parser import XTermParser
 from textual.strip import Strip
+
+from hephaion.chat import storage as chat_storage
+from hephaion.parameters import settings as settings_store
 
 tui.set_command_registry_fn(heph_commands.get_registry)
 
@@ -6433,16 +6434,16 @@ def test_armory_inline_opens_fresh_empty_armory_after_create(
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._open_armory_inline("create")
             composer = app.query_one("#composer", tui.Input)
-            composer.value = "mfi-2"
+            composer.value = "empty-armory"
             await pilot.press("enter")
             await pilot.pause()
 
-            armory_path = tmp_path / "mfi-2"
+            armory_path = tmp_path / "empty-armory"
             assert (armory_path / ".hephaion" / "armory.toml").is_file()
 
             app._handle_armory_browser("/armory")
             labels = [entry.label for entry in app._armory_entries]
-            index = next(i for i, label in enumerate(labels) if "mfi-2" in label)
+            index = next(i for i, label in enumerate(labels) if "empty-armory" in label)
             current = app.query_one("#armory-current-inline", tui.OptionList)
             current.highlighted = index
             await pilot.press("enter")
@@ -6451,7 +6452,9 @@ def test_armory_inline_opens_fresh_empty_armory_after_create(
             assert app._armory_inline_active is False
             assert app.session.armory_path == armory_path
             assert app.session.source_file_count == 0
-            assert any(entry.content == "Using armory mfi-2" for entry in app.state.transcript)
+            assert any(
+                entry.content == "Using armory empty-armory" for entry in app.state.transcript
+            )
             assert any(
                 "No materials yet. Add files to" in entry.content for entry in app.state.transcript
             )

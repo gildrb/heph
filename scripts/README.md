@@ -1,7 +1,7 @@
 # Repository Scripts
 
-This directory contains project automation that is useful to the shared Hephaion
-codebase. Keep personal, vendor-specific, or maintainer-only one-off helpers in
+This directory contains project automation for the shared Heph codebase. Keep
+personal, vendor-specific, or maintainer-only one-off helpers in
 ignored local paths such as `benchmarks/`, `.artifacts/`, or personal agent
 directories instead of tracked `scripts/`.
 
@@ -21,7 +21,7 @@ runs do not belong here.
   versions, license metadata, and optional git tag target.
 - `check_dependency_vulnerability_audit.py` runs `uv audit --frozen` with reviewed,
   lockfile-scoped `--ignore-until-fixed` waivers when a temporary waiver is needed.
-  PyTorch is expected only through Docling's standard conversion runtime, not direct
+  PyTorch is expected only through the standard conversion runtime, not direct
   Heph source usage.
 - `check_feature_flags.py` catches stale feature-flag wiring.
 

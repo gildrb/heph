@@ -1,6 +1,7 @@
 # Armories
 
-An armory is the core organizational unit in Hephaion. It's a normal directory that contains your documents, chat history, retrieval index, and local memory.
+An armory is the core workspace in Heph. It is a normal directory with source
+files, chat history, retrieval index, traces, usage snapshots, and local memory.
 
 ## Armory Structure
 
@@ -10,7 +11,7 @@ An armory is the core organizational unit in Hephaion. It's a normal directory t
 │   ├── document1.pdf
 │   ├── notes.md
 │   └── chapter1.txt
-├── .hephaion/          # Hephaion configuration and state
+├── .hephaion/          # Heph state
 │   ├── armory.toml     # Armory marker and metadata
 │   ├── index/          # Retrieval index
 │   ├── memory/         # Learning memory
@@ -41,7 +42,7 @@ Each armory is completely isolated:
 
 This separation prevents cross-contamination between different projects or domains.
 
-### No Vendor Lock-in
+### Normal Files
 
 Your documents are stored as regular files in `materials/`. You can:
 - Access them directly with any PDF viewer, text editor, etc.
@@ -87,8 +88,8 @@ cp ~/notes/summary.md ~/.armories/my-armory/materials/
 - PDF
 - Markdown (.md)
 - Plain text (.txt)
-- Code files (.py, .js, .ts, .java, etc.)
-- Many other formats via Docling
+- DOCX, PPTX, and XLSX
+- Common code files
 
 ### Organizing Materials
 
@@ -120,7 +121,7 @@ old/
 
 ## Indexing
 
-Hephaion automatically indexes your materials. To manually refresh:
+Heph indexes materials when needed. To refresh manually:
 
 ```bash
 heph index ~/.armories/my-armory
@@ -189,28 +190,13 @@ Use clear, descriptive names:
 - Indexes can be regenerated if needed
 - Provider credentials stay machine-local and are not stored in `.armories`
 
-## Advanced Usage
-
-### Rebuilding Indexes
+## Rebuilding Indexes
 
 Index files are rebuildable. If an armory was copied from another machine or the
 index looks stale, refresh it with the normal indexing path:
 
 ```bash
 heph index ~/.armories/my-armory
-```
-
-### Plugin System
-
-Armories can have plugins for custom behavior (future feature):
-
-```json
-{
-  "plugins": [
-    "citation-enhancer",
-    "summary-generator"
-  ]
-}
 ```
 
 ## Troubleshooting

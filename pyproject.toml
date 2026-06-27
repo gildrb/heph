@@ -178,7 +178,7 @@ exclude_type_checking_imports = true
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "AI must stay below Heph, Hephaion, extensions, and interfaces"
+name = "AI must stay below Heph, the harness, extensions, and interfaces"
 type = "forbidden"
 source_modules = ["ai"]
 forbidden_modules = [
@@ -189,7 +189,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "hephaion harness concerns must not import app or interfaces"
+name = "harness concerns must not import app or interfaces"
 type = "forbidden"
 source_modules = [
     "hephaion.agent",

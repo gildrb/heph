@@ -1,12 +1,13 @@
 <coding_guidelines>
-# Hephaion / Heph — Agent Guide
+# Heph — Agent Guide
 
 NEVER create regex label lists / phrase-catching architecture and ALWAYS solve the problem structurally with this mindset: https://mariozechner.at/posts/2025-06-02-prompts-are-code/.
 
 ## Product Promise
 
-Hephaion is a **local document harness for accurate, cited answers**. Heph is
-the agent brain that talks, researches, and uses the harness.
+Heph is a **local document harness for accurate, cited answers**. A selected
+model writes; the harness grounds that work in armory materials; together they
+are Heph.
 Protect this shape in every change:
 
 - Armories stay portable normal directories.
@@ -15,11 +16,11 @@ Protect this shape in every change:
 - Provider and model choices stay swappable; vendor-specific behavior remains optional.
 - `ai.*` stays provider/model API substrate and should almost never change for
   Heph-specific behavior.
-- Hephaion owns correctness guardrails, validation, armory state, retrieval,
-  citation checks, memory, and diagnostics. It is not the agent brain.
+- The harness owns correctness guardrails, validation, armory state, retrieval,
+  citation checks, memory, and diagnostics. It is not a second agent brain.
 - Heph owns agent identity, conversational strategy, research orchestration, and
   user-facing composition. Move new brain behavior toward Heph-facing modules,
-  while calling Hephaion for correctness.
+  while calling the harness for correctness.
 - Never hardcode user-private corpus details: university names, course titles, lecturer names,
   campus platforms, armory names, local paths, or one-off source-file vocabulary. Retrieval and
   overview fixes must use provider-swappable prompts, semantic evidence handling, and generic
@@ -99,7 +100,7 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
 
 - Protected core packages:
   - `ai.*`: provider/model API substrate only.
-  - `hephaion.*`: correctness harness, guardrails, armories, retrieval,
+  - `hephaion.*`: harness implementation namespace: guardrails, armories, retrieval,
     citations, memory, diagnostics, and session state.
   - `heph.*`: agent identity, brain/composition, CLI entrypoint, and
     slash-command coordination.
@@ -237,13 +238,32 @@ Testing rules:
 ## Documentation and Product Style
 
 - Voice: practical, private, verification-first, and grounded in user files.
-- Prefer concrete examples over abstract claims.
-- Use learning-oriented copy (`learn`, `learning`, `recall`, `practice`) in user-facing
-  docs.
-- Emphasize armories, materials/source files, RAG, citation verification,
-  learning memory, recall practice, and model freedom.
-- Keep vendor-specific behavior optional unless the code truly requires it.
-- Avoid user-facing maintainer details and internal operations.
+- Product language: `Heph` is the product, public Python package, command, and
+  SDK surface. Use `the harness` for the correctness layer. Use implementation
+  identifiers such as `hephaion.*`, `.hephaion/`, and `HEPHAION_*` only when
+  the exact namespace, state path, or environment variable is actionable.
+- README and `docs/index.md` stay short and link-forward. Preserve the clickable
+  Docs map. They cover what Heph is, install/start commands, model setup, core
+  commands, safety, and where to read next.
+- User docs belong in `docs/`: armory workflows, materials/source files,
+  provider and model setup, CLI and slash commands, privacy/network behavior,
+  troubleshooting, and verifiable operational examples.
+- Developer docs belong in `docs/developers/`, package READMEs, and `AGENTS.md`:
+  package boundaries, import rules, policy gates, release/runbook steps, and
+  agent instructions.
+- Keep descriptions deterministic: say what exists, what command to run, what
+  state is written, and what the user should expect. Prefer concrete examples
+  over abstract claims.
+- Name dependencies only in install, config, release, security, or debugging
+  contexts where the exact package is actionable.
+- Keep roadmap, marketing claims, maintainer-only operations, and optional
+  alternatives out of user-facing docs unless a current command, config, release
+  contract, or security contract requires them.
+- Use learning-oriented copy (`learn`, `learning`, `recall`, `practice`) when
+  the feature is actually about learning.
+- Emphasize armories, materials/source files, retrieval, citation verification,
+  learning memory, recall practice, provider/model choice, and local/private
+  behavior.
 - When docs or wiki conflict with code or `docs/`, prefer code and repo docs.
 
 ## Diagnostics

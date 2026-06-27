@@ -7,8 +7,7 @@
 [[CLI_COMMANDS_TABLE]]
 
 `[[SHORT_COMMAND]]` is the canonical public command that starts the Heph agent.
-`[[LONG_COMMAND]]` is the equivalent long Hephaion harness entrypoint. Use
-`[[SHORT_COMMAND]] tui [path]` only when a script needs the explicit TUI subcommand.
+Use `[[SHORT_COMMAND]] tui [path]` only when a script needs the explicit TUI subcommand.
 
 ## Slash commands
 

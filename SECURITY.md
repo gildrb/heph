@@ -6,7 +6,7 @@ Currently only the latest version from the `main` branch is supported.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Hephaion, please report it privately.
+If you discover a security vulnerability in Heph, please report it privately.
 
 **Do not** open a public issue.
 
@@ -22,7 +22,7 @@ I will acknowledge receipt within 48 hours and provide a timeline for addressing
 
 ## Security Features
 
-Hephaion is designed with security and privacy in mind:
+Heph is designed with security and privacy in mind:
 
 - **Local-first**: Your documents and chats stay on your machine
 - **No telemetry by default**: Analytics and crash reporting are opt-in only
@@ -39,9 +39,5 @@ Hephaion is designed with security and privacy in mind:
 
 ## Dependency Security
 
-This project uses:
-- `uv` for dependency management, which includes security features
-- Pre-commit hooks with `gitleaks` to prevent accidental secret commits
-- `bandit` for security linting of Python code
-
-Dependencies are regularly updated through automated tooling.
+Pre-commit runs `gitleaks` and Bandit. Dependency changes require reviewed
+`pyproject.toml`, `uv.lock`, and source-only sdist allowlist changes.

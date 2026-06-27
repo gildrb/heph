@@ -62,8 +62,7 @@ Large armories may take a few minutes.
 
 ## Embedding Model
 
-Hephaion uses sentence-transformers for embeddings as part of the standard
-Heph install.
+The standard Heph install includes embedding support.
 
 If embeddings fail, check:
 - The installation has not been externally modified; repair a user install with

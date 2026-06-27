@@ -2,7 +2,7 @@
 
 ## Install
 
-Hephaion requires **Python 3.13+**.
+Heph requires **Python 3.13+**.
 
 ### Quick Install
 
@@ -18,8 +18,7 @@ heph --version
 pip install heph
 ```
 
-PDF, DOCX, PPTX, and XLSX conversion support is built in through
-`docling-slim[standard]`.
+The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files.
 
 ### Upgrade
 
@@ -38,12 +37,13 @@ uv run heph
 
 ## Create an Armory
 
-An armory is a normal folder containing your documents, chat history, retrieval index, and local memory.
+An armory is a normal folder containing source files, chat history, retrieval
+index, traces, usage snapshots, and local memory.
 
 ```bash
 heph armory init exams
 cd ~/.armories/exams
-# Add your documents to the materials/ directory
+# Add source files to the materials/ directory
 ```
 
 Named armories are stored in `~/.armories`. To move Heph to another PC, install
@@ -55,7 +55,7 @@ armory and shows a no-materials state until files are present in `materials/`.
 
 ## Add Documents
 
-Place your documents in the `materials/` directory of your armory:
+Place source files in the armory's `materials/` directory:
 
 ```bash
 ~/.armories/exams/
@@ -74,8 +74,8 @@ Supported formats:
 - PDF
 - Markdown
 - Plain text
-- Code files
-- Many other document formats (via Docling)
+- DOCX, PPTX, and XLSX
+- Common code files
 
 ## Start Heph
 
@@ -110,7 +110,7 @@ export ZAI_API_KEY="sk-..."
 
 ## Ask Questions
 
-Once configured, start asking questions about your documents:
+Once configured, ask questions about your materials:
 
 ```
 What are the key concepts from chapter 1?
@@ -123,7 +123,7 @@ Heph will:
 2. Retrieve the most relevant passages
 3. Generate an answer based on your materials
 4. Show you the sources it used
-5. Keep track of what you've learned in memory
+5. Save armory-scoped learning memory
 
 ## Key Commands
 

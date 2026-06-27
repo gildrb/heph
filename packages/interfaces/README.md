@@ -1,10 +1,10 @@
 <p align="center">
-  <img alt="Hephaion" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
 </p>
 
 # Interfaces
 
-Interfaces owns the user-facing adapters around Heph and Hephaion.
+Interfaces owns the user-facing adapters around Heph and the harness.
 
 This package contains terminal primitives, Textual TUI composition, rendering,
 key handling, inline menus, transcript display, source opening, and theme
@@ -26,7 +26,7 @@ Interfaces adapts input and presentation. It should not own provider behavior,
 retrieval policy, citation verification, memory extraction, armory persistence,
 or command business logic.
 
-When interface code needs a domain decision, move that decision to Hephaion,
+When interface code needs a domain decision, move that decision to the harness,
 AI, or Heph and keep only the display/input mapping here.
 
 ## Development

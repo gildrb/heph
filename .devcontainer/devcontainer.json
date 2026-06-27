@@ -1,5 +1,5 @@
 {
-  "name": "Hephaion Dev",
+  "name": "Heph Dev",
   "image": "mcr.microsoft.com/devcontainers/python:3.13",
   "features": {
     "ghcr.io/astral-sh/devcontainer-features/uv:latest": {}

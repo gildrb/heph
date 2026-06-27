@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Hephaion and the Heph agent.
+Thanks for helping improve Heph.
 
 ## Setup
 
@@ -8,13 +8,6 @@ Thanks for helping improve Hephaion and the Heph agent.
 git clone https://github.com/gildrb/heph
 cd heph
 uv sync --frozen --group dev
-```
-
-Optional extras:
-
-```bash
-uv sync --group rag      # BM25, embeddings, reranking
-# Docling document extraction is part of the core install.
 ```
 
 Run the app from source:

@@ -1,6 +1,6 @@
 # Privacy and Data Handling
 
-Hephaion is designed with privacy as a core principle. Your documents and data stay on your machine unless you explicitly choose otherwise.
+Heph keeps armory data on your machine unless you explicitly choose otherwise.
 
 ## Data Location
 
@@ -22,7 +22,7 @@ All your data is stored locally in your armory:
 
 ### No Cloud Sync by Default
 
-- Documents are never uploaded to Hephaion servers
+- Documents are never uploaded to Heph servers
 - Chat history stays on your machine
 - Learning memory is local to each armory
 - Retrieval indexes are built and stored locally
@@ -91,7 +91,7 @@ Anonymous crash reports can be enabled in `/settings`:
 
 ### Source and Git Installs
 
-If you install Hephaion from source or via git:
+If you install Heph from source or via git:
 
 - Diagnostics are **disabled by default**
 - You must explicitly enable them in `/settings`
@@ -118,17 +118,17 @@ export OPENAI_API_KEY="sk-..."
 export OPENROUTER_API_KEY="sk-..."
 ```
 
-Keys in environment variables are never written to disk by Hephaion.
+Keys in environment variables are never written to disk by Heph.
 
 ### Session-Only Fallback
 
-If the OS keyring is unavailable during `/login`, Hephaion keeps the API key in
+If the OS keyring is unavailable during `/login`, Heph keeps the API key in
 process memory for the current run only. This fallback is not written to disk and
 is cleared by `/logout` or process exit.
 
 ### Never in Config Files
 
-Hephaion never writes API keys to:
+Heph never writes API keys to:
 - armory `.hephaion/` state
 - Any other configuration files
 - Git history
@@ -137,7 +137,7 @@ Hephaion never writes API keys to:
 
 ### Outbound Connections
 
-Hephaion makes network connections only to:
+Heph makes network connections only to:
 
 1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
 2. **Hugging Face and llama.cpp release downloads** - only when you use
@@ -153,22 +153,22 @@ Hephaion makes network connections only to:
 
 Optional local document extraction and priority-PDF generation can invoke local
 system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your
-machine against local files; Hephaion does not add network calls for them.
+machine against local files; Heph does not add network calls for them.
 
 ### Localhost-Only Servers
 
-Hephaion does not:
+Heph does not:
 - Accept LAN or internet connections
 - Bind managed local model servers beyond localhost
 
-Hephaion may:
+Heph may:
 
 - Temporarily bind a localhost-only OAuth callback during `/login`
 - Run managed `llama-server` on `127.0.0.1` while a local model is active
 
 It does not act as a public server.
 
-During `/login`, Hephaion may temporarily bind a localhost-only OAuth callback
+During `/login`, Heph may temporarily bind a localhost-only OAuth callback
 on `127.0.0.1:1455`. The callback validates the OAuth state parameter and is
 closed after login or timeout.
 
@@ -200,7 +200,7 @@ export HTTPS_PROXY="http://proxy.example.com:8080"
 
 ### For Development
 
-If you're developing with Hephaion:
+If you're developing with Heph:
 
 1. **Never commit secrets**: Use `.env.example` as template
 2. **Use .gitignore**: Exclude `.hephaion/`, `.env`, API keys
@@ -218,7 +218,7 @@ If you're developing with Hephaion:
 
 ### HIPAA Considerations
 
-Hephaion is not HIPAA-compliant out of the box. For healthcare use:
+Heph is not HIPAA-compliant out of the box. For healthcare use:
 
 1. **Encrypt armories** at rest
 2. **Choose HIPAA-compliant** model providers
@@ -238,7 +238,7 @@ For enterprise deployment:
 
 ### Open Source
 
-Hephaion is open source. You can:
+Heph is open source. You can:
 
 - Review the code at https://github.com/gildrb/heph
 - Audit how data is handled
@@ -247,7 +247,7 @@ Hephaion is open source. You can:
 
 ### Observable Behavior
 
-You can monitor what Hephaion does:
+You can monitor what Heph does:
 
 1. **Check logs**: Set `HEPHAION_LOG_LEVEL=DEBUG`
 2. **Monitor network**: Use firewall tools to see connections
@@ -287,20 +287,10 @@ rm ~/.armories/my-armory/.hephaion/traces/*.jsonl
 
 ### Revoke API Access
 
-To revoke Hephaion's access to your accounts:
+To revoke Heph's access to your accounts:
 
 1. **Revoke API keys** in your provider's dashboard
 2. **Remove keys** from OS keyring
 3. **Clear environment variables**
-
-## Future Privacy Features
-
-Planned enhancements:
-
-- **Dedicated local model UX**: Make fully local models easier to configure
-- **E2E encryption**: Encrypt data before sending to providers
-- **Optional learning export**: Share metadata-only learning summaries by default,
-  with separate confirmation before any private content leaves an armory
-- **Audit logs**: Detailed logs of all data access
 
 Have a privacy concern or suggestion? Please open an issue or email hi@gildrb.com

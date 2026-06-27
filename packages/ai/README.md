@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Hephaion" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
 </p>
 
 # AI

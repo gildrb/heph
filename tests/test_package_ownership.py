@@ -53,7 +53,7 @@ def test_package_concern_modules_are_importable() -> None:
         assert _module_is_importable(module_name)
 
 
-def test_heph_and_hephaion_console_commands_share_heph_entrypoint() -> None:
+def test_heph_console_command_is_the_public_entrypoint() -> None:
     scripts = {
         entry_point.name: entry_point.value
         for entry_point in importlib.metadata.entry_points(group="console_scripts")
@@ -62,5 +62,4 @@ def test_heph_and_hephaion_console_commands_share_heph_entrypoint() -> None:
 
     assert scripts == {
         "heph": "heph.cli.main:main",
-        "hephaion": "heph.cli.main:main",
     }

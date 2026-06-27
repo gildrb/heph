@@ -366,7 +366,7 @@ class HephTui(
 
     def on_mount(self) -> None:
         self.title = "Heph"
-        self.sub_title = "agent inside Hephaion"
+        self.sub_title = "model plus local harness"
         self._push_terminal_keyboard_protocol()
         self._install_tty_resize_reader()
         self._sync_terminal_size_from_tty()

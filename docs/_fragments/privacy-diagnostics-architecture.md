@@ -1,6 +1,6 @@
 ## Privacy & Diagnostics
 
-Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
+Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
 
 - `diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.

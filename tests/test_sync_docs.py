@@ -1,10 +1,46 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from scripts import sync_docs
+
+_TEXT_SUFFIXES = frozenset({".json", ".md", ".py", ".toml", ".yaml", ".yml"})
+_TEXT_SCAN_ROOTS = (
+    sync_docs.ROOT / ".devcontainer",
+    sync_docs.ROOT / ".github",
+    sync_docs.ROOT / "docs",
+    sync_docs.ROOT / "packages",
+    sync_docs.ROOT / "scripts",
+    sync_docs.ROOT / "tests",
+)
+_TEXT_SCAN_FILES = (
+    sync_docs.ROOT / ".gitleaks.toml",
+    sync_docs.ROOT / "AGENTS.md",
+    sync_docs.ROOT / "CONTRIBUTING.md",
+    sync_docs.ROOT / "README.md",
+    sync_docs.ROOT / "SECURITY.md",
+    sync_docs.ROOT / "pyproject.toml",
+)
+_OLD_PRODUCT_NAME = "Heph" + "aion"
+_PAIRED_PRODUCT_LAYER_NAME = "Heph " + "Harness"
+_PRODUCT_LAYER_INITIALS = "H" + "H"
+_PUBLIC_NAMING_PATTERNS = (
+    (
+        re.compile(rf"\b{_OLD_PRODUCT_NAME}\b"),
+        "Use `Heph` for the product or `the harness` for the layer.",
+    ),
+    (
+        re.compile(rf"\b{_PAIRED_PRODUCT_LAYER_NAME}\b"),
+        "Use `Heph` for the product or `the harness` for the layer.",
+    ),
+    (
+        re.compile(rf"\b{_PRODUCT_LAYER_INITIALS}\b"),
+        "Use product and layer names in full.",
+    ),
+)
 
 
 def test_replace_managed_block_updates_named_section() -> None:
@@ -40,7 +76,7 @@ def test_lint_legacy_commands_flags_stale_refs(tmp_path: Path) -> None:
 
     errors = sync_docs.lint_legacy_commands(tmp_path)
 
-    assert any("hephaion` or `hephaion <name-or-path>`" in error for error in errors)
+    assert any("heph` or `heph <path>`" in error for error in errors)
     assert any("materials index" in error for error in errors)
 
 
@@ -48,7 +84,6 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     model = sync_docs.collect_docs_model(sync_docs.ROOT)
 
     assert model.short_command == "heph"
-    assert model.long_command == "hephaion"
     assert any(
         command.command == "heph materials index <path>"
         for command in model.cli_reference_commands
@@ -74,6 +109,23 @@ def test_repository_docs_are_synced() -> None:
 
     for target in targets:
         assert target.path.read_text(encoding="utf-8") == target.content
+
+
+def test_public_copy_uses_heph_naming() -> None:
+    paths = set(_TEXT_SCAN_FILES)
+    for root in _TEXT_SCAN_ROOTS:
+        paths.update(path for path in root.rglob("*") if path.suffix in _TEXT_SUFFIXES)
+
+    errors: list[str] = []
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern, message in _PUBLIC_NAMING_PATTERNS:
+            if pattern.search(text):
+                errors.append(f"{path.relative_to(sync_docs.ROOT)}: {message}")
+
+    assert not errors, "\n".join(errors)
 
 
 def test_readme_logo_is_repo_owned_svg_asset() -> None:

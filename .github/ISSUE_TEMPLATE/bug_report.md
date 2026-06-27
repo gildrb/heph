@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with Hephaion
+about: Report a problem with Heph
 labels: bug, triage
 ---
 
@@ -24,7 +24,7 @@ labels: bug, triage
 
 ## Environment
 
-- Hephaion version: <!-- run `heph --version` or `uv run heph --version` -->
+- Heph version: <!-- run `heph --version` or `uv run heph --version` -->
 - Python version:
 - OS:
 - Provider: <!-- provider name, if relevant -->

@@ -2,4 +2,4 @@ blank_issues_enabled: false
 contact_links:
   - name: Question
     url: https://github.com/gildrb/heph/discussions
-    about: Ask a question about Hephaion usage or configuration
+    about: Ask a question about Heph usage or configuration

@@ -1,12 +1,13 @@
 # Architecture
 
-Hephaistos uses five workspace packages with strict import boundaries. The split
-mirrors the shape we want users and coding agents to understand:
+Heph uses five workspace packages with strict import boundaries. The split
+matches the product model: a selected model plus the local harness, surfaced as
+Heph.
 
 ```text
 packages/
   heph/        The agent brain and user-facing command surface
-  hephaion/    Validation and correctness harness
+  hephaion/    Harness implementation namespace
   ai/          Provider and model runtime
   interfaces/  Terminal/TUI adapters and theme tokens
   extensions/  Stable extension contracts
@@ -18,14 +19,13 @@ dependency flow, not another architecture narrative.
 
 ## Package Ownership
 
-- **Heph** is the agent brain and user-facing surface. It owns the `heph`
-  command, agent identity, research/talking orchestration, slash-command
-  coordination, and composition of the lower packages. Lower packages must not
-  import Heph.
-- **Hephaion** is the validation and correctness harness. It owns turns,
-  guardrails, grounding, citations, retrieval, armory state, memory, local
-  learning attempts and policies, study workflows, diagnostics, and session
-  persistence. It must not import Heph or interface adapters.
+- **Heph** is the product and user-facing surface. It owns the `heph` command,
+  agent identity, research/talking orchestration, slash-command coordination,
+  and composition of the lower packages. Lower packages must not import Heph.
+- **The harness** lives in the `hephaion.*` implementation namespace. It owns
+  turns, guardrails, grounding, citations, retrieval, armory state, memory,
+  local learning attempts and policies, study workflows, diagnostics, and
+  session persistence. It must not import Heph or interface adapters.
 - **AI** owns provider configuration, auth, model catalogs, runtime streaming,
   retry, usage, prompt-cache request shaping, logging, diagnostics, and narrow
   payload type helpers. It lives under the `ai.*` Python namespace.
@@ -34,9 +34,9 @@ dependency flow, not another architecture narrative.
 - **Extensions** owns small stable contracts for extension-oriented behavior.
   Concrete behavior belongs in the package that owns the runtime decision.
 
-Heph and Hephaion are both protected, but in different ways: Heph is protected
-as the agent surface that lower packages cannot import; Hephaion is protected as
-the correctness harness that adapters and app code compose without owning.
+Heph and the harness are both protected, but in different ways: Heph is the
+product surface lower packages cannot import; the harness is the correctness
+layer adapters and app code compose without owning.
 
 ## Protected Core
 
@@ -46,29 +46,29 @@ The core should be hard to change accidentally and easy to extend deliberately.
   configuration, request/response normalization, streaming, retry, usage, and
   provider-neutral diagnostics. It should almost never change for Heph-specific
   behavior.
-- **Hephaion is the correctness harness.** It guarantees local-document
-  correctness through armory validation, retrieval, evidence selection,
-  citation verification, guardrails, memory persistence, structural answer
-  checks, and diagnostics. It should expose stable harness services
-  instead of accumulating agent persona or interface behavior.
+- **The harness owns correctness.** It guarantees local-document correctness
+  through armory validation, retrieval, evidence selection, citation
+  verification, guardrails, memory persistence, structural answer checks, and
+  diagnostics. It should expose stable services instead of accumulating agent
+  persona or interface behavior.
 - **Heph is the brain.** Conversational strategy, research orchestration, Heph
   identity, and user-facing command composition belong here. The current
   `hephaion/agent` and `hephaion/chat` modules are migration-era harness
   surfaces; new agent-brain behavior should move toward Heph-facing modules and
-  call Hephaion for validation rather than weakening the harness boundary.
+  call the harness for validation rather than weakening the harness boundary.
 - **The SDK is a UI-neutral Heph surface.** `heph.sdk` wraps the lower packages
   for native apps, GUI shells, automation, and future RPC transports. It must
   expose structured values and events instead of terminal output.
 - **Extensions stay outside the core.** Optional behavior should attach through
   `extensions` contracts or adapter-level composition. Do not make extension
-  behavior depend on editing AI, Hephaion, or Heph internals.
+  behavior depend on editing AI, harness, or Heph internals.
 
 ## Dependency Flow
 
 ```mermaid
 graph TD
     Heph["Heph agent"] --> Interfaces["Interfaces"]
-    Heph --> Harness["Hephaion harness"]
+    Heph --> Harness["Harness"]
     Heph --> AI["AI runtime"]
     Heph --> Extensions["Extensions"]
     Interfaces --> Harness
@@ -89,11 +89,11 @@ graph TD
 
 Reusable packages communicate through public APIs. Interface code may compose
 broadly because adapters must display many workflows, but reusable decisions
-should move down into Hephaion, AI, Extensions, or Heph.
+should move down into the harness, AI, Extensions, or Heph.
 
 ## Core harness flow
 
-The correctness-critical chat harness follows a narrow reusable flow:
+The correctness-critical chat flow follows a narrow reusable path:
 
 ```mermaid
 graph LR
@@ -267,7 +267,7 @@ the provenance path for a retrieved chunk.
 
 ## Study memory
 
-Hephaion is local-first by default: extracted study concepts are written to
+Heph is local-first by default: extracted study concepts are written to
 `<armory>/.hephaion/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
@@ -276,8 +276,8 @@ memory count when a local memory store is attached.
 
 ## Diagnostics
 
-Hephaion uses local diagnostics that keep debugging data inside the CLI
-workflow and armory workspace.
+Heph uses local diagnostics that keep debugging data inside the CLI workflow
+and armory workspace.
 
 ```mermaid
 graph TD
@@ -317,7 +317,7 @@ graph TD
 <!-- sync-docs:privacy-diagnostics-architecture:start -->
 ## Privacy & Diagnostics
 
-Hephaion keeps privacy-impacting diagnostics optional and maintainer-facing.
+Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
 
 - `diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.

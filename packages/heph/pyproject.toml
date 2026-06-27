@@ -33,7 +33,6 @@ Issues = "https://github.com/gildrb/heph/issues"
 
 [project.scripts]
 heph = "heph.cli.main:main"
-hephaion = "heph.cli.main:main"
 
 [tool.uv.sources]
 heph-ai = { workspace = true }

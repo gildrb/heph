@@ -1,32 +1,27 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Hephaion" src="docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="docs/assets/logo-auto.svg" width="320">
 </p>
 
-# Hephaion
+# Heph
 
-**Hephaion is a local document harness for accurate, cited answers.**
+**Heph is a local document harness for accurate, cited answers.**
 
-Hephaion is the harness: the tool you install, run, and write in. Inside it,
-the agent (Heph) helps you understand and work with document-heavy projects
-without handing your files to a hosted workspace. Put materials in an **armory**,
-start Heph with `heph`, and ask questions. Heph retrieves from your files before
-answering, checks citations against the retrieved evidence, and keeps memory
-scoped to that armory.
+Heph is the product: your selected model plus the local harness that keeps work
+grounded in your files. Put source files in an **armory**, start Heph with
+`heph`, and ask questions. The harness retrieves from your materials, checks
+citations against evidence, and keeps memory scoped to that armory.
 
-Heph is the part that reasons over the material, asks follow-up questions, tests
-your understanding, and keeps long sessions grounded. Hephaion provides the
-guardrails around that agent: retrieval, citation checks, memory scoping, and
-model/provider boundaries. Accuracy, verification, and privacy come first; model
-choice stays swappable.
+The model writes. The harness grounds, verifies, and remembers inside the
+armory. Together they are Heph.
 
 An armory is the core idea: a normal portable folder with your source files, saved
 chats, retrieval index, and local memory. Your documents are not locked into a
 provider.
 
 <p align="center">
-  <img alt="Hephaion CLI" src="docs/assets/app-sc.png" width=full>
+  <img alt="Heph TUI" src="docs/assets/app-sc.png" width=full>
 </p>
 
 ## Install
@@ -43,9 +38,7 @@ Or with pip:
 pip install heph
 ```
 
-PDF, DOCX, PPTX, and XLSX conversion support is built in through
-`docling-slim[standard]` so new armories can index common study materials
-without extra setup.
+The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files.
 
 Upgrade with:
 
@@ -63,8 +56,8 @@ uv tool install git+https://github.com/gildrb/heph
 
 ```bash
 heph armory init exams
+# Add source files to ~/.armories/exams/materials
 heph exams
-# add documents to ~/.armories/exams/materials when you're ready
 ```
 
 Heph stores named armories under `~/.armories`. To move to another PC, install
@@ -87,7 +80,7 @@ models available to those credentials.
 
 Heph works with Pollinations AI, OpenRouter, OpenAI API keys, OpenAI Codex
 subscription login, Z.AI, local tool-capable llama.cpp models, and custom
-OpenAI-compatible endpoints. You can also use environment variables such as
+OpenAI-compatible endpoints. Environment variables include
 `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`,
 `HEPHAION_BASE_URL`, and `HEPHAION_MODEL`.
 
@@ -113,7 +106,7 @@ Inside Heph, the important commands are `/login`, `/local`, `/models`, `/armory`
 - [docs/configuration.md](docs/configuration.md) — provider and model configuration
 - [docs/models.md](docs/models.md) — provider choices, model selection, and API keys
 - [docs/privacy.md](docs/privacy.md) — local-first storage, diagnostics, and network behavior
-- [docs/architecture.md](docs/architecture.md) — package boundaries and data flow
+- [docs/architecture.md](docs/architecture.md) — harness, package boundaries, and data flow
 - [docs/developers/sdk.md](docs/developers/sdk.md) — SDK for native apps, GUI shells, and automation
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup, indexing, and provider issues
 - [docs/developers/index.md](docs/developers/index.md) — developer docs and internal guides

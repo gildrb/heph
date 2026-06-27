@@ -1,7 +1,7 @@
 [project]
 name = "heph-extensions"
 version = "0.0.53"
-description = "Stable extension contracts for Heph and Hephaion"
+description = "Stable extension contracts for Heph and the harness"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

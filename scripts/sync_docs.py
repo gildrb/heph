@@ -17,7 +17,6 @@ from heph.cli.main import build_parser
 from heph.commands import get_registry
 from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaion.memory.extract import EXTRACTION_MODEL_ENV
-from hephaion.parameters import cli as parameters_cli
 from hephaion.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
@@ -28,6 +27,8 @@ from hephaion.privacy.consent import (
 from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
+
+from hephaion.parameters import cli as parameters_cli
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -91,8 +92,6 @@ class KeyboardShortcutDoc:
 @dataclass(frozen=True)
 class DocsModel:
     short_command: str
-    long_command: str
-    project_name: str
     scripts_entrypoint: str
     common_commands: tuple[CommandLine, ...]
     cli_reference_commands: tuple[CommandLine, ...]
@@ -158,7 +157,6 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
         "Open an armory by name from `~/.armories`, e.g. `heph gdp`, or by explicit path; "
         "empty armories open with a no-materials state."
     ),
-    "hephaion [path]": "Equivalent long Hephaion harness entrypoint for `heph`.",
     "heph armory init <name>": "Create a named armory in `~/.armories`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph update": "Show how to update the active Heph install.",
@@ -166,7 +164,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph sdk capabilities": "Print the SDK capability contract as JSON.",
     "heph release status": ("Show installed package, official stable, and release channel state."),
     "heph chat ask --jsonl <path> [prompt]": (
-        "Emit structured turn events as JSON Lines for harness audits."
+        "Emit structured turn events as JSON Lines for audits."
     ),
     "heph health [path]": (
         "Check indexed materials for generic extraction problems; defaults to the current armory."
@@ -189,7 +187,7 @@ LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     ),
     (
         re.compile(r"\bhephaion\s+start\b"),
-        "Use `hephaion` or `hephaion <name-or-path>` as the long-form harness command.",
+        "Use `heph` or `heph <path>` as the primary command.",
     ),
     (
         re.compile(r"\bsource\s+reindex\b"),
@@ -248,7 +246,7 @@ def get_subparsers_action(
     raise RuntimeError(f"Parser {parser.prog!r} does not define subcommands.")
 
 
-def collect_cli_commands(short_command: str, long_command: str) -> tuple[CommandLine, ...]:
+def collect_cli_commands(short_command: str) -> tuple[CommandLine, ...]:
     parser = build_parser()
     subparsers = get_subparsers_action(parser)
     top_level = list(subparsers.choices.keys())
@@ -299,10 +297,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             f"{short_command} <name-or-path>",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} <name-or-path>"],
         ),
-        CommandLine(
-            f"{long_command} [path]",
-            CLI_COMMAND_DESCRIPTIONS[f"{long_command} [path]"],
-        ),
         CommandLine(f"{short_command} armory init <name>", armory_help["init"]),
         CommandLine(f"{short_command} armory open <path>", armory_help["open"]),
         CommandLine(f"{short_command} materials list <path>", materials_help["list"]),
@@ -347,11 +341,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     )
 
 
-def collect_common_commands(short_command: str, long_command: str) -> tuple[CommandLine, ...]:
-    cli_commands = {
-        item.command: item.description
-        for item in collect_cli_commands(short_command, long_command)
-    }
+def collect_common_commands(short_command: str) -> tuple[CommandLine, ...]:
+    cli_commands = {item.command: item.description for item in collect_cli_commands(short_command)}
     selected = (
         short_command,
         f"{short_command} <name-or-path>",
@@ -449,19 +440,14 @@ def collect_docs_model(root: Path) -> DocsModel:
     if not scripts:
         scripts = load_project_scripts(HEPH_PYPROJECT_PATH)
     short_command = "heph"
-    long_command = "hephaion"
-    if short_command not in scripts or long_command not in scripts:
-        raise RuntimeError("Expected both `heph` and `hephaion` entrypoints in pyproject.toml.")
-    if scripts[short_command] != scripts[long_command]:
-        raise RuntimeError("Expected `heph` and `hephaion` to share one entrypoint.")
+    if short_command not in scripts:
+        raise RuntimeError("Expected `heph` entrypoint in pyproject.toml.")
 
     return DocsModel(
         short_command=short_command,
-        long_command=long_command,
-        project_name="Hephaion",
         scripts_entrypoint=scripts[short_command],
-        common_commands=collect_common_commands(short_command, long_command),
-        cli_reference_commands=collect_cli_commands(short_command, long_command),
+        common_commands=collect_common_commands(short_command),
+        cli_reference_commands=collect_cli_commands(short_command),
         slash_commands=collect_slash_commands(),
         keyboard_shortcuts=collect_keyboard_shortcuts(),
         env_vars=collect_env_vars(),
@@ -518,9 +504,7 @@ def render_pip_install_block() -> str:
         "```bash\n"
         "pip install heph\n"
         "```\n\n"
-        "PDF, DOCX, PPTX, and XLSX conversion support is built in through\n"
-        "`docling-slim[standard]` so new armories can index common study materials\n"
-        "without extra setup."
+        "The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files."
     )
 
 
@@ -561,7 +545,7 @@ def render_home_docs_section(*, docs_index: bool) -> str:
         (f"{prefix}configuration.md", "provider and model configuration"),
         (f"{prefix}models.md", "provider choices, model selection, and API keys"),
         (f"{prefix}privacy.md", "local-first storage, diagnostics, and network behavior"),
-        (f"{prefix}architecture.md", "package boundaries and data flow"),
+        (f"{prefix}architecture.md", "harness, package boundaries, and data flow"),
         (f"{prefix}developers/sdk.md", "SDK for native apps, GUI shells, and automation"),
         (f"{prefix}troubleshooting.md", "common setup, indexing, and provider issues"),
         (f"{prefix}developers/index.md", "developer docs and internal guides"),
@@ -585,7 +569,7 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     logo_path = README_LOGO_PATH.relative_to(ROOT).as_posix()
     return (
         '<p align="center">\n'
-        f'  <img alt="Hephaion" src="{logo_path}" width="{README_LOGO_WIDTH}">\n'
+        f'  <img alt="Heph" src="{logo_path}" width="{README_LOGO_WIDTH}">\n'
         "</p>\n\n"
     )
 
@@ -596,9 +580,7 @@ def render_readme_screenshot_block(*, docs_index: bool) -> str:
 
     screenshot_path = README_SCREENSHOT_PATH.relative_to(ROOT).as_posix()
     return (
-        '<p align="center">\n'
-        f'  <img alt="Hephaion CLI" src="{screenshot_path}" width=full>\n'
-        "</p>\n\n"
+        f'<p align="center">\n  <img alt="Heph TUI" src="{screenshot_path}" width=full>\n</p>\n\n'
     )
 
 
@@ -620,12 +602,6 @@ def render_home_footer(*, docs_index: bool) -> str:
 
 
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
-    long_entry = f"`{model.long_command}`"
-    compatibility = (
-        f"`{model.short_command} [path]` opens the TUI. "
-        f"`{model.short_command} tui [path]` is the explicit form, "
-        f"and {long_entry} is the long entrypoint."
-    )
     replacements = {
         "GENERATED_NOTICE": GENERATED_NOTICE,
         "INSTALL_BLOCK": render_install_block(model),
@@ -633,7 +609,6 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "UPGRADE_BLOCK": "```bash\nuv tool upgrade heph\n```",
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/heph\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
-        "EQUIVALENT_ENTRYPOINT_NOTE": compatibility,
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
@@ -657,7 +632,6 @@ def render_cli_reference(model: DocsModel) -> str:
         "KEYBOARD_SHORTCUTS_TABLE": render_keyboard_shortcuts_table(model.keyboard_shortcuts),
         "ENV_VARS_TABLE": render_env_vars_table(model.env_vars),
         "SHORT_COMMAND": model.short_command,
-        "LONG_COMMAND": model.long_command,
     }
     return render_template("cli-reference.md.template", replacements)
 

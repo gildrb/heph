@@ -50,7 +50,7 @@ For flame graphs without modifying the runtime:
 
 ```bash
 # Install py-spy (already in dev dependencies)
-uv run py-spy record -o profile.svg -- python -m hephaion
+uv run py-spy record -o profile.svg -- heph
 ```
 
 ## Common Causes

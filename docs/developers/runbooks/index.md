@@ -1,6 +1,6 @@
 # Runbooks
 
-Operational playbooks for diagnosing and resolving issues in Hephaion.
+Operational playbooks for diagnosing and resolving issues in Heph.
 
 ## Available Runbooks
 

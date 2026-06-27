@@ -56,7 +56,7 @@ packages/
 ```mermaid
 graph TD
     Heph["Heph agent"] --> Interfaces["Interfaces"]
-    Heph --> Harness["Hephaion harness"]
+    Heph --> Harness["Harness"]
     Heph --> AI["AI runtime"]
     Heph --> Extensions["Extensions"]
     Interfaces --> Harness
@@ -79,9 +79,9 @@ Core invariants:
 
 - `ai.*` is provider and model API substrate. It should almost never change for
   Heph-specific behavior.
-- Hephaion is the correctness harness: guardrails, armories, retrieval,
-  citations, memory, local learning, diagnostics, and session state.
-- Heph is the agent and composition surface: identity, conversational strategy,
-  research orchestration, and user-facing commands.
+- `hephaion.*` is the harness implementation namespace: guardrails, armories,
+  retrieval, citations, memory, local learning, diagnostics, and session state.
+- Heph is the product and composition surface: the selected model plus the
+  harness, exposed through the `heph` command and SDK.
 - Interfaces and Extensions compose the core through public contracts instead
   of owning harness or agent behavior.

@@ -1,11 +1,11 @@
 <p align="center">
-  <img alt="Hephaion" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg" width="320">
 </p>
 
 # Extensions
 
 Extensions is the contract package for behavior that should be open to user or
-third-party extension without changing Heph or Hephaion internals.
+third-party extension without changing Heph or harness internals.
 
 Use this package for:
 
@@ -30,7 +30,7 @@ implement the system around them.
 
 ## Boundaries
 
-Extensions must not import AI, Heph, Hephaion, or Interfaces modules. Higher
+Extensions must not import AI, Heph, harness, or Interfaces modules. Higher
 packages depend on these contracts; contracts do not depend upward.
 
 ## Development

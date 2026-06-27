@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common issues and solutions when using Hephaion.
+Common issues and fixes when using Heph.
 
 ## Installation Issues
 
@@ -301,7 +301,7 @@ If none of these solutions work:
 3. **Search issues**: Check https://github.com/gildrb/heph/issues
 
 4. **Report the issue**: Create a new issue with:
-   - Hephaion version: `heph --version`
+   - Heph version: `heph --version`
    - Python version: `python --version`
    - OS: macOS/Linux/Windows version
    - Steps to reproduce

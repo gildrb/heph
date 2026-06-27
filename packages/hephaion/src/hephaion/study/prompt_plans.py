@@ -450,9 +450,9 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
 def _heph_action_prompt(query: str) -> str:
     docs_context = heph_product_context()
     context_block = (
-        f"Current Hephaion documentation excerpt:\n{docs_context}\n"
+        f"Current Heph documentation excerpt:\n{docs_context}\n"
         if docs_context
-        else "Current Hephaion documentation excerpt: unavailable.\n"
+        else "Current Heph documentation excerpt: unavailable.\n"
     )
     return _prompt_frame(
         "Execute HEPH_ACTION.",
@@ -494,9 +494,9 @@ def _plain_chat_prompt(query: str) -> str:
 def _heph_self_prompt(query: str) -> str:
     docs_context = heph_product_context()
     context_block = (
-        f"Current Hephaion documentation excerpt:\n{docs_context}\n"
+        f"Current Heph documentation excerpt:\n{docs_context}\n"
         if docs_context
-        else "Current Hephaion documentation excerpt: unavailable.\n"
+        else "Current Heph documentation excerpt: unavailable.\n"
     )
     return _prompt_frame(
         "Execute HEPH_HELP.",
@@ -504,8 +504,8 @@ def _heph_self_prompt(query: str) -> str:
         context_block,
         rules=(
             _SAME_LANGUAGE_USER_RULE,
-            "- Answer from the Hephaion documentation excerpt above, not from armory material.",
-            "- Be operational: explain concrete Hephaion/Heph actions, commands, paths, or "
+            "- Answer from the Heph documentation excerpt above, not from armory material.",
+            "- Be operational: explain concrete Heph actions, commands, paths, or "
             "settings when they help.",
             "- For follow-ups, advance the answer with new specifics instead of repeating "
             "the prior summary.",
