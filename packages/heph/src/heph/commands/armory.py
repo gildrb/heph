@@ -8,12 +8,12 @@ from pathlib import Path
 from hephaion.armory.search import load_available_armories
 from hephaion.armory.storage import default_armory_home
 from hephaion.chat.session import ChatSession, refresh_armory_sources
-from hephaion.materials import MATERIALS_DIR, material_display_name
 from hephaion.materials.importing import import_material_files, resolve_import_source
 from hephaion.rag.index import ArmoryIndex, build_index
 from interfaces.terminal import print_error, print_info, print_success
 
 from heph.commands._base import Command, CommandResult, ensure_session
+from hephaion.materials import MATERIALS_DIR, material_display_name
 
 
 @dataclass(slots=True)
@@ -79,7 +79,7 @@ class ExportCommand(Command):
 
         messages = [msg for msg in s.conversation.messages if msg.role in {"user", "assistant"}]
         if not messages:
-            print_info("Nothing to export — the session has no messages yet.")
+            print_info("Nothing to export - the session has no messages yet.")
             return CommandResult()
 
         lines: list[str] = []

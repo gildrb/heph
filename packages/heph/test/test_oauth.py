@@ -39,7 +39,7 @@ def test_ssl_context_has_ca_certs() -> None:
     ``create_default_context()`` returns zero certs.
     """
     ctx = _ssl_context()
-    assert ctx.get_ca_certs(), "SSL context has zero CA certs — HTTPS will fail"
+    assert ctx.get_ca_certs(), "SSL context has zero CA certs - HTTPS will fail"
 
 
 def test_ssl_context_certifi_fallback_when_no_default_certs(

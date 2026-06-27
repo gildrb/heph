@@ -863,7 +863,7 @@ class TestReciprocalRankFusion:
         ]
         r1 = reciprocal_rank_fusion([ranked], k=1)
         r2 = reciprocal_rank_fusion([ranked], k=100)
-        # Higher k flattens scores — gap should be smaller
+        # Higher k flattens scores - gap should be smaller
         gap1 = r1[0].score - r1[1].score
         gap2 = r2[0].score - r2[1].score
         assert gap1 > gap2
@@ -884,7 +884,7 @@ class TestReciprocalRankFusion:
 
 
 # ---------------------------------------------------------------------------
-# Embedding retriever (mocked — no real model download)
+# Embedding retriever (mocked - no real model download)
 # ---------------------------------------------------------------------------
 
 
@@ -1058,7 +1058,7 @@ class TestEmbeddingRetriever:
         mock_model.encode.return_value = _MockArray([[0.1, 0.2, 0.3]])
         retriever._model = mock_model
 
-        # Call twice — encode should only be called once for chunks
+        # Call twice - encode should only be called once for chunks
         retriever._ensure_embeddings()
         retriever._ensure_embeddings()
         assert mock_model.encode.call_count == 1
@@ -1326,7 +1326,7 @@ class TestHybridRetriever:
 
 
 # ---------------------------------------------------------------------------
-# Cross-encoder re-ranker (mocked — no real model download)
+# Cross-encoder re-ranker (mocked - no real model download)
 # ---------------------------------------------------------------------------
 
 
@@ -1490,7 +1490,7 @@ class TestHybridRetrieverWithReranker:
             ScoredChunk(chunk=chunks[1], score=0.5),
         ]
 
-        # Mock cross-encoder reranker — flip the order
+        # Mock cross-encoder reranker - flip the order
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
         mock_reranker.rerank.side_effect = lambda _query, _candidates, top_k=5: [
             ScoredChunk(chunk=chunks[1], score=0.99),
@@ -1950,7 +1950,7 @@ class TestMinScoreThreshold:
             "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
-            # "quantum" shares no tokens with "cooking" — scores will be ~0
+            # "quantum" shares no tokens with "cooking" - scores will be ~0
             results = retrieve("quantum physics", index, min_score=0.5)
             assert results == []
 
@@ -1975,7 +1975,7 @@ class TestMinScoreThreshold:
             "hephaion.rag.optional_backends.sentence_transformers_available",
             return_value=False,
         ):
-            # Default min_score=0.0 — all results returned
+            # Default min_score=0.0 - all results returned
             results = retrieve("python", index)
             assert len(results) > 0
 

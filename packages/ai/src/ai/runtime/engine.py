@@ -516,7 +516,7 @@ def _stream_codex_completion(
     if not _circuit_breaker.allow_request():
         span.end()
         raise EngineError(
-            "LLM provider circuit breaker is open — too many recent failures",
+            "LLM provider circuit breaker is open - too many recent failures",
             code=EngineErrorCode.CIRCUIT_OPEN,
         )
 
@@ -873,7 +873,7 @@ def _openai_request_allowed(abort: threading.Event | None, span: _SpanProtocol) 
         return False
     if not _circuit_breaker.allow_request():
         raise EngineError(
-            "LLM provider circuit breaker is open — too many recent failures",
+            "LLM provider circuit breaker is open - too many recent failures",
             code=EngineErrorCode.CIRCUIT_OPEN,
         )
     return True

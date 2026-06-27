@@ -10,7 +10,7 @@ Layer 2 (auto_compact): When token count exceeds a threshold, save the
 Layer 3 (compact tool): The agent explicitly calls the ``compact`` tool,
     which triggers the same summarisation as Layer 2.
 
-Nothing is truly lost — full transcripts are persisted under
+Nothing is truly lost - full transcripts are persisted under
 ``<workspace>/.hephaion/transcripts/`` as JSONL files.
 """
 

@@ -746,7 +746,7 @@ def test_inject_default_subcommand_flags_before_path() -> None:
 
 
 def test_inject_default_subcommand_known_command_unchanged() -> None:
-    """A known subcommand is left unchanged — argparse handles it."""
+    """A known subcommand is left unchanged - argparse handles it."""
     result = _inject_default_subcommand(
         ["armory", "init", "/tmp/armory"],
         {"armory", "tui", "materials"},

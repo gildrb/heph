@@ -451,7 +451,7 @@ class _TurnCallbacks:
 def _offline_notice_text(provider_name: str) -> str:
     return (
         f"Can't reach {provider_name}. "
-        "You're offline — but you can still:\n"
+        "You're offline - but you can still:\n"
         "  · Review vocabulary with /vocabulary\n"
         "  · Browse materials with /materials\n"
         "  · Export the chat with /export\n"

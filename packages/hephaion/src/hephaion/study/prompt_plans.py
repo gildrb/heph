@@ -161,7 +161,7 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
             "- The question must be grounded in at least one retrieved source span, "
             "past-exam pattern, rubric point, or mark-scheme point.",
             "- The question must test understanding of a concept, procedure, or "
-            "relationship from the material — not surface-level document metadata.",
+            "relationship from the material - not surface-level document metadata.",
             "Question quality contract:",
             _ACTIVE_RECALL_QUESTION_CONTRACT,
             _FORBIDDEN_RECALL_QUESTION_TYPES_HEADER,

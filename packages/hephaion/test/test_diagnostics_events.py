@@ -95,7 +95,7 @@ def test_capture_rejects_non_https_posthog_host(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_init_analytics_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    """init_analytics() no longer eagerly warms install_id — deferred to capture()."""
+    """init_analytics() no longer eagerly warms install_id - deferred to capture()."""
     calls: list[str] = []
     monkeypatch.setattr("hephaion.diagnostics.events.analytics_backend_available", lambda: True)
     monkeypatch.setattr(

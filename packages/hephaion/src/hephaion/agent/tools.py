@@ -3,7 +3,7 @@
 Each tool has a JSON schema (for the OpenAI ``tools=`` param) and a
 handler function.  Handlers receive the workspace root for path sandboxing.
 
-**Registry protocol** — ``ToolRegistry`` is the single source of truth.
+**Registry protocol** - ``ToolRegistry`` is the single source of truth.
 A global ``default_registry`` is pre-loaded with all built-in tools.
 Armories can contribute extra tools by dropping ``*.py`` files into
 ``.hephaion/tools/`` only after the armory has been explicitly trusted.
@@ -11,7 +11,7 @@ Each plugin module must expose a top-level ``register(registry: ToolRegistry)
 -> None`` function that calls ``registry.register(...)`` for every tool it
 wants to add.
 Tool philosophy for a document-grounded agent:
-- Read/write tools are primary — the agent works with documents.
+- Read/write tools are primary - the agent works with documents.
 - Web fetch fills knowledge gaps, but with strict source attribution.
 - The agent should NEVER guess. If information is not in the documents
   and cannot be fetched, it must say so.

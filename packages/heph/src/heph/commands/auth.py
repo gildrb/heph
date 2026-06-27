@@ -70,7 +70,7 @@ class LoginCommand(Command):
         p = activate_provider_for_session(pc, s, "openai-codex")
         print_success(
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
-            f"— switched to {p.resolved_model}"
+            f"- switched to {p.resolved_model}"
         )
         capture_analytics("oauth_login", {"provider": "openai-codex", "model": p.resolved_model})
         return CommandResult()

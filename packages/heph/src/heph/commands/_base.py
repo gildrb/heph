@@ -33,7 +33,7 @@ class Command:
         raise NotImplementedError
 
 
-# Lazy registry accessor — avoids circular imports between __init__.py and
+# Lazy registry accessor - avoids circular imports between __init__.py and
 # sub-modules that need to enumerate commands (e.g. HelpCommand).
 _registry_fn: Callable[[], CommandRegistryProtocol] | None = None
 
@@ -45,7 +45,7 @@ def set_registry_fn(fn: Callable[[], CommandRegistryProtocol]) -> None:
 
 def get_registry_lazy() -> CommandRegistryProtocol:
     if _registry_fn is None:
-        msg = "Registry not initialized — call set_registry_fn first"
+        msg = "Registry not initialized - call set_registry_fn first"
         raise RuntimeError(msg)
     return _registry_fn()
 

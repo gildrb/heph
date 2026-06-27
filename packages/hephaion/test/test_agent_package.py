@@ -81,7 +81,7 @@ class TestNoHarnessReferences:
     """Verify no code references the old harness package."""
 
     def test_no_harness_imports_in_source(self) -> None:
-        """This is a structural test — it will pass once harness/ is deleted."""
+        """This is a structural test - it will pass once harness/ is deleted."""
         spec = importlib.util.find_spec("harness")
         # After harness/ is deleted, this should be None
         assert spec is None, "harness package still exists"

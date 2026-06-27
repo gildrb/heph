@@ -58,7 +58,7 @@ def _collect_test_classes(path: Path) -> list[str]:
 def test_top_level_function_names_are_descriptive() -> None:
     """Top-level test functions must have at least two words after 'test_'.
 
-    Methods inside test classes are exempt — the class name provides context.
+    Methods inside test classes are exempt - the class name provides context.
     """
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         for name in _collect_top_level_test_functions(path):
@@ -66,7 +66,7 @@ def test_top_level_function_names_are_descriptive() -> None:
             parts = after_prefix.split("_")
             assert len(parts) >= 2, (
                 f"{path.name}: top-level test function '{name}' "
-                f"is too short — use test_<verb>_<object> pattern "
+                f"is too short - use test_<verb>_<object> pattern "
                 f"(got only '{parts[0]}')"
             )
 

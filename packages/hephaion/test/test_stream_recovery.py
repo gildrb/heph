@@ -229,13 +229,13 @@ class TestStreamRecoveryError:
 
 
 # ---------------------------------------------------------------------------
-# stream_reply — retry logic
+# stream_reply - retry logic
 # ---------------------------------------------------------------------------
 
 
 class TestStreamReplyRetry:
     def test_succeeds_on_first_try(self) -> None:
-        """No retry needed — stream completes normally."""
+        """No retry needed - stream completes normally."""
         chunks = [_make_chunk("Hi "), _make_chunk("there")]
 
         mock_client = MagicMock()
@@ -442,7 +442,7 @@ class TestStreamReplyRetry:
 
 
 # ---------------------------------------------------------------------------
-# get_reply — integration with retry
+# get_reply - integration with retry
 # ---------------------------------------------------------------------------
 
 

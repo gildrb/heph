@@ -1,4 +1,4 @@
-"""Vocabulary file parser — scans armories for markdown vocab tables."""
+"""Vocabulary file parser - scans armories for markdown vocab tables."""
 
 from __future__ import annotations
 

@@ -1,14 +1,14 @@
 """Retrieval engine: pluggable retriever protocol with multiple backends.
 
 Backends (selected automatically based on available dependencies):
-- ``TfidfRetriever``     — pure-stdlib keyword scoring (always available)
-- ``Bm25Retriever``      — BM25 sparse chunk retrieval via bm25s when available
-- ``DocumentBm25Retriever`` — BM25 sparse document retrieval
-- ``EmbeddingRetriever`` — dense vector similarity via sentence-transformers
-- ``HybridRetriever``    — reciprocal-rank fusion of sparse + embeddings
+- ``TfidfRetriever``     - pure-stdlib keyword scoring (always available)
+- ``Bm25Retriever``      - BM25 sparse chunk retrieval via bm25s when available
+- ``DocumentBm25Retriever`` - BM25 sparse document retrieval
+- ``EmbeddingRetriever`` - dense vector similarity via sentence-transformers
+- ``HybridRetriever``    - reciprocal-rank fusion of sparse + embeddings
 
 Post-retrieval re-ranking (optional, requires sentence-transformers):
-- ``CrossEncoderReranker`` — cross-encoder re-scoring for improved precision
+- ``CrossEncoderReranker`` - cross-encoder re-scoring for improved precision
 
 The top-level ``retrieve()`` function auto-selects the best backend and
 applies re-ranking when available: hybrid retrieval → RRF fusion →

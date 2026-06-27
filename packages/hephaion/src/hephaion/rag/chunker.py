@@ -4,10 +4,10 @@ Splits text files into chunks with metadata preservation.
 
 Chunking strategies (selectable via ``ChunkStrategy``):
 
-- **AUTO** (default): picks the best strategy per file — Markdown files get
+- **AUTO** (default): picks the best strategy per file - Markdown files get
   structure-aware chunking, all other text files use semantic chunking when
   ``sentence-transformers`` is available, falling back to fixed-window.
-- **MARKDOWN**: structure-aware — respects ``#`` headers, splits oversized
+- **MARKDOWN**: structure-aware - respects ``#`` headers, splits oversized
   sections at paragraph boundaries.  Each chunk carries ``heading`` +
   ``heading_level`` for hierarchical context.
 - **SEMANTIC**: splits into sentences, embeds each, then merges into chunks

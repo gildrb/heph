@@ -15,7 +15,7 @@ Operational playbooks for diagnosing and resolving issues in Heph.
 ## Quick Reference
 
 **Where to check deploy impact:**
-- [GitHub Deployments](https://github.com/gildrb/heph/deployments) — history for manual edge publishes and releases
+- [GitHub Deployments](https://github.com/gildrb/heph/deployments) - history for manual edge publishes and releases
 
 **Primary diagnostics:**
 - Structured logs via `HEPHAION_LOG_*`

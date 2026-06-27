@@ -522,9 +522,9 @@ def render_install_options_block() -> str:
     return (
         "```bash\n"
         "pip install heph\n"
-        "uv tool upgrade heph\n"
-        "uv tool install git+https://github.com/gildrb/heph\n"
-        "uv run heph  # from a source checkout\n"
+        "heph armory init exams\n"
+        "cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/\n"
+        "heph exams\n"
         "```"
     )
 
@@ -542,7 +542,7 @@ def render_readme_badges_block(*, docs_index: bool) -> str:
             "uv",
             "https://img.shields.io/badge/uv-tool%20install"
             "-654FF0?style=for-the-badge&labelColor=000000",
-            "https://docs.astral.sh/uv/",
+            "#quick-start",
         ),
         (
             "License: MIT",
@@ -619,18 +619,26 @@ def render_home_docs_section(*, docs_index: bool) -> str:
                 "repo layout and local workflow",
             )
         )
-    bullets = "\n".join(
-        f"- [{label}]({path}) — {description}" for label, path, description in rows
-    )
+    bullets = "\n".join(f"- [{label}]({path}): {description}" for label, path, description in rows)
     return f"## Docs\n\n{bullets}"
 
 
 def render_readme_logo_block(*, docs_index: bool) -> str:
-    return ""
+    logo_path = Path("assets/logo-auto.svg") if docs_index else Path("docs/assets/logo-auto.svg")
+    return (
+        '<p align="center">\n'
+        f'  <img alt="Heph" src="{logo_path.as_posix()}" width="{README_LOGO_WIDTH}">\n'
+        "</p>\n\n"
+    )
 
 
 def render_readme_screenshot_block(*, docs_index: bool) -> str:
-    return ""
+    screenshot_path = Path("assets/app-sc.png") if docs_index else Path("docs/assets/app-sc.png")
+    return (
+        '<p align="center">\n'
+        f'  <img alt="Heph TUI" src="{screenshot_path.as_posix()}" width="100%">\n'
+        "</p>"
+    )
 
 
 def render_home_footer(*, docs_index: bool) -> str:

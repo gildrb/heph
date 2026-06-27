@@ -125,7 +125,7 @@ def test_menu_option_dataclass() -> None:
     assert opt.description == "Open a file"
     assert opt.is_current is True
 
-    # Frozen — cannot reassign
+    # Frozen - cannot reassign
     try:
         opt.label = "Changed"  # ty:ignore[invalid-assignment]
         raise AssertionError("Should have raised FrozenInstanceError")

@@ -364,7 +364,7 @@ class TestSaveOnExit:
     def test_no_save_when_not_dirty(self) -> None:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_plain_session(config)
-        # Plain session is not dirty and has no armory — should just close trace
+        # Plain session is not dirty and has no armory - should just close trace
         save_on_exit(session)  # should not raise
 
     def test_closes_trace_even_when_not_saving(self) -> None:

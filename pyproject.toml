@@ -283,13 +283,13 @@ extend_exclude = [
 ]
 # Docling and RAG backend deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
-# DEP003 on workspace packages is a false positive — each distribution imports its own
+# DEP003 on workspace packages is a false positive - each distribution imports its own
 # top-level source packages.
-# DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
+# DEP003 on "certifi" - imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
-# DEP001 on docling/nltk/numpy/sklearn — transitive deps of shipped document
+# DEP001 on docling/nltk/numpy/sklearn - transitive deps of shipped document
 # conversion or RAG backends.
-# DEP004 on bm25s — dynamic runtime RAG backend import.
+# DEP004 on bm25s - dynamic runtime RAG backend import.
 per_rule_ignores = { DEP002 = ["scikit-learn", "docling-slim", "py-spy", "pathspec", "rapidfuzz", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
@@ -306,7 +306,7 @@ python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
 markers = [
-    "flaky(reruns=2, reruns_delay=1): mark test as flaky — rerun on failure",
+    "flaky(reruns=2, reruns_delay=1): mark test as flaky - rerun on failure",
 ]
 
 # Current production coverage baseline is below the long-term 75% target.

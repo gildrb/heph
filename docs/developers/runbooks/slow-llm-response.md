@@ -5,15 +5,15 @@ identify the bottleneck.
 
 ## Quick Diagnosis
 
-1. **Check provider status** — visit the provider's status page:
+1. **Check provider status** - visit the provider's status page:
    - OpenRouter: https://openrouter.ai/status
    - OpenAI: https://status.openai.com
    - Z.AI: check their dashboard
 
-2. **Check recent logs and traces** — look for `latency_ms` in your structured
+2. **Check recent logs and traces** - look for `latency_ms` in your structured
    logs or the active armory trace file.
 
-3. **Check logs** — each LLM request logs latency:
+3. **Check logs** - each LLM request logs latency:
    ```
    ai.runtime.engine: stream_completion complete  model=gpt-5.4 latency_ms=1234
    ```

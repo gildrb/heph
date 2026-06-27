@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from hephaion.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 # ---------------------------------------------------------------------------
@@ -262,7 +263,7 @@ class TestMemoryPersistence:
 
     def test_save_only_when_dirty(self, tmp_path: Path):
         store = MemoryStore(tmp_path)
-        store.save()  # Not dirty — should not create file
+        store.save()  # Not dirty - should not create file
         _path = tmp_path / ".hephaion" / "memory.json"
         # Actually save() always writes, but save_memory() checks dirty
         store.add("test", "content")

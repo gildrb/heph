@@ -56,11 +56,11 @@
 
 - name: "priority/critical"
   color: "b60205"
-  description: "Blocker — must fix immediately"
+  description: "Blocker - must fix immediately"
 
 - name: "priority/high"
   color: "d93f0b"
-  description: "Important — fix soon"
+  description: "Important - fix soon"
 
 - name: "priority/medium"
   color: "fbca04"
@@ -96,7 +96,7 @@
 
 - name: "tech-debt"
   color: "cfd3d7"
-  description: "Technical debt — TODO/FIXME tracking"
+  description: "Technical debt - TODO/FIXME tracking"
 
 - name: "agent-authored"
   color: "bfd4f2"

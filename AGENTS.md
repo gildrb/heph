@@ -1,5 +1,5 @@
 <coding_guidelines>
-# Heph — Agent Guide
+# Heph - Agent Guide
 
 NEVER create regex label lists / phrase-catching architecture and ALWAYS solve the problem structurally with this mindset: https://mariozechner.at/posts/2025-06-02-prompts-are-code/.
 
@@ -289,10 +289,10 @@ Edge deploys are published manually via `.github/workflows/deploy.yml`.
 
 Operational playbooks for incident response:
 
-- `docs/runbooks/ci-failure.md` — CI failure triage
-- `docs/runbooks/slow-llm-response.md` — Debug slow LLM responses
-- `docs/runbooks/deployment-rollback.md` — Revert bad releases
-- `docs/runbooks/rag-retrieval-issues.md` — Debug RAG quality
+- `docs/runbooks/ci-failure.md` - CI failure triage
+- `docs/runbooks/slow-llm-response.md` - Debug slow LLM responses
+- `docs/runbooks/deployment-rollback.md` - Revert bad releases
+- `docs/runbooks/rag-retrieval-issues.md` - Debug RAG quality
 
 ## Pre-commit Hooks
 

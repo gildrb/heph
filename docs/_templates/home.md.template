@@ -1,12 +1,14 @@
 [[GENERATED_NOTICE]]
 
-[[README_LOGO_BLOCK]]# Heph
+[[README_LOGO_BLOCK]]<h1 align="center">Heph</h1>
 
 [[BADGES_BLOCK]]
 
 Local document workspace for accurate, cited answers from files you keep in
 normal folders. Heph indexes armory materials, cites retrieved evidence, and
 keeps learning memory scoped to that armory.
+
+[[README_SCREENSHOT_BLOCK]]
 
 ## The armory is the interface
 
@@ -26,7 +28,7 @@ details.
 
 [[QUICK_START_BLOCK]]
 
-Other install paths:
+If you do not use uv:
 
 [[INSTALL_OPTIONS_BLOCK]]
 

@@ -1,8 +1,8 @@
 """Scan Python source files for TODO/FIXME comments lacking issue references.
 
 Exit codes:
-    0 — all TODO/FIXME comments have issue links (or none found)
-    1 — one or more TODO/FIXME comments are missing issue links (--strict mode)
+    0 - all TODO/FIXME comments have issue links (or none found)
+    1 - one or more TODO/FIXME comments are missing issue links (--strict mode)
 """
 
 from __future__ import annotations

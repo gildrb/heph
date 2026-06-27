@@ -203,7 +203,7 @@ _HYDE_SYSTEM_PROMPT = (
     "You are a knowledgeable assistant.  Write a detailed, informative answer "
     "to the following question.  Use technical language and specific details "
     "as if you were writing a textbook passage or documentation section.  "
-    "Do not prefix your answer with any commentary — just write the passage."
+    "Do not prefix your answer with any commentary - just write the passage."
 )
 
 
@@ -378,7 +378,7 @@ def transform_query(
 ) -> list[str]:
     """Transform a query using the specified strategy.
 
-    Returns a list of query strings (at least one — the original).
+    Returns a list of query strings (at least one - the original).
     This is the main entry point for query transformation.
     """
     transformer = create_transformer(strategy, prompt_fn)

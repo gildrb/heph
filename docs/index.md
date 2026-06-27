@@ -1,16 +1,24 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
-# Heph
+<p align="center">
+  <img alt="Heph" src="assets/logo-auto.svg" width="320">
+</p>
+
+<h1 align="center">Heph</h1>
 
 <p align="center">
   <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9"></a>
-  <a href="https://docs.astral.sh/uv/"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
+  <a href="#quick-start"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
   <a href="../LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3FB950?style=for-the-badge&labelColor=000000"></a>
 </p>
 
 Local document workspace for accurate, cited answers from files you keep in
 normal folders. Heph indexes armory materials, cites retrieved evidence, and
 keeps learning memory scoped to that armory.
+
+<p align="center">
+  <img alt="Heph TUI" src="assets/app-sc.png" width="100%">
+</p>
 
 ## The armory is the interface
 
@@ -49,13 +57,13 @@ cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
 heph exams
 ```
 
-Other install paths:
+If you do not use uv:
 
 ```bash
 pip install heph
-uv tool upgrade heph
-uv tool install git+https://github.com/gildrb/heph
-uv run heph  # from a source checkout
+heph armory init exams
+cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
+heph exams
 ```
 
 ## Commands
@@ -75,18 +83,18 @@ Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
 
 ## Docs
 
-- [Getting started](getting-started.md) — first armory, first answer
-- [Armories](armories.md) — layout, portability, memory
-- [CLI reference](cli-reference.md) — commands, shortcuts, env vars
-- [Configuration](configuration.md) — providers, models, settings
-- [Models](models.md) — provider choices and API keys
-- [Privacy](privacy.md) — local state, diagnostics, network behavior
-- [Architecture](architecture.md) — harness, package boundaries, flow
-- [SDK](developers/sdk.md) — native apps, GUI shells, automation
-- [Troubleshooting](troubleshooting.md) — setup, indexing, providers
-- [Developers](developers/index.md) — internal docs
-- [Runbooks](developers/runbooks/index.md) — operational debugging
-- [Contributing](../CONTRIBUTING.md) — repo layout and local workflow
+- [Getting started](getting-started.md): first armory, first answer
+- [Armories](armories.md): layout, portability, memory
+- [CLI reference](cli-reference.md): commands, shortcuts, env vars
+- [Configuration](configuration.md): providers, models, settings
+- [Models](models.md): provider choices and API keys
+- [Privacy](privacy.md): local state, diagnostics, network behavior
+- [Architecture](architecture.md): harness, package boundaries, flow
+- [SDK](developers/sdk.md): native apps, GUI shells, automation
+- [Troubleshooting](troubleshooting.md): setup, indexing, providers
+- [Developers](developers/index.md): internal docs
+- [Runbooks](developers/runbooks/index.md): operational debugging
+- [Contributing](../CONTRIBUTING.md): repo layout and local workflow
 
 ## Contributing
 

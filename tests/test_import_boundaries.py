@@ -190,7 +190,7 @@ def test_chat_no_private_imports_from_agent_or_rag(
                 pytest.fail(
                     f"{module_path.relative_to(ROOT)}: "
                     f"from {node.module} import {name}"
-                    f" — private cross-package import"
+                    f" - private cross-package import"
                 )
 
 

@@ -685,7 +685,7 @@ class TestHybridRetrieverWithTransformation:
             "hephaion.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
-            # No query_transformer argument — backward compatible
+            # No query_transformer argument - backward compatible
             hybrid = HybridRetriever(index)
             results = hybrid.retrieve("python programming")
             assert len(results) > 0

@@ -1,4 +1,4 @@
-"""SM-2 spaced repetition scheduler — Anki-style interval computation."""
+"""SM-2 spaced repetition scheduler - Anki-style interval computation."""
 
 from __future__ import annotations
 

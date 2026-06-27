@@ -4,8 +4,8 @@ Extracts fenced code blocks from AGENTS.md, identifies executable commands,
 and checks that the referenced tools/commands are available.
 
 Exit codes:
-    0 — all commands valid
-    1 — one or more commands are invalid or missing
+    0 - all commands valid
+    1 - one or more commands are invalid or missing
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ AGENTS_MD = ROOT / "AGENTS.md"
 
 CODE_BLOCK_RE = re.compile(r"```bash\s*\n(.*?)```", re.DOTALL)
 
-# Commands that require network, auth, or are interactive — skip them
+# Commands that require network, auth, or are interactive - skip them
 SKIP_COMMANDS = {
     "uv sync",
     "uv build",
@@ -88,7 +88,7 @@ def validate_commands(commands: list[str]) -> list[str]:
 
         base = parts[0]
 
-        # uv run <tool> — check the inner tool
+        # uv run <tool> - check the inner tool
         if base == "uv" and len(parts) >= 2 and parts[1] == "run":
             inner_tool = parts[2] if len(parts) > 2 else ""
             if inner_tool and inner_tool not in PROJECT_RUN_TOOLS:

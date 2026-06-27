@@ -41,7 +41,7 @@ FLAG_DEFINITION_PATTERNS = [
 
 FLAG_IN_CONFIG_PATTERN = re.compile(r"feature_flags\s*=\s*['\"]([^'\"]+)['\"]")
 
-# Names to exclude from flag detection — these are config keys / env var
+# Names to exclude from flag detection - these are config keys / env var
 # names, not actual feature flag names.
 _SKIP_NAMES: frozenset[str] = frozenset(
     {

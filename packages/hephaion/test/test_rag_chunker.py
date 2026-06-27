@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hephaion.rag import chunker as rag_chunker
 from hephaion.rag.chunker import (
     _DOCLING_EXTENSIONS,
     ChunkStrategy,
@@ -24,6 +23,8 @@ from hephaion.rag.chunker import (
     chunk_semantic,
     chunk_text,
 )
+
+from hephaion.rag import chunker as rag_chunker
 
 
 class TestChunkText:
@@ -119,7 +120,7 @@ class TestChunkFile:
         empty.write_text("")
 
         doc = chunk_file(empty, armory)
-        # Empty files produce no chunks — returns None
+        # Empty files produce no chunks - returns None
         assert doc is None
 
     def test_content_hash_changes_on_edit(self, tmp_path: Path) -> None:
@@ -266,7 +267,7 @@ class TestChunkStrategy:
 
         doc = chunk_file(txt, armory, strategy=ChunkStrategy.AUTO)
         assert doc is not None
-        # Semantic or text fallback — both produce chunks
+        # Semantic or text fallback - both produce chunks
         assert len(doc.chunks) >= 1
 
     def test_explicit_text_strategy(self, tmp_path: Path) -> None:

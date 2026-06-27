@@ -11,7 +11,7 @@ refresh the rolling edge prerelease.
 
 ### Rollback Steps
 
-1. **Identify the bad commit** — check the [edge release](https://github.com/gildrb/heph/releases/tag/edge)
+1. **Identify the bad commit** - check the [edge release](https://github.com/gildrb/heph/releases/tag/edge)
    for the commit SHA.
 
 2. **Revert the commit** on `main`:
@@ -22,9 +22,9 @@ refresh the rolling edge prerelease.
    If you want the reverted state available on edge, run the Deploy workflow
    manually and target `main` (or the specific ref you want to publish).
 
-3. **Verify** — check the new edge release and confirm the app works.
+3. **Verify** - check the new edge release and confirm the app works.
 
-4. **Monitor** — do a quick stress test with `heph --version` plus a basic
+4. **Monitor** - do a quick stress test with `heph --version` plus a basic
    armory command.
 
 ## PyPI Release (version tags)
@@ -73,19 +73,19 @@ git push origin v0.0.53
    gh release delete v0.0.53 --yes
    ```
 
-3. **Fix forward** — create a new version with the fix, tag it, and publish the
+3. **Fix forward** - create a new version with the fix, tag it, and publish the
    new tag:
    ```bash
    git tag v0.0.54
    git push origin v0.0.54
    ```
 
-4. **Communicate** — note the rollback in the release discussion or issue tracker.
+4. **Communicate** - note the rollback in the release discussion or issue tracker.
 
 ## Where to Check Deploy Impact
 
-- **GitHub Deployments** — https://github.com/gildrb/heph/deployments
-- **Published package** — verify the expected wheel and sdist exist on the GitHub release and PyPI
+- **GitHub Deployments** - https://github.com/gildrb/heph/deployments
+- **Published package** - verify the expected wheel and sdist exist on the GitHub release and PyPI
 
 ## Prevention
 

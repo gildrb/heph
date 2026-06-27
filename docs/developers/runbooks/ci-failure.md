@@ -5,20 +5,20 @@ created or updated by the `ci-failure-issue.yml` workflow.
 
 ## Triage Steps
 
-1. **Check the auto-created issue** — it contains the failed job name and
+1. **Check the auto-created issue** - it contains the failed job name and
    a link to the failing workflow run. Start there.
 
 2. **Identify the failing job** from the workflow run:
-   - `lint` — ruff lint violations
-   - `format` — ruff format differences
-   - `typecheck` — ty type errors
-   - `security` — Bandit or Gitleaks findings
-   - `test` — pytest failures
-   - `dead-code` — vulture findings
-   - `duplicate-code` — pylint similarity
-   - `docs-sync` — generated README/docs or agent-doc drift
-   - `architecture` — import-linter violations
-   - `build` — packaging errors
+   - `lint` - ruff lint violations
+   - `format` - ruff format differences
+   - `typecheck` - ty type errors
+   - `security` - Bandit or Gitleaks findings
+   - `test` - pytest failures
+   - `dead-code` - vulture findings
+   - `duplicate-code` - pylint similarity
+   - `docs-sync` - generated README/docs or agent-doc drift
+   - `architecture` - import-linter violations
+   - `build` - packaging errors
 
 3. **Reproduce locally** using the matching command from `AGENTS.md`:
    ```bash
@@ -32,7 +32,7 @@ created or updated by the `ci-failure-issue.yml` workflow.
 
 4. **Fix the issue** on a new branch and open a PR.
 
-5. **Verify** — the CI must pass on the PR before merging. The auto-created
+5. **Verify** - the CI must pass on the PR before merging. The auto-created
    issue is closed automatically when CI passes on `main`.
 
 ## Common Failures

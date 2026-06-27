@@ -128,7 +128,7 @@ def test_select_exam_question_skips_obvious_ocr_noise_prompt() -> None:
                 "materials/past-exam-2025.md",
                 "1. (6 points) Calculate the following integral:\n"
                 "(a) Pape\n"
-                "9 @?—7r+10\n"
+                "9 @?-7r+10\n"
                 "2. (4 points) Define a stable equilibrium.",
             )
         ],

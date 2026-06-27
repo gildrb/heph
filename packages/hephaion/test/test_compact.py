@@ -493,7 +493,7 @@ class TestAutoCompact:
         )
 
         result = auto_compact(messages, config, tmp_path)
-        # Same list returned — no crash, no compression
+        # Same list returned - no crash, no compression
         assert result is messages
         assert len(result) == len(messages)
 

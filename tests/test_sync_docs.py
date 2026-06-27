@@ -22,6 +22,7 @@ _TEXT_SCAN_FILES = (
     sync_docs.ROOT / "README.md",
     sync_docs.ROOT / "SECURITY.md",
     sync_docs.ROOT / "pyproject.toml",
+    sync_docs.ROOT / "vulture-whitelist.py",
 )
 _OLD_PRODUCT_NAME = "Heph" + "aion"
 _PAIRED_PRODUCT_LAYER_NAME = "Heph " + "Harness"
@@ -141,6 +142,24 @@ def test_public_copy_uses_heph_naming() -> None:
     assert not errors, "\n".join(errors)
 
 
+def test_text_files_do_not_use_long_dash_character() -> None:
+    long_dash = chr(0x2014)
+    paths = set(_TEXT_SCAN_FILES)
+    for root in _TEXT_SCAN_ROOTS:
+        paths.update(path for path in root.rglob("*") if path.suffix in _TEXT_SUFFIXES)
+
+    errors: list[str] = []
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if long_dash in line:
+                errors.append(f"{path.relative_to(sync_docs.ROOT)}:{line_number}")
+
+    assert not errors, "\n".join(errors)
+
+
 def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert sync_docs.README_LOGO_PATH.is_file()
     ET.parse(sync_docs.README_LOGO_PATH)
@@ -152,11 +171,18 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
 
     root_readme = sync_docs.README_PATH
     root_text = root_readme.read_text(encoding="utf-8")
-    assert f'width="{sync_docs.README_LOGO_WIDTH}"' not in root_text
+    assert '<h1 align="center">Heph</h1>' in root_text
+    assert 'src="docs/assets/logo-auto.svg"' in root_text
+    assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     assert "img.shields.io/pypi/v/heph" in root_text
     assert "img.shields.io/badge/uv-tool%20install" in root_text
+    assert '<a href="#quick-start"><img alt="uv"' in root_text
+    assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
     assert "img.shields.io/badge/license-MIT" in root_text
-    assert "docs/assets/app-sc.png" not in root_text
+    assert 'src="docs/assets/app-sc.png"' in root_text
+    assert "If you do not use uv:" in root_text
+    assert "uv tool upgrade heph" not in root_text
+    assert "uv tool install git+https://github.com/gildrb/heph" not in root_text
     assert "## Models" not in root_text
     assert "## License" not in root_text
     assert "[Getting started](docs/getting-started.md)" in root_text
@@ -164,6 +190,15 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert "[docs/armories.md](docs/armories.md)" not in root_text
 
     docs_index_text = sync_docs.DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    assert '<h1 align="center">Heph</h1>' in docs_index_text
+    assert 'src="assets/logo-auto.svg"' in docs_index_text
+    assert f'width="{sync_docs.README_LOGO_WIDTH}"' in docs_index_text
+    assert '<a href="#quick-start"><img alt="uv"' in docs_index_text
+    assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
+    assert 'src="assets/app-sc.png"' in docs_index_text
+    assert "If you do not use uv:" in docs_index_text
+    assert "uv tool upgrade heph" not in docs_index_text
+    assert "uv tool install git+https://github.com/gildrb/heph" not in docs_index_text
     assert "## Models" not in docs_index_text
     assert "## Next Steps" not in docs_index_text
     assert "[Getting started](getting-started.md)" in docs_index_text

@@ -64,7 +64,7 @@ class TestFileMutationQueue:
         t1.start()
         handler_1_entered.wait(timeout=5)  # wait until handler_1 is inside
         t2.start()
-        # handler_2 should be blocked — only handler_1 should have run so far
+        # handler_2 should be blocked - only handler_1 should have run so far
         assert order == [1]
         handler_1_release.set()
         t1.join(timeout=5)

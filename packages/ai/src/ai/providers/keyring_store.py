@@ -94,7 +94,7 @@ def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> 
 
     Returns the key string, or ``""`` if none found.
     """
-    # 0. Global override — takes precedence over everything
+    # 0. Global override - takes precedence over everything
     override = os.environ.get(GLOBAL_API_KEY_ENV, "").strip()
     if override:
         return override

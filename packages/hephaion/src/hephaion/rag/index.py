@@ -50,7 +50,7 @@ _CHUNK_SIZE = 500
 _OVERLAP = 100
 _FILE_TIMEOUT_ENV = "HEPHAION_INDEX_FILE_TIMEOUT_SECONDS"
 
-# Persisted index format version — bump when layout changes.
+# Persisted index format version - bump when layout changes.
 _INDEX_VERSION = 8
 _SUPPORTED_INDEX_VERSIONS = frozenset({1, 2, 3, 5, 6, 7, 8})
 IndexProgress = Callable[[str, str], None]

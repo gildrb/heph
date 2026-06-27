@@ -27,7 +27,7 @@ local ignored agent directories:
 ## Review Conventions
 
 1. **Always review** agent-generated code before merging
-2. **Keep vendor metadata local** — personal attribution, setup, or diagnostics should stay outside tracked project scripts
-3. **Test thoroughly** — agent code follows the same quality gates
-4. **Keep repo-native docs current** — update `AGENTS.md` and `docs/architecture.md`, then run `uv run python -m scripts.sync_docs`
-5. **Document decisions** — if an agent made an architectural choice, note it in the PR
+2. **Keep vendor metadata local** - personal attribution, setup, or diagnostics should stay outside tracked project scripts
+3. **Test thoroughly** - agent code follows the same quality gates
+4. **Keep repo-native docs current** - update `AGENTS.md` and `docs/architecture.md`, then run `uv run python -m scripts.sync_docs`
+5. **Document decisions** - if an agent made an architectural choice, note it in the PR
