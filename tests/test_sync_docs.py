@@ -24,24 +24,9 @@ _TEXT_SCAN_FILES = (
     sync_docs.ROOT / "pyproject.toml",
     sync_docs.ROOT / "vulture-whitelist.py",
 )
-_OLD_PRODUCT_NAME = "Heph" + "aion"
-_PAIRED_PRODUCT_LAYER_NAME = "Heph " + "Harness"
-_PRODUCT_LAYER_INITIALS = "H" + "H"
 _PRODUCT_DECLARATION = "Heph is the " + "product"
 _MODEL_HARNESS_DECLARATION = "selected model " + "plus"
 _PUBLIC_NAMING_PATTERNS = (
-    (
-        re.compile(rf"\b{_OLD_PRODUCT_NAME}\b"),
-        "Use `Heph` for the product or `the harness` for the layer.",
-    ),
-    (
-        re.compile(rf"\b{_PAIRED_PRODUCT_LAYER_NAME}\b"),
-        "Use `Heph` for the product or `the harness` for the layer.",
-    ),
-    (
-        re.compile(rf"\b{_PRODUCT_LAYER_INITIALS}\b"),
-        "Use product and layer names in full.",
-    ),
     (
         re.compile(r"\btogether\s+they\s+are\s+Heph\b", flags=re.IGNORECASE),
         "Let the app name stand on its own in public copy.",
@@ -84,7 +69,7 @@ def test_replace_managed_block_updates_named_section() -> None:
 def test_lint_legacy_commands_flags_stale_refs(tmp_path: Path) -> None:
     doc = tmp_path / "guide.md"
     doc.write_text(
-        "Use `hephaion start` if you want to launch the app.\nThen run `heph source reindex`.\n",
+        "Use `harness start` if you want to launch the app.\nThen run `heph source reindex`.\n",
         encoding="utf-8",
     )
 
@@ -115,7 +100,7 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     assert not any(
         shortcut.keys in {"alt+m", "f4", "ctrl+t"} for shortcut in model.keyboard_shortcuts
     )
-    assert any(env.name == "HEPHAION_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
+    assert any(env.name == "HARNESS_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
 
 
 def test_repository_docs_are_synced() -> None:
@@ -213,7 +198,7 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
         sync_docs.ROOT / "packages" / "ai" / "README.md",
         sync_docs.ROOT / "packages" / "extensions" / "README.md",
         sync_docs.ROOT / "packages" / "heph" / "README.md",
-        sync_docs.ROOT / "packages" / "hephaion" / "README.md",
+        sync_docs.ROOT / "packages" / "harness" / "README.md",
         sync_docs.ROOT / "packages" / "interfaces" / "README.md",
     )
     for readme in package_readmes:

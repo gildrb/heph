@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from hephaion.parameters.settings import DEFAULT_THEME
+from harness.parameters.settings import DEFAULT_THEME
 
 from interfaces.palette import THEMES, Theme
 

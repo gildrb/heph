@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from threading import Event
 from typing import TYPE_CHECKING, ParamSpec, Protocol
 
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -40,7 +40,7 @@ from interfaces.tui.status import config_error as _config_error
 from interfaces.tui.streaming import run_tui_turn
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
     from interfaces.tui.command_access import CommandResult
     from interfaces.tui.session_state import TuiRuntimeState

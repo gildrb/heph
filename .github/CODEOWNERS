@@ -11,25 +11,25 @@
 /packages/interfaces/src/interfaces/tui/      @gildrb
 
 # LLM engine and chat
-/packages/hephaion/src/hephaion/chat/  @gildrb
-/packages/hephaion/src/hephaion/agent/ @gildrb
+/packages/harness/src/harness/chat/  @gildrb
+/packages/harness/src/harness/agent/ @gildrb
 /packages/ai/src/ai/runtime/          @gildrb
 
 # Providers and authentication
 /packages/ai/src/ai/providers/ @gildrb
 
 # Armory and knowledge
-/packages/hephaion/src/hephaion/armory/     @gildrb
-/packages/hephaion/src/hephaion/materials/  @gildrb
-/packages/hephaion/src/hephaion/rag/        @gildrb
-/packages/hephaion/src/hephaion/study/      @gildrb
-/packages/hephaion/src/hephaion/memory/     @gildrb
-/packages/hephaion/src/hephaion/parameters/ @gildrb
+/packages/harness/src/harness/armory/     @gildrb
+/packages/harness/src/harness/materials/  @gildrb
+/packages/harness/src/harness/rag/        @gildrb
+/packages/harness/src/harness/study/      @gildrb
+/packages/harness/src/harness/memory/     @gildrb
+/packages/harness/src/harness/parameters/ @gildrb
 
 # Security-critical redaction code
 /packages/ai/src/ai/logging/                  @gildrb
-/packages/hephaion/src/hephaion/privacy/      @gildrb
-/packages/hephaion/src/hephaion/diagnostics/  @gildrb
+/packages/harness/src/harness/privacy/      @gildrb
+/packages/harness/src/harness/diagnostics/  @gildrb
 
 # Infrastructure
 /packages/*/test/         @gildrb

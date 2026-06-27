@@ -20,9 +20,9 @@ from scripts.build_release_artifacts import (
 def test_release_build_config_from_env_uses_release_backend_values() -> None:
     config = release_build_config_from_env(
         {
-            "HEPHAION_POSTHOG_HOST": " https://posthog.example ",
-            "HEPHAION_POSTHOG_PROJECT_TOKEN": " phc_release ",
-            "HEPHAION_SENTRY_DSN": " https://sentry.example/1 ",
+            "HARNESS_POSTHOG_HOST": " https://posthog.example ",
+            "HARNESS_POSTHOG_PROJECT_TOKEN": " phc_release ",
+            "HARNESS_SENTRY_DSN": " https://sentry.example/1 ",
         },
         channel="pypi",
         release_version="v0.0.53",
@@ -95,7 +95,7 @@ def test_release_dependencies_collapse_internal_workspace_packages() -> None:
     assert "rich==14.3.3" in dependencies
     assert dependencies.count("unicodeit==0.7.5") == 1
     assert all(not dependency.startswith("heph-") for dependency in dependencies)
-    assert "hephaion==0.0.53" not in dependencies
+    assert "harness==0.0.53" not in dependencies
 
 
 def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
@@ -105,16 +105,16 @@ def test_stage_release_project_builds_single_public_package(tmp_path) -> None:
     assert (project_dir / "src" / "heph" / "__init__.py").is_file()
     assert (project_dir / "src" / "ai" / "__init__.py").is_file()
     assert (project_dir / "src" / "extensions" / "__init__.py").is_file()
-    assert (project_dir / "src" / "hephaion" / "__init__.py").is_file()
+    assert (project_dir / "src" / "harness" / "__init__.py").is_file()
     assert (project_dir / "src" / "interfaces" / "__init__.py").is_file()
     assert (project_dir / "src" / "heph" / "state" / "release.toml").is_file()
-    assert (project_dir / "src" / "hephaion" / "parameters" / "default.toml").is_file()
+    assert (project_dir / "src" / "harness" / "parameters" / "default.toml").is_file()
     assert 'name = "heph"' in pyproject
     assert 'build-backend = "setuptools.build_meta"' in pyproject
     assert '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]' in pyproject
     assert "heph-ai" not in pyproject
     assert "heph-interfaces" not in pyproject
-    assert "hephaion==0.0.53" not in pyproject
+    assert "harness==0.0.53" not in pyproject
 
 
 def test_stage_release_project_excludes_generated_source_artifacts(tmp_path) -> None:

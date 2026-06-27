@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from hephaion.armory.search import ArmoryEntry
-from hephaion.armory.storage import MARKER_FILE, initialize
+from harness.armory.search import ArmoryEntry
+from harness.armory.storage import MARKER_FILE, initialize
 from interfaces.tui import armory_browser
 
 
@@ -52,7 +52,7 @@ def test_build_entries_include_recent_all_and_create(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     entries = armory_browser.build_entries(allow_create=True)
 
@@ -70,7 +70,7 @@ def test_build_entries_without_create_flag(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     _make_dirs(armory_home, "alpha", "beta")
 
     entries = armory_browser.build_entries(allow_create=False)
@@ -86,7 +86,7 @@ def test_build_entries_can_include_common_places(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     entries = armory_browser.build_entries(allow_create=True, show_places=True)
 
@@ -105,7 +105,7 @@ def test_build_entries_filters_outside_recent_armories(
     armory_home.mkdir()
     inside = _make_armory(armory_home, "inside")
     outside = _make_armory(tmp_path / "outside", "external")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     monkeypatch.setattr(
         armory_browser,
         "load_remembered_armory_entries",
@@ -128,7 +128,7 @@ def test_build_entries_discovers_armories_in_home(
     armory_home.mkdir()
     first = _make_armory(armory_home, "alpha")
     second = _make_armory(armory_home, "beta")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     entries = armory_browser.build_entries(allow_create=True)
 
@@ -144,7 +144,7 @@ def test_build_entries_filters_symlink_escape(
     outside = tmp_path / "outside"
     armory_home.mkdir()
     outside.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
 
     entries = armory_browser.build_entries(allow_create=True)
@@ -159,7 +159,7 @@ def test_default_start_path_rejects_outside_start(
     armory_home.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     start = armory_browser._default_start_path(outside)
 
@@ -191,7 +191,7 @@ def test_creation_parent_error_rejects_outside_armories_directory(
     armory_home.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     error = armory_browser._creation_parent_error(outside)
 
@@ -205,7 +205,7 @@ def test_creation_parent_error_allows_inside_armories_directory(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     inside = armory_home / "next"
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
 
     error = armory_browser._creation_parent_error(inside)
 
@@ -221,4 +221,4 @@ def test_armory_detail_uses_label_value_layout(tmp_path: Path) -> None:
     assert "STATE valid" in detail
     assert "FILES 1" in detail
     assert "MATERIALS materials/" in detail
-    assert "STATE DIR .hephaion/" in detail
+    assert "STATE DIR .harness/" in detail

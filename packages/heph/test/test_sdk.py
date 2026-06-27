@@ -14,6 +14,26 @@ from ai.providers.config import default_config
 from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime import ChatConfig, EngineError, EngineErrorCode
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
+from harness.chat.events import (
+    AssistantDeltaEvent,
+    CompactRequestEvent,
+    GuardrailEvent,
+    MaterialOperationEvent,
+    NoticeEvent,
+    ReasoningDeltaEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+    TurnCompleteEvent,
+    TurnEvent,
+)
+from harness.chat.session import ChatSession
+from harness.parameters import settings as settings_store
+from harness.parameters.settings import (
+    ACTIVITY_TRACE_MODES,
+    THEME_PRESETS,
+    VOCAB_STRICTNESS_MODES,
+)
+from harness.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from heph import sdk
 from heph.sdk import (
     JSONL_ERROR_CODES,
@@ -96,26 +116,6 @@ from heph.sdk.method_validation import (
     validate_result_payload,
     validate_stream_event_payload,
 )
-from hephaion.chat.events import (
-    AssistantDeltaEvent,
-    CompactRequestEvent,
-    GuardrailEvent,
-    MaterialOperationEvent,
-    NoticeEvent,
-    ReasoningDeltaEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-    TurnCompleteEvent,
-    TurnEvent,
-)
-from hephaion.chat.session import ChatSession
-from hephaion.parameters import settings as settings_store
-from hephaion.parameters.settings import (
-    ACTIVITY_TRACE_MODES,
-    THEME_PRESETS,
-    VOCAB_STRICTNESS_MODES,
-)
-from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 
 
 class _FakeIndex:
@@ -278,7 +278,7 @@ def _available_method_order(value: object) -> list[str]:
 
 
 def _isolate_settings_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    config_dir = tmp_path / ".config" / "hephaion"
+    config_dir = tmp_path / ".config" / "harness"
     config_file = config_dir / "config.json"
     monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
@@ -495,7 +495,7 @@ def test_sdk_method_validation_accepts_nested_advertised_parameter_shape() -> No
     params: dict[str, object] = {
         "widgets": {
             "primary": {"name": "heph", "count": 1},
-            "secondary": {"name": "hephaion", "count": 2},
+            "secondary": {"name": "harness", "count": 2},
         }
     }
 
@@ -610,7 +610,7 @@ def test_sdk_result_validation_accepts_advertised_map_shape() -> None:
     result: dict[str, object] = {
         "widgets": {
             "primary": {"name": "heph", "count": 1},
-            "secondary": {"name": "hephaion", "count": 2},
+            "secondary": {"name": "harness", "count": 2},
         }
     }
 
@@ -1401,8 +1401,8 @@ def test_sdk_app_settings_snapshot_and_update_are_structured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_file = _isolate_settings_store(tmp_path, monkeypatch)
-    monkeypatch.delenv("HEPHAION_ANALYTICS_ENABLED", raising=False)
-    monkeypatch.delenv("HEPHAION_CRASH_REPORTS_ENABLED", raising=False)
+    monkeypatch.delenv("HARNESS_ANALYTICS_ENABLED", raising=False)
+    monkeypatch.delenv("HARNESS_CRASH_REPORTS_ENABLED", raising=False)
     settings_store.save_setting("theme", "light")
 
     settings = load_sdk_app_settings()
@@ -3110,7 +3110,7 @@ def test_session_prompt_streams_sdk_events_and_autosaves(
     assert [event.kind for event in events] == ["notice", "assistant_delta", "turn_complete"]
     assert session.messages[-2].to_dict() == {"role": "user", "content": "Explain the notes."}
     assert session.messages[-1].content == "The notes are local."
-    assert (armory_path / ".hephaion" / "chats" / f"{session.session_id}.json").is_file()
+    assert (armory_path / ".harness" / "chats" / f"{session.session_id}.json").is_file()
 
 
 def test_session_ask_returns_final_text(
@@ -4180,7 +4180,7 @@ def test_sdk_provider_summaries_are_structured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _pollinations_config(monkeypatch)
-    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("HARNESS_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("ZAI_API_KEY", raising=False)
     monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
@@ -4228,7 +4228,7 @@ def test_sdk_provider_summaries_are_structured(
     assert providers["deepseek"]["credential_source"] == "missing"
     assert providers["deepseek"]["credential_configured"] is False
 
-    monkeypatch.setenv("HEPHAION_API_KEY", "global-key")
+    monkeypatch.setenv("HARNESS_API_KEY", "global-key")
 
     def fail_retrieve_key(slug: str) -> str | None:
         raise AssertionError(f"keychain should not be queried for {slug!r} with global env set")
@@ -4253,7 +4253,7 @@ def test_sdk_provider_credential_sources_ignore_empty_stored_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _pollinations_config(monkeypatch)
-    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("HARNESS_API_KEY", raising=False)
     monkeypatch.delenv("ZAI_API_KEY", raising=False)
     monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -4797,7 +4797,7 @@ def test_service_streams_build_index_progress(
         assert progress is not None
         progress("reading", "materials/notes.md")
         assert release.wait(timeout=2.0)
-        progress("writing", ".hephaion/rag_index.json")
+        progress("writing", ".harness/rag_index.json")
         finished.set()
         return _FakeIndex()
 
@@ -4855,7 +4855,7 @@ def test_service_streams_build_index_progress(
         {
             "type": "index_progress",
             "action": "writing",
-            "detail": ".hephaion/rag_index.json",
+            "detail": ".harness/rag_index.json",
         },
         {
             "type": "index_complete",
@@ -4864,7 +4864,7 @@ def test_service_streams_build_index_progress(
                 "chunks": 7,
                 "progress": [
                     {"action": "reading", "detail": "materials/notes.md"},
-                    {"action": "writing", "detail": ".hephaion/rag_index.json"},
+                    {"action": "writing", "detail": ".harness/rag_index.json"},
                 ],
             },
         },
@@ -4894,7 +4894,7 @@ def test_service_aborts_build_index_stream_at_progress_checkpoint(
         assert progress is not None
         progress("reading", "materials/notes.md")
         assert release.wait(timeout=2.0)
-        progress("writing", ".hephaion/rag_index.json")
+        progress("writing", ".harness/rag_index.json")
         finished.set()
         return _FakeIndex()
 
@@ -5009,9 +5009,9 @@ def test_service_streams_build_index_with_file_timeout(
         time.sleep(3)
         return None
 
-    monkeypatch.setenv("HEPHAION_INDEX_FILE_TIMEOUT_SECONDS", "1")
-    monkeypatch.setattr("hephaion.rag.index._is_docling_available", lambda: True)
-    monkeypatch.setattr("hephaion.rag.index.chunk_file", slow_chunk_file)
+    monkeypatch.setenv("HARNESS_INDEX_FILE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr("harness.rag.index._is_docling_available", lambda: True)
+    monkeypatch.setattr("harness.rag.index.chunk_file", slow_chunk_file)
 
     events = list(service.stream("build_index"))
     skipped = [

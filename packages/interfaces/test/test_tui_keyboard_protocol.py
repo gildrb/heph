@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 from ai.runtime import ChatConfig
-from hephaion.chat.session import create_plain_session
+from harness.chat.session import create_plain_session
 from interfaces import tui
 from interfaces.tui import widgets as tui_widgets
 from interfaces.tui.keyboard_protocol import install_textual_modified_key_compat
@@ -56,10 +56,11 @@ def test_key_event_text_prefers_reported_character_over_us_layout_fallback() -> 
     assert key_event_text(event) == "/"
 
 
-def test_terminal_keyboard_protocol_does_not_request_shifted_printable_key_reports() -> None:
+def test_terminal_keyboard_protocol_is_inert_by_default() -> None:
     class Recorder(TuiResizeMixin):
         def __init__(self) -> None:
             self.sequences: list[str] = []
+            self._terminal_keyboard_protocol_pushed = False
 
         def _write_terminal_control(self, sequence: str) -> None:
             self.sequences.append(sequence)
@@ -69,6 +70,27 @@ def test_terminal_keyboard_protocol_does_not_request_shifted_printable_key_repor
     recorder._push_terminal_keyboard_protocol()
     recorder._pop_terminal_keyboard_protocol()
 
+    assert recorder._terminal_keyboard_protocol_pushed is False
+    assert recorder.sequences == []
+
+
+def test_terminal_keyboard_protocol_can_be_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HEPH_TUI_KEYBOARD_PROTOCOL", "1")
+
+    class Recorder(TuiResizeMixin):
+        def __init__(self) -> None:
+            self.sequences: list[str] = []
+            self._terminal_keyboard_protocol_pushed = False
+
+        def _write_terminal_control(self, sequence: str) -> None:
+            self.sequences.append(sequence)
+
+    recorder = Recorder()
+
+    recorder._push_terminal_keyboard_protocol()
+    recorder._pop_terminal_keyboard_protocol()
+
+    assert recorder._terminal_keyboard_protocol_pushed is False
     assert recorder.sequences == ["\x1b[>1u", "\x1b[<u"]
 
 

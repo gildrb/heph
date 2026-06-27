@@ -14,7 +14,7 @@ def test_init_armory_returns_success_message(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     armory_path = armory_home / "study-armory"
 
     run_argv(parser, ["armory", "init", "study-armory"])
@@ -32,7 +32,7 @@ def test_init_armory_fails_outside_armories_directory(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     armory_path = tmp_path / "outside-armories" / "study-armory"
 
     with pytest.raises(SystemExit) as exc:
@@ -49,7 +49,7 @@ def test_armory_name_shortcut_creates_in_default_home(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path / ".armories"))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path / ".armories"))
     armory_path = tmp_path / ".armories" / "workspace-fixture-1"
 
     run_argv(parser, ["armory", "workspace-fixture-1"])
@@ -65,7 +65,7 @@ def test_armory_name_shortcut_rejects_explicit_parent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path / ".armories"))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path / ".armories"))
 
     with pytest.raises(SystemExit) as exc:
         run_argv(parser, ["armory", "workspace-fixture-1", str(tmp_path / "Code")])
@@ -83,7 +83,7 @@ def test_open_armory_returns_success_message(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     armory_path = armory_home / "study-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
 

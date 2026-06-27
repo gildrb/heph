@@ -108,7 +108,7 @@ curl https://api.openai.com/v1/models \
 heph health ~/.armories/my-armory
 
 # Rebuild index from scratch
-rm ~/.armories/my-armory/.hephaion/rag_index.json
+rm ~/.armories/my-armory/.harness/rag_index.json
 heph index ~/.armories/my-armory
 ```
 
@@ -158,7 +158,7 @@ heph index ~/.armories/my-armory
 **Problem**: `heph index` takes a long time
 
 **Solutions**:
-1. Exclude large files with `.hephaion/ignore`
+1. Exclude large files with `.harness/ignore`
 2. Index in batches by organizing materials into subdirectories
 3. Check disk I/O performance
 4. Run `heph health ~/.armories/my-armory` to identify extraction problems
@@ -171,7 +171,7 @@ heph index ~/.armories/my-armory
 
 **Solutions**:
 1. Verify you're opening the expected armory
-2. Verify `.hephaion/memory/` directory exists
+2. Verify `.harness/memory/` directory exists
 3. Ask a few questions to build up memory
 
 ### Chat History Lost
@@ -179,7 +179,7 @@ heph index ~/.armories/my-armory
 **Problem**: Previous chat sessions are missing
 
 **Solutions**:
-1. Check `.hephaion/chats/` directory exists
+1. Check `.harness/chats/` directory exists
 2. Verify you're opening the correct armory
 3. Check if chats were accidentally deleted
 4. Restore from backup if available
@@ -221,7 +221,7 @@ heph index ~/.armories/my-armory
 **Problem**: TUI crashes with error
 
 **Solutions**:
-1. Check logs: `HEPHAION_LOG_LEVEL=DEBUG heph`
+1. Check logs: `HARNESS_LOG_LEVEL=DEBUG heph`
 2. Try running with `--no-tui` flag if available
 3. Check terminal compatibility
 4. Report the issue with logs
@@ -290,7 +290,7 @@ If none of these solutions work:
 
 1. **Check logs**: Enable debug logging
    ```bash
-   HEPHAION_LOG_LEVEL=DEBUG heph
+   HARNESS_LOG_LEVEL=DEBUG heph
    ```
 
 2. **Health check**: Run diagnostics
@@ -316,17 +316,17 @@ Enable comprehensive debugging:
 
 ```bash
 # Enable debug logging
-HEPHAION_LOG_LEVEL=DEBUG heph
+HARNESS_LOG_LEVEL=DEBUG heph
 
 # Log to file
-HEPHAION_LOG_FILE=heph.log heph
+HARNESS_LOG_FILE=heph.log heph
 
 # JSON format logs
-HEPHAION_LOG_FORMAT=json heph
+HARNESS_LOG_FORMAT=json heph
 
 # Profile performance
 heph --profile
 heph --profile-memory
 ```
 
-Check generated logs and profiles in `.hephaion/` for detailed information.
+Check generated logs and profiles in `.harness/` for detailed information.

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaion.chat.session import ChatSession
-from hephaion.parameters.settings import save_setting
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
-from hephaion.rag.source_mapping import (
+from harness.chat.session import ChatSession
+from harness.parameters.settings import save_setting
+from harness.rag.context import EvidenceChunk, TurnEvidence
+from harness.rag.source_mapping import (
     SourceLineSpan,
     SourceMappingError,
     chunk_line_span,

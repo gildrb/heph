@@ -14,6 +14,8 @@ from typing import cast
 
 import pytest
 from ai.runtime import ChatConfig
+from harness.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
+from harness.chat.session import ChatSession
 from heph.sdk import (
     SDK_CAPABILITIES_VERSION,
     SDK_JSONL_CANCELLED_ERROR_CODE,
@@ -41,8 +43,6 @@ from heph.sdk import (
 )
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk.stdio_json import encode_jsonl_line
-from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
-from hephaion.chat.session import ChatSession
 
 
 def _config() -> ChatConfig:
@@ -66,7 +66,7 @@ def _source_python_path(repo_root: Path, environment: Mapping[str, str]) -> str:
     source_roots = (
         repo_root / "packages" / "ai" / "src",
         repo_root / "packages" / "extensions" / "src",
-        repo_root / "packages" / "hephaion" / "src",
+        repo_root / "packages" / "harness" / "src",
         repo_root / "packages" / "heph" / "src",
         repo_root / "packages" / "interfaces" / "src",
     )
@@ -82,8 +82,8 @@ def _real_sdk_serve_environment(tmp_path: Path) -> dict[str, str]:
     home.mkdir()
     environment = os.environ.copy()
     environment["HOME"] = str(home)
-    environment["HEPHAION_DISABLE_LIVE_MODELS"] = "1"
-    environment["HEPHAION_NO_VENV_REEXEC"] = "1"
+    environment["HARNESS_DISABLE_LIVE_MODELS"] = "1"
+    environment["HARNESS_NO_VENV_REEXEC"] = "1"
     environment["PYTHONPATH"] = _source_python_path(_repo_root(), environment)
     return environment
 

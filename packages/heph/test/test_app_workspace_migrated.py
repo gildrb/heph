@@ -8,9 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from ai.runtime import ChatConfig
-from heph import commands
-from heph.commands import CommandResult
-from hephaion.armory.search import (
+from harness.armory.search import (
     get_last_armory,
     load_recent_armory_entries,
     load_remembered_armories,
@@ -18,12 +16,14 @@ from hephaion.armory.search import (
     save_remembered_armories,
     set_last_armory,
 )
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import (
+from harness.armory.storage import initialize
+from harness.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
 )
+from heph import commands
+from heph.commands import CommandResult
 from interfaces.terminal.history import InputHistory
 from interfaces.terminal.input import handle_input
 from interfaces.tui.session_actions import (
@@ -47,7 +47,7 @@ def initialized_armory(tmp_path: Path) -> Path:
 def clean_armory_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     save_remembered_armories([])
     return armory_home
 
@@ -238,7 +238,7 @@ class TestGetHistoryPath:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_plain_session(config)
         path = get_history_path(session)
-        assert path == Path.home() / ".cache" / "hephaion" / "plain-history"
+        assert path == Path.home() / ".cache" / "harness" / "plain-history"
 
     def test_plain_session_uses_shared_system_prompt(self) -> None:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
@@ -253,7 +253,7 @@ class TestGetHistoryPath:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_session(config, initialized_armory)
         path = get_history_path(session)
-        assert path == initialized_armory / ".hephaion" / "history"
+        assert path == initialized_armory / ".harness" / "history"
 
 
 # ---------------------------------------------------------------------------

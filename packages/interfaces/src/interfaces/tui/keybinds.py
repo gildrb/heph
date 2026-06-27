@@ -45,8 +45,12 @@ _FOOTER_ACTIONS = (
 )
 
 
-def tui_keybinds(keymap: RuntimeKeymap | None = None) -> tuple[TuiKeybind, ...]:
-    runtime = keymap or default_runtime_keymap()
+def tui_keybinds(
+    keymap: RuntimeKeymap | None = None,
+    *,
+    platform: str | None = None,
+) -> tuple[TuiKeybind, ...]:
+    runtime = keymap or default_runtime_keymap(platform=platform)
     specs: list[TuiKeybind] = []
     for action in TUI_KEYMAP_ACTIONS:
         keys = runtime.keys_for_action(action.id)
@@ -74,8 +78,12 @@ def keybind_keys_text(spec: TuiKeybind) -> str:
     return spec.keys.replace(",", "/")
 
 
-def keymap_text(keymap: RuntimeKeymap | None = None) -> str:
-    runtime = keymap or default_runtime_keymap()
+def keymap_text(
+    keymap: RuntimeKeymap | None = None,
+    *,
+    platform: str | None = None,
+) -> str:
+    runtime = keymap or default_runtime_keymap(platform=platform)
     specs = tui_keybinds(runtime)
     key_width = max((_cell_width(keybind_keys_text(spec)) for spec in specs), default=0)
     label_width = max((_cell_width(_keybind_label(spec)) for spec in specs), default=0)

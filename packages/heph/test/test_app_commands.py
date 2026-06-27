@@ -23,17 +23,17 @@ from ai.providers.llama_cpp import (
 )
 from ai.providers.registry import ModelInfo
 from ai.runtime import ChatConfig, Conversation
+from harness.armory.storage import initialize
+from harness.chat import model_selection as _model_selection
+from harness.chat.session import ChatSession, create_plain_session
+from harness.memory import MemoryStore
+from harness.parameters import settings as settings_store
+from harness.rag.chunker import Chunk
+from harness.rag.context import EvidenceChunk, TurnEvidence
+from harness.study import LearningFeedbackType, LearningPhase, RecallRating
+from harness.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
+from harness.study.schedule import load_recall_schedule
 from heph import commands
-from hephaion.armory.storage import initialize
-from hephaion.chat import model_selection as _model_selection
-from hephaion.chat.session import ChatSession, create_plain_session
-from hephaion.memory import MemoryStore
-from hephaion.parameters import settings as settings_store
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
-from hephaion.study import LearningFeedbackType, LearningPhase, RecallRating
-from hephaion.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
-from hephaion.study.schedule import load_recall_schedule
 from interfaces.terminal import MenuOption
 from interfaces.terminal.source_open import SourceOpenResult
 
@@ -41,7 +41,7 @@ from interfaces.terminal.source_open import SourceOpenResult
 class _FakePriorityPdfCompiler:
     def compile(self, tex_path: Path, pdf_path: Path) -> None:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path.write_bytes(b"%PDF-1.4\n% hephaion fake test pdf\n")
+        pdf_path.write_bytes(b"%PDF-1.4\n% harness fake test pdf\n")
 
 
 def test_command_registry_has_unique_names_and_aliases() -> None:
@@ -264,7 +264,7 @@ def test_exam_command_starts_from_structured_bank(
         "1. Explain the invariant.\n\nThe invariant is preserved by each transition.\n",
         encoding="utf-8",
     )
-    bank_dir = armory / ".hephaion"
+    bank_dir = armory / ".harness"
     bank_dir.mkdir(exist_ok=True)
     (bank_dir / "exam_bank.json").write_text(
         json.dumps(
@@ -312,7 +312,7 @@ def test_exam_command_refuses_empty_structured_bank(
 ) -> None:
     armory = tmp_path / "empty-exam-bank-armory"
     initialize(armory)
-    bank_dir = armory / ".hephaion"
+    bank_dir = armory / ".harness"
     bank_dir.mkdir(exist_ok=True)
     (bank_dir / "exam_bank.json").write_text(
         '{"version": 1, "items": []}\n',
@@ -407,7 +407,7 @@ def test_priority_command_prints_local_priority_scan(
     assert "exam marks" not in out
     assert "Priority sheet saved" in out
     assert "Downloads" in out
-    assert list((tmp_path / "Downloads").glob("hephaion-priority-*.pdf"))
+    assert list((tmp_path / "Downloads").glob("harness-priority-*.pdf"))
 
 
 def test_command_registry_includes_memory() -> None:
@@ -656,7 +656,7 @@ def test_models_command_switches_selected_model(
 def test_models_command_shows_live_openrouter_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     pc = default_config()

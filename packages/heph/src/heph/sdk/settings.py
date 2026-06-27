@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MODES,
     THEME_LABELS,
@@ -20,7 +20,7 @@ from hephaion.parameters.settings import (
     normalize_setting_value,
     save_raw_settings,
 )
-from hephaion.privacy.consent import (
+from harness.privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
     analytics_env_override,

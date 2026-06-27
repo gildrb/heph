@@ -8,7 +8,7 @@ from scripts.check_repo_policies import (
 )
 
 
-def _messages(source: str, *, rel_path: str = "hephaion/example.py") -> list[str]:
+def _messages(source: str, *, rel_path: str = "harness/example.py") -> list[str]:
     return [violation.message for violation in _check_source(source, rel_path)]
 
 
@@ -112,5 +112,5 @@ def compile_model(model: object) -> object:
 
     assert PYTORCH_JIT_SCRIPT_POLICY_MESSAGE not in _messages(
         source,
-        rel_path="hephaion/test/test_example.py",
+        rel_path="harness/test/test_example.py",
     )

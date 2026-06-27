@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ai.providers.config import ProviderConfig
 from ai.providers.model_choices import configured_model_choices, model_free_description
 from ai.runtime import ChatConfig
-from hephaion.chat.model_selection import switch_config_model
+from harness.chat.model_selection import switch_config_model
 
 
 @dataclass(frozen=True, slots=True)

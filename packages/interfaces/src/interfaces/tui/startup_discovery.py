@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaion.armory.cli import default_armory_home
-from hephaion.armory.search import (
+from harness.armory.cli import default_armory_home
+from harness.armory.search import (
     discover_armory_home_entries,
     get_last_armory,
     load_available_armory_entries,
     remember_armory,
 )
-from hephaion.armory.storage import ArmoryError, validate_armory_path
+from harness.armory.storage import ArmoryError, validate_armory_path
 
 
 def _append_unique(paths: list[Path], seen: set[Path], path: Path) -> None:

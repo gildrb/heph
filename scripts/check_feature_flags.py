@@ -5,7 +5,7 @@ Scans the codebase for feature flag references and reports any flags
 that are defined but never checked, or checked but never defined.
 
 A flag is "defined" if it appears in:
-  - HEPHAION_FEATURE_FLAGS documentation
+  - HARNESS_FEATURE_FLAGS documentation
   - _parse_feature_flags() comments or code
   - pyproject.toml or config defaults
 
@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOURCE_DIR = REPO_ROOT / "packages" / "hephaion"
+SOURCE_DIR = REPO_ROOT / "packages" / "harness"
 
 # Known feature flags and their descriptions.
 # Update this set when adding new flags.
@@ -36,7 +36,7 @@ KNOWN_FLAGS: dict[str, str] = {
 FLAG_DEFINITION_PATTERNS = [
     re.compile(r"is_feature_enabled\(['\"](\w+)['\"]\)"),
     re.compile(r"feature_flags\s*[=:]\s*['\"]([^'\"]+)['\"]"),
-    re.compile(r"HEPHAION_FEATURE_FLAGS\s*[=:]\s*['\"]([^'\"]+)['\"]"),
+    re.compile(r"HARNESS_FEATURE_FLAGS\s*[=:]\s*['\"]([^'\"]+)['\"]"),
 ]
 
 FLAG_IN_CONFIG_PATTERN = re.compile(r"feature_flags\s*=\s*['\"]([^'\"]+)['\"]")
@@ -46,7 +46,7 @@ FLAG_IN_CONFIG_PATTERN = re.compile(r"feature_flags\s*=\s*['\"]([^'\"]+)['\"]")
 _SKIP_NAMES: frozenset[str] = frozenset(
     {
         "feature_flags",  # config key name, not a flag
-        "HEPHAION_FEATURE_FLAGS",  # env var name, not a flag
+        "HARNESS_FEATURE_FLAGS",  # env var name, not a flag
     }
 )
 
@@ -71,7 +71,7 @@ def _find_flags_in_docs() -> set[str]:
     """Scan documentation for feature flag references."""
     found: set[str] = set()
     for md_file in REPO_ROOT.rglob("*.md"):
-        if ".hephaion" in str(md_file) or "site" in str(md_file):
+        if ".harness" in str(md_file) or "site" in str(md_file):
             continue
         text = md_file.read_text(encoding="utf-8")
         for pattern in FLAG_DEFINITION_PATTERNS:

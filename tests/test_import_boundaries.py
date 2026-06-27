@@ -19,7 +19,7 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
-ROOT = REPO_ROOT / "packages" / "hephaion" / "src" / "hephaion"
+ROOT = REPO_ROOT / "packages" / "harness" / "src" / "harness"
 HARNESS_CONCERNS = {
     "agent",
     "armory",
@@ -79,7 +79,7 @@ def _private_imports_from_other_package(
         if not node.module:
             continue
         import_parts = node.module.split(".")
-        if len(import_parts) < 2 or import_parts[0] != "hephaion":
+        if len(import_parts) < 2 or import_parts[0] != "harness":
             continue
         their_top = import_parts[1]
         if their_top not in HARNESS_CONCERNS:
@@ -99,7 +99,7 @@ def _private_imports_from_other_package(
 
 def _is_agent_or_rag_import(module_name: str) -> bool:
     """Check if a module name refers to agent or rag."""
-    return module_name.startswith(("hephaion.agent", "hephaion.rag"))
+    return module_name.startswith(("harness.agent", "harness.rag"))
 
 
 # --- VAL-STRUCT-013: rag must not import agent, chat, or adapters ---
@@ -120,8 +120,8 @@ def test_rag_does_not_import_agent_chat_adapters(
     forbidden_prefixes = (
         "heph.cli",
         "heph.commands",
-        "hephaion.agent",
-        "hephaion.chat",
+        "harness.agent",
+        "harness.chat",
         "interfaces.tui",
     )
     for imp in _module_imports(module_path):
@@ -146,7 +146,7 @@ def test_agent_does_not_import_chat_session(
     module_path: Path,
 ) -> None:
     """VAL-STRUCT-014: No module under agent/ may import from chat.session."""
-    forbidden = "hephaion.chat.session"
+    forbidden = "harness.chat.session"
     for imp in _module_imports(module_path):
         assert imp != forbidden, (
             f"{module_path.relative_to(ROOT)} imports {imp}, "
@@ -248,7 +248,7 @@ def test_import_linter_exits_clean() -> None:
 # --- Structural checks: no stale references ---
 
 
-def test_no_removed_hephaion_namespace_imports_remain() -> None:
+def test_no_removed_harness_namespace_imports_remain() -> None:
     """No file should import through the removed flat concern modules."""
     stale_pattern = (
         "^(from|import) "

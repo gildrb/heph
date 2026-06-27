@@ -21,7 +21,7 @@ from ai.runtime import (
 )
 from ai.runtime._api_types import ApiMessage
 from ai.runtime.engine import stream_completion as runtime_stream_completion
-from hephaion.chat.session import ChatSession
+from harness.chat.session import ChatSession
 from openai import APITimeoutError, AuthenticationError
 
 

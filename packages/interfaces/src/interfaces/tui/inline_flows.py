@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from ai.providers.config import ProviderConfig
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
@@ -21,7 +21,7 @@ from hephaion.parameters.settings import (
     load_app_settings,
     save_setting,
 )
-from hephaion.privacy.consent import (
+from harness.privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
     analytics_env_override,
@@ -61,6 +61,7 @@ from interfaces.tui.keymap import (
     TUI_KEYMAP_ACTIONS,
     RuntimeKeymap,
     TuiKeymapAction,
+    default_keys_for_action,
     display_key,
     keymap_action,
     keymap_config_summary,
@@ -110,9 +111,9 @@ except ImportError:
     Widget = object  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat import storage as chat_storage
-    from hephaion.chat.session import ChatSession
-    from hephaion.chat.turn_history import TurnSnapshot
+    from harness.chat import storage as chat_storage
+    from harness.chat.session import ChatSession
+    from harness.chat.turn_history import TurnSnapshot
     from rich.text import Text
     from textual import events
 
@@ -1724,7 +1725,7 @@ def _keymap_review_options(
     keymap: RuntimeKeymap,
 ) -> list[tuple[str, str]]:
     current = _keymap_action_menu_keys_text(action, keymap)
-    default = _keymap_keys_summary(action.default_keys)
+    default = _keymap_keys_summary(default_keys_for_action(action))
     return [
         ("RECORD", f"current {current}"),
         ("RESET", f"restores {default}"),

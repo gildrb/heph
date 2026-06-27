@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hephaion._types import is_string_mapping
+from harness._types import is_string_mapping
 
 from heph.sdk.method_validation import validate_result_payload
 from heph.sdk.methods import (

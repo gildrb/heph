@@ -9,12 +9,11 @@ from typing import cast
 
 import ai.providers
 import ai.runtime
-
-import hephaion.armory
-import hephaion.materials
-import hephaion.memory
-import hephaion.rag
-import hephaion.study
+import harness.armory
+import harness.materials
+import harness.memory
+import harness.rag
+import harness.study
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,17 +43,17 @@ def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
     forbidden = {
         "interfaces.terminal.input",
         "interfaces.tui",
-        "hephaion.chat.session",
+        "harness.chat.session",
     }
     module_names = (
         "ai.runtime",
         "ai.providers",
-        "hephaion.materials",
-        "hephaion.rag",
-        "hephaion.memory",
-        "hephaion.armory",
-        "hephaion.study",
-        "hephaion.vocab",
+        "harness.materials",
+        "harness.rag",
+        "harness.memory",
+        "harness.armory",
+        "harness.study",
+        "harness.vocab",
     )
     with ThreadPoolExecutor(max_workers=len(module_names)) as pool:
         module_results = list(
@@ -87,11 +86,11 @@ def test_public_reusable_package_apis_are_explicit() -> None:
             "hydrate_provider_models",
             "resolve_key",
         },
-        hephaion.materials: {"MaterialFile", "iter_materials", "material_manifest"},
-        hephaion.rag: {"ArmoryIndex", "ScoredChunk", "retrieve", "build_turn_evidence"},
-        hephaion.memory: {"MemoryStore", "MemoryEntry", "load_memory", "save_memory"},
-        hephaion.study: {"LearningState", "LearningTurnPlan", "plan_turn", "apply_turn_result"},
-        hephaion.armory: {"ArmoryError", "initialize", "validate", "normalize_path"},
+        harness.materials: {"MaterialFile", "iter_materials", "material_manifest"},
+        harness.rag: {"ArmoryIndex", "ScoredChunk", "retrieve", "build_turn_evidence"},
+        harness.memory: {"MemoryStore", "MemoryEntry", "load_memory", "save_memory"},
+        harness.study: {"LearningState", "LearningTurnPlan", "plan_turn", "apply_turn_result"},
+        harness.armory: {"ArmoryError", "initialize", "validate", "normalize_path"},
     }
     for module, names in expected_exports.items():
         exported = set(getattr(module, "__all__", ()))
@@ -102,9 +101,9 @@ def test_overworked_module_guardrails() -> None:
     max_lines = {
         "packages/interfaces/src/interfaces/tui/__init__.py": 1250,
         "packages/interfaces/src/interfaces/terminal/input.py": 240,
-        "packages/hephaion/src/hephaion/agent/dispatch.py": 575,
-        "packages/hephaion/src/hephaion/agent/tools.py": 950,
-        "packages/hephaion/src/hephaion/rag/retrieve.py": 910,
+        "packages/harness/src/harness/agent/dispatch.py": 575,
+        "packages/harness/src/harness/agent/tools.py": 950,
+        "packages/harness/src/harness/rag/retrieve.py": 910,
     }
     for relative, limit in max_lines.items():
         line_count = len((ROOT / relative).read_text(encoding="utf-8").splitlines())

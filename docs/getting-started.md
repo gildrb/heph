@@ -63,7 +63,7 @@ Place source files in the armory's `materials/` directory:
 │   ├── lecture-notes.pdf
 │   ├── textbook-chapter1.pdf
 │   └── reference-doc.md
-└── .hephaion/
+└── .harness/
     ├── armory.toml
     ├── chats/
     ├── traces/

@@ -23,7 +23,7 @@ dependencies = [
     "heph-ai==0.0.53",
     "heph-extensions==0.0.53",
     "heph-interfaces==0.0.53",
-    "hephaion==0.0.53",
+    "harness==0.0.53",
 ]
 
 [project.urls]
@@ -38,7 +38,7 @@ heph = "heph.cli.main:main"
 heph-ai = { workspace = true }
 heph-extensions = { workspace = true }
 heph-interfaces = { workspace = true }
-hephaion = { workspace = true }
+harness = { workspace = true }
 
 [build-system]
 requires = ["uv_build==0.11.11"]
@@ -49,4 +49,4 @@ module-name = ["heph"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extensions"], heph-interfaces = ["interfaces"], hephaion = ["hephaion"] }
+package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extensions"], heph-interfaces = ["interfaces"], harness = ["harness"] }

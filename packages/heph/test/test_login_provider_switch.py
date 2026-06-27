@@ -7,8 +7,8 @@ import pytest
 from ai.providers.config import ProviderConfig
 from ai.providers.oauth import OAuthCredentials
 from ai.runtime import ChatConfig, Conversation
+from harness.chat.session import ChatSession
 from heph import commands
-from hephaion.chat.session import ChatSession
 from interfaces.terminal import MenuOption
 
 

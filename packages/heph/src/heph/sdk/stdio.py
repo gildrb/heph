@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from hephaion._types import is_string_mapping
-from hephaion.armory.storage import ArmoryError
+from harness._types import is_string_mapping
+from harness.armory.storage import ArmoryError
 
 from heph.sdk.factory import HephSdkOptions, create_heph_service
 from heph.sdk.method_validation import (

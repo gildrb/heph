@@ -20,18 +20,18 @@ import ai.providers.keyring_store as _ks
 import ai.providers.oauth as _oauth_mod
 import ai.runtime.engine as _engine_mod
 import ai.runtime.resilience as _res_mod
+import harness.chat.turn_finalization as _turn_finalization_mod
+import harness.diagnostics.crashes as _obs_mod
+import harness.parameters.settings as _settings_mod
+import harness.privacy.consent as _privacy_mod
+import harness.rag.chunker as _rag_chunker_mod
+import harness.rag.optional_backends as _rag_optional_mod
 import heph.commands as _commands_mod
-import hephaion.chat.turn_finalization as _turn_finalization_mod
-import hephaion.diagnostics.crashes as _obs_mod
-import hephaion.parameters.settings as _settings_mod
-import hephaion.privacy.consent as _privacy_mod
-import hephaion.rag.chunker as _rag_chunker_mod
-import hephaion.rag.optional_backends as _rag_optional_mod
 import interfaces.tui.command_access as _tui_command_access
 from ai.runtime import ApiMessage, ChatConfig
-from hephaion.agent.tools import ToolHandlerResult, ToolSpec
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import create_session
+from harness.agent.tools import ToolHandlerResult, ToolSpec
+from harness.armory.storage import initialize
+from harness.chat.session import create_session
 from interfaces.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
@@ -77,13 +77,13 @@ def _pin_optional_rag_backends_off() -> None:
 @pytest.fixture(autouse=True)
 def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
-    config_dir = tmp_path / "hephaion_config"
+    config_dir = tmp_path / "harness_config"
     config_file = config_dir / "config.json"
     providers_file = config_dir / "providers.toml"
-    auth_dir = tmp_path / "hephaion_auth"
+    auth_dir = tmp_path / "harness_auth"
     auth_file = auth_dir / "auth.json"
     _ks._volatile.clear()
-    _log_mod._hephaion_logger_initialised = False
+    _log_mod._harness_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -104,15 +104,15 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
         "_INSTALL_ID_PATH",
         config_dir / "install_id.json",
     )
-    monkeypatch.setenv("HEPHAION_DISABLE_LIVE_MODELS", "1")
-    root = logging.getLogger("hephaion")
+    monkeypatch.setenv("HARNESS_DISABLE_LIVE_MODELS", "1")
+    root = logging.getLogger("harness")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 
     yield
 
     _ks._volatile.clear()
-    _log_mod._hephaion_logger_initialised = False
+    _log_mod._harness_logger_initialised = False
     _engine_mod._circuit_breaker.reset()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -129,12 +129,12 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
 @pytest.fixture
 def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Redirect user-config paths to a temp directory."""
-    config_dir = tmp_path / "hephaion_config"
+    config_dir = tmp_path / "harness_config"
     config_file = config_dir / "config.json"
     defaults_file = tmp_path / "default.toml"
-    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr("hephaion.parameters.settings._USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr("hephaion.parameters.settings._DEFAULTS_FILE", defaults_file)
+    monkeypatch.setattr("harness.parameters.settings._USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("harness.parameters.settings._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr("harness.parameters.settings._DEFAULTS_FILE", defaults_file)
     return SimpleNamespace(
         config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
     )
@@ -200,7 +200,7 @@ def armory(tmp_path: Path) -> Path:
     """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
     (arm / "materials").mkdir(parents=True)
-    (arm / ".hephaion").mkdir(parents=True)
+    (arm / ".harness").mkdir(parents=True)
 
     (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"

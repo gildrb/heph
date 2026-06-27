@@ -7,7 +7,7 @@ from pathlib import Path
 
 import interfaces.palette as theme_tokens
 import interfaces.terminal as palette
-from hephaion.parameters.settings import THEME_PRESETS
+from harness.parameters.settings import THEME_PRESETS
 
 _AA_NORMAL_TEXT_CONTRAST = 4.5
 _AA_LARGE_TEXT_CONTRAST = 3.0
@@ -266,7 +266,7 @@ def test_app_source_has_no_loose_color_literals_outside_theme_tokens() -> None:
     allowed_paths = {repo_root / _COLOR_TOKEN_SOURCE}
     failures: list[str] = []
 
-    for path in (repo_root / "packages" / "hephaion").rglob("*.py"):
+    for path in (repo_root / "packages" / "harness").rglob("*.py"):
         if path in allowed_paths:
             continue
         for line_number, literal in _iter_string_literals(path):

@@ -11,7 +11,7 @@ All your data is stored locally in your armory:
 ```
 ~/.armories/my-armory/
 ├── materials/           # Your source documents (you control these)
-├── .hephaion/
+├── .harness/
 │   ├── armory.toml     # Armory marker and metadata
 │   ├── rag_index.json  # Retrieval index (local only)
 │   ├── memory.json     # Learning memory (local only)
@@ -28,11 +28,11 @@ All your data is stored locally in your armory:
 - Retrieval indexes are built and stored locally
 - Session traces and usage snapshots stay local to the armory
 - Local llama.cpp model validation state stays in your user config, and managed
-  llama.cpp binaries/models stay under `~/.cache/hephaion/llama.cpp/`
+  llama.cpp binaries/models stay under `~/.cache/harness/llama.cpp/`
 
 ### Local Traces
 
-Armory sessions can append JSONL trace files under `.hephaion/traces/`. These
+Armory sessions can append JSONL trace files under `.harness/traces/`. These
 files are local only and recognized secrets are redacted before writing, but
 they can still include private user content such as:
 
@@ -129,7 +129,7 @@ is cleared by `/logout` or process exit.
 ### Never in Config Files
 
 Heph never writes API keys to:
-- armory `.hephaion/` state
+- armory `.harness/` state
 - Any other configuration files
 - Git history
 
@@ -147,7 +147,7 @@ Heph makes network connections only to:
 4. **Web pages requested through the `web_fetch` tool** - only when a model tool
    call asks Heph to fetch a URL because armory material is insufficient
 5. **DuckDuckGo HTML search** - only when priority-report prerequisite hints are
-   explicitly enabled with `HEPHAION_PRIORITY_WEB_PREREQS` or the
+   explicitly enabled with `HARNESS_PRIORITY_WEB_PREREQS` or the
    `priority_web_prereqs` feature flag
 6. **Optional diagnostics endpoints** - if you enable them
 
@@ -203,7 +203,7 @@ export HTTPS_PROXY="http://proxy.example.com:8080"
 If you're developing with Heph:
 
 1. **Never commit secrets**: Use `.env.example` as template
-2. **Use .gitignore**: Exclude `.hephaion/`, `.env`, API keys
+2. **Use .gitignore**: Exclude `.harness/`, `.env`, API keys
 3. **Audit dependencies**: Keep dependencies updated
 4. **Security linting**: Run `bandit` on your code
 
@@ -249,7 +249,7 @@ Heph is open source. You can:
 
 You can monitor what Heph does:
 
-1. **Check logs**: Set `HEPHAION_LOG_LEVEL=DEBUG`
+1. **Check logs**: Set `HARNESS_LOG_LEVEL=DEBUG`
 2. **Monitor network**: Use firewall tools to see connections
 3. **Inspect files**: All data is in plain text/JSON formats
 4. **Use `/evidence`**: See exactly what was retrieved for each answer
@@ -273,16 +273,16 @@ This permanently deletes:
 
 ```bash
 # Clear chat history only
-rm ~/.armories/my-armory/.hephaion/chats/*
+rm ~/.armories/my-armory/.harness/chats/*
 
 # Clear memory only
-rm ~/.armories/my-armory/.hephaion/memory.json
+rm ~/.armories/my-armory/.harness/memory.json
 
 # Clear index (will be rebuilt on next use)
-rm ~/.armories/my-armory/.hephaion/rag_index.json
+rm ~/.armories/my-armory/.harness/rag_index.json
 
 # Clear local traces only
-rm ~/.armories/my-armory/.hephaion/traces/*.jsonl
+rm ~/.armories/my-armory/.harness/traces/*.jsonl
 ```
 
 ### Revoke API Access

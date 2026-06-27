@@ -13,22 +13,21 @@ from typing import Final, cast
 from ai.logging import LOG_FILE_ENV, LOG_FORMAT_ENV, LOG_LEVEL_ENV
 from ai.providers.config import default_config
 from ai.providers.keyring_store import GLOBAL_API_KEY_ENV
-from heph.cli.main import build_parser
-from heph.commands import get_registry
-from hephaion.chat.session import ARMORY_PLUGINS_TRUST_ENV
-from hephaion.memory.extract import EXTRACTION_MODEL_ENV
-from hephaion.privacy.consent import (
+from harness.chat.session import ARMORY_PLUGINS_TRUST_ENV
+from harness.memory.extract import EXTRACTION_MODEL_ENV
+from harness.parameters import cli as parameters_cli
+from harness.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
     POSTHOG_HOST_ENV,
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
-from hephaion.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from harness.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from heph.cli.main import build_parser
+from heph.commands import get_registry
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
 from interfaces.tui.slash_command import TUI_ONLY_COMMAND_SUGGESTIONS
-
-from hephaion.parameters import cli as parameters_cli
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -110,40 +109,40 @@ class SyncTarget:
 
 
 ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
-    "HEPHAION_BASE_URL": "Override the active API base URL.",
-    "HEPHAION_MODEL": "Override the active model.",
-    "HEPHAION_MAX_TOKENS": "Set the max output tokens per response.",
-    "HEPHAION_RAG_CONTEXT_BUDGET": "Set the token budget for retrieved context.",
-    "HEPHAION_FEATURE_FLAGS": "Comma-separated feature flags.",
-    "HEPHAION_PRIORITY_WEB_PREREQS": (
+    "HARNESS_BASE_URL": "Override the active API base URL.",
+    "HARNESS_MODEL": "Override the active model.",
+    "HARNESS_MAX_TOKENS": "Set the max output tokens per response.",
+    "HARNESS_RAG_CONTEXT_BUDGET": "Set the token budget for retrieved context.",
+    "HARNESS_FEATURE_FLAGS": "Comma-separated feature flags.",
+    "HARNESS_PRIORITY_WEB_PREREQS": (
         "Enable optional web-backed prerequisite hints in priority reports."
     ),
-    "HEPHAION_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
-    "HEPHAION_API_KEY": "Global API key override that applies to any provider.",
-    "HEPHAION_ARMORY_HOME": (
+    "HARNESS_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
+    "HARNESS_API_KEY": "Global API key override that applies to any provider.",
+    "HARNESS_ARMORY_HOME": (
         "Default parent folder for named armories (`~/.armories` by default)."
     ),
-    "HEPHAION_TRUST_ARMORY_PLUGINS": (
-        "Allow trusted armories to load `.hephaion/tools/*.py` plugins."
+    "HARNESS_TRUST_ARMORY_PLUGINS": (
+        "Allow trusted armories to load `.harness/tools/*.py` plugins."
     ),
-    "HEPHAION_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
-    "HEPHAION_EMBED_MODEL": "Override the embedding model used by retrieval.",
-    "HEPHAION_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
-    "HEPHAION_LOG_FILE": "Append structured logs to a file when set.",
-    "HEPHAION_LOG_FORMAT": "Choose `json` or `text` logging output.",
-    "HEPHAION_LOG_LEVEL": (
+    "HARNESS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
+    "HARNESS_EMBED_MODEL": "Override the embedding model used by retrieval.",
+    "HARNESS_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
+    "HARNESS_LOG_FILE": "Append structured logs to a file when set.",
+    "HARNESS_LOG_FORMAT": "Choose `json` or `text` logging output.",
+    "HARNESS_LOG_LEVEL": (
         "Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`)."
     ),
-    "HEPHAION_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
-    "HEPHAION_POSTHOG_PROJECT_TOKEN": (
+    "HARNESS_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
+    "HARNESS_POSTHOG_PROJECT_TOKEN": (
         "Supply a PostHog project token for a custom or forked build."
     ),
-    "HEPHAION_RERANK_MODEL": "Override the reranker model when available.",
-    "HEPHAION_RTK_FALLBACK_ALLOWED": (
+    "HARNESS_RERANK_MODEL": "Override the reranker model when available.",
+    "HARNESS_RTK_FALLBACK_ALLOWED": (
         "Set to `0` to fail closed when the optional RTK wrapper is unavailable."
     ),
-    "HEPHAION_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
-    "HEPHAION_TEMPERATURE": "Override the generation temperature for chat responses.",
+    "HARNESS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
+    "HARNESS_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "DEEPSEEK_API_KEY": "API key for the DeepSeek API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
@@ -186,7 +185,7 @@ LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
         "Use `heph` or `heph <path>` as the primary command.",
     ),
     (
-        re.compile(r"\bhephaion\s+start\b"),
+        re.compile(r"\bharness\s+start\b"),
         "Use `heph` or `heph <path>` as the primary command.",
     ),
     (
@@ -391,7 +390,7 @@ def collect_keyboard_shortcuts() -> tuple[KeyboardShortcutDoc, ...]:
             action=shortcut.label,
             description=shortcut.description,
         )
-        for shortcut in tui_keybinds()
+        for shortcut in tui_keybinds(platform="darwin")
     )
 
 
@@ -416,9 +415,9 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             LOG_FORMAT_ENV,
             EMBED_MODEL_ENV,
             EXTRACTION_MODEL_ENV,
-            "HEPHAION_PRIORITY_WEB_PREREQS",
+            "HARNESS_PRIORITY_WEB_PREREQS",
             RERANK_MODEL_ENV,
-            "HEPHAION_RTK_FALLBACK_ALLOWED",
+            "HARNESS_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,
         }
@@ -565,15 +564,15 @@ def render_armory_layout_block(*, docs_index: bool) -> str:
         "├── materials/              # PDFs, Office docs, notes, code to cite\n"
         "│   ├── lecture-notes.pdf\n"
         "│   └── reference.md\n"
-        "├── .hephaion/              # Local Heph state\n"
+        "├── .harness/              # Local Heph state\n"
         "│   ├── armory.toml         # Armory marker\n"
         "│   ├── rag_index.json      # Retrieval index\n"
         "│   ├── memory.json         # Learning memory\n"
         "│   ├── chats/              # Saved sessions\n"
-        "│   ├── traces/             # Optional JSONL traces\n"
+        "│   ├── traces/             # JSONL traces when enabled\n"
         "│   ├── usage/              # Token and cost snapshots\n"
-        "│   └── ignore              # Optional indexing ignores\n"
-        "└── README.md               # Optional notes\n"
+        "│   └── ignore              # Indexing ignore rules\n"
+        "└── README.md               # Armory notes\n"
         "```"
     )
 

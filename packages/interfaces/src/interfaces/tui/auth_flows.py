@@ -15,13 +15,13 @@ from ai.providers.keyring_store import (
     store_key,
 )
 from ai.providers.oauth import clear_credentials, list_providers, login_openai_codex
-from hephaion.chat.provider_selection import activate_provider_for_session
+from harness.chat.provider_selection import activate_provider_for_session
 
 from interfaces.tui.display_text import menu_label_value
 from interfaces.tui.flow_state import InlineFlow
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
 _P = ParamSpec("_P")
 _LOGIN_CODEX_LABEL = "CODEX"
@@ -222,8 +222,17 @@ class TuiAuthFlowMixin:
         self._update_info_panel()
 
     def _login_openai_worker(self: _AuthFlowHost) -> None:
+        def show_authorization_url(auth_url: str) -> None:
+            self.call_from_thread(
+                self._append_notice,
+                f"Browser login opened. If it stalls, open manually: {auth_url}",
+            )
+
         try:
-            login_openai_codex()
+            login_openai_codex(
+                on_authorization_url=show_authorization_url,
+                allow_manual_redirect=False,
+            )
         except Exception as exc:
             self.call_from_thread(self._append_error, f"Login failed: {exc}")
             return

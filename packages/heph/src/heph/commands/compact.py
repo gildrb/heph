@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hephaion.chat.compaction import compact_session
-from hephaion.chat.session import session_has_messages
-from hephaion.diagnostics.events import capture as capture_analytics
+from harness.chat.compaction import compact_session
+from harness.chat.session import session_has_messages
+from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import STYLE_DIM, print_info, print_success, styled
 
 from heph.commands._base import Command, CommandResult, ensure_session

@@ -173,6 +173,42 @@ def test_callback_state_is_handler_local() -> None:
     assert second.code == "code-2"
 
 
+def test_authorization_code_rejects_hidden_manual_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(oauth_mod, "_start_callback_server", lambda _state: None)
+
+    with pytest.raises(RuntimeError, match="local OAuth callback server"):
+        oauth_mod._authorization_code(
+            "https://example.test/auth",
+            "expected",
+            allow_manual_redirect=False,
+        )
+
+
+def test_callback_authorization_code_times_out_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = oauth_mod._OAuthCallbackServer(
+        ("127.0.0.1", 0),
+        oauth_mod._CallbackHandler,
+        oauth_mod._CallbackState(expected_state="expected"),
+    )
+    seen_urls: list[str] = []
+    monkeypatch.setattr(oauth_mod, "_CALLBACK_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(oauth_mod.webbrowser, "open", lambda _url: True)
+
+    with pytest.raises(RuntimeError, match="Timed out waiting for the OAuth callback"):
+        oauth_mod._callback_authorization_code(
+            server,
+            "https://example.test/auth",
+            "expected",
+            on_authorization_url=seen_urls.append,
+        )
+
+    assert seen_urls == ["https://example.test/auth"]
+
+
 # --- Credential persistence -------------------------------------------------
 
 

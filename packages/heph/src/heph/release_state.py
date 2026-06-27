@@ -7,7 +7,7 @@ from importlib import metadata, resources
 from pathlib import Path
 from typing import TypedDict, cast
 
-from hephaion.privacy import release as privacy_release
+from harness.privacy import release as privacy_release
 
 
 class OfficialReleasePayload(TypedDict):

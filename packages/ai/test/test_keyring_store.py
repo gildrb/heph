@@ -21,7 +21,7 @@ from ai.providers.keyring_store import (
 from keyring.errors import KeyringError
 
 # Use a unique test prefix to avoid colliding with real keys
-_TEST_SLUG = "__test_hephaion_unit__"
+_TEST_SLUG = "__test_harness_unit__"
 
 
 @pytest.fixture(autouse=True)

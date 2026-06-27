@@ -13,6 +13,7 @@ import secrets
 import ssl
 import time
 import webbrowser
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -28,7 +29,7 @@ from ai.types import is_string_mapping
 
 _log = get_logger("ai.providers.oauth")
 
-_AUTH_DIR = Path.home() / ".config" / "hephaion"
+_AUTH_DIR = Path.home() / ".config" / "harness"
 _AUTH_FILE = _AUTH_DIR / "auth.json"
 
 _CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -222,14 +223,15 @@ def _is_displayable_callback_char(char: str) -> bool:
     return char == "\t" or (ord(char) >= 32 and ord(char) != 127)
 
 
-def _wait_for_callback(server: _OAuthCallbackServer) -> None:
+def _wait_for_callback(server: _OAuthCallbackServer) -> bool:
     deadline = time.monotonic() + _CALLBACK_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if server.callback_state.code or server.callback_state.error:
-            return
+            return True
         remaining = deadline - time.monotonic()
         server.timeout = max(0.1, min(1.0, remaining))
         server.handle_request()
+    return bool(server.callback_state.code or server.callback_state.error)
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -302,12 +304,21 @@ def _validated_token_response(token_data: dict[str, object]) -> _TokenResponse:
     )
 
 
-def login_openai_codex() -> OAuthCredentials:
+def login_openai_codex(
+    *,
+    on_authorization_url: Callable[[str], None] | None = None,
+    allow_manual_redirect: bool = True,
+) -> OAuthCredentials:
     """Run the OpenAI Codex OAuth login flow."""
     verifier, challenge = generate_pkce()
     state = secrets.token_hex(16)
     auth_url = _authorization_url(challenge, state)
-    code = _authorization_code(auth_url, state)
+    code = _authorization_code(
+        auth_url,
+        state,
+        on_authorization_url=on_authorization_url,
+        allow_manual_redirect=allow_manual_redirect,
+    )
 
     print("  Exchanging authorization code for tokens...")
     token_data = _post_form(
@@ -338,16 +349,32 @@ def _authorization_url(challenge: str, state: str) -> str:
             "state": state,
             "id_token_add_organizations": "true",
             "codex_cli_simplified_flow": "true",
-            "originator": "hephaion",
+            "originator": "harness",
         }
     )
 
 
-def _authorization_code(auth_url: str, state: str) -> str:
+def _authorization_code(
+    auth_url: str,
+    state: str,
+    *,
+    on_authorization_url: Callable[[str], None] | None = None,
+    allow_manual_redirect: bool = True,
+) -> str:
     server = _start_callback_server(state)
     if server is None:
+        if not allow_manual_redirect:
+            raise RuntimeError(
+                "Could not start the local OAuth callback server on localhost:1455. "
+                "Close any process using that port and try /login again."
+            )
         return _manual_authorization_code(auth_url, state)
-    return _callback_authorization_code(server, auth_url, state)
+    return _callback_authorization_code(
+        server,
+        auth_url,
+        state,
+        on_authorization_url=on_authorization_url,
+    )
 
 
 def _manual_authorization_code(auth_url: str, state: str) -> str:
@@ -365,13 +392,27 @@ def _manual_authorization_code(auth_url: str, state: str) -> str:
     return code
 
 
-def _callback_authorization_code(server: _OAuthCallbackServer, auth_url: str, state: str) -> str:
+def _callback_authorization_code(
+    server: _OAuthCallbackServer,
+    auth_url: str,
+    state: str,
+    *,
+    on_authorization_url: Callable[[str], None] | None = None,
+) -> str:
     print("  Opening browser for OpenAI authentication...")
+    if on_authorization_url is not None:
+        on_authorization_url(auth_url)
     webbrowser.open(auth_url)
     print(f"  Waiting for callback on port {_CALLBACK_PORT}...")
 
-    _wait_for_callback(server)
-    server.server_close()
+    try:
+        if not _wait_for_callback(server):
+            raise RuntimeError(
+                "Timed out waiting for the OAuth callback on localhost:1455. "
+                "If the browser is still loading, close it and try /login again."
+            )
+    finally:
+        server.server_close()
 
     callback_state = server.callback_state
     if callback_state.error:

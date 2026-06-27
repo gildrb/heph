@@ -21,7 +21,7 @@ from ai.types import is_object_list, is_string_mapping
 if TYPE_CHECKING:
     from ai.runtime import ChatConfig
 
-_CONFIG_DIR = Path.home() / ".config" / "hephaion"
+_CONFIG_DIR = Path.home() / ".config" / "harness"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
 
 

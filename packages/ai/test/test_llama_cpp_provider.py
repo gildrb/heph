@@ -108,7 +108,7 @@ def test_llama_cpp_keyless_access_requires_loopback_endpoint() -> None:
 def test_build_client_rejects_external_llama_cpp_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("HARNESS_API_KEY", raising=False)
     config = ChatConfig(
         api_key="",
         base_url="https://example.com/v1",

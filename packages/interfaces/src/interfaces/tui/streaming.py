@@ -17,8 +17,8 @@ from ai.runtime import (
     StreamRecoveryError,
     is_network_error,
 )
-from hephaion.chat.automation import iter_chat_events
-from hephaion.chat.events import (
+from harness.chat.automation import iter_chat_events
+from harness.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
@@ -28,7 +28,7 @@ from hephaion.chat.events import (
     TurnCompleteEvent,
     TurnEvent,
 )
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -36,7 +36,7 @@ from hephaion.parameters.settings import (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
 type _MaterialOperationRecorder = Callable[["_TurnActivitySummary", MaterialOperationEvent], None]
 

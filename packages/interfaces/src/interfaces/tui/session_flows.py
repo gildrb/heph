@@ -4,16 +4,16 @@ import contextlib
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 
-import hephaion.chat.storage as chat_storage
-from hephaion.chat.session import (
+import harness.chat.storage as chat_storage
+from harness.chat.session import (
     SessionError,
     fork_session_at_turn,
     list_armory_sessions,
     resume_session,
     save_session,
 )
-from hephaion.chat.titles import sanitize_title_text
-from hephaion.chat.turn_history import TurnSnapshot
+from harness.chat.titles import sanitize_title_text
+from harness.chat.turn_history import TurnSnapshot
 
 from interfaces.tui.cell_text import cell_width as _cell_width
 from interfaces.tui.cell_text import pad_cell_right as _pad_cell_right
@@ -30,7 +30,7 @@ except ImportError:
     RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")

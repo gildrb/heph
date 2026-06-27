@@ -89,7 +89,7 @@ def test_model_picker_columns_use_readable_labels() -> None:
 def test_configured_choices_uses_cached_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(
@@ -114,7 +114,7 @@ def test_configured_choices_uses_cached_openrouter_live_catalog(
 def test_configured_choices_schedules_refresh_without_waiting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     scheduled: list[str] = []
@@ -166,7 +166,7 @@ def test_configured_choices_include_only_tool_capable_local_models(
 def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
     monkeypatch.setattr(
         catalog,
@@ -192,7 +192,7 @@ def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
 def test_live_catalog_failure_keeps_static_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
 
     def fail_fetch(_endpoint: str) -> LiveProviderCatalog:
@@ -214,7 +214,7 @@ def test_live_catalog_failure_keeps_static_models(
 def test_hydrate_provider_models_resets_invalid_current_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     config = default_config()
     provider = config.providers["openrouter"]
     provider.current_model = "stale-model"
@@ -329,7 +329,7 @@ def test_fetch_openrouter_catalog_parses_models(monkeypatch: pytest.MonkeyPatch)
 def test_models_dev_metadata_registers_openai_xhigh_and_non_openai_standard_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.delenv("HARNESS_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
     monkeypatch.setattr(catalog, "_models_dev_cache_fresh", lambda: False)
     payload = {

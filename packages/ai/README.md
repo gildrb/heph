@@ -36,7 +36,7 @@ use the short name that describes its responsibility.
 ## Boundaries
 
 AI is below every Heph-specific package. It may know about provider SDKs and
-generic runtime concerns, but it must not import `heph`, `hephaion`,
+generic runtime concerns, but it must not import `heph`, `harness`,
 `interfaces`, or `extensions` code. Extend provider behavior through explicit
 provider/runtime APIs rather than product-specific conditionals.
 

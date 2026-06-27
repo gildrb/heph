@@ -2,9 +2,9 @@
 
 Supports any OpenAI-compatible API endpoint, making it LLM-agnostic.
 Configure via environment variables:
-    HEPHAION_API_KEY   - API key override (applies to any provider)
-    HEPHAION_BASE_URL  - Base URL for the API
-    HEPHAION_MODEL     - Model name
+    HARNESS_API_KEY   - API key override (applies to any provider)
+    HARNESS_BASE_URL  - Base URL for the API
+    HARNESS_MODEL     - Model name
 
 Streaming error recovery:
     Transient failures (connection drops, timeouts, server errors) are
@@ -406,14 +406,14 @@ def _positive_env_float(name: str, default: float) -> float:
 
 def _openai_compat_timeout_seconds() -> float:
     return _positive_env_float(
-        "HEPHAION_OPENAI_TIMEOUT_SECONDS",
+        "HARNESS_OPENAI_TIMEOUT_SECONDS",
         _OPENAI_COMPAT_TIMEOUT_SECONDS,
     )
 
 
 def _openai_stream_progress_timeout_seconds() -> float:
     return _positive_env_float(
-        "HEPHAION_STREAM_PROGRESS_TIMEOUT_SECONDS",
+        "HARNESS_STREAM_PROGRESS_TIMEOUT_SECONDS",
         _OPENAI_STREAM_PROGRESS_TIMEOUT_SECONDS,
     )
 

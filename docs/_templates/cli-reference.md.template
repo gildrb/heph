@@ -21,6 +21,10 @@ Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keyma
 list, to restore defaults.
 Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 `ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
+macOS keeps the familiar function-key defaults below. On Linux and other
+platforms, app-wide defaults avoid function keys: Commands `ctrl+alt+p`,
+Armory `ctrl+alt+a`, Materials `ctrl+alt+m`, Search `ctrl+alt+f`, and
+Evidence `ctrl+alt+e`.
 
 [[KEYBOARD_SHORTCUTS_TABLE]]
 

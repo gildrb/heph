@@ -13,7 +13,7 @@ from ai.providers.llama_cpp import (
     find_hf_candidate,
     install_local_target,
 )
-from hephaion.chat.model_selection import switch_model
+from harness.chat.model_selection import switch_model
 
 from interfaces.tui.display_text import menu_label_value
 from interfaces.tui.flow_state import InlineFlow
@@ -27,7 +27,7 @@ except ImportError:
     NoMatches = LookupError  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")

@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from hephaion.armory.search import load_available_armories
-from hephaion.armory.storage import default_armory_home
-from hephaion.chat.session import ChatSession, refresh_armory_sources
-from hephaion.materials.importing import import_material_files, resolve_import_source
-from hephaion.rag.index import ArmoryIndex, build_index
+from harness.armory.search import load_available_armories
+from harness.armory.storage import default_armory_home
+from harness.chat.session import ChatSession, refresh_armory_sources
+from harness.materials import MATERIALS_DIR, material_display_name
+from harness.materials.importing import import_material_files, resolve_import_source
+from harness.rag.index import ArmoryIndex, build_index
 from interfaces.terminal import print_error, print_info, print_success
 
 from heph.commands._base import Command, CommandResult, ensure_session
-from hephaion.materials import MATERIALS_DIR, material_display_name
 
 
 @dataclass(slots=True)

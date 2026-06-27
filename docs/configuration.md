@@ -16,31 +16,31 @@ are machine-local user settings unless overridden by environment variables.
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `ZAI_API_KEY` | Z.AI API key |
 | `CUSTOM_API_KEY` | Custom endpoint API key |
-| `HEPHAION_BASE_URL` | Custom base URL for OpenAI-compatible endpoints |
-| `HEPHAION_MODEL` | Default model name |
+| `HARNESS_BASE_URL` | Custom base URL for OpenAI-compatible endpoints |
+| `HARNESS_MODEL` | Default model name |
 
 ### Runtime and Retrieval
 
 | Variable | Purpose |
 |----------|---------|
-| `HEPHAION_MAX_TOKENS` | Max output tokens per response |
-| `HEPHAION_TEMPERATURE` | Model sampling temperature |
-| `HEPHAION_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
-| `HEPHAION_FEATURE_FLAGS` | Comma-separated feature flags |
-| `HEPHAION_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports |
-| `HEPHAION_EMBED_MODEL` | Embedding model override |
-| `HEPHAION_RERANK_MODEL` | Reranker model override |
-| `HEPHAION_EXTRACTION_MODEL` | Background memory extraction model override |
+| `HARNESS_MAX_TOKENS` | Max output tokens per response |
+| `HARNESS_TEMPERATURE` | Model sampling temperature |
+| `HARNESS_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
+| `HARNESS_FEATURE_FLAGS` | Comma-separated feature flags |
+| `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports |
+| `HARNESS_EMBED_MODEL` | Embedding model override |
+| `HARNESS_RERANK_MODEL` | Reranker model override |
+| `HARNESS_EXTRACTION_MODEL` | Background memory extraction model override |
 
 ### Privacy and Diagnostics
 
 | Variable | Purpose |
 |----------|---------|
-| `HEPHAION_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `HEPHAION_LOG_FILE` | Path to log file |
-| `HEPHAION_LOG_FORMAT` | Log format (`text` or `json`) |
-| `HEPHAION_ANALYTICS_ENABLED` | Override saved analytics opt-in (`true`/`false`) |
-| `HEPHAION_CRASH_REPORTS_ENABLED` | Override saved crash-report opt-in (`true`/`false`) |
+| `HARNESS_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `HARNESS_LOG_FILE` | Path to log file |
+| `HARNESS_LOG_FORMAT` | Log format (`text` or `json`) |
+| `HARNESS_ANALYTICS_ENABLED` | Override saved analytics opt-in (`true`/`false`) |
+| `HARNESS_CRASH_REPORTS_ENABLED` | Override saved crash-report opt-in (`true`/`false`) |
 
 ## TUI Settings
 
@@ -101,8 +101,8 @@ The guided `/local` list shows publisher-owned GGUF releases capped at 16 GB
 recommended RAM. Each entry shows the download size and RAM guidance before
 loading, and Heph asks for confirmation before it downloads or starts a model.
 Heph downloads the managed `llama-server` binary into
-`~/.cache/hephaion/llama.cpp/bin/`, stores GGUF cache under
-`~/.cache/hephaion/llama.cpp/models`, and persists local model validation state
+`~/.cache/harness/llama.cpp/bin/`, stores GGUF cache under
+`~/.cache/harness/llama.cpp/models`, and persists local model validation state
 in the user config directory. Local models appear in `/models` only after the
 tool-call probe passes.
 
@@ -153,13 +153,13 @@ provider for a local model.
 
 ```bash
 export CUSTOM_API_KEY="your-key"
-export HEPHAION_BASE_URL="https://your-endpoint.com/v1"
-export HEPHAION_MODEL="your-model-name"
+export HARNESS_BASE_URL="https://your-endpoint.com/v1"
+export HARNESS_MODEL="your-model-name"
 ```
 
 ## File Ignore Patterns
 
-Create `.hephaion/ignore` in your armory to exclude files from indexing:
+Create `.harness/ignore` in your armory to exclude files from indexing:
 
 ```
 # Ignore patterns (similar to .gitignore)
@@ -170,7 +170,7 @@ old/
 
 ## Armory State
 
-Each armory stores local state under `.hephaion/`, including retrieval indexes,
+Each armory stores local state under `.harness/`, including retrieval indexes,
 memory, chats, traces, and learning attempt logs. Index files are rebuildable
 machine-local state; source materials plus armory metadata are enough for Heph to
 open a copied or synced armory and rebuild what it needs.
@@ -191,4 +191,4 @@ heph --profile
 heph --profile-memory
 ```
 
-This will generate profiling reports in `.hephaion/profile/`.
+This will generate profiling reports in `.harness/profile/`.

@@ -55,7 +55,7 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
 <!-- sync-docs:privacy-diagnostics-docs-contract:start -->
 - Privacy and diagnostics rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
   is redacted opt-in crash reporting only.
-- Preserve the public safe-stub split in `packages/hephaion/src/hephaion/privacy/release.py`.
+- Preserve the public safe-stub split in `packages/harness/src/harness/privacy/release.py`.
   Official release builds inject privacy and diagnostics backend values in CI; source, editable, and
   Git installs must stay bare by default.
 - When CLI commands, privacy or diagnostics surfaces, or README-adjacent docs change, run
@@ -81,7 +81,7 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
 ## Type Checking Policy
 
 - Use `ty` strict mode. `pyproject.toml` targets Python 3.13 and includes
-  `hephaion` and `tests`; all rules are errors except configured import handling.
+  `harness` and `tests`; all rules are errors except configured import handling.
 - Explicit `Any` is forbidden, including imports from `typing` or `typing_extensions`,
   bare `Any`, attribute references (`typing.Any`, `typing_extensions.Any`), and
   `cast()` string arguments that mention `Any`.
@@ -98,7 +98,7 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
 
 - Protected core packages:
   - `ai.*`: provider/model API substrate only.
-  - `hephaion.*`: harness implementation namespace: guardrails, armories, retrieval,
+  - `harness.*`: harness implementation namespace: guardrails, armories, retrieval,
     citations, memory, diagnostics, and session state.
   - `heph.*`: agent identity, brain/composition, CLI entrypoint, and
     slash-command coordination.
@@ -107,30 +107,30 @@ uv run heph armory init NAME    # create a new armory in ~/.armories
   Adapters may depend broadly, but reusable decisions should move into services or domains.
 - AI reusable packages: `ai.runtime`, `ai.providers`, `ai.logging`,
   `ai.diagnostics`, `ai.types`.
-- Harness reusable packages: `hephaion.matching`, `hephaion._types`,
-  `hephaion.materials`, `hephaion.rag`, `hephaion.memory`, `hephaion.armory`,
-  `hephaion.vocab`, `hephaion.learning`, `hephaion.study`, `hephaion.chat`,
+- Harness reusable packages: `harness.matching`, `harness._types`,
+  `harness.materials`, `harness.rag`, `harness.memory`, `harness.armory`,
+  `harness.vocab`, `harness.learning`, `harness.study`, `harness.chat`,
   and focused workflow modules.
-- Reusable packages, including `hephaion.privacy` and `hephaion.diagnostics`, must not
+- Reusable packages, including `harness.privacy` and `harness.diagnostics`, must not
   import adapters (`heph.cli`, `heph.commands`, `interfaces.tui`,
   `interfaces.terminal.history`, `interfaces.terminal.input`).
-- `ai.logging` and `hephaion.diagnostics` must not import adapters.
-- `hephaion.materials` owns discovery/ignore policy and must not import
-  `hephaion.chat`, `hephaion.agent`, `hephaion.rag`, or `hephaion.study`.
-- `hephaion.rag` may import `hephaion.materials`; it must not import
-  `hephaion.agent`, `hephaion.chat`, `interfaces.tui`, or `hephaion.study`.
+- `ai.logging` and `harness.diagnostics` must not import adapters.
+- `harness.materials` owns discovery/ignore policy and must not import
+  `harness.chat`, `harness.agent`, `harness.rag`, or `harness.study`.
+- `harness.rag` may import `harness.materials`; it must not import
+  `harness.agent`, `harness.chat`, `interfaces.tui`, or `harness.study`.
 - `ai.runtime` stays below product workflows and must not import adapters,
-  `hephaion.chat`, `hephaion.agent`, `hephaion.rag`, `hephaion.study`,
-  `hephaion.materials`, `hephaion.memory`, or `hephaion.armory`.
+  `harness.chat`, `harness.agent`, `harness.rag`, `harness.study`,
+  `harness.materials`, `harness.memory`, or `harness.armory`.
 - `providers` owns model/provider config and auth; it must not import adapters,
-  `ai.runtime`, `hephaion.chat`, `hephaion.agent`, `hephaion.rag`,
-  `hephaion.study`, or `hephaion.materials`.
-- `hephaion.memory` may use `ai.runtime`, but must not import adapters,
-  `hephaion.chat`, or `hephaion.agent`.
-- `hephaion.study` remains a controller/state layer and must not import adapters,
-  `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
-- `hephaion.agent` must not import `hephaion.chat`.
-- Keep `hephaion.chat.session` and `hephaion.chat.orchestrator` independent at runtime.
+  `ai.runtime`, `harness.chat`, `harness.agent`, `harness.rag`,
+  `harness.study`, or `harness.materials`.
+- `harness.memory` may use `ai.runtime`, but must not import adapters,
+  `harness.chat`, or `harness.agent`.
+- `harness.study` remains a controller/state layer and must not import adapters,
+  `harness.chat`, `harness.agent`, or `harness.rag`.
+- `harness.agent` must not import `harness.chat`.
+- Keep `harness.chat.session` and `harness.chat.orchestrator` independent at runtime.
 - `heph.commands` must not import `interfaces.tui`.
 - Standard top-level imports are the default.
 - Deferred imports are allowed only for optional extras, plugin loading, or measured
@@ -168,8 +168,8 @@ uv run ty check  # type-check the project
 
 ## Dead Code / Architecture / Quality Gates
 ```bash
-uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py  # dead-code detection
-uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src  # duplicate code
+uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py  # dead-code detection
+uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src  # duplicate code
 uv run lint-imports        # verify import boundaries
 uv run python scripts/check_architecture_guardrails.py  # guard architecture debt baselines
 uv run python scripts/check_tech_debt.py --strict  # TODO/FIXME issue links
@@ -201,7 +201,7 @@ uv run pytest -m flaky                     # flaky-marked tests only
 Testing rules:
 
 - Pytest uses strict markers, short tracebacks, top-10 duration reporting,
-  xdist auto/worksteal, and a 46% coverage baseline on `hephaion`; raise it toward
+  xdist auto/worksteal, and a 46% coverage baseline on `harness`; raise it toward
   the long-term 75% target as characterization coverage improves.
 - Test files: `test_<module>.py` or `*_test.py`; test classes: `Test<Feature>`;
   test functions: `test_<verb>_<object>_<condition_or_expectation>`.
@@ -214,7 +214,7 @@ Testing rules:
 - Mark flaky tests with `@pytest.mark.flaky(reruns=2, reruns_delay=1)`.
 - Focus coverage on citation parsing/verification, armory-scoped memory, retrieval
   and stale indexes, provider/model switching, and learning-loop state transitions
-  implemented by `hephaion.learning` and the `study` controller.
+  implemented by `harness.learning` and the `study` controller.
 
 ## Security and Repository Policy
 
@@ -238,8 +238,8 @@ Testing rules:
 - Voice: practical, private, verification-first, and grounded in user files.
 - Naming: use `Heph` for the public Python package, command, SDK surface, and
   user-facing app. Use `the harness` for the correctness layer. Use
-  implementation identifiers such as `hephaion.*`, `.hephaion/`, and
-  `HEPHAION_*` only when the exact namespace, state path, or environment
+  implementation identifiers such as `harness.*`, `.harness/`, and
+  `HARNESS_*` only when the exact namespace, state path, or environment
   variable is actionable.
 - README and `docs/index.md` stay short and link-forward. Preserve the clickable
   Docs map. They cover what Heph does, armory structure, one start path, core
@@ -268,8 +268,8 @@ Testing rules:
 
 ## Diagnostics
 
-- Structured logging: `HEPHAION_LOG_LEVEL`, `HEPHAION_LOG_FILE`, `HEPHAION_LOG_FORMAT`
-- Session traces: per-armory JSONL files under `.hephaion/traces/`
+- Structured logging: `HARNESS_LOG_LEVEL`, `HARNESS_LOG_FILE`, `HARNESS_LOG_FORMAT`
+- Session traces: per-armory JSONL files under `.harness/traces/`
 - Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
 
 ## Build & Release

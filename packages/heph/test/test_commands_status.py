@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 from ai.runtime import ChatConfig, Conversation
+from harness.armory.storage import initialize
+from harness.chat.session import ChatSession
+from harness.materials.importing import import_material_files
 from heph import commands
-from hephaion.armory.storage import initialize
-from hephaion.chat.session import ChatSession
-from hephaion.materials.importing import import_material_files
 
 
 def test_registry_exposes_status_and_stats() -> None:

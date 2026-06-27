@@ -11,14 +11,14 @@ from typing import Protocol
 
 from ai.logging import get_logger
 from ai.runtime import ChatConfig, EngineError, EngineErrorCode
-from hephaion.armory.search import (
+from harness.armory.search import (
     load_available_armory_entries,
     remember_armory,
     set_last_armory,
 )
-from hephaion.armory.storage import ArmoryError, initialize, normalize_path, validate_armory_path
-from hephaion.chat.orchestrator import iter_chat_events
-from hephaion.chat.session import (
+from harness.armory.storage import ArmoryError, initialize, normalize_path, validate_armory_path
+from harness.chat.orchestrator import iter_chat_events
+from harness.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
@@ -27,12 +27,12 @@ from hephaion.chat.session import (
     resume_session,
     save_session,
 )
-from hephaion.chat.session_persistence import save_dirty_session_if_needed
-from hephaion.materials import MATERIALS_DIR, material_manifest
-from hephaion.materials.importing import import_material_files, resolve_import_source
-from hephaion.parameters.cli import load_config
-from hephaion.rag.health import scan_extraction_health as scan_extraction_health_report
-from hephaion.rag.index import build_index as build_rag_index
+from harness.chat.session_persistence import save_dirty_session_if_needed
+from harness.materials import MATERIALS_DIR, material_manifest
+from harness.materials.importing import import_material_files, resolve_import_source
+from harness.parameters.cli import load_config
+from harness.rag.health import scan_extraction_health as scan_extraction_health_report
+from harness.rag.index import build_index as build_rag_index
 
 from heph.sdk.events import AssistantDelta, HephEvent, TurnComplete, from_turn_event
 from heph.sdk.materials import (

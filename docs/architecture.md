@@ -5,7 +5,7 @@ Heph uses five workspace packages with strict import boundaries.
 ```text
 packages/
   heph/        The agent brain and user-facing command surface
-  hephaion/    Harness implementation namespace
+  harness/    Harness implementation namespace
   ai/          Provider and model runtime
   interfaces/  Terminal/TUI adapters and theme tokens
   extensions/  Stable extension contracts
@@ -20,7 +20,7 @@ dependency flow, not another architecture narrative.
 - **Heph** owns the `heph` command, agent identity, research/talking
   orchestration, slash-command coordination, SDK surface, and composition of the
   lower packages. Lower packages must not import Heph.
-- **The harness** lives in the `hephaion.*` implementation namespace. It owns
+- **The harness** lives in the `harness.*` implementation namespace. It owns
   turns, guardrails, grounding, citations, retrieval, armory state, memory,
   local learning attempts and policies, study workflows, diagnostics, and
   session persistence. It must not import Heph or interface adapters.
@@ -51,7 +51,7 @@ The core should be hard to change accidentally and easy to extend deliberately.
   persona or interface behavior.
 - **Heph is the brain.** Conversational strategy, research orchestration, Heph
   identity, and user-facing command composition belong here. The current
-  `hephaion/agent` and `hephaion/chat` modules are migration-era harness
+  `harness/agent` and `harness/chat` modules are migration-era harness
   surfaces; new agent-brain behavior should move toward Heph-facing modules and
   call the harness for validation rather than weakening the harness boundary.
 - **The SDK is a UI-neutral Heph surface.** `heph.sdk` wraps the lower packages
@@ -148,8 +148,8 @@ packages/
       prompts/    Prompt programs treated as code
       state/      Declarative JSON/Markdown state contract target
     test/
-  hephaion/
-    src/hephaion/
+  harness/
+    src/harness/
       agent/       Prompt building, citation, tool registry/handlers
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
@@ -182,29 +182,29 @@ The following packages cannot import anything from adapter packages:
 `heph.cli`, `heph.commands`, `interfaces.tui`,
 `interfaces.terminal.history` or `interfaces.terminal.input`.
 
-- `hephaion.chat`
-- `hephaion.agent`
+- `harness.chat`
+- `harness.agent`
 - `ai.providers`
-- `hephaion.rag`
-- `hephaion.armory`
-- `hephaion.learning`
-- `hephaion.study`
-- `hephaion.memory`
-- `hephaion.parameters`
-- `hephaion.materials`
+- `harness.rag`
+- `harness.armory`
+- `harness.learning`
+- `harness.study`
+- `harness.memory`
+- `harness.parameters`
+- `harness.materials`
 - `ai.runtime`
-- `hephaion.vocab`
+- `harness.vocab`
 - `interfaces.palette`
-- `hephaion.matching`
+- `harness.matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 
-`ai.logging` and `hephaion.diagnostics.crashes` must not import from
+`ai.logging` and `harness.diagnostics.crashes` must not import from
 `heph.cli`, `heph.commands`, or `interfaces.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
-`hephaion.chat.session` and `hephaion.chat.orchestrator` must be independent at
+`harness.chat.session` and `harness.chat.orchestrator` must be independent at
 runtime (no direct runtime imports between them).
 
 ### Forbidden: Heph commands must not import TUI internals
@@ -216,9 +216,9 @@ keybindings.
 
 ### Independent: materials
 
-`hephaion.materials` owns material discovery and ignore-policy parsing.
-It must not import `hephaion.chat`, `hephaion.agent`, or `hephaion.rag`.
-`hephaion.rag` may import `hephaion.materials`, but that dependency is one-way.
+`harness.materials` owns material discovery and ignore-policy parsing.
+It must not import `harness.chat`, `harness.agent`, or `harness.rag`.
+`harness.rag` may import `harness.materials`, but that dependency is one-way.
 
 ### Low level: runtime
 
@@ -236,10 +236,10 @@ metadata, and key resolution. It must not import adapters, `chat`, `agent`,
 
 ### Domain: memory and study
 
-`hephaion.memory` may use `ai.runtime` to extract concepts, but it must not
-import adapters, `hephaion.chat`, or `hephaion.agent`. `hephaion.study` stays a
-pure controller/state layer and must not import adapters, `hephaion.chat`,
-`hephaion.agent`, or `hephaion.rag`.
+`harness.memory` may use `ai.runtime` to extract concepts, but it must not
+import adapters, `harness.chat`, or `harness.agent`. `harness.study` stays a
+pure controller/state layer and must not import adapters, `harness.chat`,
+`harness.agent`, or `harness.rag`.
 
 ## Armory layout
 
@@ -247,7 +247,7 @@ An armory is a normal directory with a fixed layout:
 
 ```
 my-armory/
-  .hephaion/
+  .harness/
     armory.toml         # armory marker and metadata
     system_prompt.md    # optional custom system prompt (replaces the default role prompt)
     history             # input history for this armory (created on use)
@@ -266,7 +266,7 @@ the provenance path for a retrieved chunk.
 ## Study memory
 
 Heph is local-first by default: extracted study concepts are written to
-`<armory>/.hephaion/memory.json` and injected into future prompts so the
+`<armory>/.harness/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
 Memory stays armory-scoped. `/status` includes the current armory session's
@@ -286,19 +286,19 @@ graph TD
     Engine[ai.runtime.engine] --> Logs
     Orchestrator[chat.orchestrator] --> Traces
 
-    Traces --> Armory[<armory>/.hephaion/traces/]
-    Profiles --> Cache[~/.cache/hephaion/profiles/]
+    Traces --> Armory[<armory>/.harness/traces/]
+    Profiles --> Cache[~/.cache/harness/profiles/]
 ```
 
 ### Structured logging
 
-- Configure with `HEPHAION_LOG_LEVEL`, `HEPHAION_LOG_FILE`, and `HEPHAION_LOG_FORMAT`
+- Configure with `HARNESS_LOG_LEVEL`, `HARNESS_LOG_FILE`, and `HARNESS_LOG_FORMAT`
 - Secrets are scrubbed before logs or trace files are written
 - Interactive sessions default to human-readable output; non-interactive runs default to JSON
 
 ### Trace files
 
-- Each armory can keep append-only JSONL traces in `.hephaion/traces/`
+- Each armory can keep append-only JSONL traces in `.harness/traces/`
 - Trace files capture session events, user messages, retrieval activity, retrieved
   excerpts, material/tool metadata, and LLM timing
 - Trace files are local armory data; recognized secrets are redacted before writing,
@@ -310,7 +310,7 @@ graph TD
 - `--profile` flag: CPU profiling via cProfile (stdlib)
 - `--profile-memory` flag: memory profiling via tracemalloc (stdlib)
 - `py-spy` available in dev dependencies for flame graphs
-- Profiles saved to `~/.cache/hephaion/profiles/`
+- Profiles saved to `~/.cache/harness/profiles/`
 
 <!-- sync-docs:privacy-diagnostics-architecture:start -->
 ## Privacy & Diagnostics
@@ -321,12 +321,12 @@ Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
   configured and the user explicitly opts in.
 - `diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `packages/hephaion/src/hephaion/privacy/release.py` is committed as a safe stub in the public
+- `packages/harness/src/harness/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom
-  builds can wire their own endpoints with `HEPHAION_POSTHOG_PROJECT_TOKEN`,
-  `HEPHAION_POSTHOG_HOST`, and `HEPHAION_SENTRY_DSN`.
+  builds can wire their own endpoints with `HARNESS_POSTHOG_PROJECT_TOKEN`,
+  `HARNESS_POSTHOG_HOST`, and `HARNESS_SENTRY_DSN`.
 - Agents and contributors should preserve this split: diagnostics exist only for
   opt-in maintainer visibility into usage/errors and is never a required product
   dependency.

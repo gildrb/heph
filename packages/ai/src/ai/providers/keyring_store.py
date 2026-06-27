@@ -6,7 +6,7 @@ keeping raw API keys in process memory, session objects, or config files.
 
 Storage convention::
 
-    Service:  hephaion:<provider_slug>
+    Service:  harness:<provider_slug>
     Username: api_key
     Password: <the actual key>
 
@@ -28,9 +28,9 @@ from keyring.errors import KeyringError
 from ai.providers import volatile_keys as _volatile_keys
 from ai.providers.oauth import resolve_oauth_key
 
-_SERVICE_PREFIX = "hephaion"
+_SERVICE_PREFIX = "harness"
 _USERNAME = "api_key"
-GLOBAL_API_KEY_ENV: Final[str] = "HEPHAION_API_KEY"
+GLOBAL_API_KEY_ENV: Final[str] = "HARNESS_API_KEY"
 
 # In-process cache for keychain lookups (avoids OS keychain round-trip per API call).
 _keychain_cache: dict[str, str | None] = {}
@@ -86,7 +86,7 @@ def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> 
     """Resolve an API key using the full fallback chain.
 
     Priority:
-    0. HEPHAION_API_KEY environment variable (global override)
+    0. HARNESS_API_KEY environment variable (global override)
     1. OS keychain
     2. OAuth credentials (auto-refreshed access token unless disabled)
     3. Provider-specific environment variable (if ``env_var`` is provided)

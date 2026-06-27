@@ -8,8 +8,8 @@ from ai.providers.config import ProviderConfig
 from ai.providers.endpoints import provider_uses_keyless_access
 from ai.providers.model_choices import configured_model_choices
 from ai.runtime import ChatConfig
-from hephaion.chat.model_selection import switch_model
-from hephaion.diagnostics.events import capture as capture_analytics
+from harness.chat.model_selection import switch_model
+from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
     STYLE_DIM,
     MenuOption,

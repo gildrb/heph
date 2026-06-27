@@ -43,8 +43,8 @@ vendor.
   plus local `.gguf` files for advanced installs
 
 Heph manages an official `llama-server` binary, downloads verified release
-assets into `~/.cache/hephaion/llama.cpp/bin/`, stores model cache under
-`~/.cache/hephaion/llama.cpp/models`, and binds the server to `127.0.0.1`.
+assets into `~/.cache/harness/llama.cpp/bin/`, stores model cache under
+`~/.cache/harness/llama.cpp/models`, and binds the server to `127.0.0.1`.
 The guided catalog favors publisher-owned releases with specific GGUF quant
 files, including small LiquidAI LFM, Hugging Face SmolLM, Qwen, AllenAI OLMo,
 IBM Granite, Mistral, Microsoft Phi, and Google Gemma options. `/local` shows
@@ -85,7 +85,7 @@ General tradeoffs:
 Via environment variable:
 
 ```bash
-export HEPHAION_MODEL="provider-model-name"
+export HARNESS_MODEL="provider-model-name"
 ```
 
 Or via `/settings` in the TUI.

@@ -6,7 +6,7 @@ from dataclasses import fields
 from pathlib import Path
 
 import interfaces.palette as theme_tokens
-from hephaion.parameters.settings import DEFAULT_THEME, THEME_PRESETS
+from harness.parameters.settings import DEFAULT_THEME, THEME_PRESETS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_DESIGN_PATH = REPO_ROOT / "cli-design.md"

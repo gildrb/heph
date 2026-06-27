@@ -5,15 +5,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from hephaion.armory.search import (
+from harness.armory.search import (
     MAX_RECENT_ARMORIES,
     ArmoryEntry,
     load_recent_armory_entries,
     load_remembered_armory_entries,
 )
-from hephaion.armory.storage import MARKER_FILE
-from hephaion.matching import ranked_matches
-from hephaion.materials import count_material_files
+from harness.armory.storage import MARKER_FILE
+from harness.matching import ranked_matches
+from harness.materials import count_material_files
 
 from interfaces.tui.display_text import label_value_line
 from interfaces.tui.startup_discovery import discover_available_armories
@@ -26,7 +26,7 @@ _RECENT_HEADING = label_value_line("group", "recent")
 _ALL_HEADING = label_value_line("group", "all")
 _EMPTY_RECENT_LABEL = label_value_line("state", "no recent")
 _EMPTY_ALL_LABEL = label_value_line("state", "none found")
-_DEFAULT_ARMORY_HOME_ENV = "HEPHAION_ARMORY_HOME"
+_DEFAULT_ARMORY_HOME_ENV = "HARNESS_ARMORY_HOME"
 
 
 def _list_entries(path: Path) -> list[Path]:
@@ -371,7 +371,7 @@ def armory_detail(path: Path) -> str:
             label_value_line("state", "valid"),
             label_value_line("files", material_count),
             label_value_line("materials", "materials/"),
-            label_value_line("state dir", ".hephaion/"),
+            label_value_line("state dir", ".harness/"),
             label_value_line("path", path),
         )
     )

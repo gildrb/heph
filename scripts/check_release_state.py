@@ -17,7 +17,7 @@ PACKAGE_PYPROJECTS = (
     ROOT / "packages" / "ai" / "pyproject.toml",
     ROOT / "packages" / "extensions" / "pyproject.toml",
     ROOT / "packages" / "heph" / "pyproject.toml",
-    ROOT / "packages" / "hephaion" / "pyproject.toml",
+    ROOT / "packages" / "harness" / "pyproject.toml",
     ROOT / "packages" / "interfaces" / "pyproject.toml",
 )
 

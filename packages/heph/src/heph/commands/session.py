@@ -8,8 +8,8 @@ from pathlib import Path
 
 from ai.providers.endpoints import provider_uses_keyless_access
 from ai.runtime import has_configured_access
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.session import (
+from harness.chat import storage as chat_storage
+from harness.chat.session import (
     ChatSession,
     SessionError,
     create_plain_session,
@@ -17,12 +17,12 @@ from hephaion.chat.session import (
     save_session,
     session_has_messages,
 )
-from hephaion.chat.usage import load_usage_summaries
-from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.study.schedule import load_recall_schedule
-from hephaion.study.state import LearningFeedbackType
-from hephaion.vocab.parser import scan_armory
-from hephaion.vocab.state import VocabCardState, load_schedule, save_schedule
+from harness.chat.usage import load_usage_summaries
+from harness.diagnostics.events import capture as capture_analytics
+from harness.study.schedule import load_recall_schedule
+from harness.study.state import LearningFeedbackType
+from harness.vocab.parser import scan_armory
+from harness.vocab.state import VocabCardState, load_schedule, save_schedule
 from interfaces.terminal import STYLE_DIM, print_error, print_info, print_success, styled
 
 from heph.commands._base import (

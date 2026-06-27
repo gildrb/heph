@@ -10,7 +10,7 @@ from ai.providers.llama_cpp import (
     find_hf_candidate,
     install_local_target,
 )
-from hephaion.chat.session import ChatSession
+from harness.chat.session import ChatSession
 
 __all__ = ["activate_local_record", "find_hf_candidate", "install_local_target"]
 

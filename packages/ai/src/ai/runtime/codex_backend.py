@@ -436,7 +436,7 @@ def _open_codex_backend_response(
 
 
 def _codex_backend_timeout_seconds() -> float:
-    raw = os.environ.get("HEPHAION_CODEX_TIMEOUT_SECONDS", "").strip()
+    raw = os.environ.get("HARNESS_CODEX_TIMEOUT_SECONDS", "").strip()
     if not raw:
         return _CODEX_BACKEND_TIMEOUT_SECONDS
     with contextlib.suppress(ValueError):
@@ -465,7 +465,7 @@ def _codex_backend_headers(auth: tuple[str, str]) -> dict[str, str]:
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
-        "User-Agent": "hephaion-cli",
+        "User-Agent": "harness-cli",
     }
     if account_id:
         headers["ChatGPT-Account-ID"] = account_id

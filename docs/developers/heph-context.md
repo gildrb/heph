@@ -1,7 +1,7 @@
 # Heph Assistant Atlas
 
 Heph answers questions from armory materials with citations. It runs inside an
-armory: a portable folder with indexed `materials/`, local `.hephaion/` state,
+armory: a portable folder with indexed `materials/`, local `.harness/` state,
 armory-scoped memory, traces, usage, and provider settings.
 
 Use model context like this:
@@ -34,7 +34,7 @@ Armory layout:
 ARMORY/
   materials/        indexed user sources
   parameters/       reserved workspace parameters
-  .hephaion/
+  .harness/
     armory.toml     armory marker
     system_prompt.md optional custom role prompt
     memory.json     armory-scoped memory

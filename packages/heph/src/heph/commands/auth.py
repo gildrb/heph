@@ -7,8 +7,8 @@ import os
 from ai.providers import keyring_store, oauth
 from ai.providers.config import ProviderConfig
 from ai.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
-from hephaion.chat.provider_selection import activate_provider_for_session
-from hephaion.diagnostics.events import capture as capture_analytics
+from harness.chat.provider_selection import activate_provider_for_session
+from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
     MenuOption,
     confirm,

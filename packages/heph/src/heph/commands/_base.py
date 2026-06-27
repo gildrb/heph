@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaion.chat.session import ChatSession
+from harness.chat.session import ChatSession
 
 
 class CommandRegistryProtocol(Protocol):

@@ -7,7 +7,7 @@ import subprocess  # nosec B404
 import sys
 from typing import ClassVar
 
-from hephaion.armory.search import CrossArmoryIndex, SearchResult
+from harness.armory.search import CrossArmoryIndex, SearchResult
 
 from interfaces.terminal import Theme, current_palette
 from interfaces.tui.cell_text import cell_width as _cell_width

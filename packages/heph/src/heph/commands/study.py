@@ -6,16 +6,16 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hephaion.chat.session import ChatSession
-from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.materials import material_display_name
-from hephaion.rag.index import load_or_build
-from hephaion.study import (
+from harness.chat.session import ChatSession
+from harness.diagnostics.events import capture as capture_analytics
+from harness.materials import material_display_name
+from harness.rag.index import load_or_build
+from harness.study import (
     LearningFeedbackType,
     LearningPhase,
     RecallRating,
 )
-from hephaion.study.exam_bank import (
+from harness.study.exam_bank import (
     ExamBank,
     ExamBankItem,
     exam_bank_build_prompt,
@@ -23,17 +23,17 @@ from hephaion.study.exam_bank import (
     load_exam_bank,
     select_exam_bank_item,
 )
-from hephaion.study.priority import (
+from harness.study.priority import (
     PriorityAnalysis,
     PriorityPdfError,
     analyze_priority,
     generate_priority_report,
     priority_tier,
 )
-from hephaion.vocab.drill import run_drill
-from hephaion.vocab.parser import scan_armory
-from hephaion.vocab.scheduler import Rating
-from hephaion.vocab.state import load_schedule, save_schedule
+from harness.vocab.drill import run_drill
+from harness.vocab.parser import scan_armory
+from harness.vocab.scheduler import Rating
+from harness.vocab.state import load_schedule, save_schedule
 from interfaces.terminal import (
     STYLE_ACCENT,
     STYLE_DIM,

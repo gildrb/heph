@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
 
-from hephaion.chat.events import (
+from harness.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
     GuardrailEvent,

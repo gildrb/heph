@@ -6,7 +6,7 @@ members = [
     "packages/ai",
     "packages/extensions",
     "packages/heph",
-    "packages/hephaion",
+    "packages/harness",
     "packages/interfaces",
 ]
 
@@ -15,7 +15,7 @@ heph = { workspace = true }
 heph-ai = { workspace = true }
 heph-extensions = { workspace = true }
 heph-interfaces = { workspace = true }
-hephaion = { workspace = true }
+harness = { workspace = true }
 
 [tool.ruff]
 line-length = 99
@@ -116,8 +116,8 @@ include = [
     "packages/extensions/test",
     "packages/heph/src",
     "packages/heph/test",
-    "packages/hephaion/src",
-    "packages/hephaion/test",
+    "packages/harness/src",
+    "packages/harness/test",
     "packages/interfaces/src",
     "packages/interfaces/test",
     "tests",
@@ -152,8 +152,8 @@ paths = [
     "packages/extensions/test",
     "packages/heph/src",
     "packages/heph/test",
-    "packages/hephaion/src",
-    "packages/hephaion/test",
+    "packages/harness/src",
+    "packages/harness/test",
     "packages/interfaces/src",
     "packages/interfaces/test",
     "vulture-whitelist.py",
@@ -166,14 +166,14 @@ exclude_dirs = [
     "packages/ai/test",
     "packages/extensions/test",
     "packages/heph/test",
-    "packages/hephaion/test",
+    "packages/harness/test",
     "packages/interfaces/test",
     "tests",
 ]
 skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
-root_packages = ["ai", "extensions", "heph", "hephaion", "interfaces"]
+root_packages = ["ai", "extensions", "heph", "harness", "interfaces"]
 exclude_type_checking_imports = true
 include_external_packages = true
 
@@ -184,7 +184,7 @@ source_modules = ["ai"]
 forbidden_modules = [
     "extensions",
     "heph",
-    "hephaion",
+    "harness",
     "interfaces",
 ]
 
@@ -192,20 +192,20 @@ forbidden_modules = [
 name = "harness concerns must not import app or interfaces"
 type = "forbidden"
 source_modules = [
-    "hephaion.agent",
-    "hephaion.armory",
-    "hephaion.chat",
-    "hephaion.diagnostics",
-    "hephaion.learning",
-    "hephaion.matching",
-    "hephaion.materials",
-    "hephaion.memory",
-    "hephaion.parameters",
-    "hephaion.privacy",
-    "hephaion.rag",
-    "hephaion.safety",
-    "hephaion.study",
-    "hephaion.vocab",
+    "harness.agent",
+    "harness.armory",
+    "harness.chat",
+    "harness.diagnostics",
+    "harness.learning",
+    "harness.matching",
+    "harness.materials",
+    "harness.memory",
+    "harness.parameters",
+    "harness.privacy",
+    "harness.rag",
+    "harness.safety",
+    "harness.study",
+    "harness.vocab",
 ]
 forbidden_modules = [
     "heph",
@@ -215,50 +215,50 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
-source_modules = ["hephaion.materials"]
+source_modules = ["harness.materials"]
 forbidden_modules = [
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
-    "hephaion.study",
+    "harness.chat",
+    "harness.agent",
+    "harness.rag",
+    "harness.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "rag must not import agent, chat, or adapters"
 type = "forbidden"
-source_modules = ["hephaion.rag"]
+source_modules = ["harness.rag"]
 forbidden_modules = [
-    "hephaion.agent",
-    "hephaion.chat",
-    "hephaion.study",
+    "harness.agent",
+    "harness.chat",
+    "harness.study",
 ]
 
 [[tool.importlinter.contracts]]
 name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
-source_modules = ["hephaion.memory"]
-forbidden_modules = ["hephaion.chat", "hephaion.agent"]
+source_modules = ["harness.memory"]
+forbidden_modules = ["harness.chat", "harness.agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
-source_modules = ["hephaion.study"]
+source_modules = ["harness.study"]
 forbidden_modules = [
-    "hephaion.chat",
-    "hephaion.agent",
-    "hephaion.rag",
+    "harness.chat",
+    "harness.agent",
+    "harness.rag",
 ]
 
 [[tool.importlinter.contracts]]
 name = "agent must not import chat"
 type = "forbidden"
-source_modules = ["hephaion.agent"]
-forbidden_modules = ["hephaion.chat"]
+source_modules = ["harness.agent"]
+forbidden_modules = ["harness.chat"]
 
 [[tool.importlinter.contracts]]
-name = "hephaion.chat.session and chat.orchestrator are independent (no runtime imports)"
+name = "harness.chat.session and chat.orchestrator are independent (no runtime imports)"
 type = "independence"
-modules = ["hephaion.chat.session", "hephaion.chat.orchestrator"]
+modules = ["harness.chat.session", "harness.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
 name = "interfaces must not import Heph app composition"
@@ -277,7 +277,7 @@ extend_exclude = [
     "packages/ai/test",
     "packages/extensions/test",
     "packages/heph/test",
-    "packages/hephaion/test",
+    "packages/harness/test",
     "packages/interfaces/test",
     "tests",
 ]
@@ -293,12 +293,12 @@ extend_exclude = [
 per_rule_ignores = { DEP002 = ["scikit-learn", "docling-slim", "py-spy", "pathspec", "rapidfuzz", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=ai --cov=extensions --cov=heph --cov=hephaion --cov=interfaces --cov-report=term-missing --cov-fail-under=46"
+addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=ai --cov=extensions --cov=heph --cov=harness --cov=interfaces --cov-report=term-missing --cov-fail-under=46"
 testpaths = [
     "packages/ai/test",
     "packages/extensions/test",
     "packages/heph/test",
-    "packages/hephaion/test",
+    "packages/harness/test",
     "packages/interfaces/test",
     "tests",
 ]

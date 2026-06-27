@@ -8,14 +8,14 @@ carrying a second terminal menu implementation.
 from __future__ import annotations
 
 from ai.providers.config import ProviderConfig
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_TOOL_CALLS,
     THINKING_VISIBILITY_LABELS,
     VOCAB_STRICTNESS_LABELS,
     load_app_settings,
 )
-from hephaion.privacy.consent import (
+from harness.privacy.consent import (
     analytics_enabled,
     crash_reports_enabled,
 )

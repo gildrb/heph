@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from hephaion.parameters.settings import load_app_settings
+from harness.parameters.settings import load_app_settings
 
 from interfaces.palette import Theme
 from interfaces.terminal.history import InputHistory
@@ -143,7 +143,7 @@ _TUI_COMPAT_EXPORTS = (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
     from interfaces.tui.app_actions import _TimerLike
 
@@ -299,6 +299,7 @@ class HephTui(
         self._inline_flow = _InlineFlow()
         self._resize_redraw = _ResizeRedrawState()
         self._resize_redraw_timer: object | None = None
+        self._terminal_keyboard_protocol_pushed = False
 
     def _status_title(self) -> str:
         if self._armory_inline_active:

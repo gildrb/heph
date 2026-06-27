@@ -9,13 +9,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-from hephaion.armory.storage import armory_display_name
+from harness.armory.storage import armory_display_name
 
 from interfaces.tui.cell_text import cell_width, truncate_with_ellipsis
 
 if TYPE_CHECKING:
     from ai.runtime import ChatConfig
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
 
 STATUS_FIELD_GAP = "  "
 _BASE_STATUS_FIELDS = ("armory", "model", "reasoning")

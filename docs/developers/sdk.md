@@ -12,7 +12,7 @@ lifecycle.
 SwiftUI / GUI / automation client
   -> transport or direct Python embedding
   -> heph.sdk.HephRuntime
-  -> hephaion chat, armory, retrieval, memory, and AI runtime services
+  -> harness chat, armory, retrieval, memory, and AI runtime services
 ```
 
 ## Current Surface

@@ -7,29 +7,28 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+import harness.rag.health as rag_health
 import heph
-import hephaion.rag.health as rag_health
 import pytest
 from ai.providers.llama_cpp import LlamaCppCandidate, LlamaCppModelRecord
 from ai.runtime import ChatConfig
-from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
-from heph.cli.main import main as cli_main
-from heph.cli.main import sys as cli_sys
-from hephaion.agent.dispatch import iter_agent_events
-from hephaion.armory.search import remember_armory
-from hephaion.armory.storage import initialize
-from hephaion.chat.events import (
+from harness.agent.dispatch import iter_agent_events
+from harness.armory.search import remember_armory
+from harness.armory.storage import initialize
+from harness.chat import cli as chat_cli
+from harness.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
     TurnCompleteEvent,
 )
-from hephaion.chat.session import create_session
-from hephaion.rag.health import ExtractionHealthIssue, ExtractionHealthReport
-from hephaion.rag.index import load_or_build
+from harness.chat.session import create_session
+from harness.rag.health import ExtractionHealthIssue, ExtractionHealthReport
+from harness.rag.index import load_or_build
+from heph.cli.main import _inject_default_subcommand, build_parser, run_argv
+from heph.cli.main import main as cli_main
+from heph.cli.main import sys as cli_sys
 from interfaces.tui import TuiDependencyError
-
-from hephaion.chat import cli as chat_cli
 
 cli_main_module = sys.modules[cli_main.__module__]
 
@@ -104,7 +103,7 @@ def test_project_root_resolves_workspace_checkout() -> None:
 
     assert cli_main_module._is_source_checkout(root)
     assert (root / "packages" / "heph" / "src" / "heph").is_dir()
-    assert (root / "packages" / "hephaion" / "src" / "hephaion").is_dir()
+    assert (root / "packages" / "harness" / "src" / "harness").is_dir()
 
 
 def test_source_runtime_reexecs_repo_venv(
@@ -137,7 +136,7 @@ def test_source_runtime_reexecs_repo_venv(
     assert captured is not None
     assert captured[0] == str(venv_heph)
     assert captured[1] == [str(venv_heph), "update"]
-    assert captured[2]["HEPHAION_NO_VENV_REEXEC"] == "1"
+    assert captured[2]["HARNESS_NO_VENV_REEXEC"] == "1"
 
 
 def test_source_runtime_warning_when_repo_venv_missing(
@@ -180,7 +179,7 @@ def test_source_runtime_reexec_can_be_disabled(
         nonlocal called
         called = True
 
-    monkeypatch.setenv("HEPHAION_NO_VENV_REEXEC", "1")
+    monkeypatch.setenv("HARNESS_NO_VENV_REEXEC", "1")
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
     monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
     monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
@@ -219,7 +218,7 @@ def test_run_argv_dispatches_armory_init(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     armory_path = armory_home / "integration-armory"
 
     run_argv(parser, ["armory", "init", str(armory_path)])
@@ -248,7 +247,7 @@ def test_top_level_index_defaults_to_current_armory(
     assert "Reading: materials/notes.md" in out
     assert "Writing:" in out
     assert "Indexed 4 documents" in out
-    assert (armory / ".hephaion" / "rag_index.json").is_file()
+    assert (armory / ".harness" / "rag_index.json").is_file()
 
 
 def test_top_level_health_defaults_to_current_armory(
@@ -418,7 +417,7 @@ def test_tui_command_with_path_launches_tui_with_path(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     armory_path = armory_home / "integration-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
     captured_path: Path | None = None
@@ -470,7 +469,7 @@ def test_bare_armory_name_dispatches_remembered_armory(
     armory_home.mkdir()
     armory_path = armory_home / "gdp"
     initialize(armory_path)
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     remember_armory(armory_path)
     captured_path: Path | None = None
 
@@ -500,7 +499,7 @@ def test_bare_armory_name_dispatches_copied_armory_home_child(
         nonlocal captured_path
         captured_path = path
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     monkeypatch.setattr(cli_sys, "argv", ["heph", "copied"])
 
     with patch("interfaces.tui.run_tui_for_path", fake_tui):
@@ -549,7 +548,7 @@ def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> Non
             args.jsonl,
         )
 
-    monkeypatch.setattr("hephaion.chat.cli._cmd_chat_ask", fake_ask)
+    monkeypatch.setattr("harness.chat.cli._cmd_chat_ask", fake_ask)
 
     run_argv(parser, ["chat", "ask", "--jsonl", "notes", "what", "is", "rag?"])
 
@@ -677,7 +676,7 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
     # Step 1: Init armory
     armory_path = tmp_path / "golden-armory"
     initialize(armory_path)
-    assert (armory_path / ".hephaion" / "armory.toml").is_file()
+    assert (armory_path / ".harness" / "armory.toml").is_file()
 
     # Step 2: Add material documents
     source_dir = armory_path / "materials"
@@ -693,7 +692,7 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
     # Step 3: Build index
     index = load_or_build(armory_path)
     assert index.chunk_count > 0
-    assert (armory_path / ".hephaion" / "rag_index.json").is_file()
+    assert (armory_path / ".harness" / "rag_index.json").is_file()
 
     # Step 4: Create session with armory
     config = ChatConfig(base_url="https://api.example.invalid", model="test-model")

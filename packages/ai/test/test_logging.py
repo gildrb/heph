@@ -28,23 +28,23 @@ from ai.logging import (
 def trace_dir(tmp_path: Path) -> Path:
     armory = tmp_path / "armory"
     armory.mkdir()
-    (armory / ".hephaion").mkdir()
+    (armory / ".harness").mkdir()
     return armory
 
 
 @pytest.fixture(autouse=True)
-def reset_hephaion_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+def reset_harness_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Keep env-driven logger initialization isolated between tests."""
-    for env_name in ("HEPHAION_LOG_FILE", "HEPHAION_LOG_LEVEL", "HEPHAION_LOG_FORMAT"):
+    for env_name in ("HARNESS_LOG_FILE", "HARNESS_LOG_LEVEL", "HARNESS_LOG_FORMAT"):
         monkeypatch.delenv(env_name, raising=False)
 
-    logger = logging.getLogger("hephaion")
+    logger = logging.getLogger("harness")
     previous_handlers = list(logger.handlers)
     previous_level = logger.level
     previous_propagate = logger.propagate
     for handler in previous_handlers:
         logger.removeHandler(handler)
-    logging_module._hephaion_logger_initialised = False
+    logging_module._harness_logger_initialised = False
 
     try:
         yield
@@ -56,7 +56,7 @@ def reset_hephaion_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
             logger.addHandler(handler)
         logger.setLevel(previous_level)
         logger.propagate = previous_propagate
-        logging_module._hephaion_logger_initialised = False
+        logging_module._harness_logger_initialised = False
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class TestJsonFormatter:
     def test_basic_message(self) -> None:
         fmt = _JsonFormatter()
         record = logging.LogRecord(
-            name="hephaion.test",
+            name="harness.test",
             level=logging.INFO,
             pathname="",
             lineno=0,
@@ -80,13 +80,13 @@ class TestJsonFormatter:
         data = json.loads(output)
         assert data["msg"] == "hello world"
         assert data["level"] == "INFO"
-        assert data["logger"] == "hephaion.test"
+        assert data["logger"] == "harness.test"
         assert "ts" in data
 
     def test_structured_fields(self) -> None:
         fmt = _JsonFormatter()
         record = logging.LogRecord(
-            name="hephaion.test",
+            name="harness.test",
             level=logging.DEBUG,
             pathname="",
             lineno=0,
@@ -115,7 +115,7 @@ class TestJsonFormatter:
         except ValueError:
             exc_info = sys.exc_info()
         record = logging.LogRecord(
-            name="hephaion.test",
+            name="harness.test",
             level=logging.ERROR,
             pathname="",
             lineno=0,
@@ -138,7 +138,7 @@ class TestTextFormatter:
     def test_basic_message(self) -> None:
         fmt = _TextFormatter()
         record = logging.LogRecord(
-            name="hephaion.test",
+            name="harness.test",
             level=logging.INFO,
             pathname="",
             lineno=0,
@@ -153,7 +153,7 @@ class TestTextFormatter:
     def test_fields_on_separate_lines(self) -> None:
         fmt = _TextFormatter()
         record = logging.LogRecord(
-            name="hephaion.test",
+            name="harness.test",
             level=logging.DEBUG,
             pathname="",
             lineno=0,
@@ -175,18 +175,18 @@ class TestGetLogger:
     def test_returns_logger(self) -> None:
         log = get_logger("test.module")
         assert isinstance(log, logging.Logger)
-        assert log.name == "hephaion.test.module"
+        assert log.name == "harness.test.module"
 
     def test_prepends_namespace(self) -> None:
-        log = get_logger("hephaion.custom")
-        assert log.name == "hephaion.custom"
+        log = get_logger("harness.custom")
+        assert log.name == "harness.custom"
 
     def test_stderr_handler_added(self) -> None:
         get_logger("test")
-        hephaion_logger = logging.getLogger("hephaion")
-        assert len(hephaion_logger.handlers) >= 1
-        assert isinstance(hephaion_logger.handlers[0], logging.StreamHandler)
-        assert hephaion_logger.propagate is False
+        harness_logger = logging.getLogger("harness")
+        assert len(harness_logger.handlers) >= 1
+        assert isinstance(harness_logger.handlers[0], logging.StreamHandler)
+        assert harness_logger.propagate is False
 
     def test_file_handler_when_env_set(
         self,
@@ -194,33 +194,33 @@ class TestGetLogger:
         tmp_path: Path,
     ) -> None:
         log_file = tmp_path / "test.log"
-        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HARNESS_LOG_FILE", str(log_file))
         get_logger("test")
-        hephaion_logger = logging.getLogger("hephaion")
-        assert any(isinstance(h, logging.FileHandler) for h in hephaion_logger.handlers)
+        harness_logger = logging.getLogger("harness")
+        assert any(isinstance(h, logging.FileHandler) for h in harness_logger.handlers)
 
     def test_level_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HARNESS_LOG_LEVEL", "DEBUG")
         get_logger("test")
-        hephaion_logger = logging.getLogger("hephaion")
-        assert hephaion_logger.level == logging.DEBUG
+        harness_logger = logging.getLogger("harness")
+        assert harness_logger.level == logging.DEBUG
 
     def test_text_format_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAION_LOG_FORMAT", "text")
+        monkeypatch.setenv("HARNESS_LOG_FORMAT", "text")
         get_logger("test")
-        hephaion_logger = logging.getLogger("hephaion")
-        assert isinstance(hephaion_logger.handlers[0].formatter, _TextFormatter)
+        harness_logger = logging.getLogger("harness")
+        assert isinstance(harness_logger.handlers[0].formatter, _TextFormatter)
 
     def test_json_format_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HEPHAION_LOG_FORMAT", raising=False)
+        monkeypatch.delenv("HARNESS_LOG_FORMAT", raising=False)
         get_logger("test")
-        hephaion_logger = logging.getLogger("hephaion")
-        assert isinstance(hephaion_logger.handlers[0].formatter, _JsonFormatter)
+        harness_logger = logging.getLogger("harness")
+        assert isinstance(harness_logger.handlers[0].formatter, _JsonFormatter)
 
     def test_file_logging(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         log_file = tmp_path / "output.log"
-        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
-        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HARNESS_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HARNESS_LOG_LEVEL", "DEBUG")
         log = get_logger("test.file")
         log.info("test message", extra={"fields": {"key": "value"}})
 
@@ -264,9 +264,9 @@ class TestLoggingIntegration:
         tmp_path: Path,
     ) -> None:
         log_file = tmp_path / "integration.log"
-        monkeypatch.setenv("HEPHAION_LOG_FILE", str(log_file))
-        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
-        monkeypatch.setenv("HEPHAION_LOG_FORMAT", "json")
+        monkeypatch.setenv("HARNESS_LOG_FILE", str(log_file))
+        monkeypatch.setenv("HARNESS_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HARNESS_LOG_FORMAT", "json")
 
         log = get_logger("integration")
         log.info(
@@ -288,9 +288,9 @@ class TestLoggingIntegration:
         assert data["level"] == "INFO"
 
     def test_multiple_loggers_share_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAION_LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("HARNESS_LOG_LEVEL", "DEBUG")
         get_logger("module1")
         get_logger("module2")
-        hephaion_logger = logging.getLogger("hephaion")
+        harness_logger = logging.getLogger("harness")
         # Both share the same root handler
-        assert len(hephaion_logger.handlers) == 1  # only stderr, no file
+        assert len(harness_logger.handlers) == 1  # only stderr, no file

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from hephaion._types import JSONValue, is_string_mapping
-from hephaion.parameters.settings import load_raw_settings, save_raw_settings
+from harness._types import JSONValue, is_string_mapping
+from harness.parameters.settings import load_raw_settings, save_raw_settings
 
 KEYMAP_SETTING_KEY: Final[str] = "tui_keymap"
 MAX_FUNCTION_KEY: Final[int] = 24
@@ -24,6 +25,7 @@ class TuiKeymapAction:
     label: str
     description: str
     default_keys: tuple[str, ...]
+    portable_default_keys: tuple[str, ...] = ()
     show: bool = False
     priority: bool = True
     footer: bool = False
@@ -73,6 +75,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         "Commands",
         "Open the command palette.",
         ("f2",),
+        portable_default_keys=("ctrl+alt+p",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -81,6 +84,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         "Armory",
         "Open the armory home.",
         ("f3",),
+        portable_default_keys=("ctrl+alt+a",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -89,6 +93,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         "Materials",
         "Choose which materials are used for retrieval.",
         ("f5",),
+        portable_default_keys=("ctrl+alt+m",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -97,6 +102,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         "Search",
         "Search across armories.",
         ("f6",),
+        portable_default_keys=("ctrl+alt+f",),
     ),
     TuiKeymapAction(
         "evidence",
@@ -104,6 +110,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         "Evidence",
         "Show evidence details.",
         ("f8",),
+        portable_default_keys=("ctrl+alt+e",),
     ),
     TuiKeymapAction(
         "clear_transcript",
@@ -215,16 +222,22 @@ _RESERVED_KEY_REASONS: Final[dict[str, str]] = {
 }
 
 
-def default_runtime_keymap() -> RuntimeKeymap:
+def default_runtime_keymap(*, platform: str | None = None) -> RuntimeKeymap:
     return RuntimeKeymap(
-        bindings={action.id: action.default_keys for action in TUI_KEYMAP_ACTIONS},
+        bindings={
+            action.id: default_keys_for_action(action, platform=platform)
+            for action in TUI_KEYMAP_ACTIONS
+        },
         configured_actions=frozenset(),
     )
 
 
-def load_runtime_keymap() -> RuntimeKeymap:
+def load_runtime_keymap(*, platform: str | None = None) -> RuntimeKeymap:
     configured, errors = _load_configured_bindings()
-    bindings = {action.id: action.default_keys for action in TUI_KEYMAP_ACTIONS}
+    bindings = {
+        action.id: default_keys_for_action(action, platform=platform)
+        for action in TUI_KEYMAP_ACTIONS
+    }
     configured_actions: set[str] = set()
     for action in TUI_KEYMAP_ACTIONS:
         context_bindings = configured.get(action.context, {})
@@ -242,6 +255,28 @@ def load_runtime_keymap() -> RuntimeKeymap:
 
 def keymap_action(action_id: str) -> TuiKeymapAction | None:
     return _ACTIONS_BY_ID.get(action_id)
+
+
+def default_keys_for_action(
+    action: TuiKeymapAction,
+    *,
+    platform: str | None = None,
+) -> tuple[str, ...]:
+    platform_name = sys.platform if platform is None else platform
+    if platform_name == "darwin" or not action.portable_default_keys:
+        return action.default_keys
+    return action.portable_default_keys
+
+
+def default_keys_for_action_id(
+    action_id: str,
+    *,
+    platform: str | None = None,
+) -> tuple[str, ...]:
+    action = _ACTIONS_BY_ID.get(action_id)
+    if action is None:
+        return ()
+    return default_keys_for_action(action, platform=platform)
 
 
 def normalize_key_spec(raw: str) -> str:
@@ -360,11 +395,12 @@ def reset_keymap() -> KeymapSaveResult:
 
 
 def armory_binding_keys() -> str:
-    return ",".join(_ACTIONS_BY_ID["open_armory_home"].default_keys)
+    return ",".join(default_keys_for_action_id("open_armory_home"))
 
 
 def armory_shortcut_key() -> str:
-    return display_key(_ACTIONS_BY_ID["open_armory_home"].default_keys[0])
+    keys = default_keys_for_action_id("open_armory_home")
+    return display_key(keys[0]) if keys else ""
 
 
 def _normalize_key_name(key: str, original: str) -> str:

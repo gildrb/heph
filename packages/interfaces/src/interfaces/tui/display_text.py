@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ai.runtime import has_configured_access
-from hephaion.materials import material_display_name
+from harness.materials import material_display_name
 
 from interfaces.terminal import current_palette
 from interfaces.tui.dependencies import TuiDependencyError, tui_dependency_message
 from interfaces.tui.keybinds import footer_keybind_hints
-from interfaces.tui.keymap import RuntimeKeymap, armory_shortcut_key
+from interfaces.tui.keymap import RuntimeKeymap, armory_shortcut_key, default_runtime_keymap
 from interfaces.tui.rich_transcript import evidence_summary_text
 from interfaces.tui.session_state import TuiTranscriptEntry
 from interfaces.tui.shortcut_hints import ShortcutHint, shortcut_hint_part
@@ -22,8 +22,8 @@ except ImportError:
     _RichText = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
-    from hephaion.rag.context import TurnEvidence
+    from harness.chat.session import ChatSession
+    from harness.rag.context import TurnEvidence
     from rich.text import Text
 
 _INFO_PANEL_MATERIAL_NAME_WIDTH = 35
@@ -320,7 +320,7 @@ def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLi
         ),
     ]
     lines.extend(_info_panel_evidence_item_lines(evidence))
-    lines.append(_info_panel_label_line("open", "f8 /evidence"))
+    lines.append(_info_panel_label_line("open", f"{_evidence_shortcut_key()} /evidence"))
     return lines
 
 
@@ -531,13 +531,17 @@ def _assistant_message_panel_lines(
         ("tokens", usage["total_tokens"]),
         ("cost", f"${usage['cost_usd']:.4f}"),
         ("evidence", evidence_str),
-        ("details", "f8 or /evidence"),
+        ("details", f"{_evidence_shortcut_key()} or /evidence"),
     )
     return [
         "Assistant reply",
         sep,
         *(f"{label.upper():<8} {str(value).lower()}" for label, value in fields),
     ]
+
+
+def _evidence_shortcut_key() -> str:
+    return default_runtime_keymap().primary_key("evidence")
 
 
 def _stylize_message_panel_title(text: Text, plain: str, title: str) -> None:

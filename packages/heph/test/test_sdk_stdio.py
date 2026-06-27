@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 from ai.runtime import ChatConfig, EngineError, EngineErrorCode
+from harness.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
+from harness.chat.session import ChatSession
 from heph.cli.main import build_parser, run_argv
 from heph.sdk import (
     JSONL_ERROR_CODES,
@@ -27,8 +29,6 @@ from heph.sdk import (
 from heph.sdk import methods as sdk_methods
 from heph.sdk import runtime as sdk_runtime
 from heph.sdk import stdio as sdk_stdio
-from hephaion.chat.events import AssistantDeltaEvent, TurnCompleteEvent, TurnEvent
-from hephaion.chat.session import ChatSession
 
 cli_main_module = sys.modules[run_argv.__module__]
 
@@ -1175,7 +1175,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         assert progress is not None
         progress("reading", "materials/notes.md")
         assert release.wait(timeout=2.0)
-        progress("writing", ".hephaion/rag_index.json")
+        progress("writing", ".harness/rag_index.json")
         return _FakeIndex()
 
     monkeypatch.setattr(sdk_runtime, "build_rag_index", fake_build_index)
@@ -1270,7 +1270,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
         {
             "type": "index_progress",
             "action": "writing",
-            "detail": ".hephaion/rag_index.json",
+            "detail": ".harness/rag_index.json",
         },
         {
             "type": "index_complete",
@@ -1279,7 +1279,7 @@ def test_jsonl_sdk_server_streams_build_index_progress(
                 "chunks": 7,
                 "progress": [
                     {"action": "reading", "detail": "materials/notes.md"},
-                    {"action": "writing", "detail": ".hephaion/rag_index.json"},
+                    {"action": "writing", "detail": ".harness/rag_index.json"},
                 ],
             },
         },
@@ -1307,7 +1307,7 @@ def test_jsonl_sdk_server_aborts_build_index_stream_at_progress_checkpoint(
         assert progress is not None
         progress("reading", "materials/notes.md")
         assert release.wait(timeout=2.0)
-        progress("writing", ".hephaion/rag_index.json")
+        progress("writing", ".harness/rag_index.json")
         finished.set()
         return _FakeIndex()
 

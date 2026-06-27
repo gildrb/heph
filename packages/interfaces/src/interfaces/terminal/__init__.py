@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from hephaion.parameters.settings import DEFAULT_THEME
+from harness.parameters.settings import DEFAULT_THEME
 
 from interfaces.palette import (
     BOLD,

@@ -7,10 +7,10 @@ from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaion.armory.search import remember_armory, set_last_armory
-from hephaion.chat import storage as chat_storage
-from hephaion.chat.cli import resolve_armory_session as chat_resolve_armory_session
-from hephaion.chat.session import (
+from harness.armory.search import remember_armory, set_last_armory
+from harness.chat import storage as chat_storage
+from harness.chat.cli import resolve_armory_session as chat_resolve_armory_session
+from harness.chat.session import (
     ChatSession,
     SessionError,
     create_plain_session,
@@ -18,9 +18,9 @@ from hephaion.chat.session import (
     save_session,
     session_has_messages,
 )
-from hephaion.diagnostics.events import capture as capture_analytics
-from hephaion.parameters.cli import load_config
-from hephaion.parameters.settings import load_app_settings
+from harness.diagnostics.events import capture as capture_analytics
+from harness.parameters.cli import load_config
+from harness.parameters.settings import load_app_settings
 
 from interfaces.terminal import current_palette, print_error, print_info, set_theme
 from interfaces.terminal.history import InputHistory
@@ -34,7 +34,7 @@ from interfaces.tui.startup_discovery import (
 if TYPE_CHECKING:
     from ai.runtime import ChatConfig
 
-_HISTORY_DIR = Path.home() / ".cache" / "hephaion"
+_HISTORY_DIR = Path.home() / ".cache" / "harness"
 
 
 def apply_display_settings(session: ChatSession) -> ChatSession:
@@ -94,7 +94,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
 def get_history_path(session: ChatSession) -> Path:
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
-    return session.armory_path / ".hephaion" / "history"
+    return session.armory_path / ".harness" / "history"
 
 
 def save_on_exit(session: ChatSession) -> None:

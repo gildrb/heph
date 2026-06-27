@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 from ai.providers import llama_cpp
 from ai.runtime import ChatConfig
+from harness.parameters import cli as params_cli
+from harness.parameters import settings as settings_store
 from heph.cli.main import build_parser, run_argv
-from hephaion.parameters import cli as params_cli
-from hephaion.parameters import settings as settings_store
 
 
 def test_config_show_uses_registered_handler(
@@ -126,11 +126,11 @@ def test_load_config_precedence(
         "ai.providers.config.ProviderConfig.load",
         classmethod(lambda _cls: _FakeProviderConfig()),
     )
-    monkeypatch.setenv("HEPHAION_BASE_URL", "https://env.example/v1")
-    monkeypatch.setenv("HEPHAION_MODEL", "env-model")
-    monkeypatch.setenv("HEPHAION_MAX_TOKENS", "4000")
-    monkeypatch.setenv("HEPHAION_RAG_CONTEXT_BUDGET", "5000")
-    monkeypatch.setenv("HEPHAION_TEMPERATURE", "0")
+    monkeypatch.setenv("HARNESS_BASE_URL", "https://env.example/v1")
+    monkeypatch.setenv("HARNESS_MODEL", "env-model")
+    monkeypatch.setenv("HARNESS_MAX_TOKENS", "4000")
+    monkeypatch.setenv("HARNESS_RAG_CONTEXT_BUDGET", "5000")
+    monkeypatch.setenv("HARNESS_TEMPERATURE", "0")
 
     config = params_cli.load_config()
 
@@ -257,8 +257,8 @@ def test_invalid_integer_overrides_are_ignored(
             )
         ),
     )
-    monkeypatch.setenv("HEPHAION_MAX_TOKENS", "not-an-int")
-    monkeypatch.setenv("HEPHAION_RAG_CONTEXT_BUDGET", "still-not-an-int")
+    monkeypatch.setenv("HARNESS_MAX_TOKENS", "not-an-int")
+    monkeypatch.setenv("HARNESS_RAG_CONTEXT_BUDGET", "still-not-an-int")
 
     config = params_cli.load_config()
 
@@ -459,7 +459,7 @@ def test_load_config_feature_flags_env_overrides_user(
             )
         ),
     )
-    monkeypatch.setenv("HEPHAION_FEATURE_FLAGS", "env_flag")
+    monkeypatch.setenv("HARNESS_FEATURE_FLAGS", "env_flag")
 
     config = params_cli.load_config()
 

@@ -27,12 +27,12 @@ Run the CLI with the `--profile` flag to generate a CPU profile:
 ```bash
 uv run heph --profile
 # ... interact with the CLI ...
-# Profile saved to ~/.cache/hephaion/profiles/<timestamp>.prof on exit
+# Profile saved to ~/.cache/harness/profiles/<timestamp>.prof on exit
 ```
 
 Analyze the profile:
 ```bash
-python -m pstats ~/.cache/hephaion/profiles/<timestamp>.prof
+python -m pstats ~/.cache/harness/profiles/<timestamp>.prof
 ```
 
 ### Memory Profiling with tracemalloc
@@ -65,7 +65,7 @@ uv run py-spy record -o profile.svg -- heph
 ## Local Trace Files
 
 If the session is attached to an armory, inspect
-`<armory>/.hephaion/traces/<session_id>.jsonl` for:
+`<armory>/.harness/traces/<session_id>.jsonl` for:
 - request timing and retrieval latency
 - tool-call timing
 - the sequence of user and assistant turns leading up to the slowdown

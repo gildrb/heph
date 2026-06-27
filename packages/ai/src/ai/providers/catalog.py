@@ -35,7 +35,7 @@ _log = get_logger("ai.providers.catalog")
 
 _CATALOG_TIMEOUT_SECONDS = 2.0
 _CATALOG_CACHE_SECONDS = 10 * 60
-_DISABLE_LIVE_CATALOG_ENV = "HEPHAION_DISABLE_LIVE_MODELS"
+_DISABLE_LIVE_CATALOG_ENV = "HARNESS_DISABLE_LIVE_MODELS"
 _MODELS_DEV_URL = "https://models.dev/api.json"
 _OPENAI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
 _DEEPSEEK_REASONING_EFFORTS = ("high", "xhigh")
@@ -202,7 +202,7 @@ def _schedule_live_catalog_refresh(slug: str, endpoint: str) -> None:
     thread = threading.Thread(
         target=_refresh_live_catalog,
         args=(slug, endpoint),
-        name=f"hephaion-{slug}-catalog",
+        name=f"harness-{slug}-catalog",
         daemon=True,
     )
     thread.start()
@@ -226,7 +226,7 @@ def _schedule_models_dev_refresh() -> None:
         _models_dev_refreshing = True
     thread = threading.Thread(
         target=_refresh_models_dev_metadata,
-        name="hephaion-models-dev-catalog",
+        name="harness-models-dev-catalog",
         daemon=True,
     )
     thread.start()
@@ -272,7 +272,7 @@ def _fetch_models_dev_payload() -> dict[str, object]:
         _MODELS_DEV_URL,
         headers={
             "Accept": "application/json",
-            "User-Agent": "hephaion-model-catalog",
+            "User-Agent": "harness-model-catalog",
         },
     )
     context = ssl.create_default_context(cafile=certifi.where())
@@ -418,7 +418,7 @@ def _fetch_openrouter_catalog(endpoint: str) -> LiveProviderCatalog:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "hephaion-model-catalog",
+            "User-Agent": "harness-model-catalog",
         },
     )
     context = ssl.create_default_context(cafile=certifi.where())

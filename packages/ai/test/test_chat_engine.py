@@ -66,7 +66,7 @@ def _payload_mapping(value: object) -> dict[str, object]:
 
 
 def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("HARNESS_API_KEY", raising=False)
     config = ChatConfig(
         api_key="",
         base_url="https://text.pollinations.ai/openai",
@@ -79,7 +79,7 @@ def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.Mo
 
 
 def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAION_API_KEY", raising=False)
+    monkeypatch.delenv("HARNESS_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ChatConfig(api_key="", base_url="http://localhost/v1", model="test")
     with pytest.raises(EngineError, match="No API key found") as exc_info:
@@ -270,7 +270,7 @@ def test_codex_payload_requests_reasoning_summary_when_thinking_visible() -> Non
 def test_codex_backend_timeout_can_be_lowered_for_stress_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HEPHAION_CODEX_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("HARNESS_CODEX_TIMEOUT_SECONDS", "12.5")
 
     assert codex_backend._codex_backend_timeout_seconds() == 12.5
 
@@ -278,7 +278,7 @@ def test_codex_backend_timeout_can_be_lowered_for_stress_runs(
 def test_codex_backend_default_timeout_fails_fast(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HEPHAION_CODEX_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("HARNESS_CODEX_TIMEOUT_SECONDS", raising=False)
 
     assert codex_backend._codex_backend_timeout_seconds() == 30
 

@@ -11,7 +11,7 @@ files, chat history, retrieval index, traces, usage snapshots, and local memory.
 │   ├── document1.pdf
 │   ├── notes.md
 │   └── chapter1.txt
-├── .hephaion/          # Heph state
+├── .harness/          # Heph state
 │   ├── armory.toml     # Armory marker and metadata
 │   ├── index/          # Retrieval index
 │   ├── memory/         # Learning memory
@@ -63,7 +63,7 @@ Heph will keep the armory attached and show a no-materials state until you add
 documents.
 
 Heph discovers valid armory folders in `.armories` when it starts. Copied or
-synced armories are available as long as their `.hephaion/armory.toml` marker and
+synced armories are available as long as their `.harness/armory.toml` marker and
 `materials/` folder travel with them.
 
 When Heph is open without an attached armory, entering the exact name of a
@@ -109,7 +109,7 @@ materials/
 
 ### Ignoring Files
 
-Create `.hephaion/ignore` to exclude files:
+Create `.harness/ignore` to exclude files:
 
 ```
 # Ignore patterns
@@ -141,7 +141,7 @@ Each armory maintains its own learning memory:
 - **What you've learned**: Remember key concepts and explanations
 - **Follow-up suggestions**: Proactively suggest related topics
 
-Memory is stored in `.hephaion/memory/` and is completely local.
+Memory is stored in `.harness/memory/` and is completely local.
 
 ## Moving Armories
 
@@ -220,5 +220,5 @@ heph health ~/.armories/my-armory
 ### Memory Not Working
 
 1. Verify you're opening the expected armory
-2. Verify `.hephaion/memory/` directory exists
+2. Verify `.harness/memory/` directory exists
 3. Try asking a few questions to build up memory

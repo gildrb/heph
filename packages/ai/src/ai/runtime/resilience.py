@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from ai.diagnostics import get_meter
 from ai.logging import get_logger
 
-_log = get_logger("hephaion.chat.resilience")
-_meter = get_meter("hephaion.chat.resilience")
+_log = get_logger("harness.chat.resilience")
+_meter = get_meter("harness.chat.resilience")
 
 _state_gauge = _meter.create_gauge(
     "llm.circuit_breaker.state",

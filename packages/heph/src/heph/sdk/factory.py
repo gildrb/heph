@@ -6,8 +6,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ai.runtime import ChatConfig
-from hephaion.armory.storage import normalize_path
-from hephaion.parameters.cli import load_config
+from harness.armory.storage import normalize_path
+from harness.parameters.cli import load_config
 
 from heph.sdk.config import apply_sdk_config_updates, sdk_config_update
 from heph.sdk.runtime import HephRuntime, HephSdkError, HephSession

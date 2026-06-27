@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 import heph.cli.main as _main_mod
 from ai.providers.config import ProviderConfig
 from ai.runtime import Conversation, EngineError
-from hephaion.chat.compaction import compact_session
-from hephaion.chat.events import (
+from harness.chat.compaction import compact_session
+from harness.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
     NoticeEvent,
@@ -23,13 +23,12 @@ from hephaion.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
-from hephaion.chat.model_selection import switch_model
-from hephaion.chat.titles import derive_title
-from hephaion.memory.workflow import schedule_memory_extraction
+from harness.chat.model_selection import switch_model
+from harness.chat.titles import derive_title
+from harness.memory.workflow import schedule_memory_extraction
+from harness.parameters import settings as settings_store
 from interfaces.tui.routing import pending_input_requires_terminal
 from interfaces.tui.streaming import run_tui_turn
-
-from hephaion.parameters import settings as settings_store
 
 # ---------------------------------------------------------------------------
 # CLI entry point ownership
@@ -491,10 +490,10 @@ class TestCompactSession:
 
         with (
             patch(
-                "hephaion.chat.compaction.stream_reply",
+                "harness.chat.compaction.stream_reply",
                 return_value=iter(["A summary."]),
             ),
-            patch("hephaion.chat.compaction.sys"),
+            patch("harness.chat.compaction.sys"),
         ):
             compact_session(chat_session)
 
@@ -514,10 +513,10 @@ class TestCompactSession:
 
         with (
             patch(
-                "hephaion.chat.compaction.stream_reply",
+                "harness.chat.compaction.stream_reply",
                 return_value=iter(["Brief summary"]),
             ),
-            patch("hephaion.chat.compaction.sys"),
+            patch("harness.chat.compaction.sys"),
         ):
             compact_session(chat_session)
 
@@ -555,7 +554,7 @@ class TestMemoryWorkflow:
 
     def test_launches_extraction_for_non_empty_exchange(self) -> None:
         memory = MagicMock()
-        with patch("hephaion.memory.workflow.extract_and_store", return_value=3) as mock_extract:
+        with patch("harness.memory.workflow.extract_and_store", return_value=3) as mock_extract:
             schedule_memory_extraction(
                 config=MagicMock(),
                 memory=memory,

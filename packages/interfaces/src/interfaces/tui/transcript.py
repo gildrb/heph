@@ -38,7 +38,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
 _TRANSCRIPT_ENTRY_GAP = ""

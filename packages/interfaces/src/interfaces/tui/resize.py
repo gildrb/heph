@@ -39,7 +39,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
     from rich.text import Text
 
     from interfaces.tui.render_state import TuiRenderCache
@@ -77,6 +77,8 @@ class _ResizableWidget(Protocol):
 
 
 class _TerminalControlHost(Protocol):
+    _terminal_keyboard_protocol_pushed: bool
+
     def _write_terminal_control(self, sequence: str) -> None: ...
 
 
@@ -179,6 +181,7 @@ def _query_one[WidgetT](
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _RESIZE_REDRAW_DELAY_SECONDS = 0.075
+_TERMINAL_KEYBOARD_PROTOCOL_ENV = "HEPH_TUI_KEYBOARD_PROTOCOL"
 _TERMINAL_CLEAR_SCREEN = "\x1b[0m\x1b[2J\x1b[H"
 _TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER = "\x1b[>1u"
 _TERMINAL_KEYBOARD_PROTOCOL_POP = "\x1b[<u"
@@ -247,12 +250,24 @@ class _ResizeRedrawState:
         return changed_while_pending
 
 
+def _terminal_keyboard_protocol_enabled() -> bool:
+    value = os.environ.get(_TERMINAL_KEYBOARD_PROTOCOL_ENV, "")
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
 class TuiResizeMixin:
     def _push_terminal_keyboard_protocol(self: _TerminalControlHost) -> None:
+        if not _terminal_keyboard_protocol_enabled():
+            self._terminal_keyboard_protocol_pushed = False
+            return
         self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_MODIFIED_ENTER)
+        self._terminal_keyboard_protocol_pushed = True
 
     def _pop_terminal_keyboard_protocol(self: _TerminalControlHost) -> None:
+        if not self._terminal_keyboard_protocol_pushed:
+            return
         self._write_terminal_control(_TERMINAL_KEYBOARD_PROTOCOL_POP)
+        self._terminal_keyboard_protocol_pushed = False
 
     def _write_terminal_control(self: _ResizeHost, sequence: str) -> None:
         driver = getattr(self, "_driver", None)

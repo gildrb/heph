@@ -7,7 +7,7 @@ license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "heph-ai==0.0.53",
-    "hephaion==0.0.53",
+    "harness==0.0.53",
     "rich==14.3.3",
     "textual==8.2.4",
     "unicodeit==0.7.5",
@@ -15,7 +15,7 @@ dependencies = [
 
 [tool.uv.sources]
 heph-ai = { workspace = true }
-hephaion = { workspace = true }
+harness = { workspace = true }
 
 [build-system]
 requires = ["uv_build==0.11.11"]
@@ -26,4 +26,4 @@ module-name = ["interfaces"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], hephaion = ["hephaion"] }
+package_module_name_map = { heph-ai = ["ai"], harness = ["harness"] }

@@ -61,7 +61,7 @@ def _is_explicit_armory_path(raw_path: str, candidate: Path) -> bool:
 
 
 def _available_armory_shortcut_matches(shortcut: str) -> tuple[list[Path], list[Path]]:
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("harness.armory.search")
     entries = search_index.load_available_armory_entries()
     shortcut_lower = shortcut.lower()
     valid_paths = [entry.path for entry in entries if entry.valid]
@@ -93,7 +93,7 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_index(args: argparse.Namespace) -> None:
-    rag_index = importlib.import_module("hephaion.rag.index")
+    rag_index = importlib.import_module("harness.rag.index")
     armory_path = _validated_armory_path(args.path)
 
     def progress(action: str, detail: str) -> None:
@@ -110,7 +110,7 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
-    rag_health = importlib.import_module("hephaion.rag.health")
+    rag_health = importlib.import_module("harness.rag.health")
     armory_path = _validated_armory_path(args.path)
 
     report = rag_health.scan_extraction_health(armory_path)
@@ -127,7 +127,7 @@ def _cmd_health(args: argparse.Namespace) -> None:
 
 
 def _cmd_chat_ask(args: argparse.Namespace) -> None:
-    chat_cli = importlib.import_module("hephaion.chat.cli")
+    chat_cli = importlib.import_module("harness.chat.cli")
     chat_cli._cmd_chat_ask(args)
 
 
@@ -198,7 +198,7 @@ def _exit_cleanly_after_broken_pipe() -> None:
 
 
 def _validated_armory_path(path: str) -> Path:
-    armory_storage = importlib.import_module("hephaion.armory.storage")
+    armory_storage = importlib.import_module("harness.armory.storage")
     try:
         armory_path = armory_storage.normalize_path(path)
         armory_storage.validate(armory_path)
@@ -220,7 +220,7 @@ def _is_source_checkout(root: Path) -> bool:
     return (
         (root / "pyproject.toml").is_file()
         and (root / "packages" / "heph" / "src" / "heph").is_dir()
-        and (root / "packages" / "hephaion" / "src" / "hephaion").is_dir()
+        and (root / "packages" / "harness" / "src" / "harness").is_dir()
     )
 
 
@@ -258,7 +258,7 @@ def _runtime_diagnostic_messages() -> list[str]:
 
 
 def _maybe_reexec_source_venv() -> None:
-    if os.environ.get("HEPHAION_NO_VENV_REEXEC") == "1":
+    if os.environ.get("HARNESS_NO_VENV_REEXEC") == "1":
         return
     root = _project_root()
     if not _is_source_checkout(root) or _docling_available():
@@ -272,7 +272,7 @@ def _maybe_reexec_source_venv() -> None:
     if not venv_heph.is_file():
         return
     env = os.environ.copy()
-    env["HEPHAION_NO_VENV_REEXEC"] = "1"
+    env["HARNESS_NO_VENV_REEXEC"] = "1"
     os.execve(str(venv_heph), [str(venv_heph), *sys.argv[1:]], env)
 
 
@@ -553,11 +553,11 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
     if len(argv) == 3:
         print(
             "error: armory parent paths are no longer supported; "
-            "set HEPHAION_ARMORY_HOME or use `heph armory init <name>`.",
+            "set HARNESS_ARMORY_HOME or use `heph armory init <name>`.",
             file=sys.stderr,
         )
         raise SystemExit(2)
-    armory_cli = importlib.import_module("hephaion.armory.cli")
+    armory_cli = importlib.import_module("harness.armory.cli")
     target = armory_cli.armory_shortcut_path(argv[1])
     return ["armory", "init", str(target)]
 
@@ -596,10 +596,10 @@ def build_parser() -> argparse.ArgumentParser:
     tui.add_argument("path", nargs="?", help="Armory name or explicit path to open")
     tui.set_defaults(handler=_cmd_tui)
 
-    armory_cli = importlib.import_module("hephaion.armory.cli")
+    armory_cli = importlib.import_module("harness.armory.cli")
     armory_cli.register(subparsers, post_init=_remember_initialized_armory)
 
-    materials_cli = importlib.import_module("hephaion.materials.cli")
+    materials_cli = importlib.import_module("harness.materials.cli")
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
 
     index = subparsers.add_parser(
@@ -773,7 +773,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
     ask.set_defaults(handler=_cmd_chat_ask)
 
-    register_config_commands = importlib.import_module("hephaion.parameters.cli").register
+    register_config_commands = importlib.import_module("harness.parameters.cli").register
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 
@@ -781,7 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _remember_initialized_armory(path: Path) -> None:
-    search_index = importlib.import_module("hephaion.armory.search")
+    search_index = importlib.import_module("harness.armory.search")
     search_index.remember_armory(path)
 
 
@@ -833,8 +833,8 @@ def main() -> None:
 
 
 def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
-    analytics = importlib.import_module("hephaion.diagnostics.events")
-    diagnostics = importlib.import_module("hephaion.diagnostics.crashes")
+    analytics = importlib.import_module("harness.diagnostics.events")
+    diagnostics = importlib.import_module("harness.diagnostics.crashes")
     analytics.init_analytics()
     diagnostics.init_diagnostics()
     for message in _runtime_diagnostic_messages():
@@ -843,7 +843,7 @@ def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
 
 
 def _increment_session_count() -> None:
-    settings_mod = importlib.import_module("hephaion.parameters.settings")
+    settings_mod = importlib.import_module("harness.parameters.settings")
     settings = settings_mod.load_raw_settings()
     count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
     settings["session_count"] = count
@@ -882,7 +882,7 @@ def _report_profile(prof: object) -> None:
     pstats = importlib.import_module("pstats")
 
     ts = datetime_mod.datetime.now(datetime_mod.UTC).strftime("%Y%m%dT%H%M%SZ")
-    profile_dir = pathlib.Path.home() / ".cache" / "hephaion" / "profiles"
+    profile_dir = pathlib.Path.home() / ".cache" / "harness" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
     prof.dump_stats(str(profile_path))  # ty:ignore[unresolved-attribute]

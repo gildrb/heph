@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, overload
 
-from hephaion.armory.search import remember_armory, set_last_armory
-from hephaion.armory.storage import ArmoryError, armory_display_name, initialize
-from hephaion.armory.storage import validate as _validate_armory
-from hephaion.materials import count_material_files
+from harness.armory.search import remember_armory, set_last_armory
+from harness.armory.storage import ArmoryError, armory_display_name, initialize
+from harness.armory.storage import validate as _validate_armory
+from harness.materials import count_material_files
 
 from interfaces.terminal import current_palette
 from interfaces.tui.armory_browser import (
@@ -43,7 +43,7 @@ from interfaces.tui.textual_compat import (
 )
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
     from rich.text import Text
     from textual import events
     from textual.widget import Widget

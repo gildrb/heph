@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime import EngineErrorCode
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
-from hephaion.parameters.settings import (
+from harness.parameters.settings import (
     ACTIVITY_TRACE_MODES,
     THEME_PRESETS,
     VOCAB_STRICTNESS_MODES,

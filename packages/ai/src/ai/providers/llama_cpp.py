@@ -33,8 +33,8 @@ LLAMA_CPP_DISPLAY_NAME = "Local llama.cpp"
 LLAMA_CPP_DEFAULT_PORT = 18080
 LLAMA_CPP_DEFAULT_BASE_URL = f"http://127.0.0.1:{LLAMA_CPP_DEFAULT_PORT}/v1"
 
-_CONFIG_DIR = Path.home() / ".config" / "hephaion"
-_CACHE_DIR = Path.home() / ".cache" / "hephaion" / "llama.cpp"
+_CONFIG_DIR = Path.home() / ".config" / "harness"
+_CACHE_DIR = Path.home() / ".cache" / "harness" / "llama.cpp"
 _STATE_FILE = _CONFIG_DIR / "llama_cpp.json"
 _BIN_DIR = _CACHE_DIR / "bin"
 _MODEL_CACHE_DIR = _CACHE_DIR / "models"
@@ -867,7 +867,7 @@ def _download_release_asset(asset: LlamaCppReleaseAsset) -> Path:
     if archive.is_file():
         return archive
     _require_url_scheme(asset.url, ("https",))
-    request = urllib.request.Request(asset.url, headers={"User-Agent": "hephaion-llama-cpp"})
+    request = urllib.request.Request(asset.url, headers={"User-Agent": "harness-llama-cpp"})
     context = ssl.create_default_context(cafile=certifi.where())
     # asset.url is restricted to HTTPS before opening.
     with (
@@ -1279,7 +1279,7 @@ def _post_json(url: str, payload: Mapping[str, object]) -> dict[str, object] | N
             headers={
                 "Authorization": "Bearer no-key-required",
                 "Content-Type": "application/json",
-                "User-Agent": "hephaion-llama-cpp",
+                "User-Agent": "harness-llama-cpp",
             },
             method="POST",
         )

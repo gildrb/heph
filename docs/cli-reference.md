@@ -72,6 +72,10 @@ Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keyma
 list, to restore defaults.
 Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 `ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
+macOS keeps the familiar function-key defaults below. On Linux and other
+platforms, app-wide defaults avoid function keys: Commands `ctrl+alt+p`,
+Armory `ctrl+alt+a`, Materials `ctrl+alt+m`, Search `ctrl+alt+f`, and
+Evidence `ctrl+alt+e`.
 
 | Shortcut | Action |
 |---|---|
@@ -94,27 +98,27 @@ Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
 |---|---|
 | `CUSTOM_API_KEY` | API key for the custom provider entry. |
 | `DEEPSEEK_API_KEY` | API key for the DeepSeek API provider. |
-| `HEPHAION_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
-| `HEPHAION_API_KEY` | Global API key override that applies to any provider. |
-| `HEPHAION_BASE_URL` | Override the active API base URL. |
-| `HEPHAION_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
-| `HEPHAION_EMBED_MODEL` | Override the embedding model used by retrieval. |
-| `HEPHAION_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
-| `HEPHAION_FEATURE_FLAGS` | Comma-separated feature flags. |
-| `HEPHAION_LOG_FILE` | Append structured logs to a file when set. |
-| `HEPHAION_LOG_FORMAT` | Choose `json` or `text` logging output. |
-| `HEPHAION_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `HEPHAION_MAX_TOKENS` | Set the max output tokens per response. |
-| `HEPHAION_MODEL` | Override the active model. |
-| `HEPHAION_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
-| `HEPHAION_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
-| `HEPHAION_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports. |
-| `HEPHAION_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
-| `HEPHAION_RERANK_MODEL` | Override the reranker model when available. |
-| `HEPHAION_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |
-| `HEPHAION_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
-| `HEPHAION_TEMPERATURE` | Override the generation temperature for chat responses. |
-| `HEPHAION_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaion/tools/*.py` plugins. |
+| `HARNESS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
+| `HARNESS_API_KEY` | Global API key override that applies to any provider. |
+| `HARNESS_BASE_URL` | Override the active API base URL. |
+| `HARNESS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
+| `HARNESS_EMBED_MODEL` | Override the embedding model used by retrieval. |
+| `HARNESS_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
+| `HARNESS_FEATURE_FLAGS` | Comma-separated feature flags. |
+| `HARNESS_LOG_FILE` | Append structured logs to a file when set. |
+| `HARNESS_LOG_FORMAT` | Choose `json` or `text` logging output. |
+| `HARNESS_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `HARNESS_MAX_TOKENS` | Set the max output tokens per response. |
+| `HARNESS_MODEL` | Override the active model. |
+| `HARNESS_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
+| `HARNESS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
+| `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports. |
+| `HARNESS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
+| `HARNESS_RERANK_MODEL` | Override the reranker model when available. |
+| `HARNESS_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |
+| `HARNESS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
+| `HARNESS_TEMPERATURE` | Override the generation temperature for chat responses. |
+| `HARNESS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.harness/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |
 | `ZAI_API_KEY` | API key for Z.AI / GLM. |

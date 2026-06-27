@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaion.armory.state_files import (
+from harness.armory.state_files import (
     ArmoryStateError,
     armory_state_location,
     read_armory_state_text,

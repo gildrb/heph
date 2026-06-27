@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ai.providers.config import ProviderConfig
-from hephaion.chat.session import save_session
+from harness.chat.session import save_session
 from interfaces.terminal import (
     confirm,
     print_error,

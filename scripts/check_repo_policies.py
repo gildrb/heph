@@ -17,14 +17,14 @@ PACKAGE_IMPORT_ROOTS: Final[dict[Path, str]] = {
     REPO_ROOT / "packages" / "ai" / "src" / "ai": "ai",
     REPO_ROOT / "packages" / "extensions" / "src" / "extensions": "extensions",
     REPO_ROOT / "packages" / "heph" / "src" / "heph": "heph",
-    REPO_ROOT / "packages" / "hephaion" / "src" / "hephaion": "hephaion",
+    REPO_ROOT / "packages" / "harness" / "src" / "harness": "harness",
     REPO_ROOT / "packages" / "interfaces" / "src" / "interfaces": "interfaces",
 }
 PACKAGE_TEST_ROOTS: Final[dict[Path, str]] = {
     REPO_ROOT / "packages" / "ai" / "test": "ai/test",
     REPO_ROOT / "packages" / "extensions" / "test": "extensions/test",
     REPO_ROOT / "packages" / "heph" / "test": "heph/test",
-    REPO_ROOT / "packages" / "hephaion" / "test": "hephaion/test",
+    REPO_ROOT / "packages" / "harness" / "test": "harness/test",
     REPO_ROOT / "packages" / "interfaces" / "test": "interfaces/test",
 }
 SCAN_ROOTS: Final[tuple[Path, ...]] = (
@@ -61,7 +61,7 @@ EXTENSION_CONTRACTS_FORBIDDEN_IMPORTS: Final[frozenset[str]] = frozenset(
     {
         "ai",
         "heph",
-        "hephaion",
+        "harness",
         "interfaces",
     }
 )
@@ -73,7 +73,7 @@ FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
         {
             "extensions",
             "heph",
-            "hephaion",
+            "harness",
             "interfaces",
         }
     ),
@@ -81,7 +81,7 @@ FOUNDATION_PACKAGE_FORBIDDEN_IMPORTS: Final[dict[str, frozenset[str]]] = {
         {
             "ai",
             "heph",
-            "hephaion",
+            "harness",
             "interfaces",
         }
     ),
@@ -111,13 +111,13 @@ DYNAMIC_IMPORT_MODULE_TARGET_CALLS: Final[frozenset[str]] = frozenset(
     }
 )
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
-    "hephaion/agent/tool_registry.py": frozenset(
+    "harness/agent/tool_registry.py": frozenset(
         {
             "importlib.util.module_from_spec",
             "importlib.util.spec_from_file_location",
         }
     ),
-    "hephaion/armory/cli.py": frozenset(
+    "harness/armory/cli.py": frozenset(
         {
             "importlib.import_module",
         }
@@ -127,34 +127,34 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
-    "hephaion/materials/cli.py": frozenset(
+    "harness/materials/cli.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaion/rag/chunker.py": frozenset(
+    "harness/rag/chunker.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaion/rag/optional_backends.py": frozenset(
+    "harness/rag/optional_backends.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
-    "hephaion/test/test_rag_retrieve.py": frozenset(
+    "harness/test/test_rag_retrieve.py": frozenset(
         {
             "importlib.import_module",
         }
     ),
 }
 ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
-    "hephaion/agent/__init__.py": frozenset(
+    "harness/agent/__init__.py": frozenset(
         {
-            "hephaion.agent.dispatch",
-            "hephaion.agent.prompt",
-            "hephaion.agent.tool_execution",
-            "hephaion.agent.tools",
+            "harness.agent.dispatch",
+            "harness.agent.prompt",
+            "harness.agent.tool_execution",
+            "harness.agent.tools",
         }
     ),
     "ai/runtime/engine.py": frozenset(
@@ -164,13 +164,13 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "interfaces/terminal/input.py": frozenset(
         {
-            "hephaion.chat.session",
+            "harness.chat.session",
             "ai.runtime",
         }
     ),
     "interfaces/tui/__init__.py": frozenset(
         {
-            "hephaion.chat.cli",
+            "harness.chat.cli",
             "heph.commands",
             "interfaces.terminal.input",
         }
@@ -193,22 +193,22 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "interfaces/tui/streaming.py": frozenset(
         {
-            "hephaion.chat.automation",
+            "harness.chat.automation",
             "ai.runtime",
         }
     ),
 }
 PROMPT_RULE_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaion/agent/",
-    "hephaion/chat/",
-    "hephaion/study/",
+    "harness/agent/",
+    "harness/chat/",
+    "harness/study/",
 )
 PROMPT_RULE_DUPLICATE_MESSAGE: Final[str] = (
     "duplicate model-facing prompt rule; define the rule once as a named policy constant"
 )
 HARDCODED_ANSWER_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaion/chat/",
-    "hephaion/study/",
+    "harness/chat/",
+    "harness/study/",
     "interfaces/tui/",
 )
 HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
@@ -271,9 +271,9 @@ SEMANTIC_DISPATCH_MESSAGE: Final[str] = (
     "phrase tables; use serialized turn state and model-resolved intent"
 )
 SEMANTIC_DISPATCH_SCAN_ROOTS: Final[tuple[str, ...]] = (
-    "hephaion/chat/",
-    "hephaion/rag/",
-    "hephaion/study/",
+    "harness/chat/",
+    "harness/rag/",
+    "harness/study/",
 )
 SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
     {
@@ -294,7 +294,7 @@ PRIVATE_CORPUS_TERMS_FILES: Final[tuple[Path, ...]] = (
     REPO_ROOT / ".git" / "info" / "heph-private-corpus-terms",
     REPO_ROOT / ".heph-private-corpus-terms",
 )
-PRIVATE_CORPUS_TERMS_ENV_VAR: Final[str] = "HEPHAION_PRIVATE_CORPUS_TERMS"
+PRIVATE_CORPUS_TERMS_ENV_VAR: Final[str] = "HARNESS_PRIVATE_CORPUS_TERMS"
 PRIVATE_CORPUS_TEXT_SUFFIXES: Final[frozenset[str]] = frozenset(
     {
         ".cfg",
@@ -320,7 +320,7 @@ PYTORCH_JIT_SCRIPT_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "ai/",
     "extensions/",
     "heph/",
-    "hephaion/",
+    "harness/",
     "interfaces/",
     "scripts/",
 )
@@ -328,7 +328,7 @@ PYTORCH_JIT_SCRIPT_TEST_ROOTS: Final[tuple[str, ...]] = (
     "ai/test/",
     "extensions/test/",
     "heph/test/",
-    "hephaion/test/",
+    "harness/test/",
     "interfaces/test/",
     "tests/",
 )
@@ -407,7 +407,7 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 
 
 def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
-    if alias.name == "hephaion.chat.orchestrator" and alias.asname is not None:
+    if alias.name == "harness.chat.orchestrator" and alias.asname is not None:
         return alias.asname, alias.name
     if alias.name == "torch":
         return alias.asname or "torch", "torch"
@@ -508,15 +508,13 @@ class PolicyVisitor(ast.NodeVisitor):
         )
 
     def _is_product_runtime_file(self) -> bool:
-        return self.rel_path.startswith(
-            ("ai/", "extensions/", "heph/", "hephaion/", "interfaces/")
-        )
+        return self.rel_path.startswith(("ai/", "extensions/", "heph/", "harness/", "interfaces/"))
 
     def _is_product_script_file(self) -> bool:
         return self.rel_path.startswith("scripts/")
 
     def _check_private_orchestrator_import(self, node: ast.AST, module: str | None) -> None:
-        if not self._is_product_script_file() or module != "hephaion.chat.orchestrator":
+        if not self._is_product_script_file() or module != "harness.chat.orchestrator":
             return
         if not isinstance(node, ast.ImportFrom):
             return
@@ -536,7 +534,7 @@ class PolicyVisitor(ast.NodeVisitor):
         resolved = self._resolve_import_alias(dotted)
         if resolved is None:
             return
-        if resolved.startswith("hephaion.chat.orchestrator._"):
+        if resolved.startswith("harness.chat.orchestrator._"):
             self._add(
                 node,
                 (
@@ -646,8 +644,8 @@ class PolicyVisitor(ast.NodeVisitor):
                 if binding is not None:
                     local_name, canonical_name = binding
                     self._import_aliases[local_name] = canonical_name
-                if node.module == "hephaion.chat" and alias.name == "orchestrator":
-                    self._import_aliases[alias.asname or alias.name] = "hephaion.chat.orchestrator"
+                if node.module == "harness.chat" and alias.name == "orchestrator":
+                    self._import_aliases[alias.asname or alias.name] = "harness.chat.orchestrator"
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
             [module]
         ):

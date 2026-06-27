@@ -20,9 +20,7 @@ from packaging.utils import canonicalize_name
 from scripts.check_release_state import load_release_manifest, release_state_errors
 
 ROOT = Path(__file__).resolve().parent.parent
-RELEASE_CONFIG_PATH = (
-    ROOT / "packages" / "hephaion" / "src" / "hephaion" / "privacy" / "release.py"
-)
+RELEASE_CONFIG_PATH = ROOT / "packages" / "harness" / "src" / "harness" / "privacy" / "release.py"
 RELEASE_BUILD_ROOT = ROOT / ".artifacts" / "release-build"
 BUILD_INPUT_PATHS = (
     "packages",
@@ -33,13 +31,13 @@ BUILD_INPUT_PATHS = (
 )
 INTERNAL_DISTRIBUTIONS = frozenset(
     canonicalize_name(name)
-    for name in ("heph-ai", "heph-extensions", "heph-interfaces", "hephaion")
+    for name in ("heph-ai", "heph-extensions", "heph-interfaces", "harness")
 )
 RELEASE_PACKAGE_PYPROJECTS = (
     ROOT / "packages" / "ai" / "pyproject.toml",
     ROOT / "packages" / "extensions" / "pyproject.toml",
     ROOT / "packages" / "heph" / "pyproject.toml",
-    ROOT / "packages" / "hephaion" / "pyproject.toml",
+    ROOT / "packages" / "harness" / "pyproject.toml",
     ROOT / "packages" / "interfaces" / "pyproject.toml",
 )
 
@@ -60,7 +58,7 @@ RELEASE_PACKAGE_SOURCES = (
     PackageSource("ai", ROOT / "packages" / "ai" / "src" / "ai"),
     PackageSource("extensions", ROOT / "packages" / "extensions" / "src" / "extensions"),
     PackageSource("heph", ROOT / "packages" / "heph" / "src" / "heph"),
-    PackageSource("hephaion", ROOT / "packages" / "hephaion" / "src" / "hephaion"),
+    PackageSource("harness", ROOT / "packages" / "harness" / "src" / "harness"),
     PackageSource("interfaces", ROOT / "packages" / "interfaces" / "src" / "interfaces"),
 )
 RELEASE_SOURCE_IGNORE_PATTERNS = (
@@ -159,9 +157,9 @@ def release_build_config_from_env(
     return ReleaseBuildConfig(
         channel=channel,
         version=release_version,
-        posthog_host=env.get("HEPHAION_POSTHOG_HOST"),
-        posthog_project_token=env.get("HEPHAION_POSTHOG_PROJECT_TOKEN"),
-        sentry_dsn=env.get("HEPHAION_SENTRY_DSN"),
+        posthog_host=env.get("HARNESS_POSTHOG_HOST"),
+        posthog_project_token=env.get("HARNESS_POSTHOG_PROJECT_TOKEN"),
+        sentry_dsn=env.get("HARNESS_SENTRY_DSN"),
     )
 
 
@@ -237,7 +235,7 @@ def render_release_project(
         "",
         "[tool.setuptools.packages.find]",
         'where = ["src"]',
-        'include = ["ai*", "extensions*", "heph*", "hephaion*", "interfaces*"]',
+        'include = ["ai*", "extensions*", "heph*", "harness*", "interfaces*"]',
         "",
         "[tool.setuptools.package-data]",
         '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',

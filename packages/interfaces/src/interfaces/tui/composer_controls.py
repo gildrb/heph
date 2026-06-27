@@ -55,7 +55,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from hephaion.chat.session import ChatSession
+    from harness.chat.session import ChatSession
     from rich.text import Text
     from textual.widget import Widget
 
@@ -676,6 +676,10 @@ class TuiComposerControlsMixin:
     def _refresh_completions(self: _ComposerControlsHost) -> None:
         composer = self.query_one(COMPOSER_SELECTOR, Input)
         before_cursor = composer.value[: composer.cursor_position]
+        if not _slash_completion_context(before_cursor):
+            if self.completion_candidates or self._completion_menu_visible():
+                self._hide_completions()
+            return
         self.completion_candidates = self.completion_engine.candidates(
             before_cursor,
             _tui_command_suggestions(),
@@ -903,6 +907,11 @@ def _completion_display_source(candidate: CompletionCandidate) -> str:
 
 def _completion_display_state(candidate: CompletionCandidate) -> str:
     return menu_label_value("state", candidate.display_tags) if candidate.display_tags else ""
+
+
+def _slash_completion_context(text_before_cursor: str) -> bool:
+    stripped = text_before_cursor.lstrip()
+    return stripped.startswith("/") and "\n" not in stripped
 
 
 def _completion_display_widths_for_candidate(

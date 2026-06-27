@@ -27,8 +27,8 @@ packages/
       prompts/    Prompt programs treated as code
       state/      Declarative JSON/Markdown state contract target
     test/
-  hephaion/
-    src/hephaion/
+  harness/
+    src/harness/
       agent/       Prompt building, citation, tool registry/handlers
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
@@ -79,7 +79,7 @@ Core invariants:
 
 - `ai.*` is provider and model API substrate. It should almost never change for
   Heph-specific behavior.
-- `hephaion.*` is the harness implementation namespace: guardrails, armories,
+- `harness.*` is the harness implementation namespace: guardrails, armories,
   retrieval, citations, memory, local learning, diagnostics, and session state.
 - Heph owns the `heph` command, SDK surface, agent identity, and composition of
   the lower packages.

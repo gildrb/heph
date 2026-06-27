@@ -135,28 +135,28 @@ class _TextFormatter(logging.Formatter):
         return []
 
 
-LOG_LEVEL_ENV = "HEPHAION_LOG_LEVEL"
-LOG_FILE_ENV = "HEPHAION_LOG_FILE"
-LOG_FORMAT_ENV = "HEPHAION_LOG_FORMAT"
+LOG_LEVEL_ENV = "HARNESS_LOG_LEVEL"
+LOG_FILE_ENV = "HARNESS_LOG_FILE"
+LOG_FORMAT_ENV = "HARNESS_LOG_FORMAT"
 
-_hephaion_logger_initialised = False
+_harness_logger_initialised = False
 
 
 def get_logger(name: str) -> logging.Logger:
-    _ensure_hephaion_logger()
-    if not name.startswith("hephaion"):
-        name = f"hephaion.{name}"
+    _ensure_harness_logger()
+    if not name.startswith("harness"):
+        name = f"harness.{name}"
     return logging.getLogger(name)
 
 
-def _ensure_hephaion_logger() -> None:
-    global _hephaion_logger_initialised  # noqa: PLW0603
-    if _hephaion_logger_initialised:
+def _ensure_harness_logger() -> None:
+    global _harness_logger_initialised  # noqa: PLW0603
+    if _harness_logger_initialised:
         return
-    _hephaion_logger_initialised = True
+    _harness_logger_initialised = True
 
     level, fmt = _logging_config()
-    logger = logging.getLogger("hephaion")
+    logger = logging.getLogger("harness")
     logger.setLevel(level)
     logger.propagate = False
     if not logger.handlers:

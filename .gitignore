@@ -73,7 +73,7 @@ benchmarks/
 
 # Project-specific
 /*-armory/
-**/.hephaion/
+**/.harness/
 
 # Root-level tests are part of the official pytest suite. Put temporary test
 # scratch data under .artifacts/ or qa-results/ instead.

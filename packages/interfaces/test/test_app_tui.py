@@ -18,20 +18,22 @@ from ai.providers.config import ProviderConfig, default_config
 from ai.providers.llama_cpp import LlamaCppCandidate
 from ai.providers.registry import ModelInfo, get_registry
 from ai.runtime import ChatConfig, Conversation, EngineError, EngineErrorCode
-from hephaion._types import is_string_mapping
-from hephaion.armory.search import ArmoryEntry, SearchResult, remember_armory
-from hephaion.armory.storage import initialize
-from hephaion.chat.events import (
+from harness._types import is_string_mapping
+from harness.armory.search import ArmoryEntry, SearchResult, remember_armory
+from harness.armory.storage import initialize
+from harness.chat import storage as chat_storage
+from harness.chat.events import (
     AssistantDeltaEvent,
     NoticeEvent,
     ReasoningDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
-from hephaion.chat.session import ChatSession, record_turn_snapshot, save_session
-from hephaion.chat.usage import TokenUsage
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from harness.chat.session import ChatSession, record_turn_snapshot, save_session
+from harness.chat.usage import TokenUsage
+from harness.parameters import settings as settings_store
+from harness.rag.chunker import Chunk
+from harness.rag.context import EvidenceChunk, TurnEvidence
 from interfaces import tui
 from interfaces.palette import DARK_THEME, LIGHT_THEME
 from interfaces.terminal import current_theme_name, set_theme
@@ -66,9 +68,6 @@ from rich.text import Text
 from textual import events
 from textual._xterm_parser import XTermParser
 from textual.strip import Strip
-
-from hephaion.chat import storage as chat_storage
-from hephaion.parameters import settings as settings_store
 
 tui.set_command_registry_fn(heph_commands.get_registry)
 
@@ -178,6 +177,16 @@ def _footer_armory_hint() -> str:
     return f"ARMORY {keymap.armory_shortcut_key()}"
 
 
+def _default_binding(action_id: str) -> str:
+    keys = keymap.default_runtime_keymap().keys_for_action(action_id)
+    assert keys
+    return keys[0]
+
+
+def _default_display_key(action_id: str) -> str:
+    return keymap.default_runtime_keymap().primary_key(action_id)
+
+
 def _plain_session() -> ChatSession:
     conversation = Conversation()
     conversation.add("system", "test")
@@ -257,7 +266,7 @@ def _keyless_session() -> ChatSession:
 
 def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
-        "HEPHAION_API_KEY",
+        "HARNESS_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
@@ -484,13 +493,19 @@ def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> No
 
     hints = tui._footer_hints_text(_plain_session())
     plain = hints.plain
+    armory_key = _default_display_key("open_armory_home")
+    materials_key = _default_display_key("open_materials")
+    commands_key = _default_display_key("command_palette")
 
-    assert "f3" in plain
-    assert "ARMORY f3" in plain
-    assert "MATERIALS f5" in plain
-    assert "COMMANDS f2" in plain
+    assert armory_key in plain
+    assert f"ARMORY {armory_key}" in plain
+    assert f"MATERIALS {materials_key}" in plain
+    assert f"COMMANDS {commands_key}" in plain
     assert "REASONING shift+tab" in plain
-    assert plain.startswith("ARMORY f3  MATERIALS f5  COMMANDS f2  REASONING shift+tab")
+    assert plain.startswith(
+        f"ARMORY {armory_key}  MATERIALS {materials_key}  "
+        f"COMMANDS {commands_key}  REASONING shift+tab"
+    )
     assert "enter" not in plain
     assert "tab complete" not in plain
     assert "ctrl+c" not in plain
@@ -505,15 +520,18 @@ def test_footer_hints_derive_labels_and_keys_from_keybind_specs(
 
     specs_by_action = {spec.action: spec for spec in keybinds.tui_keybinds()}
     hints = keybinds.footer_keybind_hints()
+    armory_key = _default_display_key("open_armory_home")
+    materials_key = _default_display_key("open_materials")
+    commands_key = _default_display_key("command_palette")
 
-    assert specs_by_action["open_armory_home"].keys == "f3"
-    assert specs_by_action["open_materials"].keys == "f5"
-    assert specs_by_action["command_palette"].keys == "f2"
+    assert specs_by_action["open_armory_home"].keys == _default_binding("open_armory_home")
+    assert specs_by_action["open_materials"].keys == _default_binding("open_materials")
+    assert specs_by_action["command_palette"].keys == _default_binding("command_palette")
     assert specs_by_action["cycle_reasoning_level"].keys == "shift+tab"
     assert [(hint.label, hint.key) for hint in hints] == [
-        ("ARMORY", "f3"),
-        ("MATERIALS", "f5"),
-        ("COMMANDS", "f2"),
+        ("ARMORY", armory_key),
+        ("MATERIALS", materials_key),
+        ("COMMANDS", commands_key),
         ("REASONING", "shift+tab"),
     ]
 
@@ -541,8 +559,8 @@ def test_keymap_text_lists_materials_shortcut() -> None:
     text = keybinds.keymap_text()
 
     assert text.startswith("KEYMAP shortcuts")
-    assert "f3" in text
-    assert "f5" in text
+    assert _default_display_key("open_armory_home") in text
+    assert _default_display_key("open_materials") in text
     assert "MATERIALS" in text
     assert "STATE default" in text
     assert "alt+m" not in text
@@ -564,6 +582,26 @@ def test_keymap_normalizes_aliases_and_modifier_order(
     normalized: str,
 ) -> None:
     assert keymap.normalize_key_spec(raw_key) == normalized
+
+
+def test_keymap_defaults_keep_function_keys_on_macos() -> None:
+    runtime = keymap.default_runtime_keymap(platform="darwin")
+
+    assert runtime.keys_for_action("command_palette") == ("f2",)
+    assert runtime.keys_for_action("open_armory_home") == ("f3",)
+    assert runtime.keys_for_action("open_materials") == ("f5",)
+    assert runtime.keys_for_action("open_search") == ("f6",)
+    assert runtime.keys_for_action("evidence") == ("f8",)
+
+
+def test_keymap_defaults_avoid_function_keys_off_macos() -> None:
+    runtime = keymap.default_runtime_keymap(platform="linux")
+
+    assert runtime.keys_for_action("command_palette") == ("ctrl+alt+p",)
+    assert runtime.keys_for_action("open_armory_home") == ("ctrl+alt+a",)
+    assert runtime.keys_for_action("open_materials") == ("ctrl+alt+m",)
+    assert runtime.keys_for_action("open_search") == ("ctrl+alt+f",)
+    assert runtime.keys_for_action("evidence") == ("ctrl+alt+e",)
 
 
 @pytest.mark.parametrize(
@@ -615,7 +653,7 @@ def test_keymap_ignores_reserved_manual_config_binding() -> None:
 
     runtime = keymap.load_runtime_keymap()
 
-    assert runtime.keys_for_action("open_materials") == ("f5",)
+    assert runtime.keys_for_action("open_materials") == (_default_binding("open_materials"),)
     assert any("alt+m is reserved by macOS" in error for error in runtime.errors)
 
 
@@ -729,7 +767,12 @@ def test_secondary_chrome_details_share_darker_tint(
         return str(text.style)
 
     footer = tui._footer_hints_text(session)
-    for keybind in ("f3", "f5", "f2", "shift+tab"):
+    for keybind in (
+        _default_display_key("open_armory_home"),
+        _default_display_key("open_materials"),
+        _default_display_key("command_palette"),
+        "shift+tab",
+    ):
         assert effective_style(footer, keybind) == palette.text_muted
 
     status = tui._status_text(session)
@@ -1161,7 +1204,7 @@ def test_resize_preserves_armory_inline_without_duplicate_chrome(
         pytest.skip("Textual is not installed")
 
     (tmp_path / "math").mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(armory_home_shown=True),
@@ -3036,7 +3079,7 @@ def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
     assert any(line.startswith("E1 @week-01-foundations.pdf") for line in lines)
     assert any(line.startswith("E2 @week-02-methods.pdf") for line in lines)
     assert any(line.startswith("E3 @week-03-results.pdf") for line in lines)
-    assert "OPEN f8 /evidence" in lines
+    assert f"OPEN {_default_display_key('evidence')} /evidence" in lines
     assert "tool" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
 
@@ -3738,7 +3781,7 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     existing = armory_home / "exam-prep"
     initialize(existing)
     missing = armory_home / "missing"
@@ -3768,10 +3811,10 @@ def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None
     assert "STATE valid" in detail
     assert "FILES 1" in detail
     assert "MATERIALS materials/" in detail
-    assert "STATE DIR .hephaion/" in detail
+    assert "STATE DIR .harness/" in detail
 
 
-def test_f2_opens_command_palette() -> None:
+def test_default_shortcut_opens_command_palette() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3784,7 +3827,7 @@ def test_f2_opens_command_palette() -> None:
 
     async def check_command_palette() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("f2")
+            await pilot.press(_default_binding("command_palette"))
             await pilot.pause()
             composer = app.query_one("#composer", tui.Input)
             suggestions = cast(
@@ -3800,7 +3843,7 @@ def test_f2_opens_command_palette() -> None:
     asyncio.run(check_command_palette())
 
 
-def test_f5_opens_materials_inline() -> None:
+def test_default_shortcut_opens_materials_inline() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -3815,7 +3858,7 @@ def test_f5_opens_materials_inline() -> None:
 
     async def check_materials_shortcut() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("f5")
+            await pilot.press(_default_binding("open_materials"))
             await pilot.pause()
             composer = app.query_one("#composer", tui.Input)
 
@@ -4289,7 +4332,7 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
         pytest.skip("Textual is not installed")
 
     _clear_credential_env(monkeypatch)
-    monkeypatch.setenv("HEPHAION_API_KEY", "sk-global")
+    monkeypatch.setenv("HARNESS_API_KEY", "sk-global")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
     monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
     monkeypatch.setattr(
@@ -4340,7 +4383,7 @@ def test_logout_inline_menu_lists_only_clearable_stored_credentials(
             ]
             assert len(set(configured_columns)) == 1
             assert any(
-                "HEPHAION_API_KEY global override" in entry.content
+                "HARNESS_API_KEY global override" in entry.content
                 for entry in app.state.transcript
             )
             assert any(
@@ -4531,7 +4574,7 @@ def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     armory_home.mkdir()
     armory = armory_home / "known"
     initialize(armory)
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     remember_armory(armory)
 
     app = tui.HephTui(
@@ -4640,7 +4683,7 @@ def test_plain_tui_opens_named_armory_without_path(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "module-2"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
@@ -4674,7 +4717,7 @@ def test_plain_tui_opens_armory_named_detach_instead_of_detaching(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "detach"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
@@ -4707,7 +4750,7 @@ def test_busy_plain_tui_keeps_named_armory_input_as_steering(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "module-2"
     initialize(armory_path)
 
@@ -4743,7 +4786,7 @@ def test_detach_command_returns_to_plain_tui(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "module"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("grounded notes", encoding="utf-8")
@@ -4780,7 +4823,7 @@ def test_bare_detach_returns_attached_tui_to_plain(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "module"
     initialize(armory_path)
     session = _plain_session()
@@ -4814,7 +4857,7 @@ def test_armory_reference_resolver_stays_inside_armory_home(
     armory_home = tmp_path / ".armories"
     outside_home = tmp_path / "outside"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     inside = armory_home / "inside"
     outside = outside_home / "outside"
     initialize(inside)
@@ -4922,7 +4965,7 @@ def test_sessions_menu_legacy_newline_titles_do_not_wrap_or_trap_highlight(
 
     armory = tmp_path / "module"
     initialize(armory)
-    chats = armory / ".hephaion" / "chats"
+    chats = armory / ".harness" / "chats"
     chats.mkdir(parents=True, exist_ok=True)
     for index in range(6):
         session_id = f"legacy{index}"
@@ -5375,7 +5418,7 @@ def test_tmux_xterm_modified_enter_sequence_decodes_as_shift_enter() -> None:
     assert [(event.key, event.character) for event in key_events] == [("shift+enter", None)]
 
 
-def test_f3_opens_armory_home() -> None:
+def test_default_shortcut_opens_armory_home() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
@@ -5388,7 +5431,7 @@ def test_f3_opens_armory_home() -> None:
 
     async def check_armory_shortcut() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            await pilot.press("f3")
+            await pilot.press(_default_binding("open_armory_home"))
             await pilot.pause()
 
             assert app._armory_inline_active is True
@@ -5411,6 +5454,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
 
     async def check_keymap_rebind() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
+            materials_default_key = _default_display_key("open_materials")
             composer = app.query_one("#composer", tui.Input)
             composer.value = "/keymap"
             await pilot.press("enter")
@@ -5422,7 +5466,7 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             suggestions = app.query_one("#suggestions", tui.OptionList)
             materials_prompt = _option_prompt_plain(suggestions, 2)
             assert materials_prompt.startswith("  MATERIALS")
-            assert "KEY f5" in materials_prompt
+            assert f"KEY {materials_default_key}" in materials_prompt
             assert "SCOPE app" in materials_prompt
             assert "STATE default" in materials_prompt
 
@@ -5432,8 +5476,8 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             assert composer.placeholder.startswith("Keymap  materials  RECORD enter")
             review_options = dict(app._inline_flow.options)
             assert list(review_options) == ["RECORD", "RESET"]
-            assert review_options["RECORD"] == "current f5"
-            assert review_options["RESET"] == "restores f5"
+            assert review_options["RECORD"] == f"current {materials_default_key}"
+            assert review_options["RESET"] == f"restores {materials_default_key}"
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5443,7 +5487,10 @@ def test_keymap_flow_rebinds_materials_shortcut() -> None:
             app._submit_inline_flow("RECORD")
             await pilot.pause()
             assert app._inline_flow.step == "capture"
-            assert dict(app._inline_flow.options)["NEXT KEY"] == "materials current f5"
+            assert (
+                dict(app._inline_flow.options)["NEXT KEY"]
+                == f"materials current {materials_default_key}"
+            )
 
             await pilot.press("ctrl+g")
             await pilot.pause()
@@ -5486,6 +5533,8 @@ def test_keymap_menu_rows_align_with_counter_and_key_column() -> None:
 
     async def check_keymap_columns() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
+            command_key = _default_display_key("command_palette")
+            materials_key = _default_display_key("open_materials")
             app._open_keymap_flow()
             await pilot.pause()
 
@@ -5502,7 +5551,7 @@ def test_keymap_menu_rows_align_with_counter_and_key_column() -> None:
             assert command_prompt.startswith("→ COMMANDS")
             assert materials_prompt.startswith("  MATERIALS")
             assert command_prompt.index("KEY") == materials_prompt.index("KEY")
-            assert command_prompt.index("f2") == materials_prompt.index("f5")
+            assert command_prompt.index(command_key) == materials_prompt.index(materials_key)
             assert command_prompt.index("SCOPE") == materials_prompt.index("SCOPE")
             assert command_prompt.index("STATE") == materials_prompt.index("STATE")
             assert "Keyboard shortcuts" not in screen_text
@@ -5536,7 +5585,8 @@ def test_keymap_menu_rows_fit_narrow_width_without_wrapping() -> None:
             assert prompts
             assert all(cell_width(prompt) <= suggestions.size.width for prompt in prompts)
             assert any(prompt.startswith("→ COMMANDS") for prompt in prompts)
-            assert any("KEY f2" in prompt for prompt in prompts)
+            command_key_text = f"KEY {_default_display_key('command_palette')}"
+            assert any(command_key_text in prompt for prompt in prompts)
             assert any(prompt.startswith("  NEWLINE") for prompt in prompts)
             assert any("KEY shift+enter (+3)" in prompt for prompt in prompts)
             assert all("ctrl+enter/alt+enter/ctrl+j" not in prompt for prompt in prompts)
@@ -5617,7 +5667,9 @@ def test_keymap_flow_exposes_reset_as_searchable_choice() -> None:
             await pilot.pause()
 
             assert settings_store.load_raw_settings().get("tui_keymap") is None
-            assert app._keymap.keys_for_action("open_materials") == ("f5",)
+            assert app._keymap.keys_for_action("open_materials") == (
+                _default_binding("open_materials"),
+            )
 
     asyncio.run(check_reset_search())
 
@@ -5752,7 +5804,7 @@ def test_command_input_executes_without_user_transcript(
                 assert app._inline_flow.step == "menu"
                 suggestions = app.query_one("#suggestions", tui.OptionList)
                 materials_prompt = _option_prompt_plain(suggestions, 2)
-                assert "KEY f5" in materials_prompt
+                assert f"KEY {_default_display_key('open_materials')}" in materials_prompt
                 assert "SCOPE app" in materials_prompt
                 assert "STATE default" in materials_prompt
                 assert not any(
@@ -6362,7 +6414,7 @@ def test_armory_inline_composer_filters_without_chat_transcript(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     _make_child = tmp_path / "biology"
     _make_child.mkdir()
     app = tui.HephTui(
@@ -6392,7 +6444,7 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -6421,7 +6473,7 @@ def test_armory_inline_opens_fresh_empty_armory_after_create(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -6439,7 +6491,7 @@ def test_armory_inline_opens_fresh_empty_armory_after_create(
             await pilot.pause()
 
             armory_path = tmp_path / "empty-armory"
-            assert (armory_path / ".hephaion" / "armory.toml").is_file()
+            assert (armory_path / ".harness" / "armory.toml").is_file()
 
             app._handle_armory_browser("/armory")
             labels = [entry.label for entry in app._armory_entries]
@@ -6472,7 +6524,7 @@ def test_armory_inline_create_starts_in_default_armory_home(
         pytest.skip("Textual is not installed")
 
     default_home = Path.home() / ".armories"
-    monkeypatch.delenv("HEPHAION_ARMORY_HOME", raising=False)
+    monkeypatch.delenv("HARNESS_ARMORY_HOME", raising=False)
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -6489,12 +6541,12 @@ def test_armory_inline_create_starts_in_default_armory_home(
 
 
 def test_default_armory_home_honors_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path / ".armory-home"))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path / ".armory-home"))
     assert default_armory_home() == (tmp_path / ".armory-home").resolve()
 
 
 def test_default_armory_home_falls_back_to_dot_armory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HEPHAION_ARMORY_HOME", raising=False)
+    monkeypatch.delenv("HARNESS_ARMORY_HOME", raising=False)
     assert default_armory_home() == (Path.home() / ".armories").resolve()
 
 
@@ -6506,7 +6558,7 @@ def test_armory_inline_place_entries_stay_inside_armory_home(
 
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -6537,7 +6589,7 @@ def test_armory_inline_left_does_not_navigate(
     armory_home = tmp_path / ".armories"
     child = armory_home / "child"
     child.mkdir(parents=True)
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -6570,7 +6622,7 @@ def test_armory_inline_rejects_open_outside_armory_home(
     outside = tmp_path / "outside"
     armory_home.mkdir()
     initialize(outside)
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(armory_home))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -6594,7 +6646,7 @@ def test_armory_inline_create_rejects_existing_folder(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
 
     (tmp_path / "existing").mkdir()
     app = tui.HephTui(
@@ -6614,7 +6666,7 @@ def test_armory_inline_create_rejects_existing_folder(
             await pilot.pause()
             error = app.query_one("#armory-error-inline", tui.Static)
             assert "already exists" in str(error.render())
-            assert not (tmp_path / "existing" / ".hephaion").exists()
+            assert not (tmp_path / "existing" / ".harness").exists()
             assert app._armory_inline_active is True
 
     asyncio.run(check_reject_existing())
@@ -6626,7 +6678,7 @@ def test_armory_inline_create_rejects_path_escape(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -6686,7 +6738,7 @@ def test_armory_inline_escape_cancels_create_then_exits(
 ) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephTui(
         _plain_session(),
@@ -7031,7 +7083,7 @@ def test_armory_inline_preserves_selection_across_refresh(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     alpha = tmp_path / "alpha"
     beta = tmp_path / "beta"
     alpha.mkdir()
@@ -7107,7 +7159,7 @@ def test_armory_inline_rows_show_file_columns_without_duplicate_paths(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory = tmp_path / "biology"
     initialize(armory)
     (armory / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
@@ -7170,7 +7222,7 @@ def test_armory_inline_filter_selects_separator_insensitive_match(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     target = tmp_path / "module-2"
     initialize(target)
     initialize(tmp_path / "module-10")
@@ -7275,7 +7327,7 @@ def test_handle_armory_browser_rejects_invalid_directory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     app = tui.HephTui(
         _plain_session(),
         tui._TuiRuntimeState(),
@@ -7300,7 +7352,7 @@ def test_armory_inline_enter_opens_highlighted_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "study"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
@@ -7334,7 +7386,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "study"
     initialize(armory_path)
     session = _plain_session()
@@ -7373,7 +7425,7 @@ def test_busy_turn_allows_switching_armories_and_starting_another_prompt(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_a = tmp_path / "alpha"
     armory_b = tmp_path / "beta"
     initialize(armory_a)
@@ -7437,7 +7489,7 @@ def test_finished_background_turn_is_restored_when_reopening_armory(
     if tui.Input is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory_a = tmp_path / "alpha"
     armory_b = tmp_path / "beta"
     initialize(armory_a)
@@ -7482,7 +7534,7 @@ def test_armory_inline_marks_armories_with_running_turns(
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
-    monkeypatch.setenv("HEPHAION_ARMORY_HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
     armory = tmp_path / "study"
     initialize(armory)
     session = _plain_session()
@@ -7665,6 +7717,42 @@ def test_completion_menu_auto_highlights_first_item() -> None:
             assert app.focused is composer
 
     asyncio.run(check_highlight())
+
+
+def test_plain_composer_typing_does_not_query_slash_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    def fail_command_suggestions() -> list[object]:
+        raise AssertionError("plain typing should not query slash commands")
+
+    monkeypatch.setattr(
+        "interfaces.tui.composer_controls._tui_command_suggestions",
+        fail_command_suggestions,
+    )
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_plain_typing() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+
+            await pilot.press("h")
+            await pilot.press("i")
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            assert composer.value == "hi"
+            assert app.completion_candidates == []
+            assert not suggestions.has_class("visible")
+
+    asyncio.run(check_plain_typing())
 
 
 def test_tab_applies_highlighted_completion_in_composer() -> None:

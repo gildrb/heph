@@ -14,7 +14,7 @@ A typical Heph armory has this structure:
 
 [[ARMORY_LAYOUT_BLOCK]]
 
-Heph reads `materials/`, writes local state under `.hephaion/`, and leaves the
+Heph reads `materials/`, writes local state under `.harness/`, and leaves the
 armory portable. Read [[ARMORY_DOC_LINK]] for storage, indexing, and memory
 details.
 

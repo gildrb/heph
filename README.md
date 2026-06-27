@@ -27,18 +27,18 @@ A typical Heph armory has this structure:
 ├── materials/              # PDFs, Office docs, notes, code to cite
 │   ├── lecture-notes.pdf
 │   └── reference.md
-├── .hephaion/              # Local Heph state
+├── .harness/              # Local Heph state
 │   ├── armory.toml         # Armory marker
 │   ├── rag_index.json      # Retrieval index
 │   ├── memory.json         # Learning memory
 │   ├── chats/              # Saved sessions
-│   ├── traces/             # Optional JSONL traces
+│   ├── traces/             # JSONL traces when enabled
 │   ├── usage/              # Token and cost snapshots
-│   └── ignore              # Optional indexing ignores
-└── README.md               # Optional notes
+│   └── ignore              # Indexing ignore rules
+└── README.md               # Armory notes
 ```
 
-Heph reads `materials/`, writes local state under `.hephaion/`, and leaves the
+Heph reads `materials/`, writes local state under `.harness/`, and leaves the
 armory portable. Read [Armories](docs/armories.md) for storage, indexing, and memory
 details.
 

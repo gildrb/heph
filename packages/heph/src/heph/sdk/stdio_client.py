@@ -13,7 +13,7 @@ from typing import IO, Self
 
 from ai.providers.reasoning import REASONING_LEVELS
 from ai.runtime.thinking import THINKING_VISIBILITY_MODES
-from hephaion._types import is_string_mapping
+from harness._types import is_string_mapping
 
 from heph.sdk.compatibility import (
     ensure_sdk_client_options,

@@ -41,9 +41,9 @@ def test_package_concern_modules_are_importable() -> None:
         "heph",
         "heph.cli",
         "heph.commands",
-        "hephaion",
-        "hephaion.agent",
-        "hephaion.chat",
+        "harness",
+        "harness.agent",
+        "harness.chat",
         "interfaces",
         "interfaces.terminal",
         "interfaces.tui",
@@ -57,7 +57,7 @@ def test_heph_console_command_is_the_public_entrypoint() -> None:
     scripts = {
         entry_point.name: entry_point.value
         for entry_point in importlib.metadata.entry_points(group="console_scripts")
-        if entry_point.name in {"heph", "hephaion"}
+        if entry_point.name in {"heph", "harness"}
     }
 
     assert scripts == {

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hephaion.rag.chunker import Chunk
-from hephaion.rag.context import EvidenceChunk, TurnEvidence
+from harness.rag.chunker import Chunk
+from harness.rag.context import EvidenceChunk, TurnEvidence
 from interfaces.terminal import current_palette
 from interfaces.tui.rich_transcript import (
     enrich_reply,

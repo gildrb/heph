@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
-from hephaion._types import is_string_mapping
+from harness._types import is_string_mapping
 
 from scripts.check_dependency_sdist_allowlist import allowed_source_only_package_names
 
@@ -34,7 +34,7 @@ assert capabilities.version == sdk.SDK_CAPABILITIES_VERSION
 assert sdk.validate_sdk_capabilities(capabilities) == ()
 assert resources.files("heph").joinpath("py.typed").is_file()
 assert resources.files("heph").joinpath("state", "release.toml").is_file()
-assert resources.files("hephaion").joinpath("parameters", "default.toml").is_file()
+assert resources.files("harness").joinpath("parameters", "default.toml").is_file()
 assert resources.files("ai").joinpath("py.typed").is_file()
 assert resources.files("extensions").joinpath("py.typed").is_file()
 assert resources.files("interfaces").joinpath("py.typed").is_file()
