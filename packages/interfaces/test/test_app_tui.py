@@ -563,7 +563,7 @@ def test_keymap_text_lists_materials_shortcut() -> None:
     assert _default_display_key("open_materials") in text
     assert "MATERIALS" in text
     assert "STATE default" in text
-    assert "alt+m" not in text
+    assert " alt+m" not in text
     assert "f4" not in text
     assert "ctrl+t" not in text
 
@@ -584,24 +584,27 @@ def test_keymap_normalizes_aliases_and_modifier_order(
     assert keymap.normalize_key_spec(raw_key) == normalized
 
 
-def test_keymap_defaults_keep_function_keys_on_macos() -> None:
-    runtime = keymap.default_runtime_keymap(platform="darwin")
-
-    assert runtime.keys_for_action("command_palette") == ("f2",)
-    assert runtime.keys_for_action("open_armory_home") == ("f3",)
-    assert runtime.keys_for_action("open_materials") == ("f5",)
-    assert runtime.keys_for_action("open_search") == ("f6",)
-    assert runtime.keys_for_action("evidence") == ("f8",)
-
-
-def test_keymap_defaults_avoid_function_keys_off_macos() -> None:
-    runtime = keymap.default_runtime_keymap(platform="linux")
+def test_keymap_defaults_avoid_function_keys() -> None:
+    runtime = keymap.default_runtime_keymap()
 
     assert runtime.keys_for_action("command_palette") == ("ctrl+alt+p",)
     assert runtime.keys_for_action("open_armory_home") == ("ctrl+alt+a",)
     assert runtime.keys_for_action("open_materials") == ("ctrl+alt+m",)
     assert runtime.keys_for_action("open_search") == ("ctrl+alt+f",)
     assert runtime.keys_for_action("evidence") == ("ctrl+alt+e",)
+    assert not any(
+        key.startswith("f") and key[1:].isdigit()
+        for action in keymap.TUI_KEYMAP_ACTIONS
+        for key in runtime.keys_for_action(action.id)
+    )
+
+
+@pytest.mark.parametrize("raw_key", ["f3", "ctrl+f5", "shift+f8"])
+def test_keymap_rejects_function_key_bindings(raw_key: str) -> None:
+    result = keymap.save_keymap_binding("open_materials", raw_key)
+
+    assert result.saved is False
+    assert "function keys can trigger hardware" in result.message
 
 
 @pytest.mark.parametrize(
@@ -646,6 +649,7 @@ def test_keymap_ignores_reserved_manual_config_binding() -> None:
             "tui_keymap": {
                 "app": {
                     "open_materials": "alt+m",
+                    "open_search": "f3",
                 },
             },
         }
@@ -654,7 +658,11 @@ def test_keymap_ignores_reserved_manual_config_binding() -> None:
     runtime = keymap.load_runtime_keymap()
 
     assert runtime.keys_for_action("open_materials") == (_default_binding("open_materials"),)
+    assert runtime.keys_for_action("open_search") == (_default_binding("open_search"),)
     assert any("alt+m is reserved by macOS" in error for error in runtime.errors)
+    assert any(
+        "open_search: function keys can trigger hardware" in error for error in runtime.errors
+    )
 
 
 def test_keymap_loads_valid_bindings_from_mixed_manual_config() -> None:

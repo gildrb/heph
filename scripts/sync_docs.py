@@ -390,7 +390,7 @@ def collect_keyboard_shortcuts() -> tuple[KeyboardShortcutDoc, ...]:
             action=shortcut.label,
             description=shortcut.description,
         )
-        for shortcut in tui_keybinds(platform="darwin")
+        for shortcut in tui_keybinds()
     )
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -25,7 +24,6 @@ class TuiKeymapAction:
     label: str
     description: str
     default_keys: tuple[str, ...]
-    portable_default_keys: tuple[str, ...] = ()
     show: bool = False
     priority: bool = True
     footer: bool = False
@@ -74,8 +72,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Commands",
         "Open the command palette.",
-        ("f2",),
-        portable_default_keys=("ctrl+alt+p",),
+        ("ctrl+alt+p",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -83,8 +80,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Armory",
         "Open the armory home.",
-        ("f3",),
-        portable_default_keys=("ctrl+alt+a",),
+        ("ctrl+alt+a",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -92,8 +88,7 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Materials",
         "Choose which materials are used for retrieval.",
-        ("f5",),
-        portable_default_keys=("ctrl+alt+m",),
+        ("ctrl+alt+m",),
         footer=True,
     ),
     TuiKeymapAction(
@@ -101,16 +96,14 @@ TUI_KEYMAP_ACTIONS: Final[tuple[TuiKeymapAction, ...]] = (
         _CONTEXT_APP,
         "Search",
         "Search across armories.",
-        ("f6",),
-        portable_default_keys=("ctrl+alt+f",),
+        ("ctrl+alt+f",),
     ),
     TuiKeymapAction(
         "evidence",
         _CONTEXT_APP,
         "Evidence",
         "Show evidence details.",
-        ("f8",),
-        portable_default_keys=("ctrl+alt+e",),
+        ("ctrl+alt+e",),
     ),
     TuiKeymapAction(
         "clear_transcript",
@@ -218,26 +211,19 @@ _RESERVED_KEY_REASONS: Final[dict[str, str]] = {
     "ctrl+d": "ctrl+d is reserved for quitting Heph.",
     "ctrl+m": "ctrl+m reaches terminals as Enter, so it cannot be a reliable shortcut.",
     "ctrl+t": "ctrl+t can clear terminal state in some shells and terminal setups.",
-    "f4": "f4 is too easy to confuse with close-window muscle memory.",
 }
 
 
-def default_runtime_keymap(*, platform: str | None = None) -> RuntimeKeymap:
+def default_runtime_keymap() -> RuntimeKeymap:
     return RuntimeKeymap(
-        bindings={
-            action.id: default_keys_for_action(action, platform=platform)
-            for action in TUI_KEYMAP_ACTIONS
-        },
+        bindings={action.id: action.default_keys for action in TUI_KEYMAP_ACTIONS},
         configured_actions=frozenset(),
     )
 
 
-def load_runtime_keymap(*, platform: str | None = None) -> RuntimeKeymap:
+def load_runtime_keymap() -> RuntimeKeymap:
     configured, errors = _load_configured_bindings()
-    bindings = {
-        action.id: default_keys_for_action(action, platform=platform)
-        for action in TUI_KEYMAP_ACTIONS
-    }
+    bindings = {action.id: action.default_keys for action in TUI_KEYMAP_ACTIONS}
     configured_actions: set[str] = set()
     for action in TUI_KEYMAP_ACTIONS:
         context_bindings = configured.get(action.context, {})
@@ -257,26 +243,15 @@ def keymap_action(action_id: str) -> TuiKeymapAction | None:
     return _ACTIONS_BY_ID.get(action_id)
 
 
-def default_keys_for_action(
-    action: TuiKeymapAction,
-    *,
-    platform: str | None = None,
-) -> tuple[str, ...]:
-    platform_name = sys.platform if platform is None else platform
-    if platform_name == "darwin" or not action.portable_default_keys:
-        return action.default_keys
-    return action.portable_default_keys
+def default_keys_for_action(action: TuiKeymapAction) -> tuple[str, ...]:
+    return action.default_keys
 
 
-def default_keys_for_action_id(
-    action_id: str,
-    *,
-    platform: str | None = None,
-) -> tuple[str, ...]:
+def default_keys_for_action_id(action_id: str) -> tuple[str, ...]:
     action = _ACTIONS_BY_ID.get(action_id)
     if action is None:
         return ()
-    return default_keys_for_action(action, platform=platform)
+    return default_keys_for_action(action)
 
 
 def normalize_key_spec(raw: str) -> str:
@@ -411,16 +386,16 @@ def _normalize_key_name(key: str, original: str) -> str:
             return alias
     if alias in _NAMED_KEYS:
         return alias
-    if alias.startswith("f"):
-        number = alias[1:]
-        if number.isdecimal() and 1 <= int(number) <= MAX_FUNCTION_KEY:
-            return alias
+    if _is_function_key_name(alias):
+        return alias
     raise ValueError(f"unknown key {key!r} in keybinding {original!r}")
 
 
 def _binding_validation_error(action: TuiKeymapAction, key: str) -> str:
     if reason := _RESERVED_KEY_REASONS.get(key):
         return reason
+    if _binding_uses_function_key(key):
+        return "function keys can trigger hardware or desktop actions; use ctrl+alt+<key> instead."
     if key == "enter":
         return "enter is reserved for submitting text and selecting rows."
     if key == "escape" and action.id != "cancel_turn":
@@ -430,6 +405,17 @@ def _binding_validation_error(action: TuiKeymapAction, key: str) -> str:
     if key.startswith("shift+") and len(key.removeprefix("shift+")) == 1:
         return "shift+letter shortcuts would steal uppercase typing; use ctrl+<key> instead."
     return ""
+
+
+def _binding_uses_function_key(key: str) -> bool:
+    return _is_function_key_name(key.rsplit("+", maxsplit=1)[-1])
+
+
+def _is_function_key_name(key: str) -> bool:
+    if not key.startswith("f"):
+        return False
+    number = key[1:]
+    return number.isdecimal() and 1 <= int(number) <= MAX_FUNCTION_KEY
 
 
 def _load_configured_bindings() -> tuple[dict[str, dict[str, tuple[str, ...]]], list[str]]:

@@ -71,19 +71,18 @@ an action, then select RECORD or press Enter before typing the new shortcut.
 Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keymap
 list, to restore defaults.
 Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
-`ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and `f4`.
-macOS keeps the familiar function-key defaults below. On Linux and other
-platforms, app-wide defaults avoid function keys: Commands `ctrl+alt+p`,
+`ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and function keys.
+Default app-wide shortcuts avoid function keys: Commands `ctrl+alt+p`,
 Armory `ctrl+alt+a`, Materials `ctrl+alt+m`, Search `ctrl+alt+f`, and
 Evidence `ctrl+alt+e`.
 
 | Shortcut | Action |
 |---|---|
-| `f2` | Commands: Open the command palette. |
-| `f3` | Armory: Open the armory home. |
-| `f5` | Materials: Choose which materials are used for retrieval. |
-| `f6` | Search: Search across armories. |
-| `f8` | Evidence: Show evidence details. |
+| `ctrl+alt+p` | Commands: Open the command palette. |
+| `ctrl+alt+a` | Armory: Open the armory home. |
+| `ctrl+alt+m` | Materials: Choose which materials are used for retrieval. |
+| `ctrl+alt+f` | Search: Search across armories. |
+| `ctrl+alt+e` | Evidence: Show evidence details. |
 | `ctrl+l` | Screen: Clear the screen. |
 | `tab` | Complete: Complete the current input. |
 | `shift+tab` | Reasoning: Cycle the reasoning level. |

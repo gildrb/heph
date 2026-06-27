@@ -42,6 +42,14 @@ _PUBLIC_NAMING_PATTERNS = (
 )
 
 
+def _shortcut_uses_function_key(keys: str) -> bool:
+    for key in keys.split("/"):
+        base_key = key.rsplit("+", maxsplit=1)[-1]
+        if base_key.startswith("f") and base_key[1:].isdigit():
+            return True
+    return False
+
+
 def test_replace_managed_block_updates_named_section() -> None:
     text = "\n".join(
         [
@@ -95,8 +103,11 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     assert any(command.command == "/keymap" for command in model.slash_commands)
     assert not any(command.command == "/persona" for command in model.slash_commands)
     assert not any(command.command == "/edit" for command in model.slash_commands)
-    assert any(shortcut.keys == "f3" for shortcut in model.keyboard_shortcuts)
-    assert any(shortcut.keys == "f5" for shortcut in model.keyboard_shortcuts)
+    shortcut_keys = {shortcut.keys for shortcut in model.keyboard_shortcuts}
+    assert {"ctrl+alt+p", "ctrl+alt+a", "ctrl+alt+m"} <= shortcut_keys
+    assert not any(
+        _shortcut_uses_function_key(shortcut.keys) for shortcut in model.keyboard_shortcuts
+    )
     assert not any(
         shortcut.keys in {"alt+m", "f4", "ctrl+t"} for shortcut in model.keyboard_shortcuts
     )
