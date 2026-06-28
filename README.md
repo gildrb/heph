@@ -23,10 +23,10 @@ keeps learning memory scoped to that armory.
 A typical Heph armory has this structure:
 
 ```text
-~/.armories/exams/
+~/.armories/[name]/
 ├── materials/              # PDFs, Office docs, notes, code to cite
-│   ├── lecture-notes.pdf
-│   └── reference.md
+│   ├── [file].pdf
+│   └── [file].md
 ├── .harness/              # Local Heph state
 │   ├── armory.toml         # Armory marker
 │   ├── rag_index.json      # Retrieval index
@@ -48,29 +48,31 @@ details.
 
 ## Quick Start
 
-UV:
+With UV:
 
 ```bash
 uv tool install heph@latest
-heph armory init exams
-cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
-heph exams
 ```
 
-Pip:
+With Pip:
 
 ```bash
 pip install heph
-heph armory init exams
-cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/
-heph exams
+```
+
+Example:
+
+```bash
+heph armory init [name]
+cp ~/Downloads/[file] ~/.armories/[name]/materials/
+heph [name]
 ```
 
 ## Commands
 
 ```text
 heph [name-or-path]     Open Heph.
-heph armory init NAME   Create an armory in ~/.armories.
+heph armory init [name]  Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.

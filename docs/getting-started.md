@@ -41,8 +41,8 @@ An armory is a normal folder containing source files, chat history, retrieval
 index, traces, usage snapshots, and local memory.
 
 ```bash
-heph armory init exams
-cd ~/.armories/exams
+heph armory init [name]
+cd ~/.armories/[name]
 # Add source files to the materials/ directory
 ```
 
@@ -58,11 +58,11 @@ armory and shows a no-materials state until files are present in `materials/`.
 Place source files in the armory's `materials/` directory:
 
 ```bash
-~/.armories/exams/
+~/.armories/[name]/
 ├── materials/
-│   ├── lecture-notes.pdf
-│   ├── textbook-chapter1.pdf
-│   └── reference-doc.md
+│   ├── [file].pdf
+│   ├── [file].pdf
+│   └── [file].md
 └── .harness/
     ├── armory.toml
     ├── chats/
@@ -80,13 +80,13 @@ Supported formats:
 ## Start Heph
 
 ```bash
-heph exams
+heph [name]
 ```
 
 Or with an explicit armory path:
 
 ```bash
-heph ~/.armories/exams
+heph ~/.armories/[name]
 heph .
 ```
 
@@ -142,7 +142,7 @@ Inside Heph:
 
 CLI commands:
 - `heph [name-or-path]` - Open Heph for an armory
-- `heph armory init NAME` - Create a new armory in `~/.armories`
+- `heph armory init [name]` - Create a new armory in `~/.armories`
 - `heph index [path]` - Refresh the materials index
 - `heph health [path]` - Check indexed materials
 - `heph update` - Show the update command

@@ -488,8 +488,8 @@ def render_markdown_table(headers: tuple[str, str], rows: tuple[tuple[str, str],
     return "\n".join(lines)
 
 
-def render_install_block(model: DocsModel) -> str:
-    return f"```bash\nuv tool install heph@latest\n{model.short_command} --version\n```"
+def render_install_block() -> str:
+    return "```bash\nuv tool install heph@latest\n```"
 
 
 def render_pip_install_block() -> str:
@@ -499,9 +499,9 @@ def render_pip_install_block() -> str:
 def render_create_armory_block(model: DocsModel) -> str:
     return (
         "```bash\n"
-        f"{model.short_command} armory init exams\n"
-        "# Add files to ~/.armories/exams/materials\n"
-        f"{model.short_command} exams\n"
+        f"{model.short_command} armory init [name]\n"
+        "# Add files to ~/.armories/[name]/materials\n"
+        f"{model.short_command} [name]\n"
         "```"
     )
 
@@ -509,21 +509,9 @@ def render_create_armory_block(model: DocsModel) -> str:
 def render_quick_start_block(model: DocsModel) -> str:
     return (
         "```bash\n"
-        "uv tool install heph@latest\n"
-        f"{model.short_command} armory init exams\n"
-        "cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/\n"
-        f"{model.short_command} exams\n"
-        "```"
-    )
-
-
-def render_install_options_block() -> str:
-    return (
-        "```bash\n"
-        "pip install heph\n"
-        "heph armory init exams\n"
-        "cp ~/Downloads/lecture-notes.pdf ~/.armories/exams/materials/\n"
-        "heph exams\n"
+        f"{model.short_command} armory init [name]\n"
+        "cp ~/Downloads/[file] ~/.armories/[name]/materials/\n"
+        f"{model.short_command} [name]\n"
         "```"
     )
 
@@ -557,13 +545,12 @@ def render_readme_badges_block(*, docs_index: bool) -> str:
 
 
 def render_armory_layout_block(*, docs_index: bool) -> str:
-    root_name = "exams"
     return (
         "```text\n"
-        f"~/.armories/{root_name}/\n"
+        "~/.armories/[name]/\n"
         "├── materials/              # PDFs, Office docs, notes, code to cite\n"
-        "│   ├── lecture-notes.pdf\n"
-        "│   └── reference.md\n"
+        "│   ├── [file].pdf\n"
+        "│   └── [file].md\n"
         "├── .harness/              # Local Heph state\n"
         "│   ├── armory.toml         # Armory marker\n"
         "│   ├── rag_index.json      # Retrieval index\n"
@@ -647,13 +634,12 @@ def render_home_footer(*, docs_index: bool) -> str:
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
     replacements = {
         "GENERATED_NOTICE": GENERATED_NOTICE,
-        "INSTALL_BLOCK": render_install_block(model),
+        "INSTALL_BLOCK": render_install_block(),
         "PIP_INSTALL_BLOCK": render_pip_install_block(),
         "UPGRADE_BLOCK": "```bash\nuv tool upgrade heph\n```",
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/heph\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
         "QUICK_START_BLOCK": render_quick_start_block(model),
-        "INSTALL_OPTIONS_BLOCK": render_install_options_block(),
         "BADGES_BLOCK": render_readme_badges_block(docs_index=docs_index),
         "ARMORY_LAYOUT_BLOCK": render_armory_layout_block(docs_index=docs_index),
         "ARMORY_DOC_LINK": "[Armories](docs/armories.md)"

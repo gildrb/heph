@@ -167,7 +167,7 @@ cp -r ~/.armories/my-armory/materials ~/backup/documents/
 ### One Armory per Project
 
 Keep different projects in separate armories:
-- `exams/` for exam preparation
+- `course-notes/` for course materials
 - `research/` for research papers
 - `documentation/` for product docs
 

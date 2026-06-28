@@ -24,19 +24,23 @@ details.
 
 ## Quick Start
 
-UV:
+With UV:
+
+[[INSTALL_BLOCK]]
+
+With Pip:
+
+[[PIP_INSTALL_BLOCK]]
+
+Example:
 
 [[QUICK_START_BLOCK]]
-
-Pip:
-
-[[INSTALL_OPTIONS_BLOCK]]
 
 ## Commands
 
 ```text
 heph [name-or-path]     Open Heph.
-heph armory init NAME   Create an armory in ~/.armories.
+heph armory init [name]  Create an armory in ~/.armories.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.
