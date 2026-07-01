@@ -20,7 +20,7 @@
 | `heph local status` | Show local llama.cpp status. |
 | `heph local revalidate <model-id>` | Rerun the tool-call probe for an installed local model. |
 | `heph local stop` | Stop the managed llama.cpp server. |
-| `heph update` | Show how to update the active Heph install. |
+| `heph update` | Update the active released Heph install. |
 | `heph sdk serve` | Run the SDK JSONL stdio service. |
 | `heph sdk capabilities` | Print the SDK capability contract as JSON. |
 | `heph release status` | Show installed package, official stable, and release channel state. |

@@ -276,37 +276,26 @@ def _maybe_reexec_source_venv() -> None:
     os.execve(str(venv_heph), [str(venv_heph), *sys.argv[1:]], env)
 
 
-def _cmd_update(_args: argparse.Namespace) -> None:
+def _cmd_update(args: argparse.Namespace) -> None:
+    self_update = importlib.import_module("heph.self_update")
     root = _project_root()
-    executable = Path(sys.executable).resolve()
-    print("Heph update")
-    print(f"  executable: {executable}")
-    print(f"  package: {Path(__file__).resolve()}")
-    if _is_source_checkout(root):
-        print()
-        print("This executable is importing a source checkout:")
-        print(f"  {root}")
-        print()
-        print("For this checkout, run:")
-        print(f"  cd {root}")
-        print("  uv sync")
-        print("  uv run heph")
-        print()
-        print("For a global uv tool install, run:")
-        print("  uv tool upgrade heph")
+    context = self_update.UpdateContext(
+        executable=Path(sys.executable).resolve(),
+        package_module=Path(__file__).resolve(),
+        project_root=root,
+        source_checkout=_is_source_checkout(root),
+        python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
+    )
+    plan = self_update.choose_update_plan(context)
+    _write_stdout(self_update.format_update_plan(plan, dry_run=args.dry_run))
+    if args.dry_run or not plan.runnable:
         return
-
-    uv_tool_markers = (".local/share/uv/tools/heph", "/uv/tools/heph/")
-    if any(marker in str(executable) for marker in uv_tool_markers):
-        print()
-        print("Upgrade this uv tool install with:")
-        print("  uv tool upgrade heph")
-        return
-
-    print()
-    print("Could not detect the installer for this executable.")
-    print("If you installed with uv, run:")
-    print("  uv tool upgrade heph")
+    try:
+        self_update.run_update_plan(plan)
+    except self_update.UpdateFailedError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(exc.returncode) from exc
+    _write_stdout("Update complete. Restart Heph and run `heph --version` to confirm.")
 
 
 def _cmd_local(args: argparse.Namespace) -> None:
@@ -628,7 +617,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     update = subparsers.add_parser(
         "update",
-        help="Show how to update the active Heph install.",
+        help="Update the active released Heph install.",
+    )
+    update.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the installer command without running it.",
     )
     update.set_defaults(handler=_cmd_update)
 

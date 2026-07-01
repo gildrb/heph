@@ -23,7 +23,7 @@ The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code fil
 ### Upgrade
 
 ```bash
-uv tool upgrade heph
+heph update
 ```
 
 ### From Source
@@ -145,7 +145,7 @@ CLI commands:
 - `heph armory init [name]` - Create a new armory in `~/.armories`
 - `heph index [path]` - Refresh the materials index
 - `heph health [path]` - Check indexed materials
-- `heph update` - Show the update command
+- `heph update` - Update the released install
 
 ## Read Next
 

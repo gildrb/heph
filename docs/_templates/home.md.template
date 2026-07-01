@@ -45,7 +45,7 @@ heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.
 heph sdk serve          Start the JSONL SDK service.
-heph update             Show the update command.
+heph update             Update the released install.
 ```
 
 Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,

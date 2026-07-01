@@ -82,7 +82,9 @@ def test_update_command_is_not_treated_as_armory(
 
     out = capsys.readouterr().out
     assert "Heph update" in out
-    assert "uv tool upgrade heph" in out
+    assert "source checkout" in out
+    assert "uv tool install --force" in out
+    assert "heph@latest" in out
 
 
 def test_release_status_command_reports_json(
