@@ -9,6 +9,7 @@ from pathlib import Path
 
 MATERIALS_DIR = "materials"
 INTERNAL_DIR = ".harness"
+LEGACY_INTERNAL_DIR = ".hephaion"
 GENERATED_DIR = ".harness/generated"
 CHATS_DIR = ".harness/chats"
 TRACES_DIR = ".harness/traces"
@@ -25,6 +26,7 @@ ARMORY_DIRS = (
     TOOLS_DIR,
 )
 MARKER_FILE = Path(".harness/armory.toml")
+LEGACY_MARKER_FILE = Path(".hephaion/armory.toml")
 LAYOUT_VERSION = 2
 
 
@@ -72,6 +74,8 @@ def validate(path: Path) -> None:
     except OSError as exc:
         raise ArmoryValidationError(f"armory cannot be resolved: {path}") from exc
 
+    _migrate_legacy_internal_dir(path)
+
     for dirname in ARMORY_DIRS:
         _validate_armory_dir(path, resolved_path, dirname)
 
@@ -83,6 +87,13 @@ def validate(path: Path) -> None:
     if missing_dirs:
         missing = ", ".join(missing_dirs)
         raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
+
+
+def has_marker(path: Path) -> bool:
+    try:
+        return (path / MARKER_FILE).is_file() or _has_legacy_marker(path)
+    except OSError:
+        return False
 
 
 def validate_armory_path(path: str | Path) -> Path:
@@ -120,6 +131,26 @@ def _validate_armory_dir(path: Path, resolved_path: Path, dirname: str) -> None:
         raise ArmoryValidationError(f"armory directory cannot be resolved: {target}") from exc
     if not resolved_target.is_relative_to(resolved_path):
         raise ArmoryValidationError(f"armory directory escapes armory: {target}")
+
+
+def _migrate_legacy_internal_dir(path: Path) -> None:
+    internal_path = path / INTERNAL_DIR
+    legacy_path = path / LEGACY_INTERNAL_DIR
+    if not _has_legacy_marker(path):
+        return
+    if internal_path.exists():
+        if (internal_path / "armory.toml").is_file():
+            return
+        raise ArmoryValidationError(
+            f"legacy armory state cannot be migrated because {internal_path} already exists"
+        )
+    if legacy_path.is_symlink():
+        raise ArmoryValidationError(f"armory directory must not be a symlink: {legacy_path}")
+    legacy_path.rename(internal_path)
+
+
+def _has_legacy_marker(path: Path) -> bool:
+    return (path / LEGACY_MARKER_FILE).is_file()
 
 
 def read_marker(path: Path) -> dict[str, object]:

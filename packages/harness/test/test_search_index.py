@@ -11,6 +11,7 @@ from harness.armory.search import (
     _chunk_text,
     discover_armory_home_entries,
     forget_armory,
+    get_last_armory,
     load_available_armories,
     load_remembered_armories,
     load_remembered_armory_entries,
@@ -26,6 +27,11 @@ def _make_material_file(armory: Path, name: str, content: str) -> Path:
     path = materials_dir / name
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _initialize_legacy_armory(path: Path) -> None:
+    initialize(path)
+    (path / ".harness").rename(path / ".hephaion")
 
 
 def test_chunk_text_short_text_returns_single_chunk() -> None:
@@ -180,3 +186,41 @@ def test_available_armories_include_copied_armory_home_children(
 
     assert [entry.path for entry in discovered] == [copied.resolve()]
     assert load_available_armories() == [copied.resolve()]
+
+
+def test_available_armories_include_legacy_armory_home_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    legacy = armory_home / "legacy-course"
+    _initialize_legacy_armory(legacy)
+    raw_settings: dict[str, object] = {}
+
+    def fake_load() -> dict[str, object]:
+        return dict(raw_settings)
+
+    monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setattr("harness.armory.search.load_raw_settings", fake_load)
+
+    discovered = discover_armory_home_entries()
+
+    assert [entry.path for entry in discovered] == [legacy.resolve()]
+    assert load_available_armories() == [legacy.resolve()]
+
+
+def test_last_armory_accepts_legacy_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy = tmp_path / "legacy-course"
+    _initialize_legacy_armory(legacy)
+    raw_settings: dict[str, object] = {"last_armory_path": str(legacy)}
+
+    def fake_load() -> dict[str, object]:
+        return dict(raw_settings)
+
+    monkeypatch.setattr("harness.armory.search.load_raw_settings", fake_load)
+
+    assert get_last_armory() == legacy.resolve()

@@ -66,6 +66,10 @@ Heph discovers valid armory folders in `.armories` when it starts. Copied or
 synced armories are available as long as their `.harness/armory.toml` marker and
 `materials/` folder travel with them.
 
+Armories created by older Heph releases with `.hephaion/` state are migrated to
+`.harness/` on first open. If both state directories exist and `.harness/` is not
+a valid armory state directory, Heph stops instead of guessing which state to use.
+
 When Heph is open without an attached armory, entering the exact name of a
 discovered armory opens it directly. Names and relative paths resolve inside
 `~/.armories`; Heph will not open armories outside that directory from this flow.

@@ -14,11 +14,17 @@ from harness.armory.storage import (
     MARKER_FILE,
     ArmoryValidationError,
     armory_display_name,
+    has_marker,
     initialize,
     normalize_path,
     validate,
     validate_armory_path,
 )
+
+
+def _initialize_legacy_armory(path: Path) -> None:
+    initialize(path)
+    (path / ".harness").rename(path / ".hephaion")
 
 
 def test_initialize_armory_creates_required_layout(tmp_path: Path) -> None:
@@ -43,6 +49,34 @@ def test_validate_armory_path_normalizes_and_reads_marker(tmp_path: Path) -> Non
     initialize(armory_path)
 
     assert validate_armory_path(armory_path) == armory_path.resolve()
+
+
+def test_validate_armory_migrates_legacy_internal_dir(tmp_path: Path) -> None:
+    armory_path = tmp_path / "legacy-armory"
+    _initialize_legacy_armory(armory_path)
+    (armory_path / ".hephaion" / "history").write_text("old input\n", encoding="utf-8")
+
+    validate(armory_path)
+
+    assert not (armory_path / ".hephaion").exists()
+    assert (armory_path / MARKER_FILE).is_file()
+    assert (armory_path / ".harness" / "history").read_text(encoding="utf-8") == "old input\n"
+
+
+def test_validate_armory_rejects_ambiguous_legacy_migration(tmp_path: Path) -> None:
+    armory_path = tmp_path / "legacy-armory"
+    _initialize_legacy_armory(armory_path)
+    (armory_path / ".harness").mkdir()
+
+    with pytest.raises(ArmoryValidationError, match="legacy armory state cannot be migrated"):
+        validate(armory_path)
+
+
+def test_has_marker_accepts_legacy_marker(tmp_path: Path) -> None:
+    armory_path = tmp_path / "legacy-armory"
+    _initialize_legacy_armory(armory_path)
+
+    assert has_marker(armory_path) is True
 
 
 def test_armory_display_name_preserves_existing_directory_casing(tmp_path: Path) -> None:

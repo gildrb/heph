@@ -11,7 +11,7 @@ from harness.armory.search import (
     load_recent_armory_entries,
     load_remembered_armory_entries,
 )
-from harness.armory.storage import MARKER_FILE
+from harness.armory.storage import has_marker
 from harness.matching import ranked_matches
 from harness.materials import count_material_files
 
@@ -45,7 +45,7 @@ def _list_entries(path: Path) -> list[Path]:
 
 def _is_armory(path: Path) -> bool:
     try:
-        return (path / MARKER_FILE).is_file()
+        return has_marker(path)
     except OSError:
         return False
 

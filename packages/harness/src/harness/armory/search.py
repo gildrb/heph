@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from harness.armory.storage import MARKER_FILE, default_armory_home
+from harness.armory.storage import default_armory_home, has_marker
 from harness.materials import MATERIALS_DIR, iter_material_files
 from harness.parameters.settings import load_raw_settings, save_setting
 
@@ -57,7 +57,7 @@ def _load_armory_entries(key: str) -> list[ArmoryEntry]:
             continue
         seen.add(path)
         exists = path.is_dir()
-        valid = exists and (path / MARKER_FILE).is_file()
+        valid = exists and has_marker(path)
         armories.append(ArmoryEntry(path=path, exists=exists, valid=valid))
     return armories
 
@@ -115,7 +115,7 @@ def _discover_armory_home_entries(armory_home: Path) -> list[ArmoryEntry]:
             continue
         if not _path_is_in_armory_home(resolved, armory_home):
             continue
-        if resolved.is_dir() and (resolved / MARKER_FILE).is_file():
+        if resolved.is_dir() and has_marker(resolved):
             entries.append(ArmoryEntry(path=resolved, exists=True, valid=True))
     return entries
 
@@ -158,7 +158,7 @@ def get_last_armory() -> Path | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
     path = Path(raw).expanduser().resolve()
-    if path.is_dir() and (path / MARKER_FILE).is_file():
+    if path.is_dir() and has_marker(path):
         return path
     return None
 
