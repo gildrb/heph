@@ -87,11 +87,17 @@ again on each machine.
 > Heph is currently in beta, so unexpected issues may occur. Please report them if
 > they have not already been reported.
 
-With UV:
+Using UV (recommended)
+
+Install UV:
+
+[[UV_INSTALL_BLOCK]]
+
+Then Heph:
 
 [[INSTALL_BLOCK]]
 
-With Pip:
+Using pip
 
 [[PIP_INSTALL_BLOCK]]
 
@@ -620,6 +626,10 @@ def render_install_block() -> str:
     return "```bash\nuv tool install heph@latest\n```"
 
 
+def render_uv_install_block() -> str:
+    return "```bash\ncurl -LsSf https://astral.sh/uv/install.sh | sh\n```"
+
+
 def render_pip_install_block() -> str:
     return "```bash\npip install heph\n```"
 
@@ -765,6 +775,7 @@ def render_home_footer(*, docs_index: bool) -> str:
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
     replacements = {
         "GENERATED_NOTICE": GENERATED_NOTICE,
+        "UV_INSTALL_BLOCK": render_uv_install_block(),
         "INSTALL_BLOCK": render_install_block(),
         "PIP_INSTALL_BLOCK": render_pip_install_block(),
         "UPGRADE_BLOCK": "```bash\nheph update\n```",

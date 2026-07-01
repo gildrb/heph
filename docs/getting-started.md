@@ -4,7 +4,15 @@
 
 Heph requires **Python 3.13+**.
 
-### Quick Install
+### Using UV (recommended)
+
+Install UV:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then Heph:
 
 ```bash
 uv tool install heph@latest
@@ -12,7 +20,7 @@ heph
 heph --version
 ```
 
-### With pip
+### Using pip
 
 ```bash
 pip install heph

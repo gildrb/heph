@@ -51,13 +51,21 @@ again on each machine.
 > Heph is currently in beta, so unexpected issues may occur. Please report them if
 > they have not already been reported.
 
-With UV:
+Using UV (recommended)
+
+Install UV:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then Heph:
 
 ```bash
 uv tool install heph@latest
 ```
 
-With Pip:
+Using pip
 
 ```bash
 pip install heph

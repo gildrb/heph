@@ -175,8 +175,11 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
     assert "img.shields.io/badge/license-MIT" in root_text
     assert 'src="assets/app-screenshot.png"' in root_text
-    assert "UV:" in root_text
-    assert "Pip:" in root_text
+    assert "Using UV (recommended)" in root_text
+    assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in root_text
+    assert "Install UV:" in root_text
+    assert "Then Heph:" in root_text
+    assert "Using pip" in root_text
     assert "If you do not use uv:" not in root_text
     assert "uv tool upgrade heph" not in root_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in root_text
@@ -193,8 +196,11 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<a href="#quick-start"><img alt="uv"' in docs_index_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
     assert 'src="../assets/app-screenshot.png"' in docs_index_text
-    assert "UV:" in docs_index_text
-    assert "Pip:" in docs_index_text
+    assert "Using UV (recommended)" in docs_index_text
+    assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in docs_index_text
+    assert "Install UV:" in docs_index_text
+    assert "Then Heph:" in docs_index_text
+    assert "Using pip" in docs_index_text
     assert "If you do not use uv:" not in docs_index_text
     assert "uv tool upgrade heph" not in docs_index_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in docs_index_text
