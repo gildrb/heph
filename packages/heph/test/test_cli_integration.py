@@ -94,7 +94,7 @@ def test_release_status_command_reports_json(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["package_version"] == heph.__version__
-    assert payload["official"]["tag"] == "v0.0.53"
+    assert payload["official"]["tag"] == "v0.0.54"
     assert payload["runtime"]["channel"] in {"source", "edge", "pypi"}
 
 

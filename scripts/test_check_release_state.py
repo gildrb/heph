@@ -23,5 +23,5 @@ def test_release_state_can_require_an_explicit_release_tag() -> None:
         commit=None,
     )
 
-    assert "release tag 'v9.9.9' does not match manifest tag 'v0.0.53'" in errors
+    assert "release tag 'v9.9.9' does not match manifest tag 'v0.0.54'" in errors
     assert "stable release tag does not exist: v9.9.9" in errors
