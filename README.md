@@ -15,7 +15,7 @@ normal folders. Heph indexes armory materials, cites retrieved evidence, and
 keeps learning memory scoped to that armory.
 
 <p align="center">
-  <img alt="Heph TUI" src="docs/assets/app-sc.png" width="100%">
+  <img alt="Heph TUI" src="docs/assets/app-screenshot.png" width="100%">
 </p>
 
 ## The armory is the interface

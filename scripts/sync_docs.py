@@ -39,7 +39,7 @@ README_LOGO_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg"
 )
 README_LOGO_WIDTH: Final[int] = 320
-README_SCREENSHOT_PATH: Final[Path] = ROOT / "docs" / "assets" / "app-sc.png"
+README_SCREENSHOT_PATH: Final[Path] = ROOT / "docs" / "assets" / "app-screenshot.png"
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
 AGENTS_PATH: Final[Path] = ROOT / "AGENTS.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
@@ -619,7 +619,9 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
 
 
 def render_readme_screenshot_block(*, docs_index: bool) -> str:
-    screenshot_path = Path("assets/app-sc.png") if docs_index else Path("docs/assets/app-sc.png")
+    screenshot_path = (
+        Path("assets/app-screenshot.png") if docs_index else Path("docs/assets/app-screenshot.png")
+    )
     return (
         '<p align="center">\n'
         f'  <img alt="Heph TUI" src="{screenshot_path.as_posix()}" width="100%">\n'
