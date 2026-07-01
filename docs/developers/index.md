@@ -7,10 +7,9 @@ This section contains documentation for developers working on Heph itself, rathe
 - [Architecture](../architecture.md) - Package boundaries, import rules, and dependency flow
 - [Heph SDK](sdk.md) - Programmatic runtime surface for native apps and automation
 
-## Agent Development
+## Product Context
 
-- [Agentic Development](agentic-development.md) - Conventions for agent-ready code
-- [Heph Context](heph-context.md) - Context and prompt engineering for agents
+- [Heph Context](heph-context.md) - Product behavior context used by the runtime
 
 ## Operational Runbooks
 

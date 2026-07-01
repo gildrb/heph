@@ -16,11 +16,11 @@ created or updated by the `ci-failure-issue.yml` workflow.
    - `test` - pytest failures
    - `dead-code` - vulture findings
    - `duplicate-code` - pylint similarity
-   - `docs-sync` - generated README/docs or agent-doc drift
+   - `docs-sync` - generated README/docs drift
    - `architecture` - import-linter violations
    - `build` - packaging errors
 
-3. **Reproduce locally** using the matching command from `AGENTS.md`:
+3. **Reproduce locally** using the matching command:
    ```bash
    uv run ruff check .          # lint
    uv run ruff format --check . # format

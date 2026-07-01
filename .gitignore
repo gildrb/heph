@@ -50,6 +50,7 @@ node_modules/
 !.vscode/extensions.json
 
 # Agent tooling
+AGENTS.md
 .superset/
 .devin/
 .factory/

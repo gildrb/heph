@@ -13,9 +13,11 @@ files, chat history, retrieval index, traces, usage snapshots, and local memory.
 │   └── chapter1.txt
 ├── .harness/          # Heph state
 │   ├── armory.toml     # Armory marker and metadata
-│   ├── index/          # Retrieval index
-│   ├── memory/         # Learning memory
+│   ├── rag_index.json  # Retrieval index
+│   ├── memory.json     # Learning memory
 │   ├── chats/          # Chat history
+│   ├── traces/         # JSONL traces when enabled
+│   ├── usage/          # Token and cost snapshots
 │   └── ignore          # File ignore patterns
 └── README.md           # Optional description
 ```
@@ -39,6 +41,7 @@ Each armory is completely isolated:
 - **Memory**: Learning memory is scoped to the armory
 - **Index**: Retrieval index is armory-specific
 - **Chats**: Chat history stays with the armory
+- **Traces and usage**: diagnostics traces and usage snapshots are armory-local
 
 This separation prevents cross-contamination between different projects or domains.
 
@@ -145,7 +148,7 @@ Each armory maintains its own learning memory:
 - **What you've learned**: Remember key concepts and explanations
 - **Follow-up suggestions**: Proactively suggest related topics
 
-Memory is stored in `.harness/memory/` and is completely local.
+Memory is stored in `.harness/memory.json` and is completely local.
 
 ## Moving Armories
 
@@ -224,5 +227,5 @@ heph health ~/.armories/my-armory
 ### Memory Not Working
 
 1. Verify you're opening the expected armory
-2. Verify `.harness/memory/` directory exists
+2. Verify `.harness/memory.json` exists
 3. Try asking a few questions to build up memory

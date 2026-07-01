@@ -17,7 +17,6 @@ _TEXT_SCAN_ROOTS = (
 )
 _TEXT_SCAN_FILES = (
     sync_docs.ROOT / ".gitleaks.toml",
-    sync_docs.ROOT / "AGENTS.md",
     sync_docs.ROOT / "CONTRIBUTING.md",
     sync_docs.ROOT / "README.md",
     sync_docs.ROOT / "SECURITY.md",

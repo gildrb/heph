@@ -334,8 +334,8 @@ Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
 
 ### Runbooks
 
-Operational playbooks are in `docs/runbooks/`:
-- [CI Failure](runbooks/ci-failure.md)
-- [Slow LLM Response](runbooks/slow-llm-response.md)
-- [Deployment Rollback](runbooks/deployment-rollback.md)
-- [RAG Retrieval Issues](runbooks/rag-retrieval-issues.md)
+Operational playbooks are in `docs/developers/runbooks/`:
+- [CI Failure](developers/runbooks/ci-failure.md)
+- [Slow LLM Response](developers/runbooks/slow-llm-response.md)
+- [Deployment Rollback](developers/runbooks/deployment-rollback.md)
+- [RAG Retrieval Issues](developers/runbooks/rag-retrieval-issues.md)

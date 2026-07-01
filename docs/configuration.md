@@ -191,4 +191,5 @@ heph --profile
 heph --profile-memory
 ```
 
-This will generate profiling reports in `.harness/profile/`.
+CPU profiles are written to `~/.cache/harness/profiles/`. Memory profiling prints
+the top allocations to stderr when Heph exits.

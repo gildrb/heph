@@ -1,7 +1,8 @@
-"""Validate that commands documented in AGENTS.md actually exist.
+"""Validate local AGENTS.md commands when the file is present.
 
-Extracts fenced code blocks from AGENTS.md, identifies executable commands,
-and checks that the referenced tools/commands are available.
+AGENTS.md is intentionally local-only and ignored by Git. CI keeps this script
+as a compatibility check for older workflow entries; it exits cleanly when the
+local guide is absent.
 
 Exit codes:
     0 - all commands valid
@@ -119,8 +120,8 @@ def main() -> None:
 
     md_path = Path(args.file)
     if not md_path.exists():
-        print(f"File not found: {md_path}", file=sys.stderr)
-        sys.exit(1)
+        print(f"Skipping {md_path.name}: local-only file is not present.")
+        return
 
     text = md_path.read_text(encoding="utf-8")
     commands = extract_commands(text)

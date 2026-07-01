@@ -13,8 +13,8 @@ runs do not belong here.
 ## CI And Policy Gates
 
 - `sync_docs.py` keeps generated README and docs surfaces aligned.
-- `check_repo_policies.py`, `check_architecture_guardrails.py`, `check_tech_debt.py`,
-  and `validate_agents_md.py` enforce repository-specific quality rules.
+- `check_repo_policies.py`, `check_architecture_guardrails.py`, and
+  `check_tech_debt.py` enforce repository-specific quality rules.
 - `check_lockfile_change.py`, `check_dependency_pinning.py`, and
   `check_dependency_sdist_allowlist.py` guard dependency and lockfile changes.
 - `check_release_state.py` verifies the official stable release pointer, package
@@ -24,6 +24,8 @@ runs do not belong here.
   PyTorch is expected only through the standard conversion runtime, not direct
   Heph source usage.
 - `check_feature_flags.py` catches stale feature-flag wiring.
+- `validate_agents_md.py` is a CI compatibility check that skips when the
+  local-only `AGENTS.md` file is absent.
 
 ## Release And Build Helpers
 

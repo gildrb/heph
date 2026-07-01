@@ -48,4 +48,4 @@ verified against retrieved evidence, memory scoped to the armory unless explicit
 shared, anonymous analytics and redacted crash reporting opt-in only.
 
 Docs map: `README.md` overview; `docs/cli-reference.md` full commands/env;
-`docs/architecture.md` internals; `AGENTS.md` development policy.
+`docs/architecture.md` internals; `CONTRIBUTING.md` contribution workflow.

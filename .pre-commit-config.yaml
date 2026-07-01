@@ -29,7 +29,7 @@ repos:
   - repo: local
     hooks:
       - id: sync-docs
-        name: sync-docs (README/docs/AGENTS)
+        name: sync-docs (README/docs)
         language: system
         entry: uv run python -m scripts.sync_docs
         pass_filenames: false
@@ -98,10 +98,4 @@ repos:
         language: python
         entry: python scripts/check_tech_debt.py --strict
         types: [python]
-        pass_filenames: false
-      - id: validate-agents-md
-        name: validate-agents-md (AGENTS.md commands)
-        language: python
-        entry: python scripts/validate_agents_md.py --strict
-        files: AGENTS\.md$
         pass_filenames: false

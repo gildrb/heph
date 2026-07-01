@@ -41,13 +41,11 @@ README_LOGO_RAW_URL: Final[str] = (
 README_LOGO_WIDTH: Final[int] = 320
 README_SCREENSHOT_PATH: Final[Path] = ROOT / "docs" / "assets" / "app-screenshot.png"
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
-AGENTS_PATH: Final[Path] = ROOT / "AGENTS.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
 TEMPLATES_DIR: Final[Path] = ROOT / "docs" / "_templates"
 FRAGMENTS_DIR: Final[Path] = ROOT / "docs" / "_fragments"
 
 GENERATED_NOTICE: Final[str] = "<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->"
-AGENTS_BLOCK_NAME: Final[str] = "privacy-diagnostics-docs-contract"
 ARCHITECTURE_BLOCK_NAME: Final[str] = "privacy-diagnostics-architecture"
 
 PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(r"\[\[([A-Z0-9_]+)\]\]")
@@ -98,7 +96,6 @@ class DocsModel:
     keyboard_shortcuts: tuple[KeyboardShortcutDoc, ...]
     env_vars: tuple[EnvVarDoc, ...]
     privacy_diagnostics_contract: str
-    agents_contract: str
     architecture_privacy_diagnostics: str
 
 
@@ -451,7 +448,6 @@ def collect_docs_model(root: Path) -> DocsModel:
         keyboard_shortcuts=collect_keyboard_shortcuts(),
         env_vars=collect_env_vars(),
         privacy_diagnostics_contract=load_fragment("privacy-diagnostics-contract.md"),
-        agents_contract=load_fragment("agents-privacy-diagnostics-contract.md"),
         architecture_privacy_diagnostics=load_fragment("privacy-diagnostics-architecture.md"),
     )
 
@@ -695,9 +691,7 @@ def replace_managed_block(text: str, name: str, content: str) -> str:
 
 def render_targets(root: Path) -> tuple[SyncTarget, ...]:
     model = collect_docs_model(root)
-    agents_text = AGENTS_PATH.read_text(encoding="utf-8")
     architecture_text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
-    agents_updated = replace_managed_block(agents_text, AGENTS_BLOCK_NAME, model.agents_contract)
     architecture_updated = replace_managed_block(
         architecture_text,
         ARCHITECTURE_BLOCK_NAME,
@@ -707,7 +701,6 @@ def render_targets(root: Path) -> tuple[SyncTarget, ...]:
         SyncTarget(README_PATH, render_home_doc(model, docs_index=False)),
         SyncTarget(DOCS_INDEX_PATH, render_home_doc(model, docs_index=True)),
         SyncTarget(CLI_REFERENCE_PATH, render_cli_reference(model)),
-        SyncTarget(AGENTS_PATH, agents_updated),
         SyncTarget(ARCHITECTURE_PATH, architecture_updated),
     )
 

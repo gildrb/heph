@@ -171,7 +171,7 @@ heph index ~/.armories/my-armory
 
 **Solutions**:
 1. Verify you're opening the expected armory
-2. Verify `.harness/memory/` directory exists
+2. Verify `.harness/memory.json` exists
 3. Ask a few questions to build up memory
 
 ### Chat History Lost
@@ -329,4 +329,5 @@ heph --profile
 heph --profile-memory
 ```
 
-Check generated logs and profiles in `.harness/` for detailed information.
+Check generated logs at the configured `HARNESS_LOG_FILE`, local traces in
+`.harness/traces/`, and CPU profiles in `~/.cache/harness/profiles/`.
