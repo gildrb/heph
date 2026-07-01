@@ -222,6 +222,19 @@ def _turn_evidence_with_sources(
     )
 
 
+def _text_style_for_fragment(text: Text, fragment: str, *, occurrence: int = 0) -> str:
+    search_from = 0
+    start = -1
+    for _ in range(occurrence + 1):
+        start = text.plain.index(fragment, search_from)
+        search_from = start + len(fragment)
+    end = start + len(fragment)
+    styles = [str(span.style) for span in text.spans if span.start <= start and span.end >= end]
+    if styles:
+        return styles[0]
+    return str(text.style)
+
+
 def _mark_active_turn(
     app: tui.HephTui,
     session: ChatSession | None = None,
@@ -3174,13 +3187,48 @@ def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
     lines = panel.plain.splitlines()
 
     assert "EVIDENCE E1 E2 E3" in lines
-    assert "EXCERPTS 3  SOURCES 3/21" in lines
+    assert "EXCERPTS 3" in lines
     assert any(line.startswith("E1 @week-01-foundations.pdf") for line in lines)
     assert any(line.startswith("E2 @week-02-methods.pdf") for line in lines)
     assert any(line.startswith("E3 @week-03-results.pdf") for line in lines)
     assert f"OPEN {_default_display_key('evidence')} /evidence" in lines
     assert "tool" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
+
+
+def test_info_panel_evidence_has_single_overflow_summary_and_muted_sources() -> None:
+    session = _plain_session()
+    session.source_files = (
+        *(f"materials/visible-{index}.pdf" for index in range(8)),
+        "materials/hidden-evidence.pdf",
+    )
+    session.last_turn_evidence = _turn_evidence_with_sources(
+        "materials/hidden-evidence.pdf",
+        "materials/visible-1.pdf",
+        "materials/result-2.pdf",
+        "materials/result-3.pdf",
+        "materials/result-4.pdf",
+        "materials/result-5.pdf",
+        "materials/result-6.pdf",
+        "materials/result-7.pdf",
+        "materials/result-8.pdf",
+        "materials/result-9.pdf",
+        total_source_count=21,
+    )
+
+    panel = tui._info_panel_default_text(session)
+    lines = panel.plain.splitlines()
+    palette = tui.current_palette()
+
+    assert "EVIDENCE E1 E2 E3 E4" in lines
+    assert "EVIDENCE E1 E2 E3 E4 +6" not in lines
+    assert "EXCERPTS 10" in lines
+    assert "MORE +6" not in lines
+    assert "MORE +1" not in lines
+    assert "@visible-0.pdf" not in lines
+    assert _text_style_for_fragment(panel, "@visible-1.pdf") == palette.text_muted
+    assert _text_style_for_fragment(panel, "@hidden-evidence.pdf") == palette.text_muted
+    assert _text_style_for_fragment(panel, "E1", occurrence=1) == palette.text_secondary
 
 
 def test_info_panel_message_text_starts_at_sidebar_edge() -> None:

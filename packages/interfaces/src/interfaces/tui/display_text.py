@@ -258,7 +258,11 @@ def _info_panel_more_line(count: int) -> _InfoPanelLine:
     return _info_panel_label_line("more", f"+{count}")
 
 
-def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
+def _info_panel_material_lines(
+    session: ChatSession,
+    *,
+    show_items: bool = True,
+) -> list[_InfoPanelLine]:
     visible_materials = list(session.source_files[:8])
     active_count = _active_material_count(session)
     material_lines = [
@@ -269,6 +273,8 @@ def _info_panel_material_lines(session: ChatSession) -> list[_InfoPanelLine]:
     ]
     if not visible_materials:
         material_lines.append(_info_panel_label_line("state", "no materials"))
+        return material_lines
+    if not show_items:
         return material_lines
 
     material_lines.extend(
@@ -300,24 +306,12 @@ def _info_panel_evidence_lines(
 
 
 def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
-    sources = tuple(dict.fromkeys(item.source for item in evidence.items))
-    sampled_sources = evidence.sampled_source_count or len(sources)
-    total_sources = evidence.total_source_count or sampled_sources
     lines = [
         _info_panel_label_line(
             _INFO_PANEL_EVIDENCE.upper(),
             _info_panel_evidence_id_summary(evidence),
         ),
-        _InfoPanelLine(
-            f"{label_value_line('excerpts', len(evidence.items))}  "
-            f"{
-                label_value_line(
-                    'sources',
-                    _info_panel_source_scope(sampled_sources, total_sources),
-                )
-            }",
-            label="EXCERPTS",
-        ),
+        _info_panel_label_line("excerpts", str(len(evidence.items))),
     ]
     lines.extend(_info_panel_evidence_item_lines(evidence))
     lines.append(_info_panel_label_line("open", f"{_evidence_shortcut_key()} /evidence"))
@@ -326,27 +320,18 @@ def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLi
 
 def _info_panel_evidence_id_summary(evidence: TurnEvidence) -> str:
     visible_ids = [item.evidence_id for item in evidence.items[:4]]
-    remaining = len(evidence.items) - len(visible_ids)
-    suffix = f" +{remaining}" if remaining > 0 else ""
-    return f"{' '.join(visible_ids)}{suffix}"
-
-
-def _info_panel_source_scope(sampled_sources: int, total_sources: int) -> str:
-    if total_sources > sampled_sources:
-        return f"{sampled_sources}/{total_sources}"
-    return str(sampled_sources)
+    return " ".join(visible_ids)
 
 
 def _info_panel_evidence_item_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
     visible_items = evidence.items[:4]
-    lines = [
-        _InfoPanelLine(f"{item.evidence_id} @{_material_panel_display_name(item.source)}")
+    return [
+        _InfoPanelLine(
+            f"{item.evidence_id} @{_material_panel_display_name(item.source)}",
+            label=item.evidence_id,
+        )
         for item in visible_items
     ]
-    remaining = len(evidence.items) - len(visible_items)
-    if remaining > 0:
-        lines.append(_info_panel_more_line(remaining))
-    return lines
 
 
 def _visible_info_panel_line(line: _InfoPanelLine) -> _InfoPanelLine:
@@ -361,8 +346,13 @@ def _info_panel_lines(
     busy: bool,
     progress: str,
 ) -> list[_InfoPanelLine]:
+    evidence_visible = (
+        not busy
+        and session.last_turn_evidence is not None
+        and bool(session.last_turn_evidence.items)
+    )
     return [
-        *_info_panel_material_lines(session),
+        *_info_panel_material_lines(session, show_items=not evidence_visible),
         _InfoPanelLine(""),
         *_info_panel_evidence_lines(session, busy=busy, progress=progress),
     ]
@@ -419,20 +409,31 @@ def _stylize_info_panel_labels(text: Text, lines: Sequence[_InfoPanelLine]) -> N
             offset += 1
 
 
-def _stylize_info_panel_materials(text: Text, plain: str, session: ChatSession) -> None:
+def _stylize_info_panel_materials(
+    text: Text,
+    lines: Sequence[_InfoPanelLine],
+    session: ChatSession,
+) -> None:
     palette = current_palette()
-    search_from = 0
-    for name in session.source_files:
-        display_name = _material_panel_display_name(name)
-        token = f"@{display_name}"
-        idx = plain.find(token, search_from)
-        if idx == -1:
-            continue
-        search_from = idx + len(token)
-        style = (
-            palette.text_muted if name in session.disabled_source_files else palette.text_primary
-        )
-        text.stylize(style, idx, idx + len(token))
+    offset = 0
+    material_index = 0
+    for line_index, line in enumerate(lines):
+        if (
+            not line.label
+            and line.content.startswith("@")
+            and material_index < len(session.source_files)
+        ):
+            name = session.source_files[material_index]
+            style = (
+                palette.text_muted
+                if name in session.disabled_source_files
+                else palette.text_primary
+            )
+            text.stylize(style, offset, offset + len(line.content))
+            material_index += 1
+        offset += len(line.content)
+        if line_index + 1 < len(lines):
+            offset += 1
 
 
 def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession) -> None:
@@ -441,7 +442,9 @@ def _stylize_hidden_material_count(text: Text, plain: str, session: ChatSession)
         return
     palette = current_palette()
     detail = label_value_line("more", f"+{hidden_material_count}")
-    detail_start = plain.index(detail)
+    detail_start = plain.find(detail)
+    if detail_start < 0:
+        return
     text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
 
 
@@ -457,7 +460,7 @@ def info_panel_default_text(
     text = require_rich_text()(plain, style=palette.text_muted)
     _stylize_info_panel_labels(text, lines)
     _stylize_hidden_material_count(text, plain, session)
-    _stylize_info_panel_materials(text, plain, session)
+    _stylize_info_panel_materials(text, lines, session)
     return text
 
 
