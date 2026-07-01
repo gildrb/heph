@@ -883,7 +883,7 @@ wheels = [
 
 [[package]]
 name = "harness"
-version = "0.0.54"
+version = "0.0.55"
 source = { editable = "packages/harness" }
 dependencies = [
     { name = "bm25s" },
@@ -908,7 +908,7 @@ requires-dist = [
 
 [[package]]
 name = "heph"
-version = "0.0.54"
+version = "0.0.55"
 source = { editable = "packages/heph" }
 dependencies = [
     { name = "harness" },
@@ -927,7 +927,7 @@ requires-dist = [
 
 [[package]]
 name = "heph-ai"
-version = "0.0.54"
+version = "0.0.55"
 source = { editable = "packages/ai" }
 dependencies = [
     { name = "certifi" },
@@ -944,12 +944,12 @@ requires-dist = [
 
 [[package]]
 name = "heph-extensions"
-version = "0.0.54"
+version = "0.0.55"
 source = { editable = "packages/extensions" }
 
 [[package]]
 name = "heph-interfaces"
-version = "0.0.54"
+version = "0.0.55"
 source = { editable = "packages/interfaces" }
 dependencies = [
     { name = "harness" },

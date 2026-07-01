@@ -4641,10 +4641,9 @@ def test_tui_launch_does_not_append_startup_copy_to_transcript() -> None:
     asyncio.run(check_no_startup_copy())
 
 
-def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plain_tui_shows_armory_home_notice() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setattr("interfaces.tui.display_text.armory_shortcut_key", lambda: "f3")
 
     app = tui.HephTui(
         _plain_session(),
@@ -4658,7 +4657,10 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
             assert app.state.armory_home_shown is True
             assert not any("No armory attached" in entry.content for entry in app.state.transcript)
             assert any("materials/" in entry.content for entry in app.state.transcript)
-            assert any("f3" in entry.content for entry in app.state.transcript)
+            assert any(
+                _default_display_key("open_armory_home") in entry.content
+                for entry in app.state.transcript
+            )
 
     asyncio.run(check_home_notice())
 

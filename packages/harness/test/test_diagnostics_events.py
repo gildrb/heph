@@ -51,7 +51,7 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("harness.diagnostics.events.get_distinct_id", lambda: "heph_test")
     monkeypatch.setattr(
         "harness.diagnostics.events.runtime_context",
-        lambda: {"app_version": "0.0.54", "release_channel": "pypi"},
+        lambda: {"app_version": "0.0.55", "release_channel": "pypi"},
     )
     monkeypatch.setattr("harness.diagnostics.events.urllib.request.urlopen", _fake_urlopen)
 
