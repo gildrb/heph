@@ -105,22 +105,6 @@ Then Heph:
 
 [[PIP_INSTALL_BLOCK]]
 
-## Commands
-
-```text
-heph [name-or-path]        Open Heph.
-heph armory init [name]    Create an armory in ~/.armories.
-heph index [path]          Refresh the materials index.
-heph health [path]         Check indexed materials.
-heph local status          Show local llama.cpp status.
-heph sdk serve             Start the JSONL SDK service.
-heph trust [path]          Show data, cache, prompt, and compute ownership.
-heph update                Update the released install.
-```
-
-Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
-`/evidence`, `/turn`, `/settings`, `/keymap`, and `/exit`.
-
 [[DOCS_SECTION]]
 
 ## Contributing

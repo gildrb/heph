@@ -189,6 +189,8 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert "# Inside Heph, run /login if needed" not in root_text
     assert "heph trust ~/.armories/[name]" not in root_text
     assert "# Start the JSONL SDK service for native clients and automation" not in root_text
+    assert "## Commands" not in root_text
+    assert "Inside Heph:" not in root_text
     assert "If you do not use uv:" not in root_text
     assert "uv tool upgrade heph" not in root_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in root_text
@@ -223,6 +225,8 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert "# Inside Heph, run /login if needed" not in docs_index_text
     assert "heph trust ~/.armories/[name]" not in docs_index_text
     assert "# Start the JSONL SDK service for native clients and automation" not in docs_index_text
+    assert "## Commands" not in docs_index_text
+    assert "Inside Heph:" not in docs_index_text
     assert "If you do not use uv:" not in docs_index_text
     assert "uv tool upgrade heph" not in docs_index_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in docs_index_text
