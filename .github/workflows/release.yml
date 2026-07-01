@@ -87,22 +87,22 @@ jobs:
         run: uv run ty check
 
       - name: Bandit
-        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -c pyproject.toml
+        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py
+        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src
+        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
 
       - name: Pytest
         run: uv run pytest
 
       - name: Build package
         env:
-          HEPHAION_POSTHOG_HOST: ${{ secrets.HEPHAION_POSTHOG_HOST }}
-          HEPHAION_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAION_POSTHOG_PROJECT_TOKEN }}
-          HEPHAION_SENTRY_DSN: ${{ secrets.HEPHAION_SENTRY_DSN }}
+          HARNESS_POSTHOG_HOST: ${{ secrets.HARNESS_POSTHOG_HOST }}
+          HARNESS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HARNESS_POSTHOG_PROJECT_TOKEN }}
+          HARNESS_SENTRY_DSN: ${{ secrets.HARNESS_SENTRY_DSN }}
         run: uv run python -m scripts.build_release_artifacts --release-version "${RELEASE_TAG}"
 
       - name: Release state check
