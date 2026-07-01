@@ -1,7 +1,7 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Heph" src="docs/assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="assets/logo-auto.svg" width="320">
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@ normal folders. Heph indexes armory materials, cites retrieved evidence, and
 keeps learning memory scoped to that armory.
 
 <p align="center">
-  <img alt="Heph TUI" src="docs/assets/app-screenshot.png" width="100%">
+  <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">
 </p>
 
 ## The armory is the interface
@@ -45,10 +45,11 @@ details.
 Copy or sync `.armories` to move work between machines; set provider credentials
 again on each machine.
 
-> [!NOTE]
-> Heph is currently in beta, so unexpected issues may occur. Please report them if they have not already been reported.
-
 ## Quick Start
+
+> [!NOTE]
+> Heph is currently in beta, so unexpected issues may occur. Please report them if
+> they have not already been reported.
 
 With UV:
 
@@ -96,10 +97,10 @@ Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
 - [Trust and ownership](docs/trust.md): data, cache, prompts, compute
 - [Privacy](docs/privacy.md): local state, diagnostics, network behavior
 - [Architecture](docs/architecture.md): harness, package boundaries, flow
-- [SDK](docs/developers/sdk.md): native apps, GUI shells, automation
+- [SDK](docs/sdk.md): native apps, GUI shells, automation
 - [Troubleshooting](docs/troubleshooting.md): setup, indexing, providers
-- [Developers](docs/developers/index.md): internal docs
-- [Runbooks](docs/developers/runbooks/index.md): operational debugging
+- [Developers](docs/developers.md): internal docs
+- [Runbooks](docs/runbooks.md): operational debugging
 
 ## Contributing
 

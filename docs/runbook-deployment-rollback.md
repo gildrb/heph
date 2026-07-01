@@ -30,7 +30,7 @@ refresh the rolling edge prerelease.
 ## PyPI Release (version tags)
 
 Stable releases are published to PyPI from a reviewed `v*` tag reachable from
-protected `main`. See [Stable Release](stable-release.md) for the full
+protected `main`. See [Stable Release](runbook-stable-release.md) for the full
 trusted-publishing workflow.
 The official stable pointer lives in
 `packages/heph/src/heph/state/release.toml`; update it only when a reviewed

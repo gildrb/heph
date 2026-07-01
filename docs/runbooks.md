@@ -6,11 +6,11 @@ Operational playbooks for diagnosing and resolving issues in Heph.
 
 | Runbook | When to use |
 |---------|-------------|
-| [CI Failure](ci-failure.md) | CI pipeline fails on `main` branch |
-| [Stable Release](stable-release.md) | Publishing a reviewed `heph` release to PyPI and GitHub |
-| [Slow LLM Response](slow-llm-response.md) | Debugging slow or unresponsive LLM interactions |
-| [Deployment Rollback](deployment-rollback.md) | Reverting a bad release or edge deploy |
-| [RAG Retrieval Issues](rag-retrieval-issues.md) | Debugging poor RAG search quality or index problems |
+| [CI Failure](runbook-ci-failure.md) | CI pipeline fails on `main` branch |
+| [Stable Release](runbook-stable-release.md) | Publishing a reviewed `heph` release to PyPI and GitHub |
+| [Slow LLM Response](runbook-slow-llm-response.md) | Debugging slow or unresponsive LLM interactions |
+| [Deployment Rollback](runbook-deployment-rollback.md) | Reverting a bad release or edge deploy |
+| [RAG Retrieval Issues](runbook-rag-retrieval-issues.md) | Debugging poor RAG search quality or index problems |
 
 ## Quick Reference
 

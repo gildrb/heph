@@ -1,7 +1,7 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Heph" src="assets/logo-auto.svg" width="320">
+  <img alt="Heph" src="../assets/logo-auto.svg" width="320">
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@ normal folders. Heph indexes armory materials, cites retrieved evidence, and
 keeps learning memory scoped to that armory.
 
 <p align="center">
-  <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">
+  <img alt="Heph TUI" src="../assets/app-screenshot.png" width="100%">
 </p>
 
 ## The armory is the interface
@@ -24,18 +24,18 @@ A typical Heph armory has this structure:
 
 ```text
 ~/.armories/[name]/
-├── materials/              # PDFs, Office docs, notes, code to cite
+├── materials/            # PDFs, Office docs, notes, code to cite
 │   ├── [file].pdf
 │   └── [file].md
-├── .harness/              # Local Heph state
-│   ├── armory.toml         # Armory marker
-│   ├── rag_index.json      # Retrieval index
-│   ├── memory.json         # Learning memory
-│   ├── chats/              # Saved sessions
-│   ├── traces/             # JSONL traces when enabled
-│   ├── usage/              # Token and cost snapshots
-│   └── ignore              # Indexing ignore rules
-└── README.md               # Armory notes
+├── .harness/             # Local Heph state
+│   ├── armory.toml       # Armory marker
+│   ├── rag_index.json    # Retrieval index
+│   ├── memory.json       # Learning memory
+│   ├── chats/            # Saved sessions
+│   ├── traces/           # JSONL traces when enabled
+│   ├── usage/            # Token and cost snapshots
+│   └── ignore            # Indexing ignore rules
+└── README.md             # Armory notes
 ```
 
 Heph reads `materials/`, writes local state under `.harness/`, and leaves the
@@ -45,10 +45,11 @@ details.
 Copy or sync `.armories` to move work between machines; set provider credentials
 again on each machine.
 
-> [!NOTE]
-> Heph is currently in beta, so unexpected issues may occur. Please report them if they have not already been reported.
-
 ## Quick Start
+
+> [!NOTE]
+> Heph is currently in beta, so unexpected issues may occur. Please report them if
+> they have not already been reported.
 
 With UV:
 
@@ -73,14 +74,14 @@ heph [name]
 ## Commands
 
 ```text
-heph [name-or-path]     Open Heph.
-heph armory init [name]  Create an armory in ~/.armories.
-heph index [path]       Refresh the materials index.
-heph health [path]      Check indexed materials.
-heph local status       Show local llama.cpp status.
-heph sdk serve          Start the JSONL SDK service.
-heph trust [path]       Show data, cache, prompt, and compute ownership.
-heph update             Update the released install.
+heph [name-or-path]        Open Heph.
+heph armory init [name]    Create an armory in ~/.armories.
+heph index [path]          Refresh the materials index.
+heph health [path]         Check indexed materials.
+heph local status          Show local llama.cpp status.
+heph sdk serve             Start the JSONL SDK service.
+heph trust [path]          Show data, cache, prompt, and compute ownership.
+heph update                Update the released install.
 ```
 
 Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
@@ -96,10 +97,10 @@ Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
 - [Trust and ownership](trust.md): data, cache, prompts, compute
 - [Privacy](privacy.md): local state, diagnostics, network behavior
 - [Architecture](architecture.md): harness, package boundaries, flow
-- [SDK](developers/sdk.md): native apps, GUI shells, automation
+- [SDK](sdk.md): native apps, GUI shells, automation
 - [Troubleshooting](troubleshooting.md): setup, indexing, providers
-- [Developers](developers/index.md): internal docs
-- [Runbooks](developers/runbooks/index.md): operational debugging
+- [Developers](developers.md): internal docs
+- [Runbooks](runbooks.md): operational debugging
 - [Contributing](../CONTRIBUTING.md): repo layout and local workflow
 
 ## Contributing

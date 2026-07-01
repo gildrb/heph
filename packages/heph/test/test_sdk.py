@@ -1477,12 +1477,7 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
 
 def test_sdk_capabilities_fixture_matches_public_contract() -> None:
     root = Path(__file__).resolve().parents[3]
-    fixture = (
-        root
-        / "docs"
-        / "developers"
-        / f"sdk-capabilities.v{sdk_methods.SDK_CAPABILITIES_VERSION}.json"
-    )
+    fixture = root / "assets" / f"sdk-capabilities.v{sdk_methods.SDK_CAPABILITIES_VERSION}.json"
 
     payload: object = json.loads(fixture.read_text(encoding="utf-8"))
 

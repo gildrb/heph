@@ -336,8 +336,8 @@ User-facing data, cache, prompt, and compute ownership terms live in
 
 ### Runbooks
 
-Operational playbooks are in `docs/developers/runbooks/`:
-- [CI Failure](developers/runbooks/ci-failure.md)
-- [Slow LLM Response](developers/runbooks/slow-llm-response.md)
-- [Deployment Rollback](developers/runbooks/deployment-rollback.md)
-- [RAG Retrieval Issues](developers/runbooks/rag-retrieval-issues.md)
+Operational playbooks are in [Runbooks](runbooks.md):
+- [CI Failure](runbook-ci-failure.md)
+- [Slow LLM Response](runbook-slow-llm-response.md)
+- [Deployment Rollback](runbook-deployment-rollback.md)
+- [RAG Retrieval Issues](runbook-rag-retrieval-issues.md)

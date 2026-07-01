@@ -34,16 +34,14 @@ PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
 HEPH_PYPROJECT_PATH: Final[Path] = ROOT / "packages" / "heph" / "pyproject.toml"
 README_PATH: Final[Path] = ROOT / "README.md"
 DOCS_INDEX_PATH: Final[Path] = ROOT / "docs" / "index.md"
-README_LOGO_PATH: Final[Path] = ROOT / "docs" / "assets" / "logo-auto.svg"
+README_LOGO_PATH: Final[Path] = ROOT / "assets" / "logo-auto.svg"
 README_LOGO_RAW_URL: Final[str] = (
-    "https://raw.githubusercontent.com/gildrb/heph/main/docs/assets/logo-auto.svg"
+    "https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg"
 )
 README_LOGO_WIDTH: Final[int] = 320
-README_SCREENSHOT_PATH: Final[Path] = ROOT / "docs" / "assets" / "app-screenshot.png"
+README_SCREENSHOT_PATH: Final[Path] = ROOT / "assets" / "app-screenshot.png"
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
-TEMPLATES_DIR: Final[Path] = ROOT / "docs" / "_templates"
-FRAGMENTS_DIR: Final[Path] = ROOT / "docs" / "_fragments"
 
 GENERATED_NOTICE: Final[str] = "<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->"
 ARCHITECTURE_BLOCK_NAME: Final[str] = "privacy-diagnostics-architecture"
@@ -59,12 +57,146 @@ GENERATED_DOCS: Final[frozenset[Path]] = frozenset(
         CLI_REFERENCE_PATH,
     }
 )
-SKIP_LINT_DIRS: Final[frozenset[Path]] = frozenset(
-    {
-        ROOT / "docs" / "_templates",
-        ROOT / "docs" / "_fragments",
-    }
+HOME_TEMPLATE: Final[str] = """\
+[[GENERATED_NOTICE]]
+
+[[README_LOGO_BLOCK]][[BADGES_BLOCK]]
+
+Local document workspace for accurate, cited answers from files you keep in
+normal folders. Heph indexes armory materials, cites retrieved evidence, and
+keeps learning memory scoped to that armory.
+
+[[README_SCREENSHOT_BLOCK]]
+
+## The armory is the interface
+
+A typical Heph armory has this structure:
+
+[[ARMORY_LAYOUT_BLOCK]]
+
+Heph reads `materials/`, writes local state under `.harness/`, and leaves the
+armory portable. Read [[ARMORY_DOC_LINK]] for storage, indexing, and memory
+details.
+
+Copy or sync `.armories` to move work between machines; set provider credentials
+again on each machine.
+
+## Quick Start
+
+> [!NOTE]
+> Heph is currently in beta, so unexpected issues may occur. Please report them if
+> they have not already been reported.
+
+With UV:
+
+[[INSTALL_BLOCK]]
+
+With Pip:
+
+[[PIP_INSTALL_BLOCK]]
+
+Example:
+
+[[QUICK_START_BLOCK]]
+
+## Commands
+
+```text
+heph [name-or-path]        Open Heph.
+heph armory init [name]    Create an armory in ~/.armories.
+heph index [path]          Refresh the materials index.
+heph health [path]         Check indexed materials.
+heph local status          Show local llama.cpp status.
+heph sdk serve             Start the JSONL SDK service.
+heph trust [path]          Show data, cache, prompt, and compute ownership.
+heph update                Update the released install.
+```
+
+Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
+`/evidence`, `/turn`, `/settings`, `/keymap`, and `/exit`.
+
+[[DOCS_SECTION]]
+
+## Contributing
+
+See [CONTRIBUTING.md]([[CONTRIBUTING_LINK]]) for local development, tests, and pull request
+guidelines.
+
+## Safety
+
+Analytics and crash reporting are opt-in from `/settings`. Source and Git installs do
+not enable hosted diagnostics by default.
+
+Model-generated terminal commands are not exposed as a default agent tool. Explicit
+`!` terminal escapes and armory plugins should only be used in armories you trust.
+
+[[FOOTER_SECTION]]
+"""
+CLI_REFERENCE_TEMPLATE: Final[str] = """\
+[[GENERATED_NOTICE]]
+
+# CLI Reference
+
+## CLI commands
+
+[[CLI_COMMANDS_TABLE]]
+
+`[[SHORT_COMMAND]]` is the canonical public command that starts the Heph agent.
+Use `[[SHORT_COMMAND]] tui [path]` only when a script needs the explicit TUI subcommand.
+
+## Slash commands
+
+[[SLASH_COMMANDS_TABLE]]
+
+## TUI keyboard shortcuts
+
+The `/keymap` slash command opens the editable shortcut map inside Heph. Choose
+an action, then select RECORD or press Enter before typing the new shortcut.
+Use the visible RESET action on a shortcut, or RESET ALL KEYBINDS from the keymap
+list, to restore defaults.
+Some terminal and desktop shortcuts are reserved, so Heph rejects keys such as
+`ctrl+c`, `ctrl+d`, `ctrl+m`, `ctrl+t`, `alt+m`, and function keys.
+Default app-wide shortcuts avoid function keys and use two-key chords:
+Commands `ctrl+p`, Armory `ctrl+a`, Materials `ctrl+o`, Search `ctrl+r`,
+and Evidence `ctrl+g`.
+
+[[KEYBOARD_SHORTCUTS_TABLE]]
+
+## Environment variables
+
+[[ENV_VARS_TABLE]]
+"""
+PRIVACY_DIAGNOSTICS_CONTRACT: Final[str] = (
+    "PostHog is used only for anonymous, opt-in usage/error visibility for the\n"
+    "maintainer. Sentry is used only for redacted, opt-in crash reporting. The\n"
+    "public repository ships `packages/harness/src/harness/privacy/release.py` as a safe "
+    "stub;\n"
+    "official release builds inject privacy and diagnostics backend values during CI, and "
+    "forks or custom\n"
+    "builds can provide `HARNESS_POSTHOG_PROJECT_TOKEN`,\n"
+    "`HARNESS_POSTHOG_HOST`, and `HARNESS_SENTRY_DSN`."
 )
+ARCHITECTURE_PRIVACY_DIAGNOSTICS: Final[str] = """\
+## Privacy & Diagnostics
+
+Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
+User-facing data, cache, prompt, and compute ownership terms live in
+`docs/trust.md` and `docs/privacy.md`.
+
+- `diagnostics.events` sends anonymous PostHog events only when a backend is
+  configured and the user explicitly opts in.
+- `diagnostics.crashes` sends redacted Sentry crash reports only when a
+  backend is configured and the user explicitly opts in.
+- `packages/harness/src/harness/privacy/release.py` is committed as a safe stub in the public
+  repository. Official release and edge workflows overwrite it in CI before
+  building artifacts.
+- Source, editable, and Git installs stay bare by default. Forks and custom
+  builds can wire their own endpoints with `HARNESS_POSTHOG_PROJECT_TOKEN`,
+  `HARNESS_POSTHOG_HOST`, and `HARNESS_SENTRY_DSN`.
+- Agents and contributors should preserve this split: diagnostics exist only for
+  opt-in maintainer visibility into usage/errors and is never a required product
+  dependency.
+"""
 
 
 @dataclass(frozen=True)
@@ -433,11 +565,6 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
     return tuple(EnvVarDoc(name, ENV_VAR_DESCRIPTIONS[name]) for name in names)
 
 
-def load_fragment(name: str) -> str:
-    path = FRAGMENTS_DIR / name
-    return path.read_text(encoding="utf-8").strip()
-
-
 def collect_docs_model(root: Path) -> DocsModel:
     scripts = load_project_scripts(root / "pyproject.toml")
     if not scripts:
@@ -454,14 +581,12 @@ def collect_docs_model(root: Path) -> DocsModel:
         slash_commands=collect_slash_commands(),
         keyboard_shortcuts=collect_keyboard_shortcuts(),
         env_vars=collect_env_vars(),
-        privacy_diagnostics_contract=load_fragment("privacy-diagnostics-contract.md"),
-        architecture_privacy_diagnostics=load_fragment("privacy-diagnostics-architecture.md"),
+        privacy_diagnostics_contract=PRIVACY_DIAGNOSTICS_CONTRACT,
+        architecture_privacy_diagnostics=ARCHITECTURE_PRIVACY_DIAGNOSTICS.strip(),
     )
 
 
-def render_template(template_name: str, replacements: dict[str, str]) -> str:
-    template = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
-
+def render_template(template_name: str, template: str, replacements: dict[str, str]) -> str:
     def _replace(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in replacements:
@@ -551,18 +676,18 @@ def render_armory_layout_block(*, docs_index: bool) -> str:
     return (
         "```text\n"
         "~/.armories/[name]/\n"
-        "├── materials/              # PDFs, Office docs, notes, code to cite\n"
+        "├── materials/            # PDFs, Office docs, notes, code to cite\n"
         "│   ├── [file].pdf\n"
         "│   └── [file].md\n"
-        "├── .harness/              # Local Heph state\n"
-        "│   ├── armory.toml         # Armory marker\n"
-        "│   ├── rag_index.json      # Retrieval index\n"
-        "│   ├── memory.json         # Learning memory\n"
-        "│   ├── chats/              # Saved sessions\n"
-        "│   ├── traces/             # JSONL traces when enabled\n"
-        "│   ├── usage/              # Token and cost snapshots\n"
-        "│   └── ignore              # Indexing ignore rules\n"
-        "└── README.md               # Armory notes\n"
+        "├── .harness/             # Local Heph state\n"
+        "│   ├── armory.toml       # Armory marker\n"
+        "│   ├── rag_index.json    # Retrieval index\n"
+        "│   ├── memory.json       # Learning memory\n"
+        "│   ├── chats/            # Saved sessions\n"
+        "│   ├── traces/           # JSONL traces when enabled\n"
+        "│   ├── usage/            # Token and cost snapshots\n"
+        "│   └── ignore            # Indexing ignore rules\n"
+        "└── README.md             # Armory notes\n"
         "```"
     )
 
@@ -596,10 +721,10 @@ def render_home_docs_section(*, docs_index: bool) -> str:
         ("Trust and ownership", f"{prefix}trust.md", "data, cache, prompts, compute"),
         ("Privacy", f"{prefix}privacy.md", "local state, diagnostics, network behavior"),
         ("Architecture", f"{prefix}architecture.md", "harness, package boundaries, flow"),
-        ("SDK", f"{prefix}developers/sdk.md", "native apps, GUI shells, automation"),
+        ("SDK", f"{prefix}sdk.md", "native apps, GUI shells, automation"),
         ("Troubleshooting", f"{prefix}troubleshooting.md", "setup, indexing, providers"),
-        ("Developers", f"{prefix}developers/index.md", "internal docs"),
-        ("Runbooks", f"{prefix}developers/runbooks/index.md", "operational debugging"),
+        ("Developers", f"{prefix}developers.md", "internal docs"),
+        ("Runbooks", f"{prefix}runbooks.md", "operational debugging"),
     ]
     if docs_index:
         rows.append(
@@ -614,7 +739,7 @@ def render_home_docs_section(*, docs_index: bool) -> str:
 
 
 def render_readme_logo_block(*, docs_index: bool) -> str:
-    logo_path = Path("assets/logo-auto.svg") if docs_index else Path("docs/assets/logo-auto.svg")
+    logo_path = Path("../assets/logo-auto.svg") if docs_index else Path("assets/logo-auto.svg")
     return (
         '<p align="center">\n'
         f'  <img alt="Heph" src="{logo_path.as_posix()}" width="{README_LOGO_WIDTH}">\n'
@@ -624,7 +749,7 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
 
 def render_readme_screenshot_block(*, docs_index: bool) -> str:
     screenshot_path = (
-        Path("assets/app-screenshot.png") if docs_index else Path("docs/assets/app-screenshot.png")
+        Path("../assets/app-screenshot.png") if docs_index else Path("assets/app-screenshot.png")
     )
     return (
         '<p align="center">\n'
@@ -663,7 +788,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "CONTRIBUTING_LINK": "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md",
         "FOOTER_SECTION": render_home_footer(docs_index=docs_index).strip(),
     }
-    return render_template("home.md.template", replacements)
+    return render_template("home", HOME_TEMPLATE, replacements)
 
 
 def render_cli_reference(model: DocsModel) -> str:
@@ -678,7 +803,7 @@ def render_cli_reference(model: DocsModel) -> str:
         "ENV_VARS_TABLE": render_env_vars_table(model.env_vars),
         "SHORT_COMMAND": model.short_command,
     }
-    return render_template("cli-reference.md.template", replacements)
+    return render_template("cli-reference", CLI_REFERENCE_TEMPLATE, replacements)
 
 
 def block_markers(name: str) -> tuple[str, str]:
@@ -729,9 +854,7 @@ def write_targets(targets: tuple[SyncTarget, ...], *, check: bool) -> list[Path]
 
 
 def should_skip_lint(path: Path) -> bool:
-    if path in GENERATED_DOCS:
-        return True
-    return any(parent in SKIP_LINT_DIRS for parent in [path, *path.parents])
+    return path in GENERATED_DOCS
 
 
 def lint_legacy_commands(root: Path) -> list[str]:

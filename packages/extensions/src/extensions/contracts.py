@@ -5,7 +5,7 @@ from pathlib import Path
 
 _MAX_CONTEXT_CHARS = 4000
 _MAX_ROUTING_CONTEXT_CHARS = 360
-_ASSISTANT_CONTEXT_PATH = Path("docs/developers/heph-context.md")
+_ASSISTANT_CONTEXT_PATH = Path("docs/heph-context.md")
 _ROUTING_CONTEXT_LINES = (
     "Heph answers from local armory materials with validation from the harness.",
     "heph_help explains how Heph works, setup, commands, and settings.",
