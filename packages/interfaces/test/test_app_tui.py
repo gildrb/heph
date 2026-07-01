@@ -1711,19 +1711,107 @@ def test_tui_css_has_info_panel_layout() -> None:
     css = tui._tui_css()
 
     assert "#info-panel" in css
+    assert "#info-panel-resizer" in css
     assert "#info-separator" not in css
     assert "#shell" in css
     shell_start = css.index("#shell {")
     shell_end = css.index("}", shell_start)
     shell_block = css[shell_start:shell_end]
     assert "min-width: 0;" in shell_block
+    resizer_start = css.index("#info-panel-resizer {")
+    resizer_end = css.index("}", resizer_start)
+    resizer_block = css[resizer_start:resizer_end]
+    assert "width: 2;" in resizer_block
+    assert "min-width: 2;" in resizer_block
+    assert "max-width: 2;" in resizer_block
     info_start = css.index("#info-panel {")
     info_end = css.index("}", info_start)
     info_block = css[info_start:info_end]
     assert "width: 38;" in info_block
-    assert "min-width: 38;" in info_block
-    assert "max-width: 38;" in info_block
+    assert "min-width: 24;" in info_block
+    assert "max-width: 100%;" in info_block
     assert "padding: 0 0;" in info_block
+
+
+def test_info_panel_resizer_keeps_sidebar_gutter_and_default_width() -> None:
+    if tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_sidebar_gutter() -> None:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
+            await pilot.pause()
+
+            shell = app.query_one("#shell")
+            resizer = app.query_one("#info-panel-resizer")
+            info_panel = app.query_one("#info-panel")
+
+            assert shell.size.width == 120
+            assert resizer.size.width == 2
+            assert info_panel.size.width == 38
+            assert resizer.region.x == shell.region.x + shell.size.width
+            assert info_panel.region.x == resizer.region.x + resizer.size.width
+
+    asyncio.run(check_sidebar_gutter())
+
+
+def test_info_panel_width_can_be_dragged_within_visible_layout() -> None:
+    if tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_sidebar_drag() -> None:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
+            await pilot.pause()
+            resizer = app.query_one("#info-panel-resizer")
+            info_panel = app.query_one("#info-panel")
+
+            assert info_panel.size.width == 38
+
+            await pilot.mouse_down("#info-panel-resizer", offset=(0, 0))
+            await pilot.hover("#shell", offset=(100, 0))
+            await pilot.pause()
+
+            assert app._sidebar_resizing is True
+            assert app._sidebar_width == 58
+            assert info_panel.styles.display == "block"
+            assert info_panel.size.width == 58
+
+            app.on_mouse_up(
+                events.MouseUp(
+                    resizer,
+                    x=158,
+                    y=0,
+                    delta_x=58,
+                    delta_y=0,
+                    button=1,
+                    shift=False,
+                    meta=False,
+                    ctrl=False,
+                    screen_x=158,
+                    screen_y=0,
+                )
+            )
+            await pilot.pause()
+
+            assert app._sidebar_resizing is False
+            assert app._sidebar_width == 24
+            assert info_panel.styles.display == "block"
+            assert info_panel.size.width == 24
+
+    asyncio.run(check_sidebar_drag())
 
 
 def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
@@ -2859,15 +2947,16 @@ def test_info_separator_is_not_rendered() -> None:
             await pilot.pause()
             assert list(app.query("#info-separator")) == []
 
-            # The seam between #shell and #info-panel must also be free of any
+            # The gutter between #shell and #info-panel must also be free of any
             # synthetic ``rgb(0,0,0)`` cells. Textual's styles cache pads
             # widget content with the resolved background style, which
             # collapses the ``Color(0,0,0,a=0)`` produced by
             # ``background: transparent`` into opaque black -- exactly the
             # stripe the user sees at the shell/info-panel boundary.
             shell = app.query_one("#shell")
+            resizer = app.query_one("#info-panel-resizer")
             info_panel = app.query_one("#info-panel")
-            for sibling in (shell, info_panel):
+            for sibling in (shell, resizer, info_panel):
                 crop = _Region(0, 0, sibling.size.width, sibling.size.height)
                 strips = sibling.render_lines(crop)
                 for strip in strips:
@@ -2895,16 +2984,18 @@ def test_shell_info_panel_seam_has_no_black_background() -> None:
             await pilot.pause()
 
             shell = app.query_one("#shell")
+            resizer = app.query_one("#info-panel-resizer")
             info_panel = app.query_one("#info-panel")
             # Sanity: the sidebar must actually be visible for this test to
-            # exercise the seam between two siblings.
+            # exercise the gutter between the shell and sidebar.
             assert info_panel.styles.display != "none"
             assert shell.size.width > 0
+            assert resizer.size.width > 0
             assert info_panel.size.width > 0
 
             # Inspect the actual composited frame via the screen's
             # compositor: the boundary column is at shell.size.width, and the
-            # chop covering the info-panel starts there. Any segment in that
+            # chop covering the gutter starts there. Any segment in that
             # chop with an ``rgb(0,0,0)`` background reproduces the visible
             # stripe.
             screen = app.screen
@@ -2932,7 +3023,7 @@ def test_shell_info_panel_seam_has_no_black_background() -> None:
             # consumes are clean -- this is the layer where the bug
             # originates (StylesCache padding cells with ``inner.rich_style``
             # for a transparent background resolved to ``#000000``).
-            for sibling in (shell, info_panel):
+            for sibling in (shell, resizer, info_panel):
                 crop = _Region(0, 0, sibling.size.width, sibling.size.height)
                 strips = sibling.render_lines(crop)
                 for strip in strips:

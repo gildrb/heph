@@ -61,6 +61,7 @@ from interfaces.tui.ids import (
     COMPOSER_PROMPT_ID,
     FOOTER_HINTS_ID,
     INFO_PANEL_ID,
+    INFO_PANEL_RESIZER_ID,
     SUGGESTIONS_ID,
     TRANSCRIPT_ID,
     TRANSCRIPT_SPACER_ID,
@@ -73,6 +74,7 @@ from interfaces.tui.render_state import DirtyRegion, TuiRenderCache
 from interfaces.tui.resize import (
     _LIVE_RESIZE_POLL_SECONDS,
     _RESIZE_REDRAW_DELAY_SECONDS,
+    _SIDEBAR_DEFAULT_WIDTH,
     _TERMINAL_CLEAR_SCREEN,
     TuiResizeMixin,
     _ResizeRedrawState,
@@ -288,6 +290,8 @@ class HephTui(
         self._materials_flow = "toggle"
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
+        self._sidebar_width = _SIDEBAR_DEFAULT_WIDTH
+        self._sidebar_resizing = False
         self._transcript_reflow_pending = False
         self._transcript_reflow_requested_while_pending = False
         self._transcript_render_width: int | None = None
@@ -356,6 +360,7 @@ class HephTui(
                         _footer_hints_text(self.session, keymap=self._keymap),
                         id=FOOTER_HINTS_ID,
                     )
+            yield w.static("", id=INFO_PANEL_RESIZER_ID)
             yield w.static(
                 _info_panel_default_text(
                     self.session,

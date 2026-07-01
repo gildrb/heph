@@ -406,10 +406,19 @@ OptionList:focus > .option-list--option-highlighted {{
 #completion-position.visible {{
     display: block;
 }}
+#info-panel-resizer {{
+    width: 2;
+    min-width: 2;
+    max-width: 2;
+    height: 100%;
+    padding: 0 0;
+    background: {bg};
+    color: {p.text_muted};
+}}
 #info-panel {{
     width: 38;
-    min-width: 38;
-    max-width: 38;
+    min-width: 24;
+    max-width: 100%;
     height: 100%;
     padding: 0 0;
     content-align: left top;

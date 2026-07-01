@@ -235,7 +235,7 @@ STATE current
 
 ## Textual Layout Contract
 
-The TUI is a full-height vertical shell with a fixed side panel:
+The TUI is a full-height vertical shell with a resizable side panel:
 
 - `#main-layout`: horizontal root.
 - `#shell`: vertical main column.
@@ -245,7 +245,8 @@ The TUI is a full-height vertical shell with a fixed side panel:
 - `#thinking-indicator`: one cell, visible only while active.
 - `#composer-frame`: raised user block, 3 to 8 cells high; compact mode is 1 cell.
 - `#completion-stack`: suggestions, position, and footer, up to 9 cells.
-- `#info-panel`: fixed 38-column side panel.
+- `#info-panel-resizer`: two terminal cells wide, transparent, draggable gutter.
+- `#info-panel`: 38-column default side panel, user-adjustable while visible.
 
 Use terminal cells and content width rules rather than web spacing units. The current
 important dimensions are:
@@ -253,8 +254,8 @@ important dimensions are:
 Each entry uses `value` and `source` fields so this remains readable in narrow editors:
 
 - `info_panel_width`
-  - value: 38 columns
-  - source: `#info-panel` CSS and display text truncation
+  - value: 38 columns by default; min 24 columns; clamped by available shell width
+  - source: `#info-panel` CSS, `TuiResizeMixin`, and display text truncation
 - `composer_min_height`
   - value: 3 cells
   - source: `#composer-frame`
@@ -451,10 +452,14 @@ and scripts to extract.
 
 ### Info Panel
 
+- `#info-panel-resizer`
+  - background: `bg_surface`
+  - text: `text_muted`
+  - notes: Two-cell draggable gutter that preserves shell/sidebar spacing.
 - `#info-panel`
   - background: `bg_surface`
   - text: `text_muted`
-  - notes: Fixed 38-column side panel.
+  - notes: 38-column default side panel, draggable down to 24 columns.
 - Panel labels
   - background: `bg_surface`
   - text: `text_secondary`

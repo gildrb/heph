@@ -17,6 +17,8 @@ from interfaces.tui.ids import (
     COMPOSER_FRAME_SELECTOR,
     COMPOSER_SELECTOR,
     FOOTER_HINTS_SELECTOR,
+    INFO_PANEL_RESIZER_ID,
+    INFO_PANEL_RESIZER_SELECTOR,
     INFO_PANEL_SELECTOR,
     SUGGESTIONS_SELECTOR,
     TRANSCRIPT_SELECTOR,
@@ -91,6 +93,8 @@ class _ResizeHost(Protocol):
     _materials_columns: tuple[list[str], list[str]]
     _sidebar_width_visible: bool
     _sidebar_actual_visible: bool | None
+    _sidebar_width: int
+    _sidebar_resizing: bool
     _resize_redraw: _ResizeRedrawState
     _resize_redraw_timer: object
     _render_cache: TuiRenderCache
@@ -138,6 +142,12 @@ class _ResizeHost(Protocol):
 
     def _set_sidebar_visible(self, visible: bool) -> None: ...
 
+    def _apply_sidebar_width(self) -> None: ...
+
+    def _clamped_sidebar_width(self, width: int, *, window_width: int | None = None) -> int: ...
+
+    def _resize_sidebar_to_pointer(self, event: events.MouseEvent) -> None: ...
+
     def _refresh_compact_layout_class(self, *, height: int | None = None) -> None: ...
 
     def _handle_resize_dimensions(self, width: int, height: int) -> None: ...
@@ -179,6 +189,10 @@ def _query_one[WidgetT](
 
 
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
+_SIDEBAR_DEFAULT_WIDTH = 38
+_SIDEBAR_MIN_WIDTH = 24
+_SIDEBAR_RESIZER_WIDTH = 2
+_SIDEBAR_MIN_SHELL_WIDTH = 48
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 _RESIZE_REDRAW_DELAY_SECONDS = 0.075
 _TERMINAL_KEYBOARD_PROTOCOL_ENV = "HEPH_TUI_KEYBOARD_PROTOCOL"
@@ -199,6 +213,7 @@ _RESIZE_SENSITIVE_SELECTORS = (
     SUGGESTIONS_SELECTOR,
     "#completion-position",
     FOOTER_HINTS_SELECTOR,
+    INFO_PANEL_RESIZER_SELECTOR,
     INFO_PANEL_SELECTOR,
 )
 _RESIZE_MATERIALS_FOCUS_IDS = ("materials-list", "materials-list-right")
@@ -282,6 +297,11 @@ class TuiResizeMixin:
     def _initialize_layout_visibility(self: _ResizeHost) -> None:
         visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
+        self._sidebar_width = self._clamped_sidebar_width(
+            self._sidebar_width,
+            window_width=self.size.width,
+        )
+        self._apply_sidebar_width()
         self._set_sidebar_visible(
             visible and not self._armory_inline_active and not self._materials_inline_active
         )
@@ -323,13 +343,38 @@ class TuiResizeMixin:
     def on_click(self: _ResizeHost, event: events.Click) -> None:
         if isinstance(event.widget, OptionList):
             return
+        if getattr(event.widget, "id", None) == INFO_PANEL_RESIZER_ID:
+            event.stop()
+            return
         composer = _query_one(self, COMPOSER_SELECTOR, Input)
         if self.focused is not composer:
             composer.focus()
             self.set_focus(composer)
 
+    def on_mouse_down(self: _ResizeHost, event: events.MouseDown) -> None:
+        if getattr(event.widget, "id", None) != INFO_PANEL_RESIZER_ID:
+            return
+        if not self._sidebar_width_visible:
+            return
+        self._sidebar_resizing = True
+        event.prevent_default()
+        event.stop()
+
     def on_mouse_move(self: _ResizeHost, event: events.MouseMove) -> None:
+        if self._sidebar_resizing:
+            self._resize_sidebar_to_pointer(event)
+            event.prevent_default()
+            event.stop()
+            return
         self._handle_suggestions_mouse_move(event)
+
+    def on_mouse_up(self: _ResizeHost, event: events.MouseUp) -> None:
+        if not self._sidebar_resizing:
+            return
+        self._resize_sidebar_to_pointer(event)
+        self._sidebar_resizing = False
+        event.prevent_default()
+        event.stop()
 
     def on_resize(self: _ResizeHost, event: events.Resize) -> None:
         self._handle_resize_dimensions(event.size.width, event.size.height)
@@ -342,6 +387,8 @@ class TuiResizeMixin:
             return
         visible = width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
+        self._sidebar_width = self._clamped_sidebar_width(self._sidebar_width, window_width=width)
+        self._apply_sidebar_width()
         target = visible and not self._armory_inline_active and not self._materials_inline_active
         self._set_sidebar_visible(target)
         self._refresh_compact_layout_class(height=height)
@@ -485,6 +532,7 @@ class TuiResizeMixin:
             _query_one(self, COMPLETION_STACK_SELECTOR, Widget)
             _query_one(self, SUGGESTIONS_SELECTOR, OptionList)
             _query_one(self, FOOTER_HINTS_SELECTOR, Static)
+            _query_one(self, INFO_PANEL_RESIZER_SELECTOR, Static)
             _query_one(self, INFO_PANEL_SELECTOR, Static)
         except NoMatches:
             return False
@@ -495,10 +543,49 @@ class TuiResizeMixin:
             return
         self._sidebar_actual_visible = visible
         display = "block" if visible else "none"
+        if not visible:
+            self._sidebar_resizing = False
+        resizer = _query_one(self, INFO_PANEL_RESIZER_SELECTOR, Static)
+        resizer.styles.display = display
         info_panel = _query_one(self, INFO_PANEL_SELECTOR, Static)
         info_panel.styles.display = display
         self._transcript_render_width = None
         self._schedule_transcript_reflow()
+
+    def _apply_sidebar_width(self: _ResizeHost) -> None:
+        info_panel = _query_one(self, INFO_PANEL_SELECTOR, Static)
+        info_panel.styles.width = self._sidebar_width
+        info_panel.clear_cached_dimensions()
+        info_panel.refresh(repaint=True, layout=True)
+        self._transcript_render_width = None
+
+    def _clamped_sidebar_width(
+        self: _ResizeHost,
+        width: int,
+        *,
+        window_width: int | None = None,
+    ) -> int:
+        available_width = self.size.width if window_width is None else window_width
+        max_width = available_width - _SIDEBAR_RESIZER_WIDTH - _SIDEBAR_MIN_SHELL_WIDTH
+        max_width = max(_SIDEBAR_MIN_WIDTH, max_width)
+        return min(max(_SIDEBAR_MIN_WIDTH, width), max_width)
+
+    def _resize_sidebar_to_pointer(self: _ResizeHost, event: events.MouseEvent) -> None:
+        pointer_x = event.screen_x if event.screen_x is not None else event.x
+        next_width = self._clamped_sidebar_width(
+            self.size.width - int(pointer_x) - _SIDEBAR_RESIZER_WIDTH,
+        )
+        if next_width == self._sidebar_width:
+            return
+        self._sidebar_width = next_width
+        self._apply_sidebar_width()
+        self._clear_resize_sensitive_widget_caches()
+        self._render_cache.forget(*DirtyRegion)
+        self._refresh_status()
+        self._refresh_footer_hints()
+        self._update_info_panel()
+        self._reflow_transcript_entries()
+        self.refresh(repaint=True, layout=True)
 
     def _update_static_region(
         self: _ResizeHost,
