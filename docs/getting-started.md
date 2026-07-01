@@ -20,7 +20,7 @@ heph
 heph --version
 ```
 
-### Using pip
+### Using Pip
 
 ```bash
 pip install heph

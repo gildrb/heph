@@ -171,15 +171,24 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     assert "img.shields.io/pypi/v/heph" in root_text
     assert "img.shields.io/badge/uv-tool%20install" in root_text
-    assert '<a href="#quick-start"><img alt="uv"' in root_text
+    assert '<a href="#installation"><img alt="uv"' in root_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
     assert "img.shields.io/badge/license-MIT" in root_text
     assert 'src="assets/app-screenshot.png"' in root_text
-    assert "Using UV (recommended)" in root_text
+    assert "## Installation" in root_text
+    assert "### Using UV (recommended)" in root_text
+    assert root_text.index("## Quick Start") < root_text.index("## The armory is the interface")
+    assert root_text.index("## The armory is the interface") < root_text.index("## Installation")
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in root_text
     assert "Install UV:" in root_text
     assert "Then Heph:" in root_text
-    assert "Using pip" in root_text
+    assert "### Using Pip" in root_text
+    assert "# Create a workspace for your files" in root_text
+    assert "# Add documents, notes, or code that Heph can answer from" in root_text
+    assert "# Start Heph in that armory" in root_text
+    assert "# Inside Heph, run /login if needed" not in root_text
+    assert "heph trust ~/.armories/[name]" not in root_text
+    assert "# Start the JSONL SDK service for native clients and automation" not in root_text
     assert "If you do not use uv:" not in root_text
     assert "uv tool upgrade heph" not in root_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in root_text
@@ -193,14 +202,27 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<h1 align="center">Heph</h1>' not in docs_index_text
     assert 'src="../assets/logo-auto.svg"' in docs_index_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in docs_index_text
-    assert '<a href="#quick-start"><img alt="uv"' in docs_index_text
+    assert '<a href="#installation"><img alt="uv"' in docs_index_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
     assert 'src="../assets/app-screenshot.png"' in docs_index_text
-    assert "Using UV (recommended)" in docs_index_text
+    assert "## Installation" in docs_index_text
+    assert "### Using UV (recommended)" in docs_index_text
+    assert docs_index_text.index("## Quick Start") < docs_index_text.index(
+        "## The armory is the interface"
+    )
+    assert docs_index_text.index("## The armory is the interface") < docs_index_text.index(
+        "## Installation"
+    )
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in docs_index_text
     assert "Install UV:" in docs_index_text
     assert "Then Heph:" in docs_index_text
-    assert "Using pip" in docs_index_text
+    assert "### Using Pip" in docs_index_text
+    assert "# Create a workspace for your files" in docs_index_text
+    assert "# Add documents, notes, or code that Heph can answer from" in docs_index_text
+    assert "# Start Heph in that armory" in docs_index_text
+    assert "# Inside Heph, run /login if needed" not in docs_index_text
+    assert "heph trust ~/.armories/[name]" not in docs_index_text
+    assert "# Start the JSONL SDK service for native clients and automation" not in docs_index_text
     assert "If you do not use uv:" not in docs_index_text
     assert "uv tool upgrade heph" not in docs_index_text
     assert "uv tool install git+https://github.com/gildrb/heph" not in docs_index_text

@@ -68,6 +68,10 @@ keeps learning memory scoped to that armory.
 
 [[README_SCREENSHOT_BLOCK]]
 
+## Quick Start
+
+[[QUICK_START_BLOCK]]
+
 ## The armory is the interface
 
 A typical Heph armory has this structure:
@@ -81,13 +85,13 @@ details.
 Copy or sync `.armories` to move work between machines; set provider credentials
 again on each machine.
 
-## Quick Start
+## Installation
 
 > [!NOTE]
 > Heph is currently in beta, so unexpected issues may occur. Please report them if
 > they have not already been reported.
 
-Using UV (recommended)
+### Using UV (recommended)
 
 Install UV:
 
@@ -97,13 +101,9 @@ Then Heph:
 
 [[INSTALL_BLOCK]]
 
-Using pip
+### Using Pip
 
 [[PIP_INSTALL_BLOCK]]
-
-Example:
-
-[[QUICK_START_BLOCK]]
 
 ## Commands
 
@@ -647,8 +647,16 @@ def render_create_armory_block(model: DocsModel) -> str:
 def render_quick_start_block(model: DocsModel) -> str:
     return (
         "```bash\n"
+        "# Install UV (if not already installed)\n"
+        "curl -LsSf https://astral.sh/uv/install.sh | sh\n\n"
+        "# Install Heph\n"
+        "uv tool install heph@latest\n\n"
+        "# Create a workspace for your files\n"
         f"{model.short_command} armory init [name]\n"
-        "cp ~/Downloads/[file] ~/.armories/[name]/materials/\n"
+        "\n"
+        "# Add documents, notes, or code that Heph can answer from\n"
+        "cp ~/Downloads/[file] ~/.armories/[name]/materials/\n\n"
+        "# Start Heph in that armory\n"
         f"{model.short_command} [name]\n"
         "```"
     )
@@ -667,7 +675,7 @@ def render_readme_badges_block(*, docs_index: bool) -> str:
             "uv",
             "https://img.shields.io/badge/uv-tool%20install"
             "-654FF0?style=for-the-badge&labelColor=000000",
-            "#quick-start",
+            "#installation",
         ),
         (
             "License: MIT",

@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9"></a>
-  <a href="#quick-start"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
+  <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3FB950?style=for-the-badge&labelColor=000000"></a>
 </p>
 
@@ -17,6 +17,25 @@ keeps learning memory scoped to that armory.
 <p align="center">
   <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">
 </p>
+
+## Quick Start
+
+```bash
+# Install UV (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Heph
+uv tool install heph@latest
+
+# Create a workspace for your files
+heph armory init [name]
+
+# Add documents, notes, or code that Heph can answer from
+cp ~/Downloads/[file] ~/.armories/[name]/materials/
+
+# Start Heph in that armory
+heph [name]
+```
 
 ## The armory is the interface
 
@@ -45,13 +64,13 @@ details.
 Copy or sync `.armories` to move work between machines; set provider credentials
 again on each machine.
 
-## Quick Start
+## Installation
 
 > [!NOTE]
 > Heph is currently in beta, so unexpected issues may occur. Please report them if
 > they have not already been reported.
 
-Using UV (recommended)
+### Using UV (recommended)
 
 Install UV:
 
@@ -65,18 +84,10 @@ Then Heph:
 uv tool install heph@latest
 ```
 
-Using pip
+### Using Pip
 
 ```bash
 pip install heph
-```
-
-Example:
-
-```bash
-heph armory init [name]
-cp ~/Downloads/[file] ~/.armories/[name]/materials/
-heph [name]
 ```
 
 ## Commands
