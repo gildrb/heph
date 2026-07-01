@@ -45,9 +45,9 @@ def test_public_install_builds_latest_uv_tool_command() -> None:
 
 
 def test_public_install_builds_versioned_uv_tool_command() -> None:
-    command = _uv_tool_install_command("0.0.55", "3.13", DEFAULT_INDEX)
+    command = _uv_tool_install_command("0.0.56", "3.13", DEFAULT_INDEX)
 
-    assert command[-1] == "heph==0.0.55"
+    assert command[-1] == "heph==0.0.56"
 
 
 def test_public_install_builds_latest_pip_command() -> None:
@@ -84,8 +84,8 @@ def test_public_install_clears_local_index_environment() -> None:
 
 
 def test_public_install_derives_expected_runtime_version() -> None:
-    assert _expected_runtime_version("0.0.55", None) == "v0.0.55"
-    assert _expected_runtime_version("0.0.55", "release-1") == "release-1"
+    assert _expected_runtime_version("0.0.56", None) == "v0.0.56"
+    assert _expected_runtime_version("0.0.56", "release-1") == "release-1"
 
 
 def test_public_install_parses_heph_version(monkeypatch, tmp_path) -> None:
@@ -98,11 +98,11 @@ def test_public_install_parses_heph_version(monkeypatch, tmp_path) -> None:
         assert command == ["/tmp/heph", "--version"]
         assert cwd == tmp_path
         assert env is None
-        return "heph 0.0.55\n"
+        return "heph 0.0.56\n"
 
     monkeypatch.setattr("scripts.check_public_install._run_output", fake_output)
 
-    assert _installed_heph_version(Path("/tmp/heph"), cwd=tmp_path) == "0.0.55"
+    assert _installed_heph_version(Path("/tmp/heph"), cwd=tmp_path) == "0.0.56"
 
 
 def test_public_install_reports_failed_step(monkeypatch, tmp_path) -> None:
