@@ -24,18 +24,18 @@ A typical Heph armory has this structure:
 
 ```text
 ~/.armories/[name]/
-├── materials/              # PDFs, Office docs, notes, code to cite
+├── materials/            # PDFs, Office docs, notes, code to cite
 │   ├── [file].pdf
 │   └── [file].md
-├── .harness/              # Local Heph state
-│   ├── armory.toml         # Armory marker
-│   ├── rag_index.json      # Retrieval index
-│   ├── memory.json         # Learning memory
-│   ├── chats/              # Saved sessions
-│   ├── traces/             # JSONL traces when enabled
-│   ├── usage/              # Token and cost snapshots
-│   └── ignore              # Indexing ignore rules
-└── README.md               # Armory notes
+├── .harness/             # Local Heph state
+│   ├── armory.toml       # Armory marker
+│   ├── rag_index.json    # Retrieval index
+│   ├── memory.json       # Learning memory
+│   ├── chats/            # Saved sessions
+│   ├── traces/           # JSONL traces when enabled
+│   ├── usage/            # Token and cost snapshots
+│   └── ignore            # Indexing ignore rules
+└── README.md             # Armory notes
 ```
 
 Heph reads `materials/`, writes local state under `.harness/`, and leaves the
@@ -71,13 +71,13 @@ heph [name]
 ## Commands
 
 ```text
-heph [name-or-path]     Open Heph.
-heph armory init [name]  Create an armory in ~/.armories.
-heph index [path]       Refresh the materials index.
-heph health [path]      Check indexed materials.
-heph local status       Show local llama.cpp status.
-heph sdk serve          Start the JSONL SDK service.
-heph update             Update the released install.
+heph [name-or-path]        Open Heph.
+heph armory init [name]    Create an armory in ~/.armories.
+heph index [path]          Refresh the materials index.
+heph health [path]         Check indexed materials.
+heph local status          Show local llama.cpp status.
+heph sdk serve             Start the JSONL SDK service.
+heph update                Update the released install.
 ```
 
 Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
