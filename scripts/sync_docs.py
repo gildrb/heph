@@ -174,6 +174,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph local status": "Show managed llama.cpp cache, server, and installed-model status.",
     "heph local revalidate <model-id>": "Rerun the tool-call probe for an installed local model.",
     "heph local stop": "Stop the managed localhost llama.cpp server.",
+    "heph trust [path]": "Show data, cache, prompt, and compute ownership.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -256,6 +257,7 @@ def collect_cli_commands(short_command: str) -> tuple[CommandLine, ...]:
         "update",
         "sdk",
         "release",
+        "trust",
         "config",
     }
     if not required_visible.issubset(top_level):
@@ -323,6 +325,10 @@ def collect_cli_commands(short_command: str) -> tuple[CommandLine, ...]:
         CommandLine(f"{short_command} sdk serve", sdk_help["serve"]),
         CommandLine(f"{short_command} sdk capabilities", sdk_help["capabilities"]),
         CommandLine(f"{short_command} release status", release_help["status"]),
+        CommandLine(
+            f"{short_command} trust [path]",
+            CLI_COMMAND_DESCRIPTIONS["heph trust [path]"],
+        ),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),
@@ -354,6 +360,7 @@ def collect_common_commands(short_command: str) -> tuple[CommandLine, ...]:
         f"{short_command} local status",
         f"{short_command} update",
         f"{short_command} release status",
+        f"{short_command} trust [path]",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat ask --jsonl <path> [prompt]",
         f"{short_command} tui [path]",
@@ -586,6 +593,7 @@ def render_home_docs_section(*, docs_index: bool) -> str:
         ("CLI reference", f"{prefix}cli-reference.md", "commands, shortcuts, env vars"),
         ("Configuration", f"{prefix}configuration.md", "providers, models, settings"),
         ("Models", f"{prefix}models.md", "provider choices and API keys"),
+        ("Trust and ownership", f"{prefix}trust.md", "data, cache, prompts, compute"),
         ("Privacy", f"{prefix}privacy.md", "local state, diagnostics, network behavior"),
         ("Architecture", f"{prefix}architecture.md", "harness, package boundaries, flow"),
         ("SDK", f"{prefix}developers/sdk.md", "native apps, GUI shells, automation"),
@@ -643,6 +651,9 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "ARMORY_DOC_LINK": "[Armories](docs/armories.md)"
         if not docs_index
         else "[Armories](armories.md)",
+        "TRUST_DOC_LINK": "[Trust and ownership](docs/trust.md)"
+        if not docs_index
+        else "[Trust and ownership](trust.md)",
         "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),

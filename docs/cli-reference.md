@@ -24,6 +24,7 @@
 | `heph sdk serve` | Run the SDK JSONL stdio service. |
 | `heph sdk capabilities` | Print the SDK capability contract as JSON. |
 | `heph release status` | Show installed package, official stable, and release channel state. |
+| `heph trust [path]` | Show data, cache, prompt, and compute ownership. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat ask <path> [prompt]` | Ask one question without opening the TUI. |
@@ -58,6 +59,7 @@ Use `heph tui [path]` only when a script needs the explicit TUI subcommand.
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
 | /stats | Alias for /status with session and armory statistics |
+| /trust | Show data, cache, prompt, and compute ownership |
 | /turn | Branch from an earlier completed turn |
 | /index | Refresh the current armory materials index |
 | /vocabulary | Practice vocabulary translations from your materials |

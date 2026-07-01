@@ -3,6 +3,12 @@
 Heph works with multiple model providers without binding an armory to one
 vendor.
 
+The compute choice is part of the privacy boundary. Local llama.cpp keeps
+prompts, retrieved chunks, and tool calls on your machine. Hosted providers
+receive the active question, system instructions, and selected retrieved chunks
+needed for the answer. Custom endpoints receive the same request shape at the
+endpoint you configure.
+
 ## Supported Providers
 
 ### Pollinations AI
@@ -77,6 +83,8 @@ General tradeoffs:
   low-risk questions.
 - Local llama.cpp models keep prompts, retrieved chunks, and tool calls on your
   machine after the model has passed the tool-call probe.
+- Custom endpoints let you own the compute boundary while keeping Heph's armory,
+  retrieval, citation, and memory behavior unchanged.
 
 ## Model Configuration
 

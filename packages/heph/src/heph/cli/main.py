@@ -175,6 +175,12 @@ def _cmd_release_status(args: argparse.Namespace) -> None:
     _write_stdout(release_state.format_current_release_state())
 
 
+def _cmd_trust(args: argparse.Namespace) -> None:
+    trust = importlib.import_module("heph.trust")
+    armory_path = _validated_armory_path(args.path) if args.path else None
+    _write_stdout(trust.format_trust_report(armory_path))
+
+
 def _write_stdout(text: str) -> None:
     try:
         sys.stdout.write(text)
@@ -747,6 +753,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit release state as JSON.",
     )
     release_status.set_defaults(handler=_cmd_release_status)
+
+    trust = subparsers.add_parser(
+        "trust",
+        help="Show data, cache, prompt, and compute ownership.",
+    )
+    trust.add_argument(
+        "path",
+        nargs="?",
+        help="Optional armory path used to print exact state paths.",
+    )
+    trust.set_defaults(handler=_cmd_trust)
 
     # Chat automation is hidden from the main help, but kept for scripts and
     # harness audits that need a structured non-interactive turn stream.

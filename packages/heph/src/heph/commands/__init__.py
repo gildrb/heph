@@ -40,6 +40,7 @@ from heph.commands.study import (
     VocabCommand,
 )
 from heph.commands.suggestions import CommandSuggestion
+from heph.commands.trust import TrustCommand
 
 
 class CommandRegistry:
@@ -91,6 +92,7 @@ def get_registry() -> CommandRegistry:
                 SettingsCommand,
                 SessionsCommand,
                 StatsCommand,
+                TrustCommand,
                 TurnCommand,
                 IndexCommand,
                 VocabCommand,
@@ -133,6 +135,7 @@ __all__ = [
     "SettingsCommand",
     "StatsCommand",
     "StatusCommand",
+    "TrustCommand",
     "TurnCommand",
     "VocabCommand",
     # Re-exported helpers (for test monkeypatching)

@@ -52,6 +52,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "update" in help_text
     assert "sdk" in help_text
     assert "release" in help_text
+    assert "trust" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text
@@ -98,6 +99,36 @@ def test_release_status_command_reports_json(
     assert payload["package_version"] == heph.__version__
     assert payload["official"]["tag"] == "v0.0.56"
     assert payload["runtime"]["channel"] in {"source", "edge", "pypi"}
+
+
+def test_trust_command_reports_ownership_contract(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    run_argv(parser, ["trust"])
+
+    out = capsys.readouterr().out
+    assert "Heph trust contract" in out
+    assert "Who owns the data?" in out
+    assert "Where is the cache?" in out
+    assert "Are the prompts secure?" in out
+    assert "Local llama.cpp cache:" in out
+    assert "Compute: swappable provider layer" in out
+
+
+def test_trust_command_reports_armory_state_path(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    armory = tmp_path / "trust-armory"
+    initialize(armory)
+    parser = build_parser()
+
+    run_argv(parser, ["trust", str(armory)])
+
+    out = capsys.readouterr().out
+    assert f"Armory state: {armory.resolve() / '.harness'}" in out
 
 
 def test_project_root_resolves_workspace_checkout() -> None:

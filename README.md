@@ -42,9 +42,11 @@ Heph reads `materials/`, writes local state under `.harness/`, and leaves the
 armory portable. Read [Armories](docs/armories.md) for storage, indexing, and memory
 details.
 
+Copy or sync `.armories` to move work between machines; set provider credentials
+again on each machine.
+
 > [!NOTE]
-> Named armories live in `~/.armories`. Copy or sync that folder to move work
-> between machines; set provider credentials again on each machine.
+> Heph is currently in beta, so unexpected issues may occur. Please report them if they have not already been reported.
 
 ## Quick Start
 
@@ -77,6 +79,7 @@ heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
 heph local status       Show local llama.cpp status.
 heph sdk serve          Start the JSONL SDK service.
+heph trust [path]       Show data, cache, prompt, and compute ownership.
 heph update             Update the released install.
 ```
 
@@ -90,6 +93,7 @@ Inside Heph: `/login`, `/models`, `/local`, `/armory`, `/materials`,
 - [CLI reference](docs/cli-reference.md): commands, shortcuts, env vars
 - [Configuration](docs/configuration.md): providers, models, settings
 - [Models](docs/models.md): provider choices and API keys
+- [Trust and ownership](docs/trust.md): data, cache, prompts, compute
 - [Privacy](docs/privacy.md): local state, diagnostics, network behavior
 - [Architecture](docs/architecture.md): harness, package boundaries, flow
 - [SDK](docs/developers/sdk.md): native apps, GUI shells, automation

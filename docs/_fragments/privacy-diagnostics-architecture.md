@@ -1,6 +1,8 @@
 ## Privacy & Diagnostics
 
 Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
+User-facing data, cache, prompt, and compute ownership terms live in
+`docs/trust.md` and `docs/privacy.md`.
 
 - `diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.

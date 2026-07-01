@@ -5,6 +5,9 @@ Heph can be configured through provider credentials, environment variables, the
 memory, chats, traces, indexes, and learning data, but model/provider preferences
 are machine-local user settings unless overridden by environment variables.
 
+Run `heph trust` at any time to see who owns the data, where Heph stores cache
+and state, and what leaves the machine for the selected compute mode.
+
 ## Environment Variables
 
 ### Model Configuration
@@ -105,6 +108,9 @@ Heph downloads the managed `llama-server` binary into
 `~/.cache/harness/llama.cpp/models`, and persists local model validation state
 in the user config directory. Local models appear in `/models` only after the
 tool-call probe passes.
+
+Use `heph local status` to inspect the current local model cache and managed
+server state.
 
 ## Model Providers
 

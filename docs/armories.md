@@ -34,6 +34,7 @@ You can:
 - Copy the whole `.armories` folder between machines
 - Back it up with any file backup tool
 - Put source documents in normal `materials/` folders you can open with other apps
+- Inspect or delete Heph state directly under `.harness/`
 
 ### Isolation
 
@@ -44,6 +45,19 @@ Each armory is completely isolated:
 - **Traces and usage**: diagnostics traces and usage snapshots are armory-local
 
 This separation prevents cross-contamination between different projects or domains.
+
+### Cache and Ownership
+
+The armory cache is local state, not a hosted account:
+
+- `materials/` is your source-of-truth data
+- `.harness/` is rebuildable or inspectable Heph state for retrieval, memory,
+  chats, traces, usage, generated artifacts, and trusted local tools
+- `~/.cache/harness/llama.cpp/` is only for managed local model binaries, logs,
+  and GGUF model files
+
+Run `heph trust ~/.armories/my-armory` to print exact ownership and cache paths
+for an armory.
 
 ### Normal Files
 

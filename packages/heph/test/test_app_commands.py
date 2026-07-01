@@ -85,6 +85,15 @@ def test_command_registry_includes_settings() -> None:
     assert "settings" in names
 
 
+def test_command_registry_includes_trust() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("trust") is not None
+    assert "trust" in names
+
+
 def test_command_registry_includes_local() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
@@ -131,6 +140,21 @@ def test_settings_command_prints_summary(capsys: pytest.CaptureFixture[str]) -> 
     assert "Model thinking:" in out
     assert "Live cost:" in out
     assert "Provider:" in out
+
+
+def test_trust_command_prints_current_armory_path(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    session.armory_path = tmp_path / "trust-armory"
+
+    commands.TrustCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Heph trust contract" in out
+    assert f"Armory state: {session.armory_path / '.harness'}" in out
+    assert "Local GGUF models:" in out
 
 
 def test_command_registry_includes_exam_and_priority() -> None:

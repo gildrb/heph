@@ -1,6 +1,64 @@
 # Privacy and Data Handling
 
 Heph keeps armory data on your machine unless you explicitly choose otherwise.
+The short ownership contract is in [Trust and ownership](trust.md).
+
+## Three Ownership Questions
+
+### Who owns the data?
+
+You own the data. Heph stores source materials and generated state as normal
+local files in directories you control. There is no Heph-hosted document sync,
+remote account store, or cloud workspace service.
+
+The main data owner boundary is the armory:
+
+- `materials/` contains the source files you add
+- `.harness/` contains Heph's local state for that armory
+- API keys stay machine-local in the OS keyring, environment variables, or the
+  session-only fallback
+- Model/provider choices are swappable and are not baked into the armory
+
+### Where is the cache?
+
+Heph uses explicit local cache and state paths:
+
+- Armory state: `<armory>/.harness/`
+- Named armories: `~/.armories/` by default, or `HARNESS_ARMORY_HOME`
+- User settings: `~/.config/harness/`
+- Managed llama.cpp binaries and logs: `~/.cache/harness/llama.cpp/`
+- Managed GGUF model cache: `~/.cache/harness/llama.cpp/models/`
+- CPU profiles: `~/.cache/harness/profiles/`
+
+Run `heph trust` to print the current ownership contract and these paths. Run
+`heph local status` to print the active local llama.cpp cache, model cache,
+server, and installed-model state.
+
+### Are the prompts secure?
+
+Prompt security depends on the compute mode you choose:
+
+- **Local llama.cpp**: prompts, retrieved chunks, and tool calls stay on your
+  machine after the model and server binary have been downloaded.
+- **Custom endpoint**: prompts go only to the endpoint you configured.
+- **Hosted provider**: Heph sends the active question, system instructions, and
+  selected retrieved chunks needed for the answer to that provider. It does not
+  upload whole armories by default.
+
+Diagnostics are separate from model prompts. Anonymous analytics and redacted
+crash reports are opt-in and must not include document content or chat history.
+Session traces are local armory files.
+
+## Ownership Model
+
+Heph is designed so users can own all three layers:
+
+- **Mode**: local armory workflow by default, explicit provider and diagnostics
+  choices, and optional local model execution.
+- **Application layer**: open-source CLI, TUI, and SDK process that can be run,
+  inspected, forked, or embedded without a Heph-hosted workspace.
+- **Compute**: swappable provider layer. Use local llama.cpp, your own
+  OpenAI-compatible endpoint, or a hosted provider you trust.
 
 ## Data Location
 
