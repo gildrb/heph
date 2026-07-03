@@ -5,9 +5,9 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9"></a>
-  <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-654FF0?style=for-the-badge&labelColor=000000"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3FB950?style=for-the-badge&labelColor=000000"></a>
+  <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=000000"></a>
+  <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-000000?style=for-the-badge&labelColor=000000"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-000000?style=for-the-badge&labelColor=000000"></a>
 </p>
 
 Heph is an agentic local document harness for accurate, cited answers. It

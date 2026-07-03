@@ -662,19 +662,19 @@ def render_readme_badges_block(*, docs_index: bool) -> str:
         (
             "PyPI",
             "https://img.shields.io/pypi/v/heph"
-            "?style=for-the-badge&label=PyPI&labelColor=000000&color=3775A9",
+            "?style=for-the-badge&label=PyPI&labelColor=000000&color=000000",
             "https://pypi.org/project/heph/",
         ),
         (
             "uv",
             "https://img.shields.io/badge/uv-tool%20install"
-            "-654FF0?style=for-the-badge&labelColor=000000",
+            "-000000?style=for-the-badge&labelColor=000000",
             "#installation",
         ),
         (
             "License: MIT",
             "https://img.shields.io/badge/license-MIT"
-            "-3FB950?style=for-the-badge&labelColor=000000",
+            "-000000?style=for-the-badge&labelColor=000000",
             license_link,
         ),
     )

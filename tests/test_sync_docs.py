@@ -170,10 +170,22 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert 'src="assets/logo-auto.svg"' in root_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     assert "img.shields.io/pypi/v/heph" in root_text
+    assert (
+        "img.shields.io/pypi/v/heph"
+        "?style=for-the-badge&label=PyPI&labelColor=000000&color=000000" in root_text
+    )
     assert "img.shields.io/badge/uv-tool%20install" in root_text
+    assert (
+        "img.shields.io/badge/uv-tool%20install-000000"
+        "?style=for-the-badge&labelColor=000000" in root_text
+    )
     assert '<a href="#installation"><img alt="uv"' in root_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
     assert "img.shields.io/badge/license-MIT" in root_text
+    assert (
+        "img.shields.io/badge/license-MIT-000000"
+        "?style=for-the-badge&labelColor=000000" in root_text
+    )
     assert 'src="assets/app-screenshot.png"' in root_text
     assert "## Installation" in root_text
     assert "### Using UV (recommended)" in root_text
