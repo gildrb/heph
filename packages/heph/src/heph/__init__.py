@@ -7,4 +7,4 @@ __all__ = ["__version__"]
 try:
     __version__ = version("heph")
 except PackageNotFoundError:
-    __version__ = "0.0.56"
+    __version__ = "0.0.57"

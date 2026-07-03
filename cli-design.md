@@ -1,5 +1,5 @@
 ---
-version: "0.0.56"
+version: "0.0.57"
 name: "Heph CLI"
 description: "Terminal and Textual design specification for the Heph local document harness."
 source_of_truth:

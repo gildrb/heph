@@ -3186,12 +3186,18 @@ def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert "EVIDENCE E1 E2 E3" in lines
+    assert lines[:5] == [
+        f"EVIDENCE {_default_display_key('evidence')}",
+        "",
+        "SCOPE 3/21",
+        "",
+        "EXCERPTS 3",
+    ]
     assert "EXCERPTS 3" in lines
     assert any(line.startswith("E1 @week-01-foundations.pdf") for line in lines)
     assert any(line.startswith("E2 @week-02-methods.pdf") for line in lines)
     assert any(line.startswith("E3 @week-03-results.pdf") for line in lines)
-    assert f"OPEN {_default_display_key('evidence')} /evidence" in lines
+    assert all(not line.startswith("OPEN ") for line in lines)
     assert "tool" not in panel.plain
     assert all(len(line) <= 38 for line in lines)
 
@@ -3220,7 +3226,14 @@ def test_info_panel_evidence_has_single_overflow_summary_and_muted_sources() -> 
     lines = panel.plain.splitlines()
     palette = tui.current_palette()
 
-    assert "EVIDENCE E1 E2 E3 E4" in lines
+    assert lines[:5] == [
+        f"EVIDENCE {_default_display_key('evidence')}",
+        "",
+        "SCOPE 9/9",
+        "",
+        "EXCERPTS 10",
+    ]
+    assert "EVIDENCE E1 E2 E3 E4" not in lines
     assert "EVIDENCE E1 E2 E3 E4 +6" not in lines
     assert "EXCERPTS 10" in lines
     assert "MORE +6" not in lines
@@ -3228,7 +3241,40 @@ def test_info_panel_evidence_has_single_overflow_summary_and_muted_sources() -> 
     assert "@visible-0.pdf" not in lines
     assert _text_style_for_fragment(panel, "@visible-1.pdf") == palette.text_muted
     assert _text_style_for_fragment(panel, "@hidden-evidence.pdf") == palette.text_muted
-    assert _text_style_for_fragment(panel, "E1", occurrence=1) == palette.text_secondary
+    assert _text_style_for_fragment(panel, "E1") == palette.text_secondary
+
+
+def test_info_panel_evidence_row_click_opens_source_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/alpha.pdf", "materials/beta.pdf")
+    session.last_turn_evidence = _turn_evidence_with_sources(
+        "materials/alpha.pdf",
+        "materials/beta.pdf",
+    )
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(app, "_handle_external_input", calls.append)
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_evidence_click() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+
+            await pilot.click("#info-panel", offset=(3, 6))
+            await pilot.pause()
+
+            assert calls == ["/evidence E2 open"]
+
+    asyncio.run(check_evidence_click())
 
 
 def test_info_panel_message_text_starts_at_sidebar_edge() -> None:

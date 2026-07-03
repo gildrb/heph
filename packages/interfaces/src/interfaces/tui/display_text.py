@@ -302,25 +302,38 @@ def _info_panel_evidence_lines(
         return [
             _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), "none yet"),
         ]
-    return _info_panel_evidence_used_lines(evidence)
+    return _info_panel_evidence_used_lines(session, evidence)
 
 
-def _info_panel_evidence_used_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
+def _info_panel_evidence_used_lines(
+    session: ChatSession,
+    evidence: TurnEvidence,
+) -> list[_InfoPanelLine]:
     lines = [
         _info_panel_label_line(
             _INFO_PANEL_EVIDENCE.upper(),
-            _info_panel_evidence_id_summary(evidence),
+            _evidence_shortcut_key(),
         ),
+        _InfoPanelLine(""),
+        _info_panel_label_line(
+            _INFO_PANEL_SCOPE.upper(),
+            _info_panel_evidence_scope(session, evidence),
+        ),
+        _InfoPanelLine(""),
         _info_panel_label_line("excerpts", str(len(evidence.items))),
     ]
     lines.extend(_info_panel_evidence_item_lines(evidence))
-    lines.append(_info_panel_label_line("open", f"{_evidence_shortcut_key()} /evidence"))
     return lines
 
 
-def _info_panel_evidence_id_summary(evidence: TurnEvidence) -> str:
-    visible_ids = [item.evidence_id for item in evidence.items[:4]]
-    return " ".join(visible_ids)
+def _info_panel_evidence_scope(session: ChatSession, evidence: TurnEvidence) -> str:
+    if session.source_files:
+        return f"{_active_material_count(session)}/{len(session.source_files)}"
+    sampled_sources = evidence.sampled_source_count or len(
+        {item.source for item in evidence.items}
+    )
+    total_sources = evidence.total_source_count or sampled_sources
+    return f"{sampled_sources}/{total_sources}"
 
 
 def _info_panel_evidence_item_lines(evidence: TurnEvidence) -> list[_InfoPanelLine]:
@@ -351,8 +364,10 @@ def _info_panel_lines(
         and session.last_turn_evidence is not None
         and bool(session.last_turn_evidence.items)
     )
+    if evidence_visible:
+        return _info_panel_evidence_lines(session, busy=busy, progress=progress)
     return [
-        *_info_panel_material_lines(session, show_items=not evidence_visible),
+        *_info_panel_material_lines(session),
         _InfoPanelLine(""),
         *_info_panel_evidence_lines(session, busy=busy, progress=progress),
     ]
@@ -378,6 +393,24 @@ def _visible_info_panel_lines(lines: Sequence[_InfoPanelLine]) -> list[_InfoPane
 
 def _info_panel_text(lines: Sequence[_InfoPanelLine]) -> str:
     return "\n".join(line.content for line in _visible_info_panel_lines(lines))
+
+
+def info_panel_evidence_id_at_line(
+    session: ChatSession,
+    line_index: int,
+    *,
+    busy: bool = False,
+    progress: str = "",
+) -> str | None:
+    if line_index < 0:
+        return None
+    lines = _visible_info_panel_lines(_info_panel_lines(session, busy=busy, progress=progress))
+    if line_index >= len(lines):
+        return None
+    label = lines[line_index].label
+    if label.startswith("E") and label[1:].isdigit():
+        return label
+    return None
 
 
 def _stylize_all(text: Text, plain: str, label: str, style: str) -> None:

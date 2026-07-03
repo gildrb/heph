@@ -12,11 +12,13 @@ from typing import TYPE_CHECKING, Protocol, cast
 from ai.providers.catalog import prefetch_provider_model_catalogs
 from ai.providers.config import ProviderConfig
 
+from interfaces.tui.display_text import info_panel_evidence_id_at_line
 from interfaces.tui.ids import (
     COMPLETION_STACK_SELECTOR,
     COMPOSER_FRAME_SELECTOR,
     COMPOSER_SELECTOR,
     FOOTER_HINTS_SELECTOR,
+    INFO_PANEL_ID,
     INFO_PANEL_RESIZER_ID,
     INFO_PANEL_RESIZER_SELECTOR,
     INFO_PANEL_SELECTOR,
@@ -95,6 +97,7 @@ class _ResizeHost(Protocol):
     _sidebar_actual_visible: bool | None
     _sidebar_width: int
     _sidebar_resizing: bool
+    _side_panel_progress: str
     _resize_redraw: _ResizeRedrawState
     _resize_redraw_timer: object
     _render_cache: TuiRenderCache
@@ -135,6 +138,10 @@ class _ResizeHost(Protocol):
     def _schedule_transcript_reflow(self) -> None: ...
 
     def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> None: ...
+
+    def _handle_info_panel_click(self, event: events.Click) -> bool: ...
+
+    def _handle_external_input(self, value: str) -> None: ...
 
     def _write_terminal_control(self, sequence: str) -> None: ...
 
@@ -346,10 +353,37 @@ class TuiResizeMixin:
         if getattr(event.widget, "id", None) == INFO_PANEL_RESIZER_ID:
             event.stop()
             return
+        if self._handle_info_panel_click(event):
+            return
         composer = _query_one(self, COMPOSER_SELECTOR, Input)
         if self.focused is not composer:
             composer.focus()
             self.set_focus(composer)
+
+    def _handle_info_panel_click(self: _ResizeHost, event: events.Click) -> bool:
+        if getattr(event.widget, "id", None) != INFO_PANEL_ID:
+            return False
+        if self._armory_inline_active or self._materials_inline_active:
+            return False
+        if self._focused_msg_index is not None:
+            return False
+        if not isinstance(event.widget, Widget):
+            return False
+        offset = event.get_content_offset(event.widget)
+        if offset is None:
+            return False
+        evidence_id = info_panel_evidence_id_at_line(
+            self.session,
+            offset.y,
+            busy=False,
+            progress=self._side_panel_progress,
+        )
+        if evidence_id is None:
+            return False
+        self._handle_external_input(f"/evidence {evidence_id} open")
+        event.prevent_default()
+        event.stop()
+        return True
 
     def on_mouse_down(self: _ResizeHost, event: events.MouseDown) -> None:
         if getattr(event.widget, "id", None) != INFO_PANEL_RESIZER_ID:

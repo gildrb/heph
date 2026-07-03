@@ -1,6 +1,6 @@
 [project]
 name = "heph-extensions"
-version = "0.0.56"
+version = "0.0.57"
 description = "Stable extension contracts for Heph and the harness"
 readme = "README.md"
 license = "MIT"

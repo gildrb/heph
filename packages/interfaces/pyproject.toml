@@ -1,13 +1,13 @@
 [project]
 name = "heph-interfaces"
-version = "0.0.56"
+version = "0.0.57"
 description = "CLI/TUI adapter interfaces for Heph"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "heph-ai==0.0.56",
-    "harness==0.0.56",
+    "heph-ai==0.0.57",
+    "harness==0.0.57",
     "rich==14.3.3",
     "textual==8.2.4",
     "unicodeit==0.7.5",
