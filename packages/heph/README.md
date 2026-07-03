@@ -36,6 +36,13 @@ pip install heph
 
 Heph requires Python 3.13 or newer.
 
+## Update
+
+```bash
+heph update
+heph --version
+```
+
 ## Quick Start
 
 ```bash

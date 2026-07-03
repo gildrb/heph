@@ -1714,9 +1714,14 @@ def test_info_panel_default_text_starts_at_sidebar_edge() -> None:
     panel_text = tui._info_panel_default_text(session).plain
     panel_lines = panel_text.splitlines()
 
-    assert panel_lines[0] == "SCOPE 21/21"
+    assert panel_lines[:5] == [
+        f"EVIDENCE {_default_display_key('evidence')}",
+        "",
+        "SCOPE 21/21",
+        "",
+        "FILES 21",
+    ]
     assert "Grounding" not in panel_lines
-    assert "EVIDENCE none yet" in panel_lines
     assert next(line for line in panel_lines if "MORE +13" in line) == "MORE +13"
 
 
@@ -3134,7 +3139,7 @@ def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
     assert suggestion == "/materials "
 
 
-def test_info_panel_shows_scope_and_material_names_without_session_duration() -> None:
+def test_info_panel_shows_new_layout_and_material_names_without_session_duration() -> None:
     session = _plain_session()
     session.source_files = ("materials/exam-review.pdf", "materials/calculus.md")
     session.source_file_count = 2
@@ -3142,11 +3147,16 @@ def test_info_panel_shows_scope_and_material_names_without_session_duration() ->
     panel = tui._info_panel_default_text(session)
 
     lines = panel.plain.splitlines()
-    assert lines[0] == "SCOPE 2/2"
+    assert lines[:5] == [
+        f"EVIDENCE {_default_display_key('evidence')}",
+        "",
+        "SCOPE 2/2",
+        "",
+        "FILES 2",
+    ]
     assert "\u2500" not in panel.plain
     assert "time" not in panel.plain
     assert "materials active" not in panel.plain
-    assert "EVIDENCE none yet" in panel.plain
     assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
     assert "☑" not in panel.plain
@@ -3166,12 +3176,18 @@ def test_info_panel_ignores_generated_session_title() -> None:
     panel = tui._info_panel_default_text(session)
     lines = panel.plain.splitlines()
 
-    assert lines[0] == "SCOPE 0/0"
+    assert lines[:6] == [
+        f"EVIDENCE {_default_display_key('evidence')}",
+        "",
+        "SCOPE 0/0",
+        "",
+        "FILES 0",
+        "STATE no materials",
+    ]
     assert len(lines[0]) <= 38
     assert "Build a careful comparison" not in panel.plain
     assert "that should never wrap" not in panel.plain
     assert "Grounding" not in panel.plain
-    assert lines[1] == "STATE no materials"
 
 
 def test_info_panel_evidence_summarizes_evidence_without_tool_details() -> None:

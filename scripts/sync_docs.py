@@ -105,6 +105,16 @@ Then Heph:
 
 [[PIP_INSTALL_BLOCK]]
 
+### Updating
+
+[[UPGRADE_BLOCK]]
+
+Check the installed version:
+
+```bash
+heph --version
+```
+
 [[DOCS_SECTION]]
 
 ## Contributing

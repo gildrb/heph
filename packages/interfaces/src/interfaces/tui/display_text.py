@@ -30,6 +30,7 @@ _INFO_PANEL_MATERIAL_NAME_WIDTH = 35
 _INFO_PANEL_VISIBLE_WIDTH = 38
 _INFO_PANEL_SCOPE = "scope"
 _INFO_PANEL_EVIDENCE = "evidence"
+_INFO_PANEL_FILES = "files"
 COMPOSER_PLACEHOLDER = "Ask a cited question about your materials..."
 
 
@@ -267,9 +268,16 @@ def _info_panel_material_lines(
     active_count = _active_material_count(session)
     material_lines = [
         _info_panel_label_line(
+            _INFO_PANEL_EVIDENCE.upper(),
+            _evidence_shortcut_key(),
+        ),
+        _InfoPanelLine(""),
+        _info_panel_label_line(
             _INFO_PANEL_SCOPE.upper(),
             f"{active_count}/{len(session.source_files)}",
         ),
+        _InfoPanelLine(""),
+        _info_panel_label_line(_INFO_PANEL_FILES.upper(), str(len(session.source_files))),
     ]
     if not visible_materials:
         material_lines.append(_info_panel_label_line("state", "no materials"))
@@ -359,18 +367,14 @@ def _info_panel_lines(
     busy: bool,
     progress: str,
 ) -> list[_InfoPanelLine]:
-    evidence_visible = (
-        not busy
-        and session.last_turn_evidence is not None
-        and bool(session.last_turn_evidence.items)
+    if busy:
+        return _info_panel_evidence_lines(session, busy=busy, progress=progress)
+    evidence_visible = session.last_turn_evidence is not None and bool(
+        session.last_turn_evidence.items
     )
     if evidence_visible:
         return _info_panel_evidence_lines(session, busy=busy, progress=progress)
-    return [
-        *_info_panel_material_lines(session),
-        _InfoPanelLine(""),
-        *_info_panel_evidence_lines(session, busy=busy, progress=progress),
-    ]
+    return _info_panel_material_lines(session)
 
 
 def _ellipsize_end(text: str, max_length: int) -> str:

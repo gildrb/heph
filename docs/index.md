@@ -90,6 +90,18 @@ uv tool install heph@latest
 pip install heph
 ```
 
+### Updating
+
+```bash
+heph update
+```
+
+Check the installed version:
+
+```bash
+heph --version
+```
+
 ## Docs
 
 - [Getting started](getting-started.md): first armory, first answer
