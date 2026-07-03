@@ -1,7 +1,7 @@
 [project]
 name = "heph"
-version = "0.0.57"
-description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
+version = "0.0.58"
+description = "Heph is an agentic local document harness for accurate, cited answers."
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -10,7 +10,7 @@ authors = [
 requires-python = ">=3.13"
 keywords = ["cli", "documents", "llm", "rag", "retrieval", "learning"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
@@ -20,10 +20,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "heph-ai==0.0.57",
-    "heph-extensions==0.0.57",
-    "heph-interfaces==0.0.57",
-    "harness==0.0.57",
+    "heph-ai==0.0.58",
+    "heph-extensions==0.0.58",
+    "heph-interfaces==0.0.58",
+    "harness==0.0.58",
 ]
 
 [project.urls]

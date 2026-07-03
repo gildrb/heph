@@ -10,9 +10,9 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3FB950?style=for-the-badge&labelColor=000000"></a>
 </p>
 
-Local document workspace for accurate, cited answers from files you keep in
-normal folders. Heph indexes armory materials, cites retrieved evidence, and
-keeps learning memory scoped to that armory.
+Heph is an agentic local document harness for accurate, cited answers. It
+indexes armory materials, cites retrieved evidence, and keeps learning memory
+scoped to that armory.
 
 <p align="center">
   <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">

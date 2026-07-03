@@ -62,9 +62,9 @@ HOME_TEMPLATE: Final[str] = """\
 
 [[README_LOGO_BLOCK]][[BADGES_BLOCK]]
 
-Local document workspace for accurate, cited answers from files you keep in
-normal folders. Heph indexes armory materials, cites retrieved evidence, and
-keeps learning memory scoped to that armory.
+Heph is an agentic local document harness for accurate, cited answers. It
+indexes armory materials, cites retrieved evidence, and keeps learning memory
+scoped to that armory.
 
 [[README_SCREENSHOT_BLOCK]]
 

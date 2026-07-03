@@ -1,6 +1,6 @@
 [project]
 name = "heph-ai"
-version = "0.0.57"
+version = "0.0.58"
 description = "Provider, model, and runtime primitives for Heph"
 readme = "README.md"
 license = "MIT"

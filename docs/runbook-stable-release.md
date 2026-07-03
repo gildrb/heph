@@ -46,9 +46,9 @@ uv run python -m scripts.check_release_state --current-version-must-match-stable
 Create and push the reviewed release commit on `main`, then push the tag:
 
 ```bash
-git tag v0.0.57
+git tag v0.0.58
 git push origin main
-git push origin v0.0.57
+git push origin v0.0.58
 ```
 
 The workflow then:

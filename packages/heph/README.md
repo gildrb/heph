@@ -4,50 +4,75 @@
 
 # Heph
 
-Heph is the agent brain the user talks to.
+Heph is an agentic local document harness for accurate, cited answers. It indexes
+armory materials, cites retrieved evidence, and keeps learning memory scoped to
+that armory.
 
-It owns the user-facing agent identity, research/talking orchestration, the
-command entrypoint, slash-command coordination, and the composition needed to
-connect the harness, AI runtime, interfaces, and extension contracts.
+Heph is built around normal folders. An armory keeps your documents in
+`materials/` and Heph-owned local state in `.harness/`, so the workspace stays
+portable and inspectable.
 
-The validation layer is the harness.
+## What Heph Does
 
-## Source Layout
+- Answers from local armory materials with verifiable citations.
+- Indexes PDFs, Office documents, notes, code, and other supported text sources.
+- Opens retrieved evidence and source context from the terminal UI.
+- Keeps chats, retrieval indexes, memory, traces, and usage snapshots in local
+  armory state.
+- Lets provider and model choices remain configurable instead of hardcoded.
+- Exposes a Python SDK for native apps, GUI shells, and automation.
 
-```text
-src/
-  heph/
-    cli/       Console entrypoint and top-level command routing
-    commands/  Slash-command registry and command coordinators
-    sdk/       Programmatic runtime/session surface for native apps and automation
-    product/   Temporary bridge for Heph self-knowledge context
-    identity/  Stable agent identity target
-    prompts/   Prompt-program target for Heph-facing behavior
-    state/     Declarative state contract target
+## Install
+
+```bash
+uv tool install heph@latest
 ```
 
-The `product/` bridge exists for current self-knowledge routing. It should stay
-thin and should not become a second harness or a place for domain behavior.
+You can also install with pip:
 
-## Boundaries
+```bash
+pip install heph
+```
 
-Heph is protected as the brain and composition layer. Lower packages must not
-import it, and optional behavior should extend Heph through contracts or
-composition instead of modifying harness or AI internals:
+Heph requires Python 3.13 or newer.
 
-- Heph calls the harness for grounded answering, validation, citations, retrieval,
-  memory, and armory workflows.
-- Heph calls AI for provider/model runtime.
-- Heph calls Interfaces for terminal and TUI presentation.
-- Heph calls Extensions for stable extension contracts.
-- Heph exposes SDK wrappers for non-terminal clients; those wrappers must stay
-  UI-neutral and must not import `interfaces.*`.
+## Quick Start
 
-Reusable validation behavior should move to the harness. Provider/API behavior
-should move to AI. Conversational strategy, research orchestration, and
-Heph-facing identity should stay here or move here as the migration continues.
+```bash
+heph armory init my-notes
+cp ~/Downloads/example.pdf ~/.armories/my-notes/materials/
+heph my-notes
+```
+
+Inside Heph, ask questions about your materials. When Heph cites evidence, use
+the Evidence panel or `/evidence` command to inspect the cited source context.
+
+## Trust Model
+
+Heph is local-first beta software. Source files remain in your armory, and
+memory is scoped to that armory unless you explicitly choose to move or share
+state. Analytics and crash reporting are opt-in from `/settings`.
+
+Model providers may receive prompt content when selected for a turn. Review
+[Trust and ownership](https://github.com/gildrb/heph/blob/main/docs/trust.md)
+and [Privacy](https://github.com/gildrb/heph/blob/main/docs/privacy.md) for the
+full data, cache, prompt, and compute contract.
+
+## Docs
+
+- [Getting started](https://github.com/gildrb/heph/blob/main/docs/getting-started.md)
+- [Armories](https://github.com/gildrb/heph/blob/main/docs/armories.md)
+- [CLI reference](https://github.com/gildrb/heph/blob/main/docs/cli-reference.md)
+- [Configuration](https://github.com/gildrb/heph/blob/main/docs/configuration.md)
+- [Models](https://github.com/gildrb/heph/blob/main/docs/models.md)
+- [SDK](https://github.com/gildrb/heph/blob/main/docs/sdk.md)
+- [Troubleshooting](https://github.com/gildrb/heph/blob/main/docs/troubleshooting.md)
 
 ## Development
+
+The public package bundles the Heph CLI, harness, AI runtime, interfaces, and
+extension contracts into one installable distribution. Repository development
+still keeps those layers separated under `packages/`.
 
 ```bash
 uv run pytest --no-cov packages/heph/test
@@ -55,7 +80,3 @@ uv run heph --help
 uv run python -m scripts.check_repo_policies
 uv run lint-imports
 ```
-
-## Related Docs
-
-- [Root architecture guide](../../docs/architecture.md)
