@@ -1990,7 +1990,7 @@ def test_activity_trace_lines_are_muted_but_readable() -> None:
     asyncio.run(check_activity_style())
 
 
-def test_activity_trace_lines_clip_and_group_without_spacer() -> None:
+def test_activity_trace_lines_wrap_and_group_without_spacer() -> None:
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
 
@@ -2013,16 +2013,23 @@ def test_activity_trace_lines_clip_and_group_without_spacer() -> None:
 
             transcript = app.query_one("#transcript", tui.RichLog)
             rendered = [_strip_plain_text(line).rstrip() for line in transcript.lines]
-            activity_indexes = [
+            activity_indexes = [index for index, line in enumerate(rendered) if line.strip()]
+            first_line = next(
                 index
                 for index, line in enumerate(rendered)
-                if "Preparing the material index" in line or "Material index ready" in line
-            ]
+                if "Preparing the material index" in line
+            )
+            wrapped_line = next(
+                index for index, line in enumerate(rendered) if "for a corpus overview." in line
+            )
+            ready_line = next(
+                index for index, line in enumerate(rendered) if "Material index ready" in line
+            )
 
-            assert len(activity_indexes) == 2
-            assert activity_indexes[1] == activity_indexes[0] + 1
+            assert first_line < wrapped_line < ready_line
+            assert activity_indexes == list(range(activity_indexes[0], activity_indexes[-1] + 1))
             assert all(len(rendered[index]) <= transcript.size.width for index in activity_indexes)
-            assert rendered[activity_indexes[0]].endswith("...")
+            assert not any(rendered[index].endswith("...") for index in activity_indexes)
 
     asyncio.run(check_activity_layout())
 
@@ -6391,6 +6398,64 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
             assert widest_after < widest_before
 
     asyncio.run(check_reflow())
+
+
+def test_demo_transcript_text_stays_inside_visible_shell_with_evidence_rail() -> None:
+    if tui.Input is None or tui.RichLog is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.armory_path = Path.home() / "demo-armory"
+    session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(21))
+    session.last_turn_evidence = _turn_evidence_with_sources(
+        "materials/exercise-sheet-1.pdf",
+        "materials/exercise-sheet-1-solutions.pdf",
+        "materials/continuity-exercises.pdf",
+        "materials/lecture-slides-2026-04-29.pdf",
+        total_source_count=21,
+    )
+    app = tui.HephTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    activity = (
+        "    Using 10 overview evidence excerpts from 21 of 21 indexed sources: "
+        "@exercise-sheet-1.pdf, @exercise-sheet-1-solutions.pdf, "
+        "@continuity-exercises.pdf"
+    )
+    answer = (
+        "The materials cover mathematics topics such as polynomials and roots, continuity "
+        "and limits, sequences and series, extrema of one-variable calculus and group "
+        "theory with subgroups/cyclic subgroups. [E1][E4][E8][E10] They include exercise "
+        "sheets, solutions, and lecture slides with practice limits/series, and "
+        "function-continuity problems. [E2][E3][E5][E6]"
+    )
+
+    async def check_demo_layout() -> None:
+        async with typed_app.run_test(size=(252, 86)) as pilot:
+            await pilot.pause()
+            app._append_activity(activity)
+            app._append_assistant_reply(answer)
+            app._update_info_panel()
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            info_panel = app.query_one("#info-panel")
+            screen_lines = _composited_screen_text(app).splitlines()
+
+            assert info_panel.styles.display == "block"
+            assert all(line.cell_length <= log.size.width for line in log.lines)
+            assert not any(line.rstrip().endswith("one-varia") for line in screen_lines)
+            assert not any(
+                line.rstrip().endswith("lecture slides with pr") for line in screen_lines
+            )
+            assert "one-variable calculus" in "\n".join(screen_lines)
+            assert "lecture slides with practice" in "\n".join(screen_lines)
+            assert "continuity-exercises.pdf" in "\n".join(screen_lines)
+
+    asyncio.run(check_demo_layout())
 
 
 def test_transcript_wrap_preserves_continuation_indent() -> None:

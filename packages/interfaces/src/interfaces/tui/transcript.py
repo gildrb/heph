@@ -311,7 +311,12 @@ def _list_marker_width(text: str) -> int:
     return 0
 
 
-def _wrap_transcript_plain_line(line: str, width: int) -> list[str]:
+def _wrap_transcript_plain_line(
+    line: str,
+    width: int,
+    *,
+    break_long_words: bool = False,
+) -> list[str]:
     if not line:
         return [""]
     wrapper = textwrap.TextWrapper(
@@ -319,18 +324,10 @@ def _wrap_transcript_plain_line(line: str, width: int) -> list[str]:
         subsequent_indent=_continuation_indent(line),
         replace_whitespace=False,
         drop_whitespace=True,
-        break_long_words=False,
+        break_long_words=break_long_words,
         break_on_hyphens=False,
     )
     return wrapper.wrap(line) or [line]
-
-
-def _clip_transcript_plain_line(line: str, width: int) -> str:
-    if len(line) <= width:
-        return line
-    if width <= 3:
-        return "." * width
-    return f"{line[: width - 3].rstrip()}..."
 
 
 def _transcript_line_renderables(
@@ -339,25 +336,18 @@ def _transcript_line_renderables(
     width: int,
     style: _RichStyle | None = None,
     ansi: bool = False,
+    break_long_words: bool = False,
 ) -> list[object]:
     if ansi:
         return [_transcript_line_renderable(line, style=style, ansi=ansi)]
     return [
         _transcript_line_renderable(wrapped_line, style=style)
-        for wrapped_line in _wrap_transcript_plain_line(line, width)
+        for wrapped_line in _wrap_transcript_plain_line(
+            line,
+            width,
+            break_long_words=break_long_words,
+        )
     ]
-
-
-def _transcript_activity_renderable(
-    line: str,
-    *,
-    width: int,
-    style: _RichStyle,
-) -> object:
-    return _transcript_line_renderable(
-        _clip_transcript_plain_line(line, width),
-        style=style,
-    )
 
 
 def _panel_width(log: RichLog) -> int:
@@ -459,12 +449,14 @@ def _write_activity_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscr
     palette = current_palette()
     style = _RichStyle(color=palette.text_muted)
     for line in entry.content.splitlines() or [""]:
-        renderable = _transcript_activity_renderable(
+        renderables = _transcript_line_renderables(
             line,
             width=max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING),
             style=style,
+            break_long_words=True,
         )
-        host._write_transcript_renderable(log, renderable)
+        for renderable in renderables:
+            host._write_transcript_renderable(log, renderable)
 
 
 def _write_plain_entry(host: _TranscriptHost, log: RichLog, entry: TuiTranscriptEntry) -> None:
