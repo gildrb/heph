@@ -14,7 +14,9 @@ Heph CLI is a local document agent. It indexes files in an armory, answers from
 those files, and shows the cited source passages.
 
 <p align="center">
-  <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">
+  <a href="https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png?v=fb08ad6cad80">
+    <img alt="Heph TUI" src="assets/app-screenshot.png?v=fb08ad6cad80" width="100%">
+  </a>
 </p>
 
 ## Quick Start

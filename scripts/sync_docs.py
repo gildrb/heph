@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import argparse as _argparse
+import hashlib
 import re
 import tomllib
 from dataclasses import dataclass
@@ -40,6 +41,9 @@ README_LOGO_RAW_URL: Final[str] = (
 )
 README_LOGO_WIDTH: Final[int] = 240
 README_SCREENSHOT_PATH: Final[Path] = ROOT / "assets" / "app-screenshot.png"
+README_SCREENSHOT_RAW_URL: Final[str] = (
+    "https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png"
+)
 CLI_REFERENCE_PATH: Final[Path] = ROOT / "docs" / "cli-reference.md"
 ARCHITECTURE_PATH: Final[Path] = ROOT / "docs" / "architecture.md"
 
@@ -758,13 +762,22 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     )
 
 
+def _asset_cache_key(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
 def render_readme_screenshot_block(*, docs_index: bool) -> str:
     screenshot_path = (
         Path("../assets/app-screenshot.png") if docs_index else Path("assets/app-screenshot.png")
     )
+    screenshot_cache_key = _asset_cache_key(README_SCREENSHOT_PATH)
+    screenshot_src = f"{screenshot_path.as_posix()}?v={screenshot_cache_key}"
+    screenshot_href = f"{README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"
     return (
         '<p align="center">\n'
-        f'  <img alt="Heph TUI" src="{screenshot_path.as_posix()}" width="100%">\n'
+        f'  <a href="{screenshot_href}">\n'
+        f'    <img alt="Heph TUI" src="{screenshot_src}" width="100%">\n'
+        "  </a>\n"
         "</p>"
     )
 

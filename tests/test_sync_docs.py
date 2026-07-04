@@ -186,7 +186,9 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
         "img.shields.io/badge/license-MIT-000000"
         "?style=for-the-badge&labelColor=000000" in root_text
     )
-    assert 'src="assets/app-screenshot.png"' in root_text
+    screenshot_cache_key = sync_docs._asset_cache_key(sync_docs.README_SCREENSHOT_PATH)
+    assert f'href="{sync_docs.README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"' in root_text
+    assert f'src="assets/app-screenshot.png?v={screenshot_cache_key}"' in root_text
     assert "## Installation" in root_text
     assert "### Using UV (recommended)" in root_text
     assert root_text.index("## Quick Start") < root_text.index("## The armory is the interface")
@@ -218,7 +220,10 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in docs_index_text
     assert '<a href="#installation"><img alt="uv"' in docs_index_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
-    assert 'src="../assets/app-screenshot.png"' in docs_index_text
+    assert (
+        f'href="{sync_docs.README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"' in docs_index_text
+    )
+    assert f'src="../assets/app-screenshot.png?v={screenshot_cache_key}"' in docs_index_text
     assert "## Installation" in docs_index_text
     assert "### Using UV (recommended)" in docs_index_text
     assert docs_index_text.index("## Quick Start") < docs_index_text.index(
