@@ -931,7 +931,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: 1;\n    max-height: 1;\n    width: auto;" in css
-    assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
+    assert ("#footer-hints {\n    height: 1;\n    width: 100%;\n    max-width: 100%;") in css
     assert "#completion-stack {\n    height: 9;\n    min-height: 1;" in css
     assert "#transcript-spacer {\n    height: 1;" in css
     assert "#transcript:focus" in css
@@ -1009,7 +1009,7 @@ def test_light_theme_paints_bright_app_background() -> None:
         assert palette.bg_app != "transparent"
         assert f"App {{\n    background: {palette.bg_app};" in css
         assert f"Screen {{\n    layout: vertical;\n    background: {palette.bg_app};" in css
-        assert "#main-layout {\n    layer: base;\n    layout: horizontal;" in css
+        assert "#main-layout {\n    layout: horizontal;" in css
         assert f"background: {palette.bg_app};" in css
         assert f"color: {palette.text_primary};" in css
     finally:
@@ -1732,6 +1732,11 @@ def test_tui_css_has_info_panel_layout() -> None:
     assert "#info-panel-resizer" in css
     assert "#info-separator" not in css
     assert "#shell" in css
+    main_start = css.index("#main-layout {")
+    main_end = css.index("}", main_start)
+    main_block = css[main_start:main_end]
+    assert "height: 1fr;" in main_block
+    assert "min-height: 0;" in main_block
     shell_start = css.index("#shell {")
     shell_end = css.index("}", shell_start)
     shell_block = css[shell_start:shell_end]
@@ -1769,12 +1774,22 @@ def test_info_panel_resizer_keeps_sidebar_gutter_and_default_width() -> None:
             shell = app.query_one("#shell")
             resizer = app.query_one("#info-panel-resizer")
             info_panel = app.query_one("#info-panel")
+            frame = app.query_one("#composer-frame")
+            stack = app.query_one("#completion-stack")
+            main_layout = app.query_one("#main-layout")
 
+            assert main_layout.region.x == 0
+            assert main_layout.size.width == 160
             assert shell.size.width == 120
             assert resizer.size.width == 2
             assert info_panel.size.width == 38
             assert resizer.region.x == shell.region.x + shell.size.width
             assert info_panel.region.x == resizer.region.x + resizer.size.width
+            assert frame.region.x == 0
+            assert frame.size.width == 160
+            assert stack.region.x == 0
+            assert stack.size.width == 160
+            assert info_panel.region.y + info_panel.size.height <= frame.region.y
 
     asyncio.run(check_sidebar_gutter())
 
@@ -2630,16 +2645,20 @@ def test_info_panel_material_colours_match_materials_picker() -> None:
     ) in spans
 
 
-def test_tui_css_prevents_full_width_status_and_footer_bars() -> None:
+def test_tui_css_keeps_status_auto_and_footer_full_width() -> None:
     css = tui._tui_css()
 
-    for selector in ("#status", "#footer-hints"):
-        block_start = css.index(f"{selector} {{")
-        block_end = css.index("}", block_start)
-        block = css[block_start:block_end]
+    status_start = css.index("#status {")
+    status_end = css.index("}", status_start)
+    status_block = css[status_start:status_end]
+    footer_start = css.index("#footer-hints {")
+    footer_end = css.index("}", footer_start)
+    footer_block = css[footer_start:footer_end]
 
-        assert "width: auto;" in block
-        assert "max-width: 100%;" in block
+    assert "width: auto;" in status_block
+    assert "max-width: 100%;" in status_block
+    assert "width: 100%;" in footer_block
+    assert "max-width: 100%;" in footer_block
 
 
 def test_tui_css_pads_composer_as_full_width_user_block() -> None:
@@ -2697,15 +2716,21 @@ def test_composer_text_is_inset_inside_full_width_chatbox() -> None:
     typed_app = cast("TextualApp[None]", app)
 
     async def check_composer_inset() -> None:
-        async with typed_app.run_test(size=(80, 16)) as pilot:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
             composer = app.query_one("#composer", tui.Input)
             frame = app.query_one("#composer-frame")
             prompt = app.query_one("#composer-prompt", tui.Static)
+            shell = app.query_one("#shell")
+            info_panel = app.query_one("#info-panel")
             composer.value = "eyf"
             await pilot.pause()
 
             assert frame.region.x == 0
-            assert frame.region.width == 80
+            assert frame.region.width == 160
+            assert shell.region.width < frame.region.width
+            assert info_panel.styles.display == "block"
+            assert info_panel.region.x > shell.region.x
+            assert info_panel.region.y + info_panel.size.height <= frame.region.y
             assert prompt.region.x == frame.region.x
             assert str(prompt.render()) == "→"
             assert composer.region.x == frame.region.x + 2
@@ -2771,6 +2796,9 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert stack_y > frame_y
             assert stack.size.height == 9
             assert footer.region.y == stack_y
+            assert frame.size.width == 120
+            assert stack.size.width == 120
+            assert footer.size.width == 120
 
             await pilot.press("/")
             await pilot.pause()

@@ -33,9 +33,9 @@ RichLog {{
     background-tint: {bt};
 }}
 #main-layout {{
-    layer: base;
     layout: horizontal;
-    height: 100%;
+    height: 1fr;
+    min-height: 0;
     width: 100%;
     background: {app_bg};
     color: {p.text_primary};
@@ -389,7 +389,7 @@ OptionList:focus > .option-list--option-highlighted {{
 }}
 #footer-hints {{
     height: 1;
-    width: auto;
+    width: 100%;
     max-width: 100%;
     background: {bg};
     color: {p.text_muted};

@@ -235,18 +235,21 @@ STATE current
 
 ## Textual Layout Contract
 
-The TUI is a full-height vertical shell with a resizable side panel:
+The TUI is a full-height vertical screen with a top split pane and a full-width
+bottom composer stack:
 
-- `#main-layout`: horizontal root.
-- `#shell`: vertical main column.
+- `#main-layout`: horizontal top content area.
+- `#shell`: vertical main column inside the top content area.
 - `#status`: one terminal cell high.
 - `#transcript-spacer`: one terminal cell high unless an inline browser is active.
 - `#transcript`: flexible transcript log.
 - `#thinking-indicator`: one cell, visible only while active.
-- `#composer-frame`: raised user block, 3 to 8 cells high; compact mode is 1 cell.
-- `#completion-stack`: suggestions, position, and footer, up to 9 cells.
+- `#composer-frame`: full-width raised user block, 3 to 8 cells high; compact mode is
+  1 cell.
+- `#completion-stack`: full-width suggestions, position, and footer, up to 9 cells.
 - `#info-panel-resizer`: two terminal cells wide, transparent, draggable gutter.
-- `#info-panel`: 38-column default side panel, user-adjustable while visible.
+- `#info-panel`: 38-column default side panel in the top content area,
+  user-adjustable while visible.
 
 Use terminal cells and content width rules rather than web spacing units. The current
 important dimensions are:

@@ -347,19 +347,6 @@ class HephTui(
                     yield w.static("", id="materials-footer")
                     yield w.static("", id="materials-bottom-gap")
                 yield w.static("", id="thinking-indicator")
-                with w.horizontal(id=COMPOSER_FRAME_ID):
-                    yield w.static("→", id=COMPOSER_PROMPT_ID)
-                    yield w.input(
-                        placeholder=COMPOSER_PLACEHOLDER,
-                        id=COMPOSER_ID,
-                    )
-                with w.vertical(id=COMPLETION_STACK_ID):
-                    yield w.option_list(id=SUGGESTIONS_ID, markup=False)
-                    yield w.static("", id=COMPLETION_POSITION_ID)
-                    yield w.static(
-                        _footer_hints_text(self.session, keymap=self._keymap),
-                        id=FOOTER_HINTS_ID,
-                    )
             yield w.static("", id=INFO_PANEL_RESIZER_ID)
             yield w.static(
                 _info_panel_default_text(
@@ -368,6 +355,19 @@ class HephTui(
                     progress=self._side_panel_progress,
                 ),
                 id=INFO_PANEL_ID,
+            )
+        with w.horizontal(id=COMPOSER_FRAME_ID):
+            yield w.static("→", id=COMPOSER_PROMPT_ID)
+            yield w.input(
+                placeholder=COMPOSER_PLACEHOLDER,
+                id=COMPOSER_ID,
+            )
+        with w.vertical(id=COMPLETION_STACK_ID):
+            yield w.option_list(id=SUGGESTIONS_ID, markup=False)
+            yield w.static("", id=COMPLETION_POSITION_ID)
+            yield w.static(
+                _footer_hints_text(self.session, keymap=self._keymap),
+                id=FOOTER_HINTS_ID,
             )
 
     def on_mount(self) -> None:
