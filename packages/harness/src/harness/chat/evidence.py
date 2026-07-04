@@ -48,6 +48,8 @@ from harness.chat.turn_contract import (
     TurnContract,
 )
 from harness.chat.usage import ContextBudget
+from harness.documents import DocumentAction, DocumentTurnPlan, EvidenceAssessment
+from harness.documents.priority import PriorityAnalysis, analyze_priority
 from harness.rag import (
     ArmoryIndex,
     Chunk,
@@ -69,8 +71,6 @@ from harness.rag.query_audit import (
 )
 from harness.rag.query_transform import PromptFn
 from harness.rag.retrieval_types import EvidenceReference
-from harness.study import EvidenceAssessment, LearningAction, LearningTurnPlan
-from harness.study.priority import PriorityAnalysis, analyze_priority
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -86,7 +86,7 @@ _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
 
 @dataclass(frozen=True, slots=True)
 class ResolvedTurnPlan:
-    learning_plan: LearningTurnPlan | None = None
+    document_plan: DocumentTurnPlan | None = None
     turn_evidence: TurnEvidence | None = None
     evidence_assessment: EvidenceAssessment | None = None
     turn_contract: TurnContract | None = None
@@ -164,12 +164,12 @@ def evidence_trace_coverage(turn_evidence: TurnEvidence | None) -> dict[str, int
 
 def retrieval_audit_metadata(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> dict[str, object]:
     """Return the JSONL-compatible retrieval audit contract for a chat turn."""
     query = plan.retrieval_query or ""
-    if not query or plan.action is LearningAction.CALIBRATE:
+    if not query or plan.action is DocumentAction.CALIBRATE:
         return {}
     config = _retrieval_audit_config(session)
     assessment = evidence_assessment_trace(resolved.evidence_assessment)
@@ -717,10 +717,10 @@ def _chunk_from_ref(
     return chunk
 
 
-def resolve_turn_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnEvidence | None:
-    if plan.action is LearningAction.CALIBRATE:
+def resolve_turn_evidence(session: ChatSession, plan: DocumentTurnPlan) -> TurnEvidence | None:
+    if plan.action is DocumentAction.CALIBRATE:
         return _calibration_turn_evidence(session, plan)
-    if plan.action is LearningAction.PRIORITY:
+    if plan.action is DocumentAction.PRIORITY:
         return build_priority_turn_evidence(session)
     if expanded_evidence := _expanded_prior_query_evidence(session, plan):
         return expanded_evidence
@@ -735,7 +735,7 @@ def resolve_turn_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnE
 
 def _calibration_turn_evidence(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
 ) -> TurnEvidence | None:
     if plan.retrieval_query:
         return build_turn_evidence_from_query(session, plan.retrieval_query) or (
@@ -746,18 +746,18 @@ def _calibration_turn_evidence(
 
 def _expected_source_ref_evidence(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
 ) -> TurnEvidence | None:
     if plan.evidence_refs and plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
         return build_turn_evidence_from_refs(session, list(plan.evidence_refs))
-    if not plan.use_expected_source_refs or not session.learning_state.expected_source_refs:
+    if not plan.use_expected_source_refs or not session.recall_state.expected_source_refs:
         return None
-    return build_turn_evidence_from_refs(session, session.learning_state.expected_source_refs)
+    return build_turn_evidence_from_refs(session, session.recall_state.expected_source_refs)
 
 
 def _expanded_prior_query_evidence(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
 ) -> TurnEvidence | None:
     if not _can_expand_prior_query(plan):
         return None
@@ -774,7 +774,7 @@ def _expanded_prior_query_evidence(
         return None
 
 
-def _can_expand_prior_query(plan: LearningTurnPlan) -> bool:
+def _can_expand_prior_query(plan: DocumentTurnPlan) -> bool:
     return (
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
         and bool(plan.evidence_refs)
@@ -784,7 +784,7 @@ def _can_expand_prior_query(plan: LearningTurnPlan) -> bool:
 
 def _expanded_prior_overview_evidence(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
 ) -> TurnEvidence | None:
     return build_turn_evidence_from_refs(
         session,
@@ -795,7 +795,7 @@ def _expanded_prior_overview_evidence(
 
 def _expanded_prior_retrieval_evidence(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     index: ArmoryIndex,
 ) -> TurnEvidence | None:
     assert plan.retrieval_query is not None
@@ -844,10 +844,10 @@ def _expanded_prior_query_can_continue(
 
 
 def _source_qa_relevant_query_scored(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     scored: Sequence[ScoredChunk],
 ) -> Sequence[ScoredChunk]:
-    if plan.action is not LearningAction.SOURCE_QA or not plan.retrieval_query:
+    if plan.action is not DocumentAction.SOURCE_QA or not plan.retrieval_query:
         return scored
     query_terms = _direct_support_terms(_source_answer_query(plan))
     if len(query_terms) < _DIRECT_SUPPORT_MIN_MATCHES:
@@ -948,7 +948,7 @@ def _merge_prior_and_query_scored_chunks(
     return merged
 
 
-def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> TurnEvidence | None:
+def _retrieval_query_evidence(session: ChatSession, plan: DocumentTurnPlan) -> TurnEvidence | None:
     if _material_overview_plan(plan):
         if plan.evidence_refs:
             return build_turn_evidence_from_refs(
@@ -959,7 +959,7 @@ def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> T
         return build_turn_evidence_from_overview(session)
     if plan.retrieval_query is None:
         return None
-    if plan.action is LearningAction.PRESENT and (
+    if plan.action is DocumentAction.PRESENT and (
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     ):
         return build_turn_evidence_from_query(session, plan.retrieval_query) or (
@@ -974,8 +974,8 @@ def _retrieval_query_evidence(session: ChatSession, plan: LearningTurnPlan) -> T
     return query_evidence
 
 
-def _material_overview_plan(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and plan.uses_overview_sampling
+def _material_overview_plan(plan: DocumentTurnPlan) -> bool:
+    return plan.action is DocumentAction.PRESENT and plan.uses_overview_sampling
 
 
 def _query_evidence_supports_request(

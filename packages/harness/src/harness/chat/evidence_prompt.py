@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from harness.chat.evidence import ResolvedTurnPlan
-from harness.study.policy import EvidenceAssessment
-from harness.study.state import LearningAction
+from harness.documents.policy import EvidenceAssessment
+from harness.documents.state import DocumentAction
 
 
 def _append_evidence_assessment_prompt(
@@ -20,11 +20,11 @@ def _append_evidence_assessment_prompt(
 
 
 def _needs_evidence_assessment_prompt(prompt: str, resolved: ResolvedTurnPlan) -> bool:
-    plan = resolved.learning_plan
+    plan = resolved.document_plan
     assessment = resolved.evidence_assessment
     if not prompt or plan is None or assessment is None:
         return False
-    return plan.action not in {LearningAction.CHAT, LearningAction.CALIBRATE} and not (
+    return plan.action not in {DocumentAction.CHAT, DocumentAction.CALIBRATE} and not (
         assessment.sufficient
     )
 

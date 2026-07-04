@@ -1,4 +1,4 @@
-"""Learning-agent request and context composition."""
+"""Document-agent request and context composition."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from harness.chat.turn_contract import (
 from harness.chat.turn_predicates import (
     _overview_turn,
 )
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningState
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import RecallState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -26,20 +26,20 @@ from harness.chat.prior_answer import (
     _isolated_recall_conversation,
     _prior_answer_context_excerpt,
 )
-from harness.chat.reply_repair import _should_buffer_learning_output, _user_visible_reply
+from harness.chat.reply_repair import _should_buffer_document_output, _user_visible_reply
 from harness.chat.turn_outputs import (
-    _LearningAgentBuffer,
-    _LearningAgentOutput,
-    _LearningAgentRequest,
+    _DocumentAgentBuffer,
+    _DocumentAgentOutput,
+    _DocumentAgentRequest,
 )
 
 _MATERIAL_CONTEXT_MESSAGE_LIMIT = 4
 
 
-def _learning_agent_output_from_buffer(
-    plan: LearningTurnPlan,
-    buffer: _LearningAgentBuffer,
-) -> _LearningAgentOutput:
+def _document_agent_output_from_buffer(
+    plan: DocumentTurnPlan,
+    buffer: _DocumentAgentBuffer,
+) -> _DocumentAgentOutput:
     streamed_reply = buffer.streamed_reply
     raw_reply = streamed_reply
     if not raw_reply and buffer.completion_event is not None:
@@ -47,7 +47,7 @@ def _learning_agent_output_from_buffer(
     visible_reply = _user_visible_reply(plan, raw_reply)
     if _overview_turn(plan):
         raw_reply = visible_reply
-    return _LearningAgentOutput(
+    return _DocumentAgentOutput(
         streamed_reply=streamed_reply,
         raw_reply=raw_reply,
         visible_reply=visible_reply,
@@ -55,36 +55,36 @@ def _learning_agent_output_from_buffer(
     )
 
 
-def _learning_agent_request(
-    plan: LearningTurnPlan,
-    original_learning_state: LearningState,
+def _document_agent_request(
+    plan: DocumentTurnPlan,
+    original_recall_state: RecallState,
     user_input: str,
     session: ChatSession,
     contract: TurnContract | None,
-) -> _LearningAgentRequest:
-    conversation = _learning_agent_conversation(
+) -> _DocumentAgentRequest:
+    conversation = _document_agent_conversation(
         plan,
-        original_learning_state,
+        original_recall_state,
         user_input,
         session,
         contract,
     )
-    return _LearningAgentRequest(
+    return _DocumentAgentRequest(
         conversation=conversation,
-        buffer_output=_should_buffer_learning_output(plan),
+        buffer_output=_should_buffer_document_output(plan),
     )
 
 
-def _learning_agent_conversation(
-    plan: LearningTurnPlan,
-    original_learning_state: LearningState,
+def _document_agent_conversation(
+    plan: DocumentTurnPlan,
+    original_recall_state: RecallState,
     user_input: str,
     session: ChatSession,
     contract: TurnContract | None,
 ) -> Conversation:
     isolated = _isolated_recall_conversation(
         plan,
-        original_learning_state,
+        original_recall_state,
         user_input,
         contract,
     )

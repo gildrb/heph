@@ -41,7 +41,7 @@ def save_session(session: ChatSession) -> Path:
         session.conversation,
         title=title,
         metadata={
-            "learning_state": session.learning_state.to_dict(),
+            "recall_state": session.recall_state.to_dict(),
             "disabled_source_files": sorted(session.disabled_source_files),
             "last_plan_intent": session.last_plan_intent,
             "last_turn_contract": (

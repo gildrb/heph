@@ -10,10 +10,10 @@ from typing import cast
 import ai.providers
 import ai.runtime
 import harness.armory
+import harness.documents
 import harness.materials
 import harness.memory
 import harness.rag
-import harness.study
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -52,7 +52,7 @@ def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
         "harness.rag",
         "harness.memory",
         "harness.armory",
-        "harness.study",
+        "harness.documents",
         "harness.vocab",
     )
     with ThreadPoolExecutor(max_workers=len(module_names)) as pool:
@@ -71,7 +71,7 @@ def test_import_linter_contracts_cover_portability_tiers() -> None:
         "materials must not import adapters, chat, agent, or rag",
         "rag must not import agent, chat, or adapters",
         "memory must not import adapters, chat, or agent",
-        "study must remain a pure controller layer",
+        "documents must remain a pure controller layer",
     )
     for contract in expected_contracts:
         assert contract in pyproject
@@ -89,7 +89,7 @@ def test_public_reusable_package_apis_are_explicit() -> None:
         harness.materials: {"MaterialFile", "iter_materials", "material_manifest"},
         harness.rag: {"ArmoryIndex", "ScoredChunk", "retrieve", "build_turn_evidence"},
         harness.memory: {"MemoryStore", "MemoryEntry", "load_memory", "save_memory"},
-        harness.study: {"LearningState", "LearningTurnPlan", "plan_turn", "apply_turn_result"},
+        harness.documents: {"RecallState", "DocumentTurnPlan", "plan_turn", "apply_turn_result"},
         harness.armory: {"ArmoryError", "initialize", "validate", "normalize_path"},
     }
     for module, names in expected_exports.items():

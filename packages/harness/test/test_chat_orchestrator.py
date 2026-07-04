@@ -12,7 +12,12 @@ import harness.chat.evidence as evidence_module
 import pytest
 from ai.runtime import ChatConfig, CompletionDelta, Conversation, EngineError
 from harness._types import is_string_mapping
-from harness.chat.agent_request import _learning_agent_request
+from harness.chat.agent_request import _document_agent_request
+from harness.chat.document_reply import (
+    _deterministic_document_reply,
+    _empty_document_reply,
+)
+from harness.chat.document_signals import _recall_practice_context
 from harness.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -34,11 +39,6 @@ from harness.chat.intent_resolution import (
     _stabilized_intent_for_named_material,
     _unresolved_followup_intent_resolution,
 )
-from harness.chat.learning_reply import (
-    _deterministic_learning_reply,
-    _empty_learning_reply,
-)
-from harness.chat.learning_signals import _learning_practice_context
 from harness.chat.material_state import (
     _missing_indexed_material_reply,
     _no_matching_indexed_evidence_reply,
@@ -50,14 +50,14 @@ from harness.chat.overview_reply import (
     _overview_fallback_reply,
 )
 from harness.chat.prior_answer import (
-    _learning_extra_system_prompt,
+    _document_extra_system_prompt,
     _prior_answer_cited_claims,
     _prior_answer_prompt_context,
     _turn_contract_prompt_context,
 )
 from harness.chat.reply_repair import (
     _run_bounded_internal_repairs,
-    _should_buffer_learning_output,
+    _should_buffer_document_output,
     _user_visible_reply,
 )
 from harness.chat.reply_text import (
@@ -90,20 +90,20 @@ from harness.chat.turn_planning import (
 )
 from harness.chat.turn_predicates import _stored_turn_evidence
 from harness.chat.turn_query import _semantic_query_specificity
-from harness.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
-from harness.rag.chunker import ChunkedDocument
-from harness.study import (
-    LearningAction,
-    LearningFeedbackType,
-    LearningPhase,
-    LearningState,
-    LearningTurnPlan,
+from harness.documents import (
+    DocumentAction,
+    DocumentTurnPlan,
+    RecallFeedbackType,
+    RecallPhase,
     RecallRating,
+    RecallState,
     material_overview_plan,
     material_topic_presentation_plan,
     plan_turn,
 )
-from harness.study.schedule import load_recall_schedule
+from harness.documents.schedule import load_recall_schedule
+from harness.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
+from harness.rag.chunker import ChunkedDocument
 
 
 def _chunk(source: str = "notes.md", index: int = 0, text: str = "compactness material") -> Chunk:
@@ -152,7 +152,7 @@ def _document(
 
 
 def _plan(
-    action: LearningAction = LearningAction.PRESENT,
+    action: DocumentAction = DocumentAction.PRESENT,
     *,
     retrieval_query: str | None = "compactness",
     retrieval_strategy: str = "",
@@ -160,10 +160,10 @@ def _plan(
     requires_direct_evidence: bool = False,
     allow_tools: bool = True,
     buffer_response: bool = False,
-) -> LearningTurnPlan:
-    return LearningTurnPlan(
+) -> DocumentTurnPlan:
+    return DocumentTurnPlan(
         action=action,
-        phase=LearningPhase.PRESENTING,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input=retrieval_query or "",
         retrieval_query=retrieval_query,
@@ -177,7 +177,7 @@ def _plan(
 
 def test_bounded_internal_repair_loop_does_not_append_english_pedagogy_scaffold() -> None:
     plan = plan_turn(
-        LearningState(phase=LearningPhase.WAITING_FOR_READY, current_item="compactness"),
+        RecallState(phase=RecallPhase.WAITING_FOR_READY, current_item="compactness"),
         "bereit",
         intent="ready_for_recall",
     )
@@ -195,7 +195,7 @@ def test_bounded_internal_repair_loop_does_not_append_english_pedagogy_scaffold(
 
 
 def test_source_qa_repair_does_not_append_excerpts_when_reply_is_already_cited() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="compactness")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="compactness")
     evidence = _turn_evidence(
         _evidence(content="Compactness is defined using open covers in this material.")
     )
@@ -213,7 +213,7 @@ def test_source_qa_repair_does_not_append_excerpts_when_reply_is_already_cited()
 
 
 def test_source_qa_repair_uses_compact_model_repair_when_reply_has_no_citations() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="compactness")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="compactness")
     evidence = _turn_evidence(
         _evidence(content="Compactness is defined using open covers in this material.")
     )
@@ -237,7 +237,7 @@ def test_source_qa_repair_uses_compact_model_repair_when_reply_has_no_citations(
 
 
 def test_source_qa_repair_appends_citation_when_model_repair_unavailable() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="compactness")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="compactness")
     evidence = _turn_evidence(
         _evidence(content="Compactness is defined using open covers in this material.")
     )
@@ -261,7 +261,7 @@ def test_repair_replaces_unverified_source_quotes_with_evidence_pointer() -> Non
     )
 
     repaired, _passes = _run_bounded_internal_repairs(
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         (
             "The source sentence is: "
             '"The current evidence does not contain a direct source answer." [E1]'
@@ -276,7 +276,7 @@ def test_repair_replaces_unverified_source_quotes_with_evidence_pointer() -> Non
 
 
 def test_source_qa_repair_compacts_oversized_cited_reply_before_model_repair() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(content="The source-backed point is short and directly cited.")
     )
@@ -296,7 +296,7 @@ def test_source_qa_repair_compacts_oversized_cited_reply_before_model_repair() -
 
 
 def test_source_qa_repair_deterministically_compacts_oversized_cited_units() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence("E1", content="First supported point."),
         _evidence("E2", content="Second supported point."),
@@ -326,7 +326,7 @@ def test_source_qa_repair_deterministically_compacts_oversized_cited_units() -> 
 
 
 def test_transform_prior_repair_does_not_append_evidence_inventory() -> None:
-    plan = _plan(action=LearningAction.PRESENT)
+    plan = _plan(action=DocumentAction.PRESENT)
     evidence = _turn_evidence(
         _evidence(content="The source-backed prompt asks for the shortest accurate version.")
     )
@@ -349,7 +349,7 @@ def test_transform_prior_repair_does_not_append_evidence_inventory() -> None:
 
 
 def test_calibration_repair_adds_minimal_evidence_citation() -> None:
-    plan = _plan(action=LearningAction.CALIBRATE)
+    plan = _plan(action=DocumentAction.CALIBRATE)
     evidence = _turn_evidence(_evidence(content="The product rule uses both factors."))
 
     repaired, _passes = _run_bounded_internal_repairs(
@@ -364,7 +364,7 @@ def test_calibration_repair_adds_minimal_evidence_citation() -> None:
 
 
 def test_assessment_repair_adds_required_evidence_citation() -> None:
-    plan = _plan(action=LearningAction.ASSESS)
+    plan = _plan(action=DocumentAction.ASSESS)
     evidence = _turn_evidence(_evidence(content="A supporting rubric point."))
 
     repaired, _passes = _run_bounded_internal_repairs(
@@ -380,7 +380,7 @@ def test_assessment_repair_adds_required_evidence_citation() -> None:
 
 def test_source_qa_assessment_requires_direct_support_for_resolved_query() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="Which source mentions the amber lattice theorem?",
         requires_direct_evidence=True,
     )
@@ -409,7 +409,7 @@ def test_source_qa_assessment_requires_direct_support_for_resolved_query() -> No
 
 def test_source_qa_assessment_does_not_aggregate_generic_support_across_sources() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="which document source contains the invented theorem phrase",
         requires_direct_evidence=True,
     )
@@ -436,9 +436,9 @@ def test_source_qa_assessment_does_not_aggregate_generic_support_across_sources(
 
 
 def test_source_backed_summary_request_does_not_force_locator_support() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="Switch to history and summarize one source-backed point.",
         retrieval_query="history Switch to history and summarize one source-backed point.",
@@ -462,9 +462,9 @@ def test_source_backed_summary_request_does_not_force_locator_support() -> None:
 
 
 def test_source_qa_direct_lookup_uses_original_request_when_query_is_condensed() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="Using only the sources, what is the amber forge retrieval phrase?",
         retrieval_query="amber forge retrieval phrase",
@@ -483,9 +483,9 @@ def test_source_qa_direct_lookup_uses_original_request_when_query_is_condensed()
 
 
 def test_source_qa_direct_support_scores_original_request_not_expanded_query() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="was ist l hopital?",
         retrieval_query="L'Hôpital's rule definition and conditions",
@@ -503,9 +503,9 @@ def test_source_qa_direct_support_scores_original_request_not_expanded_query() -
 
 
 def test_expanded_source_qa_filter_scores_original_request_not_expanded_query() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="was ist l hopital?",
         retrieval_query="L'Hôpital's rule definition and conditions in calculus materials",
@@ -528,7 +528,7 @@ def test_expanded_source_qa_filter_scores_original_request_not_expanded_query() 
 
 
 def test_source_qa_assessment_accepts_direct_source_support() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="product rule source")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="product rule source")
     evidence = _turn_evidence(
         _evidence(content="The product rule source says both factors contribute.")
     )
@@ -540,7 +540,7 @@ def test_source_qa_assessment_accepts_direct_source_support() -> None:
 
 def test_source_qa_assessment_accepts_dominant_retrieval_support() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="source with strongest procedural wording explain procedure",
     )
     evidence = _turn_evidence(
@@ -570,9 +570,9 @@ def test_source_qa_assessment_accepts_dominant_retrieval_support() -> None:
 
 
 def test_source_qa_dominant_retrieval_support_requires_distinctive_terms() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt=(
             "User question: Using only the armory, what date was the fictional launch ceremony?"
         ),
@@ -607,9 +607,9 @@ def test_source_qa_dominant_retrieval_support_requires_distinctive_terms() -> No
 
 
 def test_source_qa_quoted_phrase_lookup_requires_phrase_terms() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt='User question: Which source mentions the invented theorem called "silver cactus"?',
         retrieval_query=(
             'Find any source in the materials that mentions the phrase "silver cactus"; '
@@ -633,7 +633,7 @@ def test_source_qa_quoted_phrase_lookup_requires_phrase_terms() -> None:
 
 def test_source_qa_detail_request_does_not_require_exact_lookup_support() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="one additional cited detail supporting the prior answer",
     )
     evidence = _turn_evidence(
@@ -647,7 +647,7 @@ def test_source_qa_detail_request_does_not_require_exact_lookup_support() -> Non
 
 def test_source_qa_reuse_prior_evidence_does_not_match_followup_words() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
     )
     plan = replace(
@@ -667,9 +667,9 @@ def test_source_qa_reuse_prior_evidence_does_not_match_followup_words() -> None:
 
 
 def test_direct_reuse_prior_source_qa_still_checks_current_question_support() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="How is the next item selected?",
         retrieval_query=None,
@@ -688,9 +688,9 @@ def test_direct_reuse_prior_source_qa_still_checks_current_question_support() ->
 
 
 def test_source_qa_definition_request_without_retrieval_query_requires_direct_support() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="Define the most technical term.",
         retrieval_query=None,
@@ -711,7 +711,7 @@ def test_source_qa_definition_request_without_retrieval_query_requires_direct_su
 def test_source_qa_abstains_deterministically_when_direct_answer_is_missing() -> None:
     session = _session()
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="Which source mentions the amber lattice theorem?",
         requires_direct_evidence=True,
     )
@@ -724,13 +724,13 @@ def test_source_qa_abstains_deterministically_when_direct_answer_is_missing() ->
         canonical_request="Which source mentions the amber lattice theorem?",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=contract,
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is not None
     assert "current evidence does not contain a direct source answer" in deterministic.reply
@@ -740,7 +740,7 @@ def test_source_qa_abstain_does_not_cite_unrelated_direct_evidence() -> None:
     session = _session()
     user_input = "what topics is the student supposed to learn from this class"
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=user_input,
         requires_direct_evidence=True,
     )
@@ -753,7 +753,7 @@ def test_source_qa_abstain_does_not_cite_unrelated_direct_evidence() -> None:
         ),
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=TurnContract(
@@ -763,7 +763,7 @@ def test_source_qa_abstain_does_not_cite_unrelated_direct_evidence() -> None:
         ),
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is not None
     assert deterministic.reply == (
@@ -782,7 +782,7 @@ def test_source_qa_abstain_overrides_prior_single_citation_quote() -> None:
         evidence_refs=("notes.md#chunk=0",),
     )
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="missing direct phrase",
         requires_direct_evidence=True,
     )
@@ -801,13 +801,13 @@ def test_source_qa_abstain_overrides_prior_single_citation_quote() -> None:
         prior_answer_reference=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=contract,
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is not None
     assert "current evidence does not contain a direct source answer" in deterministic.reply
@@ -834,13 +834,13 @@ def test_broad_material_followup_uses_structural_evidence_overview() -> None:
         retrieval_query="additional material overview details",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=contract,
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is not None
     assert deterministic.reply.count("\n") <= 2
@@ -874,13 +874,13 @@ def test_broad_material_followup_skips_recently_cited_overview_items() -> None:
         retrieval_query="",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=contract,
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is not None
     assert "[E4]" in deterministic.reply
@@ -900,7 +900,7 @@ def test_broad_material_followup_skips_recently_cited_overview_items() -> None:
 def test_source_followup_with_evidence_uses_model_prompt_not_canned_reply() -> None:
     session = _session()
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="supporting phrase report material does not contain the answer",
     )
     evidence = _turn_evidence(
@@ -923,13 +923,13 @@ def test_source_followup_with_evidence_uses_model_prompt_not_canned_reply() -> N
         retrieval_query="supporting phrase report material does not contain the answer",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
         turn_contract=contract,
     )
 
-    deterministic = _deterministic_learning_reply(session, plan, resolved)
+    deterministic = _deterministic_document_reply(session, plan, resolved)
 
     assert deterministic is None
 
@@ -944,7 +944,7 @@ def test_empty_reasoned_source_followup_does_not_fall_back_to_raw_excerpt() -> N
         )
     )
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="real-life applications of the prior cited material",
         requires_direct_evidence=False,
     )
@@ -957,12 +957,12 @@ def test_empty_reasoned_source_followup_does_not_fall_back_to_raw_excerpt() -> N
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _empty_learning_reply(
+    reply = _empty_document_reply(
         plan,
         resolved,
         user_input="When would I use this outside the course?",
@@ -978,7 +978,7 @@ def test_empty_direct_source_lookup_can_fall_back_to_source_excerpt() -> None:
         _evidence("E1", "source.md", 0, "The source directly states the requested detail.")
     )
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="requested detail",
         requires_direct_evidence=True,
     )
@@ -988,12 +988,12 @@ def test_empty_direct_source_lookup_can_fall_back_to_source_excerpt() -> None:
         direct_evidence_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _empty_learning_reply(
+    reply = _empty_document_reply(
         plan,
         resolved,
         user_input="Which source directly states the requested detail?",
@@ -1281,7 +1281,7 @@ def test_resolved_user_intent_preserves_prior_answer_transform_mode() -> None:
     assert resolution.retrieval_query == ""
 
 
-def test_material_followup_does_not_enter_learning_scaffold_intent() -> None:
+def test_material_followup_does_not_enter_practice_scaffold_intent() -> None:
     resolution = _stabilized_followup_intent_resolution(
         TurnIntentResolution(
             intent="scaffold_request",
@@ -1459,12 +1459,12 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
             TurnOrchestrator,
             "_resolve_timed_turn_plan",
             return_value=ResolvedTurnPlan(
-                learning_plan=plan_turn(
-                    LearningState(), "Explain compactness", intent="topic_presentation"
+                document_plan=plan_turn(
+                    RecallState(), "Explain compactness", intent="topic_presentation"
                 ),
                 turn_evidence=evidence,
                 evidence_assessment=assess_turn_evidence(
-                    plan_turn(LearningState(), "Explain compactness", intent="topic_presentation"),
+                    plan_turn(RecallState(), "Explain compactness", intent="topic_presentation"),
                     evidence,
                 ),
             ),
@@ -1486,9 +1486,9 @@ def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_r
 
     assert classify.call_args.kwargs["prior_intent"] == "topic_presentation"
     resolved_plan = resolve.call_args.args[0]
-    assert resolved_plan.action is LearningAction.PRESENT
+    assert resolved_plan.action is DocumentAction.PRESENT
     assert resolved_plan.retrieval_query == "Explain compactness"
-    assert session.learning_state.phase is LearningPhase.WAITING_FOR_READY
+    assert session.recall_state.phase is RecallPhase.WAITING_FOR_READY
     assert session.last_plan_intent == "topic_presentation"
     assert any(isinstance(event, TurnCompleteEvent) for event in events)
     assert session.conversation.messages[-1].content.startswith("Check [E1]")
@@ -1501,9 +1501,9 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence())
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1535,7 +1535,7 @@ def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integratio
         list(orchestrator.iter_events("Where is compactness defined?"))
 
     assert model_payload.called
-    assert session.learning_state.current_item == ""
+    assert session.recall_state.current_item == ""
     assert session.last_plan_intent == "source_qa"
     assert session.last_turn_contract is not None
     assert session.last_turn_contract.original_user_input == "Where is compactness defined?"
@@ -1561,7 +1561,7 @@ def test_successful_turn_contract_keeps_only_visible_cited_evidence_refs() -> No
         _evidence("E2", "second.md", 3, "The second excerpt is cited."),
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=TurnContract(
             original_user_input="Use one excerpt.",
@@ -1594,7 +1594,7 @@ def test_successful_turn_contract_preserves_uncited_turn_without_evidence_refs()
         "The current evidence does not contain a direct source answer for this request."
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=TurnContract(
             original_user_input="Find the exact phrase.",
@@ -1631,9 +1631,9 @@ def test_followup_can_reuse_prior_evidence_without_literal_retrieval_text() -> N
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence())
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1701,9 +1701,9 @@ def test_followup_literal_retrieval_query_expands_prior_evidence() -> None:
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence())
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1762,9 +1762,9 @@ def test_followup_semantic_retrieval_query_expands_prior_evidence() -> None:
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence(source="study-methods.md"))
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1822,9 +1822,9 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence(source="materials/source-1.md"))
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1869,7 +1869,7 @@ def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
 
 
 def test_followup_expands_compact_prior_overview_instead_of_requoting_it() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     contract = TurnContract(
         original_user_input="Continue from there.",
         resolved_intent="material_overview",
@@ -1923,11 +1923,11 @@ def test_answer_transform_followup_reuses_prior_evidence_without_source_search()
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence(source="materials/source-1.md"))
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         assert plan.retrieval_query is None
         assert plan.evidence_refs == prior_refs
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -1992,11 +1992,11 @@ def test_relevance_followup_reasons_from_prior_evidence_without_source_search() 
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence(source="materials/source-1.md"))
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         assert plan.retrieval_query is None
         assert plan.evidence_refs == prior_refs
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -2062,9 +2062,9 @@ def test_followup_expansion_uses_most_specific_semantic_query() -> None:
     orchestrator = TurnOrchestrator(session)
     evidence = _turn_evidence(_evidence(source="materials/source-1.md"))
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -2141,7 +2141,7 @@ def test_expand_prior_evidence_merges_prior_refs_with_query_results() -> None:
         ),
     )
     plan = replace(
-        _plan(action=LearningAction.SOURCE_QA, retrieval_query="compare source areas"),
+        _plan(action=DocumentAction.SOURCE_QA, retrieval_query="compare source areas"),
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
         evidence_refs=("materials/procedure.md#chunk=0",),
     )
@@ -2198,7 +2198,7 @@ def test_expand_prior_source_qa_filters_query_results_to_resolved_query() -> Non
     )
     plan = replace(
         _plan(
-            action=LearningAction.SOURCE_QA,
+            action=DocumentAction.SOURCE_QA,
             retrieval_query="example of retrieval practice from the materials",
         ),
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
@@ -2250,7 +2250,7 @@ def test_turn_evidence_filters_low_content_chunks_from_refs_and_overview() -> No
         from_refs = resolve_turn_evidence(
             session,
             replace(
-                _plan(action=LearningAction.SOURCE_QA, retrieval_query=None),
+                _plan(action=DocumentAction.SOURCE_QA, retrieval_query=None),
                 retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
                 evidence_refs=("materials/notes.md#chunk=1", "materials/notes.md#chunk=0"),
             ),
@@ -2451,7 +2451,7 @@ def test_specific_present_turn_with_overview_strategy_uses_query_evidence() -> N
         )
     )
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_query="specific exercise work",
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
     )
@@ -2729,7 +2729,7 @@ def test_contract_specific_query_overrides_broad_overview_plan_query() -> None:
 def test_current_topic_query_overrides_inherited_followup_query() -> None:
     plan = replace(
         _plan(
-            action=LearningAction.SOURCE_QA,
+            action=DocumentAction.SOURCE_QA,
             retrieval_query="previously summarized calculus topics",
         ),
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
@@ -2761,7 +2761,7 @@ def test_current_topic_query_overrides_inherited_followup_query() -> None:
 def test_current_topic_query_overrides_generic_followup_target_query() -> None:
     plan = replace(
         _plan(
-            action=LearningAction.PRESENT,
+            action=DocumentAction.PRESENT,
             retrieval_query="the current topic change request from the prior turn",
         ),
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
@@ -2794,7 +2794,7 @@ def test_current_topic_query_overrides_generic_followup_target_query() -> None:
 def test_followup_query_prefers_nonliteral_surface_when_available() -> None:
     plan = replace(
         _plan(
-            action=LearningAction.SOURCE_QA,
+            action=DocumentAction.SOURCE_QA,
             retrieval_query="Ask one recall question grounded in the source.",
         ),
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
@@ -2991,7 +2991,7 @@ def test_unicode_math_reply_converts_bare_mathbb_without_touching_paths() -> Non
 
 
 def test_blank_contract_intent_is_filled_from_final_plan() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="explain the procedure")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="explain the procedure")
     contract = TurnContract(
         original_user_input="explain the procedure",
         canonical_request="Explain the procedure.",
@@ -3005,7 +3005,7 @@ def test_blank_contract_intent_is_filled_from_final_plan() -> None:
         prior_contract=None,
     )
 
-    assert updated_plan.action is LearningAction.SOURCE_QA
+    assert updated_plan.action is DocumentAction.SOURCE_QA
     assert updated_contract.resolved_intent == "source_qa"
 
 
@@ -3083,7 +3083,7 @@ def test_overview_retrieval_strategy_uses_corpus_sampler_even_with_model_query()
 
 
 def test_expand_prior_contract_preserves_direct_evidence_contract() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="requested detail")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="requested detail")
     contract = TurnContract(
         original_user_input="Add one more detail.",
         resolved_intent="source_qa",
@@ -3108,7 +3108,7 @@ def test_expand_prior_contract_preserves_direct_evidence_contract() -> None:
 
 
 def test_source_qa_contract_requires_direct_evidence_by_structure() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="explain the procedure")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="explain the procedure")
     contract = TurnContract(
         original_user_input="explain the procedure",
         resolved_intent="source_qa",
@@ -3128,7 +3128,7 @@ def test_source_qa_contract_requires_direct_evidence_by_structure() -> None:
 
 
 def test_prior_followup_without_direct_requirement_reasons_from_prior_evidence() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="real world application")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="real world application")
     contract = TurnContract(
         original_user_input="When would I use that outside class?",
         resolved_intent="source_qa",
@@ -3157,7 +3157,7 @@ def test_prior_followup_without_direct_requirement_reasons_from_prior_evidence()
 
 
 def test_reason_from_prior_contract_does_not_keep_exact_source_requirement() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="assumption behind claim")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="assumption behind claim")
     contract = TurnContract(
         original_user_input="What assumption is behind the second cited claim?",
         resolved_intent="source_qa",
@@ -3185,7 +3185,7 @@ def test_reason_from_prior_contract_does_not_keep_exact_source_requirement() -> 
 
 
 def test_direct_prior_followup_keeps_exact_source_requirement() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="source location")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="source location")
     contract = TurnContract(
         original_user_input="Which source says that?",
         resolved_intent="source_qa",
@@ -3213,7 +3213,7 @@ def test_direct_prior_followup_keeps_exact_source_requirement() -> None:
 
 
 def test_prior_answer_reference_expands_prior_evidence_for_direct_lookup() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="method source passage")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="method source passage")
     contract = TurnContract(
         original_user_input="Where does the cited method claim come from?",
         resolved_intent="source_qa",
@@ -3245,7 +3245,7 @@ def test_prior_answer_reference_expands_prior_evidence_for_direct_lookup() -> No
 
 def test_source_qa_expanded_prior_direct_gate_accepts_source_coverage() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="history Switch to history and summarize one source-backed point.",
         requires_direct_evidence=True,
     )
@@ -3273,7 +3273,7 @@ def test_source_qa_expanded_prior_direct_gate_accepts_source_coverage() -> None:
 
 def test_source_qa_expanded_prior_direct_gate_rejects_weak_coverage() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="amber forge retrieval phrase exact wording in the sources",
         requires_direct_evidence=True,
     )
@@ -3299,9 +3299,9 @@ def test_source_qa_expanded_prior_direct_gate_rejects_weak_coverage() -> None:
 
 
 def test_source_qa_expanded_prior_rejects_direct_user_query_with_missing_terms() -> None:
-    plan = LearningTurnPlan(
-        action=LearningAction.SOURCE_QA,
-        phase=LearningPhase.PRESENTING,
+    plan = DocumentTurnPlan(
+        action=DocumentAction.SOURCE_QA,
+        phase=RecallPhase.PRESENTING,
         prompt="test prompt",
         original_user_input="Using only the sources, what is the amber forge retrieval phrase?",
         retrieval_query="amber forge retrieval phrase in the materials",
@@ -3332,7 +3332,7 @@ def test_source_qa_expanded_prior_rejects_direct_user_query_with_missing_terms()
 
 
 def test_priority_contract_does_not_reuse_stale_prior_evidence() -> None:
-    plan = _plan(action=LearningAction.PRIORITY, retrieval_query="priority evidence query")
+    plan = _plan(action=DocumentAction.PRIORITY, retrieval_query="priority evidence query")
     contract = TurnContract(
         original_user_input="What should I review first?",
         resolved_intent="priority_request",
@@ -3358,7 +3358,7 @@ def test_priority_contract_does_not_reuse_stale_prior_evidence() -> None:
 
 
 def test_prior_answer_reference_without_prior_refs_does_not_retrieve_new_evidence() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="new implication query")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="new implication query")
     contract = TurnContract(
         original_user_input="What else should I take from that?",
         resolved_intent="source_qa",
@@ -3386,7 +3386,7 @@ def test_prior_answer_reference_without_prior_refs_does_not_retrieve_new_evidenc
 
 
 def test_literal_followup_without_replayable_prior_refs_does_not_search_literal_text() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="Explain that.")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="Explain that.")
     contract = TurnContract(
         original_user_input="Explain that.",
         resolved_intent="source_qa",
@@ -3411,7 +3411,7 @@ def test_literal_followup_without_replayable_prior_refs_does_not_search_literal_
 
 
 def test_surface_less_followup_without_prior_refs_does_not_create_literal_query() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query=None)
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query=None)
     contract = TurnContract(
         original_user_input="Explain the term used in the last citation.",
         resolved_intent="source_qa",
@@ -3435,7 +3435,7 @@ def test_surface_less_followup_without_prior_refs_does_not_create_literal_query(
 
 
 def test_surface_less_followup_without_prior_refs_does_not_reuse_stale_query() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="stale prior query")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="stale prior query")
     contract = TurnContract(
         original_user_input="Compare that with the topic before it.",
         resolved_intent="source_qa",
@@ -3460,7 +3460,7 @@ def test_surface_less_followup_without_prior_refs_does_not_reuse_stale_query() -
 
 
 def test_followup_schema_none_query_after_no_evidence_does_not_retrieve_random_chunks() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query="fallback topic")
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query="fallback topic")
     contract = TurnContract(
         original_user_input="Make a checklist from the evidence.",
         resolved_intent="source_qa",
@@ -3493,7 +3493,7 @@ def test_followup_schema_none_query_after_no_evidence_does_not_retrieve_random_c
 
 def test_specific_material_target_does_not_force_corpus_overview_sampling() -> None:
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
         retrieval_query="what is the material about",
     )
@@ -3519,7 +3519,7 @@ def test_specific_material_target_does_not_force_corpus_overview_sampling() -> N
 
 
 def test_direct_reuse_followup_marks_prior_answer_reference() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA, retrieval_query=None)
+    plan = _plan(action=DocumentAction.SOURCE_QA, retrieval_query=None)
     contract = TurnContract(
         original_user_input="Which citation supports that?",
         resolved_intent="source_qa",
@@ -3561,10 +3561,10 @@ def test_deterministic_missing_index_reply_still_applies_classified_plan() -> No
     )
     assert "no searchable evidence is indexed yet" in assistant_text
     assert session.last_plan_intent == ""
-    assert session.learning_state.last_feedback_type is LearningFeedbackType.NONE
+    assert session.recall_state.last_feedback_type is RecallFeedbackType.NONE
 
 
-def test_learning_practice_context_reads_schedule_learner_state(tmp_path: Path) -> None:
+def test_recall_practice_context_reads_schedule_learner_state(tmp_path: Path) -> None:
     session = _session()
     session.armory_path = tmp_path
     store = load_recall_schedule(tmp_path)
@@ -3591,7 +3591,7 @@ def test_learning_practice_context_reads_schedule_learner_state(tmp_path: Path) 
         )
     store.save()
 
-    due_reviews, memory_state = _learning_practice_context(session)
+    due_reviews, memory_state = _recall_practice_context(session)
 
     assert due_reviews[0].item == "Define compactness"
     assert memory_state.weak_topics == ("compactness",)
@@ -3601,10 +3601,10 @@ def test_learning_practice_context_reads_schedule_learner_state(tmp_path: Path) 
 
 def test_evidence_notice_and_metadata_expose_retrieval_details() -> None:
     session = _session()
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(_evidence("E1"), _evidence("E2", "other.md", 1))
     resolved = ResolvedTurnPlan(
-        learning_plan=plan,
+        document_plan=plan,
         turn_evidence=evidence,
         evidence_assessment=assess_turn_evidence(plan, evidence),
     )
@@ -3623,13 +3623,13 @@ def test_evidence_notice_and_metadata_expose_retrieval_details() -> None:
 
 def test_evidence_notice_summarizes_overview_sources_and_hides_calibration() -> None:
     overview = ResolvedTurnPlan(
-        learning_plan=material_overview_plan("overview"),
+        document_plan=material_overview_plan("overview"),
         turn_evidence=_turn_evidence(
             _evidence(source="a.md"), _evidence("E2", "b.md", 0), sampled=2, total=5
         ),
     )
     calibration = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.CALIBRATE),
+        document_plan=_plan(action=DocumentAction.CALIBRATE),
         turn_evidence=_turn_evidence(_evidence()),
     )
 
@@ -3641,7 +3641,7 @@ def test_evidence_notice_summarizes_overview_sources_and_hides_calibration() -> 
 def test_calibration_evidence_is_stored_without_visible_notice() -> None:
     evidence = _turn_evidence(_evidence(content="The source-backed recall fact."))
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.CALIBRATE),
+        document_plan=_plan(action=DocumentAction.CALIBRATE),
         turn_evidence=evidence,
     )
 
@@ -3652,7 +3652,7 @@ def test_calibration_evidence_is_stored_without_visible_notice() -> None:
 def test_missing_indexed_material_reply_reports_index_states() -> None:
     session = _session()
     session.source_file_count = 1
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
 
     session.rag_index = None
     assert "could not prepare the searchable materials index" in _missing_indexed_material_reply(
@@ -3678,7 +3678,7 @@ def test_no_matching_indexed_evidence_reply_reports_ready_index_without_recreati
     session.rag_index = _index(_document())
 
     reply = _no_matching_indexed_evidence_reply(
-        session, _plan(action=LearningAction.SOURCE_QA, retrieval_query="compactness")
+        session, _plan(action=DocumentAction.SOURCE_QA, retrieval_query="compactness")
     )
 
     assert "did not retrieve matching evidence" in reply
@@ -3700,7 +3700,7 @@ def test_no_matching_indexed_evidence_reply_reports_resolved_request() -> None:
     reply = _no_matching_indexed_evidence_reply(
         session,
         _plan(
-            action=LearningAction.SOURCE_QA,
+            action=DocumentAction.SOURCE_QA,
             retrieval_query="the previous overview of the materials and their topics",
         ),
         contract,
@@ -3713,7 +3713,7 @@ def test_no_matching_indexed_evidence_reply_reports_resolved_request() -> None:
 
 def test_assess_turn_evidence_flags_weak_source_only_support() -> None:
     assessment = assess_turn_evidence(
-        _plan(action=LearningAction.SOURCE_QA, retrieval_query=None),
+        _plan(action=DocumentAction.SOURCE_QA, retrieval_query=None),
         _turn_evidence(_evidence()),
     )
 
@@ -4330,7 +4330,7 @@ def test_overview_list_request_uses_list_fallback_instead_of_prose() -> None:
 
 def test_material_overview_contract_uses_overview_shape_guard_for_continuations() -> None:
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_query="the prior broad overview of the materials corpus",
     )
     evidence = _turn_evidence(
@@ -4583,8 +4583,8 @@ def test_localize_deterministic_reply_rejects_added_citations_and_preserves_orig
 
 
 def test_user_visible_reply_strips_control_markup_and_unsolicited_followup() -> None:
-    source_plan = _plan(action=LearningAction.SOURCE_QA)
-    chat_plan = _plan(action=LearningAction.CHAT, retrieval_query=None)
+    source_plan = _plan(action=DocumentAction.SOURCE_QA)
+    chat_plan = _plan(action=DocumentAction.CHAT, retrieval_query=None)
 
     assert (
         _user_visible_reply(source_plan, "Answer [E1]. Say ready when you want recall.")
@@ -4594,7 +4594,7 @@ def test_user_visible_reply_strips_control_markup_and_unsolicited_followup() -> 
 
 
 def test_source_visible_reply_strips_uncited_tail_after_cited_answer() -> None:
-    source_plan = _plan(action=LearningAction.SOURCE_QA)
+    source_plan = _plan(action=DocumentAction.SOURCE_QA)
     reply = (
         "The material prioritizes limits and continuity [E1].\n\n"
         "Detached trailing sentence with no citation."
@@ -4618,7 +4618,7 @@ def test_overview_visible_reply_preserves_full_draft_for_shape_validation() -> N
 
 
 def test_internal_repair_expands_citation_only_answer() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(content="The procedure says to locate the smallest supporting phrase.")
     )
@@ -4639,7 +4639,7 @@ def test_internal_repair_expands_citation_only_answer() -> None:
 
 
 def test_internal_repair_expands_thin_source_pointer() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(
             "E3",
@@ -4665,7 +4665,7 @@ def test_internal_repair_expands_thin_source_pointer() -> None:
 
 
 def test_internal_repair_replaces_thin_source_pointer_with_top_evidence() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence("E1", content="The procedure gives a directly relevant support phrase."),
         _evidence("E2", content="An unrelated adjacent note."),
@@ -4694,7 +4694,7 @@ def test_internal_repair_replaces_thin_source_pointer_with_top_evidence() -> Non
 
 
 def test_internal_repair_expands_table_to_cover_multiple_evidence_sources() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(
             "E1",
@@ -4730,7 +4730,7 @@ def test_internal_repair_expands_table_to_cover_multiple_evidence_sources() -> N
 
 
 def test_internal_table_repair_keeps_single_source_table_when_only_one_source_available() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(
             "E1",
@@ -4759,7 +4759,7 @@ def test_internal_table_repair_keeps_single_source_table_when_only_one_source_av
 
 
 def test_internal_table_repair_preserves_markdown_table_shape_when_long() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
     evidence = _turn_evidence(
         _evidence(
             "E1",
@@ -4808,7 +4808,7 @@ def test_internal_table_repair_preserves_markdown_table_shape_when_long() -> Non
 
 
 def test_source_qa_user_visible_reply_keeps_cited_active_recall_content() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
 
     reply = _user_visible_reply(plan, "The source asks an active recall question [E1].")
 
@@ -4816,7 +4816,7 @@ def test_source_qa_user_visible_reply_keeps_cited_active_recall_content() -> Non
 
 
 def test_source_qa_user_visible_reply_normalizes_escaped_citation_brackets() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
 
     reply = _user_visible_reply(plan, r"The source says this \[E1\].")
 
@@ -4824,7 +4824,7 @@ def test_source_qa_user_visible_reply_normalizes_escaped_citation_brackets() -> 
 
 
 def test_source_qa_user_visible_reply_normalizes_private_use_citation_markup() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
 
     reply = _user_visible_reply(plan, "The source says this \ue200cite:E1\ue201.")
 
@@ -4832,7 +4832,7 @@ def test_source_qa_user_visible_reply_normalizes_private_use_citation_markup() -
 
 
 def test_source_qa_user_visible_reply_normalizes_private_use_citation_event_markup() -> None:
-    plan = _plan(action=LearningAction.SOURCE_QA)
+    plan = _plan(action=DocumentAction.SOURCE_QA)
 
     reply = _user_visible_reply(plan, "The source says this \ue200cite\ue202E1\ue201.")
 
@@ -4851,9 +4851,9 @@ def test_source_grounded_agent_request_keeps_compact_prior_context() -> None:
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.SOURCE_QA),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.SOURCE_QA),
+        RecallState(),
         "What does the source say?",
         session,
         contract,
@@ -4881,9 +4881,9 @@ def test_material_review_agent_request_keeps_compact_prior_context() -> None:
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.REVIEW),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.REVIEW),
+        RecallState(),
         "Make a learning checklist from the evidence.",
         session,
         contract,
@@ -4913,9 +4913,9 @@ def test_calibration_agent_request_isolates_stale_topic_history() -> None:
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.CALIBRATE),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.CALIBRATE),
+        RecallState(),
         "Quiz me with one source-backed recall prompt.",
         session,
         contract,
@@ -4940,9 +4940,9 @@ def test_prior_answer_transform_keeps_prior_answer_context() -> None:
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.SOURCE_QA),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.SOURCE_QA),
+        RecallState(),
         "in another language",
         session,
         contract,
@@ -4967,7 +4967,7 @@ def test_substantive_prior_transform_becomes_reasoning_followup() -> None:
         evidence_refs=("materials/topic.md#chunk=0",),
     )
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_query="material overview",
         retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
     )
@@ -5003,7 +5003,7 @@ def test_vague_prior_clarification_transforms_prior_answer_without_retrieval() -
         evidence_refs=("materials/topic.md#chunk=0",),
     )
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_query="material overview",
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
     )
@@ -5044,9 +5044,9 @@ def test_reasoned_relevance_mode_keeps_recent_history_and_contract_guidance() ->
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.SOURCE_QA),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.SOURCE_QA),
+        RecallState(),
         "why is that important?",
         session,
         contract,
@@ -5100,9 +5100,9 @@ def test_material_followup_keeps_recent_context_even_without_followup_contract()
         evidence_refs=("materials/current.md#chunk=0",),
     )
 
-    request = _learning_agent_request(
-        _plan(action=LearningAction.SOURCE_QA),
-        LearningState(),
+    request = _document_agent_request(
+        _plan(action=DocumentAction.SOURCE_QA),
+        RecallState(),
         "When would I use it outside the course?",
         session,
         contract,
@@ -5134,14 +5134,14 @@ def test_reasoned_relevance_prompt_uses_prior_answer_as_premise() -> None:
         evidence_refs=("materials/current.md#chunk=0",),
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.PRESENT),
+        document_plan=_plan(action=DocumentAction.PRESENT),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
-    prompt = _learning_extra_system_prompt(
+    prompt = _document_extra_system_prompt(
         session,
-        _plan(action=LearningAction.PRESENT),
+        _plan(action=DocumentAction.PRESENT),
         resolved,
         user_input="why is that important?",
     )
@@ -5205,21 +5205,21 @@ def test_fresh_overview_uses_shape_guard_even_when_contract_claims_prior_reasoni
 
 
 def test_source_grounded_turns_buffer_until_postprocessed() -> None:
-    assert _should_buffer_learning_output(_plan(action=LearningAction.PRESENT))
-    assert _should_buffer_learning_output(_plan(action=LearningAction.SOURCE_QA))
-    assert _should_buffer_learning_output(_plan(action=LearningAction.CHAT))
-    assert not _should_buffer_learning_output(_plan(action=LearningAction.WAIT_READY_REMINDER))
+    assert _should_buffer_document_output(_plan(action=DocumentAction.PRESENT))
+    assert _should_buffer_document_output(_plan(action=DocumentAction.SOURCE_QA))
+    assert _should_buffer_document_output(_plan(action=DocumentAction.CHAT))
+    assert not _should_buffer_document_output(_plan(action=DocumentAction.WAIT_READY_REMINDER))
 
 
 def test_retrieved_chat_turn_requires_citations() -> None:
     assert _plan_requires_citations(
-        _plan(action=LearningAction.CHAT, retrieval_query="source backed procedure")
+        _plan(action=DocumentAction.CHAT, retrieval_query="source backed procedure")
     )
-    assert not _plan_requires_citations(_plan(action=LearningAction.CHAT, retrieval_query=None))
+    assert not _plan_requires_citations(_plan(action=DocumentAction.CHAT, retrieval_query=None))
 
 
 def test_retrieved_chat_repair_appends_citation_when_reply_has_no_evidence_ids() -> None:
-    plan = _plan(action=LearningAction.CHAT, retrieval_query="source backed procedure")
+    plan = _plan(action=DocumentAction.CHAT, retrieval_query="source backed procedure")
     evidence = _turn_evidence(
         _evidence(
             "E1",
@@ -5241,7 +5241,7 @@ def test_retrieved_chat_repair_appends_citation_when_reply_has_no_evidence_ids()
 
 def test_resolved_turn_intent_prefers_contract_state() -> None:
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.PRESENT),
+        document_plan=_plan(action=DocumentAction.PRESENT),
         turn_contract=TurnContract(
             original_user_input="auf deutsch",
             resolved_intent="material_overview",
@@ -5251,7 +5251,7 @@ def test_resolved_turn_intent_prefers_contract_state() -> None:
     assert _resolved_turn_intent(resolved) == "material_overview"
 
 
-def test_learning_extra_system_prompt_includes_prior_answer_for_followup() -> None:
+def test_document_extra_system_prompt_includes_prior_answer_for_followup() -> None:
     session = _session()
     session.conversation.add("user", "What is the material about?")
     session.conversation.add("assistant", "It covers sequences and series [E1].")
@@ -5266,14 +5266,14 @@ def test_learning_extra_system_prompt_includes_prior_answer_for_followup() -> No
         evidence_refs=("materials/current.md#chunk=0",),
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
-    prompt = _learning_extra_system_prompt(
+    prompt = _document_extra_system_prompt(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
         user_input="Define the most technical term from that answer.",
     )
@@ -5501,14 +5501,14 @@ def test_prior_answer_reference_missing_position_gets_deterministic_reply() -> N
         prior_answer_position_basis="cited_claims",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5547,14 +5547,14 @@ def test_prior_answer_missing_list_position_uses_latest_cited_answer() -> None:
         prior_answer_position_basis="list_items",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5582,15 +5582,15 @@ def test_prior_answer_list_position_can_fallback_to_cited_claim_structure() -> N
         prior_answer_position_basis="list_items",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
     assert (
-        _deterministic_learning_reply(
+        _deterministic_document_reply(
             session,
-            _plan(action=LearningAction.SOURCE_QA),
+            _plan(action=DocumentAction.SOURCE_QA),
             resolved,
         )
         is None
@@ -5612,15 +5612,15 @@ def test_prior_answer_transform_with_available_cited_claim_does_not_emit_absence
         prior_answer_position_basis="cited_claims",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
     assert (
-        _deterministic_learning_reply(
+        _deterministic_document_reply(
             session,
-            _plan(action=LearningAction.SOURCE_QA),
+            _plan(action=DocumentAction.SOURCE_QA),
             resolved,
         )
         is None
@@ -5644,14 +5644,14 @@ def test_prior_answer_list_transform_uses_cited_evidence_snippets() -> None:
         _evidence("E2", "second.md", content="Second supported operation keeps its number 1/4."),
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5673,7 +5673,7 @@ def test_prior_answer_list_transform_with_single_evidence_uses_model() -> None:
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(
             _evidence("E1", "single.md", content="Select the smallest item, then place it next.")
         ),
@@ -5681,9 +5681,9 @@ def test_prior_answer_list_transform_with_single_evidence_uses_model() -> None:
     )
 
     assert (
-        _deterministic_learning_reply(
+        _deterministic_document_reply(
             session,
-            _plan(action=LearningAction.SOURCE_QA),
+            _plan(action=DocumentAction.SOURCE_QA),
             resolved,
         )
         is None
@@ -5707,14 +5707,14 @@ def test_prior_answer_transform_without_source_structure_gets_absence_reply() ->
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5739,14 +5739,14 @@ def test_prior_answer_reasoning_missing_cited_claim_gets_absence_reply() -> None
         prior_answer_position_basis="cited_claims",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5779,14 +5779,14 @@ def test_prior_answer_reasoning_with_no_prior_structure_gets_absence_reply() -> 
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5808,15 +5808,15 @@ def test_prior_answer_absence_guard_does_not_mask_cited_prior_reply() -> None:
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
     assert (
-        _deterministic_learning_reply(
+        _deterministic_document_reply(
             session,
-            _plan(action=LearningAction.SOURCE_QA),
+            _plan(action=DocumentAction.SOURCE_QA),
             resolved,
         )
         is None
@@ -5840,14 +5840,14 @@ def test_prior_answer_list_reference_without_positions_gets_absence_reply() -> N
         prior_answer_position_basis="list_items",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5872,15 +5872,15 @@ def test_prior_answer_position_guard_ignores_informal_point_positions() -> None:
         prior_answer_position_basis="none",
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=_turn_evidence(_evidence()),
         turn_contract=contract,
     )
 
     assert (
-        _deterministic_learning_reply(
+        _deterministic_document_reply(
             session,
-            _plan(action=LearningAction.SOURCE_QA),
+            _plan(action=DocumentAction.SOURCE_QA),
             resolved,
         )
         is None
@@ -5917,14 +5917,14 @@ def test_prior_answer_citation_check_maps_prior_id_through_stored_source_ref() -
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=current_evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5958,14 +5958,14 @@ def test_prior_answer_citation_check_quotes_source_without_meta_claim() -> None:
         citation_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -5999,14 +5999,14 @@ def test_reasoned_prior_citation_check_uses_quoted_target_phrase() -> None:
         direct_evidence_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -6037,14 +6037,14 @@ def test_direct_prior_reasoning_with_single_citation_keeps_model_answer_path() -
         direct_evidence_required=True,
     )
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_evidence=evidence,
         turn_contract=contract,
     )
 
-    reply = _deterministic_learning_reply(
+    reply = _deterministic_document_reply(
         session,
-        _plan(action=LearningAction.SOURCE_QA),
+        _plan(action=DocumentAction.SOURCE_QA),
         resolved,
     )
 
@@ -6053,8 +6053,8 @@ def test_direct_prior_reasoning_with_single_citation_keeps_model_answer_path() -
 
 def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> None:
     session = _session()
-    session.learning_state = LearningState(
-        phase=LearningPhase.RECALL,
+    session.recall_state = RecallState(
+        phase=RecallPhase.RECALL,
         current_item="compactness",
         retrieval_query="compactness",
         expected_source_refs=["notes.md#chunk=0"],
@@ -6062,7 +6062,7 @@ def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> 
     session.rag_index = _index(_document())
     orchestrator = TurnOrchestrator(session)
     resolved = ResolvedTurnPlan(
-        learning_plan=plan_turn(session.learning_state, "review", intent="material_review"),
+        document_plan=plan_turn(session.recall_state, "review", intent="material_review"),
         turn_evidence=_turn_evidence(_evidence()),
     )
 
@@ -6096,9 +6096,9 @@ def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() 
     session = _session()
     session.rag_index = _index(_document())
     orchestrator = TurnOrchestrator(session)
-    resolved_plans: list[LearningTurnPlan] = []
+    resolved_plans: list[DocumentTurnPlan] = []
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         resolved_plans.append(plan)
         evidence = _turn_evidence(
             _evidence(source="intro.md", content="Course overview."),
@@ -6106,7 +6106,7 @@ def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() 
             total=1,
         )
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -6147,9 +6147,9 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
     session = _session()
     session.rag_index = _index(_document())
     orchestrator = TurnOrchestrator(session)
-    resolved_plans: list[LearningTurnPlan] = []
+    resolved_plans: list[DocumentTurnPlan] = []
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         resolved_plans.append(plan)
         evidence = _turn_evidence(
             _evidence(source="intro.md", content="Course concepts and methods."),
@@ -6157,7 +6157,7 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
             total=1,
         )
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -6190,7 +6190,7 @@ def test_initial_overview_keeps_default_material_route_when_classifier_query_dri
         events = list(orchestrator.iter_events("what is the material about"))
 
     operations = [event.operation for event in events if isinstance(event, MaterialOperationEvent)]
-    assert resolved_plans[0].action is LearningAction.PRESENT
+    assert resolved_plans[0].action is DocumentAction.PRESENT
     assert resolved_plans[0].retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     assert "sample_overview" in operations
 
@@ -6202,9 +6202,9 @@ def test_direct_source_question_does_not_fall_back_to_overview_sampling() -> Non
         _document(text="The lecture mentions continuity and exercise instructions.")
     )
     orchestrator = TurnOrchestrator(session)
-    resolved_plans: list[LearningTurnPlan] = []
+    resolved_plans: list[DocumentTurnPlan] = []
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         resolved_plans.append(plan)
         evidence = _turn_evidence(
             _evidence(source="lecture.md", content="The lecture mentions continuity."),
@@ -6217,7 +6217,7 @@ def test_direct_source_question_does_not_fall_back_to_overview_sampling() -> Non
             total=2,
         )
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -6242,7 +6242,7 @@ def test_direct_source_question_does_not_fall_back_to_overview_sampling() -> Non
         events = list(orchestrator.iter_events(user_input))
 
     operations = [event.operation for event in events if isinstance(event, MaterialOperationEvent)]
-    assert resolved_plans[0].action is LearningAction.SOURCE_QA
+    assert resolved_plans[0].action is DocumentAction.SOURCE_QA
     assert resolved_plans[0].retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
     assert resolved_plans[0].requires_direct_evidence is True
     assert "sample_overview" not in operations
@@ -6252,9 +6252,9 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
     session = _session()
     session.rag_index = _index(_document())
     orchestrator = TurnOrchestrator(session)
-    resolved_plans: list[LearningTurnPlan] = []
+    resolved_plans: list[DocumentTurnPlan] = []
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         resolved_plans.append(plan)
         evidence = _turn_evidence(
             _evidence(source="notes.md", content="Compactness is defined by finite subcovers."),
@@ -6262,7 +6262,7 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
             total=1,
         )
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=evidence,
             evidence_assessment=assess_turn_evidence(plan, evidence),
         )
@@ -6301,7 +6301,7 @@ def test_initial_specific_question_keeps_source_route_when_query_preserves_user_
         events = list(orchestrator.iter_events("what is compactness"))
 
     operations = [event.operation for event in events if isinstance(event, MaterialOperationEvent)]
-    assert resolved_plans[0].action is LearningAction.SOURCE_QA
+    assert resolved_plans[0].action is DocumentAction.SOURCE_QA
     assert resolved_plans[0].retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
     assert "sample_overview" not in operations
 
@@ -6312,7 +6312,7 @@ def test_trace_successful_reply_uses_contract_retrieval_query_surface() -> None:
     orchestrator.last_reply = "Grounded answer [E1]."
     evidence = _turn_evidence(_evidence(content="The source backs the answer."))
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA, retrieval_query=None),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA, retrieval_query=None),
         turn_evidence=evidence,
         turn_contract=TurnContract(
             original_user_input="What does that mean?",
@@ -6348,7 +6348,7 @@ def test_no_evidence_turn_does_not_replace_followup_anchor() -> None:
     orchestrator = TurnOrchestrator(session)
     orchestrator.last_reply = "The current evidence does not contain a direct source answer."
     resolved = ResolvedTurnPlan(
-        learning_plan=_plan(action=LearningAction.SOURCE_QA),
+        document_plan=_plan(action=DocumentAction.SOURCE_QA),
         turn_contract=TurnContract(
             original_user_input="Unsupported lookup.",
             resolved_intent="source_qa",
@@ -6398,7 +6398,7 @@ def test_prior_replay_state_uses_recent_cited_answer_after_uncited_abstain() -> 
 
 def test_unreplayable_followup_does_not_reuse_stale_retrieval_query() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="prior topic retrieval",
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
     )
@@ -6425,7 +6425,7 @@ def test_unreplayable_followup_does_not_reuse_stale_retrieval_query() -> None:
 
 def test_unreplayable_first_turn_uses_current_canonical_query() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="initial retrieval",
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
     )
@@ -6449,7 +6449,7 @@ def test_unreplayable_first_turn_uses_current_canonical_query() -> None:
 
 def test_priority_followup_with_prior_reference_reuses_prior_evidence() -> None:
     plan = _plan(
-        action=LearningAction.PRIORITY,
+        action=DocumentAction.PRIORITY,
         retrieval_query="global priority retrieval",
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
     )
@@ -6484,7 +6484,7 @@ def test_priority_followup_with_prior_reference_reuses_prior_evidence() -> None:
 
 def test_reused_prior_evidence_ignores_literal_followup_direct_evidence_flag() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
     )
@@ -6519,7 +6519,7 @@ def test_reused_prior_evidence_ignores_literal_followup_direct_evidence_flag() -
 
 def test_fresh_source_request_does_not_reuse_stale_prior_evidence() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
     )
@@ -6556,7 +6556,7 @@ def test_fresh_source_request_does_not_reuse_stale_prior_evidence() -> None:
 def test_specific_followup_keeps_content_rich_current_query_over_stale_prior_query() -> None:
     user_input = "Using only the sources, what is the amber forge retrieval phrase?"
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query="Find the source of the quoted claim from the prior answer.",
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
     )
@@ -6590,7 +6590,7 @@ def test_specific_followup_keeps_content_rich_current_query_over_stale_prior_que
 def test_prior_answer_followup_does_not_become_exact_span_lookup() -> None:
     user_input = "Explain the practical value of that answer."
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=user_input,
         retrieval_strategy=RETRIEVAL_STRATEGY_EXPAND_PRIOR,
     )
@@ -6627,7 +6627,7 @@ def test_prior_answer_followup_does_not_become_exact_span_lookup() -> None:
 def test_source_request_after_unsupported_turn_retrieves_current_query() -> None:
     user_input = "Give a concrete example tied to a citation."
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
     )
@@ -6660,7 +6660,7 @@ def test_source_request_after_unsupported_turn_retrieves_current_query() -> None
 def test_source_request_without_prior_surface_retrieves_current_query() -> None:
     user_input = "Using only the sources, what is the amber forge retrieval phrase?"
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
     )
@@ -6687,7 +6687,7 @@ def test_source_request_without_prior_surface_retrieves_current_query() -> None:
 def test_unreplayable_content_rich_followup_keeps_current_query() -> None:
     user_input = "In the algorithms source, how is the next item selected?"
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=user_input,
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
     )
@@ -6712,7 +6712,7 @@ def test_unreplayable_content_rich_followup_keeps_current_query() -> None:
 
 def test_short_vague_followup_does_not_become_direct_lookup() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
     )
@@ -6744,7 +6744,7 @@ def test_short_vague_followup_does_not_become_direct_lookup() -> None:
 
 def test_followup_can_reuse_replay_refs_when_previous_turn_had_no_current_refs() -> None:
     plan = _plan(
-        action=LearningAction.SOURCE_QA,
+        action=DocumentAction.SOURCE_QA,
         retrieval_query=None,
         retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
     )
@@ -6787,7 +6787,7 @@ def test_unresolved_followup_keeps_prior_evidence_surface() -> None:
             evidence_refs=("materials/source-1.md#chunk=0",),
         ),
     )
-    plan = plan_turn(LearningState(), "Make a compact derived shape.", intent=resolution.intent)
+    plan = plan_turn(RecallState(), "Make a compact derived shape.", intent=resolution.intent)
     contract = TurnContract(
         original_user_input="Make a compact derived shape.",
         resolved_intent=resolution.intent,
@@ -6841,7 +6841,7 @@ def test_plain_orchestrator_does_not_classify_without_armory() -> None:
 
 def test_orchestrator_rolls_back_on_engine_error() -> None:
     session = _session()
-    original_state = session.learning_state.clone()
+    original_state = session.recall_state.clone()
     orchestrator = TurnOrchestrator(session)
 
     with (
@@ -6857,7 +6857,7 @@ def test_orchestrator_rolls_back_on_engine_error() -> None:
         list(orchestrator.iter_events("Explain compactness"))
 
     assert session.conversation.messages == []
-    assert session.learning_state.to_dict() == original_state.to_dict()
+    assert session.recall_state.to_dict() == original_state.to_dict()
     record_session_event = cast("MagicMock", session.trace.record_session_event)
     record_session_event.assert_called_with(
         "turn_error",
@@ -6921,7 +6921,7 @@ def test_prior_answer_context_does_not_emit_fake_current_citation_ids() -> None:
 
 def test_retrieve_material_overview_intent_does_not_use_strict_overview_fallback() -> None:
     plan = _plan(
-        action=LearningAction.PRESENT,
+        action=DocumentAction.PRESENT,
         retrieval_query="source backed procedure",
         retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
     )

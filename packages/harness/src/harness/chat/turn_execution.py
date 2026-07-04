@@ -1,4 +1,4 @@
-"""Learning-event execution mixin for chat turns."""
+"""Document-event execution mixin for chat turns."""
 
 from __future__ import annotations
 
@@ -12,8 +12,21 @@ from ai.runtime.errors import RetryConfig
 
 from harness.agent.dispatch import iter_agent_events
 from harness.chat.agent_request import (
-    _learning_agent_output_from_buffer,
-    _learning_agent_request,
+    _document_agent_output_from_buffer,
+    _document_agent_request,
+)
+from harness.chat.document_reply import (
+    _deterministic_document_reply,
+    _empty_document_reply,
+    _plain_empty_reply,
+    _postprocess_document_reply,
+)
+from harness.chat.document_signals import (
+    _document_move_kind,
+    _exam_importance,
+    _matching_recall_item,
+    _policy_outcome_from_review,
+    _positive_hint_level,
 )
 from harness.chat.events import (
     AssistantDeltaEvent,
@@ -24,42 +37,29 @@ from harness.chat.events import (
 )
 from harness.chat.evidence import ResolvedTurnPlan
 from harness.chat.evidence import evidence_refs as _evidence_refs
-from harness.chat.learning_reply import (
-    _deterministic_learning_reply,
-    _empty_learning_reply,
-    _plain_empty_reply,
-    _postprocess_learning_reply,
-)
-from harness.chat.learning_signals import (
-    _exam_importance,
-    _learning_move_kind,
-    _matching_recall_item,
-    _policy_outcome_from_review,
-    _positive_hint_level,
-)
 from harness.chat.material_state import (
     _tool_result_refreshes_current_armory,
     _writing_notice,
 )
-from harness.chat.prior_answer import _learning_extra_system_prompt
-from harness.chat.reply_repair import _should_buffer_learning_output
+from harness.chat.prior_answer import _document_extra_system_prompt
+from harness.chat.reply_repair import _should_buffer_document_output
 from harness.chat.reply_text import _localize_deterministic_reply
 from harness.chat.turn_event_helpers import _final_reply_events, _turn_complete_from_result
 from harness.chat.turn_outputs import (
-    _DeterministicLearningReply,
-    _LearningAgentBuffer,
-    _LearningAgentOutput,
+    _DeterministicDocumentReply,
+    _DocumentAgentBuffer,
+    _DocumentAgentOutput,
 )
-from harness.study.controller import apply_turn_result
-from harness.study.policy import LearningMoveKind
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.schedule import (
+from harness.documents.controller import apply_turn_result
+from harness.documents.policy import DocumentMoveKind
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.schedule import (
     RecallItemState,
     RecallScheduleStore,
     load_recall_schedule,
     save_recall_schedule,
 )
-from harness.study.state import LearningAction, LearningState
+from harness.documents.state import DocumentAction, RecallState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -71,10 +71,10 @@ class _LearningReplyEmissionHost(Protocol):
     last_internal_passes: int
     _last_reply_citation_required: bool | None
 
-    def _apply_learning_reply(
+    def _apply_document_reply(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         reply: str,
         *,
         source_refs: list[str],
@@ -82,18 +82,18 @@ class _LearningReplyEmissionHost(Protocol):
 
     def _apply_deterministic_reply(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         reply: str,
         *,
         user_input: str,
         source_refs: list[str] | None = None,
-        updates_learning_state: bool,
+        updates_recall_state: bool,
     ) -> str: ...
 
     def _append_assistant_message(self, reply: str) -> None: ...
 
-    def _prepare_learning_reply_for_emit(
+    def _prepare_document_reply_for_emit(
         self,
         resolved: ResolvedTurnPlan,
         final_reply: str,
@@ -102,23 +102,23 @@ class _LearningReplyEmissionHost(Protocol):
         latency_ms: float,
     ) -> tuple[ResolvedTurnPlan, str]: ...
 
-    def _record_learning_review_if_needed(
+    def _record_recall_review_if_needed(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         source_refs: list[str],
     ) -> None: ...
 
-    def _restore_learning_state_for_rewritten_reply(
+    def _restore_recall_state_for_rewritten_reply(
         self,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         applied_reply: str,
         final_reply: str,
     ) -> bool: ...
 
-    def _iter_final_learning_reply_events(
+    def _iter_final_document_reply_events(
         self: _LearningReplyEmissionHost,
-        plan: LearningTurnPlan,
+        plan: DocumentTurnPlan,
         completion_event: TurnCompleteEvent | None,
         *,
         raw_reply: str,
@@ -126,38 +126,38 @@ class _LearningReplyEmissionHost(Protocol):
         final_reply: str,
     ) -> Iterator[TurnEvent]: ...
 
-    def _iter_empty_learning_reply_events(
+    def _iter_empty_document_reply_events(
         self,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]: ...
 
-    def _iter_deterministic_learning_reply_events(
+    def _iter_deterministic_document_reply_events(
         self,
-        deterministic_reply: _DeterministicLearningReply,
+        deterministic_reply: _DeterministicDocumentReply,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]: ...
 
-    def _iter_learning_agent_events(
+    def _iter_document_agent_events(
         self,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
         abort: threading.Event | None,
-    ) -> Generator[TurnEvent, None, _LearningAgentOutput]: ...
+    ) -> Generator[TurnEvent, None, _DocumentAgentOutput]: ...
 
-    def _iter_agent_learning_reply_events(
+    def _iter_agent_document_reply_events(
         self,
-        agent_output: _LearningAgentOutput,
+        agent_output: _DocumentAgentOutput,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]: ...
@@ -219,22 +219,22 @@ class TurnExecutionMixin:
         self.last_internal_passes = 1
         yield _turn_complete_from_result(None, self.last_reply)
 
-    def _iter_learning_agent_events(
+    def _iter_document_agent_events(
         self,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
         abort: threading.Event | None,
-    ) -> Generator[TurnEvent, None, _LearningAgentOutput]:
+    ) -> Generator[TurnEvent, None, _DocumentAgentOutput]:
         session = self.session
         assert session.armory_path is not None
-        plan = resolved.learning_plan
+        plan = resolved.document_plan
         assert plan is not None
-        buffer = _LearningAgentBuffer()
-        request = _learning_agent_request(
+        buffer = _DocumentAgentBuffer()
+        request = _document_agent_request(
             plan,
-            original_learning_state,
+            original_recall_state,
             user_input,
             session,
             resolved.turn_contract,
@@ -248,7 +248,7 @@ class TurnExecutionMixin:
             usage=session.usage,
             steering=session.steering,
             turn_evidence=resolved.turn_evidence,
-            extra_system_prompt=_learning_extra_system_prompt(
+            extra_system_prompt=_document_extra_system_prompt(
                 session,
                 plan,
                 resolved,
@@ -258,7 +258,7 @@ class TurnExecutionMixin:
             allowed_tool_names=plan.allowed_tool_names if plan.allow_tools else (),
             registry=session.tool_registry,
         ):
-            yield from self._record_learning_agent_event(
+            yield from self._record_document_agent_event(
                 event,
                 buffer,
                 buffer_output=request.buffer_output,
@@ -266,12 +266,12 @@ class TurnExecutionMixin:
 
         if buffer.visible_parts:
             self.last_reply = buffer.visible_streamed_reply
-        return _learning_agent_output_from_buffer(plan, buffer)
+        return _document_agent_output_from_buffer(plan, buffer)
 
-    def _record_learning_agent_event(
+    def _record_document_agent_event(
         self,
         event: TurnEvent,
-        buffer: _LearningAgentBuffer,
+        buffer: _DocumentAgentBuffer,
         *,
         buffer_output: bool,
     ) -> Iterator[TurnEvent]:
@@ -289,74 +289,74 @@ class TurnExecutionMixin:
             self.session.refresh_armory_sources()
         yield event
 
-    def _iter_empty_learning_reply_events(
+    def _iter_empty_document_reply_events(
         self: _LearningReplyEmissionHost,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]:
         session = self.session
-        plan = resolved.learning_plan
+        plan = resolved.document_plan
         assert plan is not None
-        fallback_reply = _empty_learning_reply(
+        fallback_reply = _empty_document_reply(
             plan,
             resolved,
             user_input=user_input,
             config=session.config,
         )
-        final_reply = self._apply_learning_reply(
-            original_learning_state,
+        final_reply = self._apply_document_reply(
+            original_recall_state,
             plan,
             fallback_reply,
             source_refs=_evidence_refs(resolved.turn_evidence),
         )
         applied_reply = final_reply
-        _, final_reply = self._prepare_learning_reply_for_emit(
+        _, final_reply = self._prepare_document_reply_for_emit(
             resolved,
             final_reply,
             user_input=user_input,
             latency_ms=0.0,
         )
-        self._restore_learning_state_for_rewritten_reply(
-            original_learning_state,
+        self._restore_recall_state_for_rewritten_reply(
+            original_recall_state,
             applied_reply,
             final_reply,
         )
         yield from _final_reply_events(final_reply)
 
-    def _iter_final_learning_reply_events(
+    def _iter_final_document_reply_events(
         self,
-        plan: LearningTurnPlan,
+        plan: DocumentTurnPlan,
         completion_event: TurnCompleteEvent | None,
         *,
         raw_reply: str,
         streamed_reply: str,
         final_reply: str,
     ) -> Iterator[TurnEvent]:
-        _persist_final_learning_reply(self, raw_reply, final_reply)
+        _persist_final_document_reply(self, raw_reply, final_reply)
         self.last_reply = final_reply
-        yield from _final_learning_delta_events(plan, streamed_reply, final_reply)
+        yield from _final_document_delta_events(plan, streamed_reply, final_reply)
         yield _turn_complete_from_result(completion_event, final_reply)
 
-    def _iter_learning_events(
+    def _iter_document_events(
         self: _LearningReplyEmissionHost,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
         abort: threading.Event | None,
     ) -> Iterator[TurnEvent]:
         session = self.session
         assert session.armory_path is not None
-        plan = resolved.learning_plan
+        plan = resolved.document_plan
         assert plan is not None
 
-        if deterministic_reply := _deterministic_learning_reply(session, plan, resolved):
-            yield from self._iter_deterministic_learning_reply_events(
+        if deterministic_reply := _deterministic_document_reply(session, plan, resolved):
+            yield from self._iter_deterministic_document_reply_events(
                 deterministic_reply,
                 resolved,
-                original_learning_state,
+                original_recall_state,
                 plan,
                 user_input=user_input,
             )
@@ -365,25 +365,25 @@ class TurnExecutionMixin:
         if notice := _writing_notice(plan):
             yield NoticeEvent(notice, code="writing")
 
-        agent_output = yield from self._iter_learning_agent_events(
+        agent_output = yield from self._iter_document_agent_events(
             resolved,
-            original_learning_state,
+            original_recall_state,
             user_input=user_input,
             abort=abort,
         )
-        yield from self._iter_agent_learning_reply_events(
+        yield from self._iter_agent_document_reply_events(
             agent_output,
             resolved,
-            original_learning_state,
+            original_recall_state,
             user_input=user_input,
         )
 
-    def _iter_deterministic_learning_reply_events(
+    def _iter_deterministic_document_reply_events(
         self: _LearningReplyEmissionHost,
-        deterministic_reply: _DeterministicLearningReply,
+        deterministic_reply: _DeterministicDocumentReply,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]:
@@ -391,38 +391,38 @@ class TurnExecutionMixin:
             self.last_internal_passes = deterministic_reply.internal_passes
         self._last_reply_citation_required = deterministic_reply.citation_required
         final_reply = self._apply_deterministic_reply(
-            original_learning_state,
+            original_recall_state,
             plan,
             deterministic_reply.reply,
             user_input=user_input,
             source_refs=deterministic_reply.source_refs,
-            updates_learning_state=deterministic_reply.updates_learning_state,
+            updates_recall_state=deterministic_reply.updates_recall_state,
         )
         applied_reply = final_reply
-        if deterministic_reply.updates_learning_state:
-            _, final_reply = self._prepare_learning_reply_for_emit(
+        if deterministic_reply.updates_recall_state:
+            _, final_reply = self._prepare_document_reply_for_emit(
                 resolved,
                 final_reply,
                 user_input=user_input,
                 latency_ms=0.0,
             )
-            self._restore_learning_state_for_rewritten_reply(
-                original_learning_state,
+            self._restore_recall_state_for_rewritten_reply(
+                original_recall_state,
                 applied_reply,
                 final_reply,
             )
         yield from _final_reply_events(final_reply)
 
-    def _iter_agent_learning_reply_events(
+    def _iter_agent_document_reply_events(
         self: _LearningReplyEmissionHost,
-        agent_output: _LearningAgentOutput,
+        agent_output: _DocumentAgentOutput,
         resolved: ResolvedTurnPlan,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         *,
         user_input: str,
     ) -> Iterator[TurnEvent]:
         session = self.session
-        plan = resolved.learning_plan
+        plan = resolved.document_plan
         assert plan is not None
         streamed_reply = agent_output.streamed_reply
         raw_reply = agent_output.raw_reply
@@ -430,14 +430,14 @@ class TurnExecutionMixin:
         completion_event = agent_output.completion_event
 
         if not raw_reply:
-            yield from self._iter_empty_learning_reply_events(
+            yield from self._iter_empty_document_reply_events(
                 resolved,
-                original_learning_state,
+                original_recall_state,
                 user_input=user_input,
             )
             return
 
-        processed_reply = _postprocess_learning_reply(
+        processed_reply = _postprocess_document_reply(
             plan,
             raw_reply,
             visible_reply,
@@ -451,36 +451,36 @@ class TurnExecutionMixin:
 
         if raw_reply:
             source_refs = _evidence_refs(resolved.turn_evidence)
-            final_reply = self._apply_learning_reply(
-                original_learning_state,
+            final_reply = self._apply_document_reply(
+                original_recall_state,
                 plan,
                 visible_reply,
                 source_refs=source_refs,
             )
         else:
             source_refs = []
-            session.learning_state = original_learning_state
+            session.recall_state = original_recall_state
             final_reply = raw_reply
 
         applied_reply = final_reply
-        resolved, final_reply = self._prepare_learning_reply_for_emit(
+        resolved, final_reply = self._prepare_document_reply_for_emit(
             resolved,
             final_reply,
             user_input=user_input,
             latency_ms=(completion_event.latency_ms if completion_event is not None else 0.0),
         )
-        reply_rewritten = self._restore_learning_state_for_rewritten_reply(
-            original_learning_state,
+        reply_rewritten = self._restore_recall_state_for_rewritten_reply(
+            original_recall_state,
             applied_reply,
             final_reply,
         )
         if raw_reply and not reply_rewritten:
-            self._record_learning_review_if_needed(
-                original_learning_state,
+            self._record_recall_review_if_needed(
+                original_recall_state,
                 plan,
                 source_refs,
             )
-        yield from self._iter_final_learning_reply_events(
+        yield from self._iter_final_document_reply_events(
             plan,
             completion_event,
             raw_reply=raw_reply,
@@ -490,40 +490,40 @@ class TurnExecutionMixin:
 
     def _apply_deterministic_reply(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         reply: str,
         *,
         user_input: str,
         source_refs: list[str] | None = None,
-        updates_learning_state: bool,
+        updates_recall_state: bool,
     ) -> str:
         localized_reply = _localize_deterministic_reply(
             reply,
             user_input=user_input,
             config=self.session.config,
         )
-        if not updates_learning_state:
+        if not updates_recall_state:
             self.last_reply = localized_reply
             self._append_assistant_message(localized_reply)
             return localized_reply
-        return self._apply_learning_reply(
-            original_learning_state,
+        return self._apply_document_reply(
+            original_recall_state,
             plan,
             localized_reply,
             source_refs=source_refs or [],
         )
 
-    def _apply_learning_reply(
+    def _apply_document_reply(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         reply: str,
         *,
         source_refs: list[str],
     ) -> str:
-        self.session.learning_state, final_reply = apply_turn_result(
-            original_learning_state,
+        self.session.recall_state, final_reply = apply_turn_result(
+            original_recall_state,
             plan,
             reply,
             source_refs,
@@ -532,15 +532,15 @@ class TurnExecutionMixin:
         self._append_assistant_message(final_reply)
         return final_reply
 
-    def _restore_learning_state_for_rewritten_reply(
+    def _restore_recall_state_for_rewritten_reply(
         self,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         applied_reply: str,
         final_reply: str,
     ) -> bool:
         if final_reply == applied_reply:
             return False
-        self.session.learning_state = original_learning_state.clone()
+        self.session.recall_state = original_recall_state.clone()
         return True
 
     def _append_assistant_message(self, reply: str) -> None:
@@ -550,13 +550,13 @@ class TurnExecutionMixin:
         ):
             self.session.conversation.add("assistant", reply)
 
-    def _record_learning_review_if_needed(
+    def _record_recall_review_if_needed(
         self,
-        original_learning_state: LearningState,
-        plan: LearningTurnPlan,
+        original_recall_state: RecallState,
+        plan: DocumentTurnPlan,
         source_refs: list[str],
     ) -> None:
-        if not self._should_record_learning_review(plan):
+        if not self._should_record_recall_review(plan):
             return
         armory_path = self.session.armory_path
         if armory_path is None:
@@ -564,37 +564,37 @@ class TurnExecutionMixin:
         store = load_recall_schedule(armory_path)
         previous = _matching_recall_item(
             store.item_list,
-            item=original_learning_state.current_item,
-            retrieval_query=original_learning_state.retrieval_query,
+            item=original_recall_state.current_item,
+            retrieval_query=original_recall_state.retrieval_query,
         )
-        intervention = _learning_move_kind(plan)
-        reviewed_state = self._record_learning_review(
+        intervention = _document_move_kind(plan)
+        reviewed_state = self._record_recall_review(
             store,
-            original_learning_state.current_item,
-            concept=original_learning_state.retrieval_query,
-            retrieval_query=original_learning_state.retrieval_query,
-            source_refs=source_refs or original_learning_state.expected_source_refs,
-            hint_level_needed=_positive_hint_level(original_learning_state),
+            original_recall_state.current_item,
+            concept=original_recall_state.retrieval_query,
+            retrieval_query=original_recall_state.retrieval_query,
+            source_refs=source_refs or original_recall_state.expected_source_refs,
+            hint_level_needed=_positive_hint_level(original_recall_state),
             intervention=intervention,
-            exam_importance=_exam_importance(original_learning_state),
+            exam_importance=_exam_importance(original_recall_state),
         )
-        self._record_learning_policy_outcome(
+        self._record_document_policy_outcome(
             store,
-            original_learning_state=original_learning_state,
+            original_recall_state=original_recall_state,
             previous=previous,
             state=reviewed_state,
             intervention=intervention,
         )
         save_recall_schedule(store)
 
-    def _should_record_learning_review(self, plan: LearningTurnPlan) -> bool:
+    def _should_record_recall_review(self, plan: DocumentTurnPlan) -> bool:
         return (
             self.session.armory_path is not None
-            and plan.action is LearningAction.ASSESS
-            and self.session.learning_state.last_recall_rating.value != "none"
+            and plan.action is DocumentAction.ASSESS
+            and self.session.recall_state.last_recall_rating.value != "none"
         )
 
-    def _record_learning_review(
+    def _record_recall_review(
         self,
         store: RecallScheduleStore,
         item: str,
@@ -603,10 +603,10 @@ class TurnExecutionMixin:
         retrieval_query: str,
         source_refs: list[str],
         hint_level_needed: int | None,
-        intervention: LearningMoveKind,
+        intervention: DocumentMoveKind,
         exam_importance: float,
     ) -> RecallItemState:
-        state = self.session.learning_state
+        state = self.session.recall_state
         return store.record_review(
             item,
             concept=concept,
@@ -621,18 +621,18 @@ class TurnExecutionMixin:
             exam_importance=exam_importance,
         )
 
-    def _record_learning_policy_outcome(
+    def _record_document_policy_outcome(
         self,
         store: RecallScheduleStore,
         *,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         previous: RecallItemState | None,
         state: RecallItemState,
-        intervention: LearningMoveKind,
+        intervention: DocumentMoveKind,
     ) -> None:
         outcome = _policy_outcome_from_review(
-            original_learning_state,
-            self.session.learning_state,
+            original_recall_state,
+            self.session.recall_state,
             state,
             previous,
             intervention,
@@ -658,21 +658,21 @@ class TurnExecutionMixin:
         )
 
 
-def _persist_final_learning_reply(
+def _persist_final_document_reply(
     host: TurnExecutionMixin,
     raw_reply: str,
     final_reply: str,
 ) -> None:
     if not final_reply:
         return
-    if _should_append_final_learning_reply(host.session):
+    if _should_append_final_document_reply(host.session):
         host._append_assistant_message(final_reply)
         return
     if raw_reply != final_reply:
         _replace_last_assistant_message(host.session, final_reply)
 
 
-def _should_append_final_learning_reply(session: ChatSession) -> bool:
+def _should_append_final_document_reply(session: ChatSession) -> bool:
     return (
         not session.conversation.messages or session.conversation.messages[-1].role != "assistant"
     )
@@ -685,12 +685,12 @@ def _replace_last_assistant_message(session: ChatSession, final_reply: str) -> N
             return
 
 
-def _final_learning_delta_events(
-    plan: LearningTurnPlan,
+def _final_document_delta_events(
+    plan: DocumentTurnPlan,
     streamed_reply: str,
     final_reply: str,
 ) -> Iterator[AssistantDeltaEvent]:
-    if final_reply and (_should_buffer_learning_output(plan) or not streamed_reply):
+    if final_reply and (_should_buffer_document_output(plan) or not streamed_reply):
         yield AssistantDeltaEvent(final_reply)
         return
     if final_reply == streamed_reply:

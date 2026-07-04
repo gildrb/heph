@@ -45,9 +45,9 @@ from harness.chat.turn_predicates import (
     _overview_turn,
     _trace_excerpt,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag.context import TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -94,25 +94,25 @@ _CONTINUABLE_MATERIAL_INTENTS = frozenset(
         "topic_drill",
     }
 )
-_PLAN_CONTRACT_LABEL_BY_ACTION: Mapping[LearningAction, str] = {
-    LearningAction.PRIORITY: "material_overview",
-    LearningAction.SOURCE_QA: "source_qa",
-    LearningAction.PRESENT: "topic_presentation",
-    LearningAction.CALIBRATE: "topic_drill",
-    LearningAction.REVIEW: "topic_presentation",
-    LearningAction.SIMPLIFY: "topic_presentation",
-    LearningAction.HINT: "topic_drill",
-    LearningAction.PROMPT_RECALL: "ready_for_recall",
-    LearningAction.WAIT_READY_REMINDER: "ready_for_recall",
-    LearningAction.REFUSE_REVEAL: "recall_clarification",
-    LearningAction.ASSESS: "recall_answer_attempt",
-    LearningAction.CHAT: "chat",
+_PLAN_CONTRACT_LABEL_BY_ACTION: Mapping[DocumentAction, str] = {
+    DocumentAction.PRIORITY: "material_overview",
+    DocumentAction.SOURCE_QA: "source_qa",
+    DocumentAction.PRESENT: "topic_presentation",
+    DocumentAction.CALIBRATE: "topic_drill",
+    DocumentAction.REVIEW: "topic_presentation",
+    DocumentAction.SIMPLIFY: "topic_presentation",
+    DocumentAction.HINT: "topic_drill",
+    DocumentAction.PROMPT_RECALL: "ready_for_recall",
+    DocumentAction.WAIT_READY_REMINDER: "ready_for_recall",
+    DocumentAction.REFUSE_REVEAL: "recall_clarification",
+    DocumentAction.ASSESS: "recall_answer_attempt",
+    DocumentAction.CHAT: "chat",
 }
 
 
 @dataclass(slots=True)
 class _PlanContractApplication:
-    plan: LearningTurnPlan
+    plan: DocumentTurnPlan
     contract: TurnContract
     prior_contract: TurnContract | None
     retrieval_strategy: str
@@ -131,7 +131,7 @@ class _ReasoningFollowupApplication:
     retrieval: _RetrievalState
 
 
-def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
+def _resolved_plan_intent(plan: DocumentTurnPlan | None) -> str:
     if plan is None:
         return ""
     if _overview_turn(plan):
@@ -142,15 +142,15 @@ def _resolved_plan_intent(plan: LearningTurnPlan | None) -> str:
 def _resolved_turn_intent(resolved: ResolvedTurnPlan) -> str:
     if resolved.turn_contract is not None and resolved.turn_contract.resolved_intent:
         return resolved.turn_contract.resolved_intent
-    return _resolved_plan_intent(resolved.learning_plan)
+    return _resolved_plan_intent(resolved.document_plan)
 
 
 def _apply_turn_contract_to_plan(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     *,
     prior_contract: TurnContract | None,
-) -> tuple[LearningTurnPlan, TurnContract]:
+) -> tuple[DocumentTurnPlan, TurnContract]:
     contract = _contract_with_default_material_scope(plan, contract)
     if contract.resolved_intent in {"heph_action", "heph_help"}:
         return _heph_command_plan_contract(plan, contract)
@@ -173,9 +173,9 @@ def _apply_turn_contract_to_plan(
 
 
 def _heph_command_plan_contract(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
-) -> tuple[LearningTurnPlan, TurnContract]:
+) -> tuple[DocumentTurnPlan, TurnContract]:
     updated_plan = replace(
         plan,
         original_user_input=contract.original_user_input,
@@ -432,7 +432,7 @@ def _apply_priority_retrieval_state(state: _PlanContractApplication) -> None:
 
 def _finalized_plan_contract(
     state: _PlanContractApplication,
-) -> tuple[LearningTurnPlan, TurnContract]:
+) -> tuple[DocumentTurnPlan, TurnContract]:
     evidence_refs = _apply_prior_evidence_refs(state)
     requires_direct_evidence = _contract_requires_direct_source_support(
         state.plan,
@@ -672,7 +672,7 @@ def _contract_has_fresh_current_request(contract: TurnContract) -> bool:
 
 
 def _contract_requires_direct_source_support(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     *,
     retrieval_strategy: str,
@@ -705,20 +705,20 @@ def _direct_evidence_requirement_needs_source_support(
 
 
 def _source_qa_retrieval_requires_direct_support(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     *,
     retrieval_strategy: str,
 ) -> bool:
     return (
-        plan.action is LearningAction.SOURCE_QA
+        plan.action is DocumentAction.SOURCE_QA
         and contract.answer_mode == ANSWER_MODE_FROM_EVIDENCE
         and retrieval_strategy == RETRIEVAL_STRATEGY_RETRIEVE
     )
 
 
 def _contract_with_default_material_scope(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
 ) -> TurnContract:
     if _default_material_scope_not_applicable(plan, contract):
@@ -741,7 +741,7 @@ def _contract_with_default_material_scope(
 
 
 def _default_material_scope_not_applicable(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
 ) -> bool:
     return not _overview_turn(plan) or (
@@ -750,7 +750,7 @@ def _default_material_scope_not_applicable(
 
 
 def _overview_plan_should_replace_request(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
 ) -> bool:
     if contract.answer_format != ANSWER_FORMAT_PLAIN or contract.is_followup:
@@ -791,7 +791,7 @@ def _followup_lacks_replayable_prior_surface(
     )
 
 
-def _semantic_retrieval_query(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
+def _semantic_retrieval_query(plan: DocumentTurnPlan, contract: TurnContract) -> str | None:
     if not _plan_uses_material_retrieval(plan):
         return plan.retrieval_query
     if _overview_query_should_follow_plan(contract):
@@ -824,12 +824,12 @@ def _contract_strategy_disables_empty_retrieval(contract: TurnContract) -> bool:
     )
 
 
-def _semantic_retrieval_surface(plan: LearningTurnPlan, contract: TurnContract) -> str | None:
+def _semantic_retrieval_surface(plan: DocumentTurnPlan, contract: TurnContract) -> str | None:
     retrieval_query = _contract_retrieval_query(contract)
     return retrieval_query or contract.canonical_request or plan.retrieval_query
 
 
-def _plan_uses_material_retrieval(plan: LearningTurnPlan) -> bool:
+def _plan_uses_material_retrieval(plan: DocumentTurnPlan) -> bool:
     return (
         plan.action in _EVIDENCE_REQUIRED_ACTIONS
         or plan.retrieval_query is not None
@@ -857,7 +857,7 @@ def _prior_evidence_refs_for_strategy(
 
 def _turn_contract_with_evidence(
     contract: TurnContract,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> TurnContract:
     refs = tuple(_evidence_refs(turn_evidence)) or contract.evidence_refs
@@ -901,9 +901,9 @@ def _turn_contract_with_prior_replay_state(
 
 
 def _reset_unreplayable_followup_state(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
-) -> tuple[LearningTurnPlan, TurnContract]:
+) -> tuple[DocumentTurnPlan, TurnContract]:
     if not _contract_needs_prior_replay_state(contract):
         return plan, contract
     if _contract_has_replayable_grounding_surface(contract):

@@ -84,11 +84,11 @@ def test_save_and_load_metadata_roundtrip(tmp_path: Path) -> None:
         session_id,
         conv,
         title="meta",
-        metadata={"learning_state": {"phase": "recall", "attempt_count": 2}},
+        metadata={"recall_state": {"phase": "recall", "attempt_count": 2}},
     )
 
     metadata = load_metadata(armory, session_id)
-    assert metadata == {"learning_state": {"phase": "recall", "attempt_count": 2}}
+    assert metadata == {"recall_state": {"phase": "recall", "attempt_count": 2}}
 
 
 def test_session_titles_are_single_line_for_load_and_listing(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from harness.chat.document_signals import _trace_task
 from harness.chat.evidence import (
     ResolvedTurnPlan,
 )
@@ -23,7 +24,6 @@ from harness.chat.evidence import (
 from harness.chat.evidence import (
     retrieval_audit_metadata as _retrieval_audit_metadata,
 )
-from harness.chat.learning_signals import _trace_task
 from harness.chat.turn_predicates import (
     _material_label,
     _overview_turn,
@@ -50,7 +50,7 @@ def _evidence_notice(resolved: ResolvedTurnPlan) -> str:
     visible_evidence = _visible_turn_evidence(resolved)
     if visible_evidence is None or not visible_evidence.items:
         return ""
-    plan = resolved.learning_plan
+    plan = resolved.document_plan
     if plan is not None and _overview_turn(plan):
         notice = _overview_evidence_notice(visible_evidence)
     else:
@@ -106,7 +106,7 @@ def _evidence_notice_metadata(
     visible_evidence = _visible_turn_evidence(resolved)
     if visible_evidence is None or not visible_evidence.items:
         return {}
-    plan = resolved.learning_plan
+    plan = resolved.document_plan
     task = _trace_task(plan)
     metadata: dict[str, object] = {
         "task": task,

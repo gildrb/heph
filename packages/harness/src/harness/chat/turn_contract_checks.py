@@ -17,8 +17,8 @@ from harness.chat.turn_predicates import (
     _contract_followup_target,
     _overview_turn,
 )
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 
 
 def _contract_has_specific_material_target(contract: TurnContract) -> bool:
@@ -39,7 +39,7 @@ def _contract_requests_list(contract: TurnContract | None) -> bool:
 
 
 def _material_overview_turn(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract | None = None,
 ) -> bool:
     if contract is None:
@@ -57,16 +57,16 @@ def _material_overview_turn(
         return True
     return (
         contract.resolved_intent == "material_overview"
-        and plan.action is LearningAction.PRESENT
+        and plan.action is DocumentAction.PRESENT
         and not _contract_has_specific_material_target(contract)
         and contract.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
     )
 
 
-def _plan_requires_citations(plan: LearningTurnPlan | None) -> bool:
+def _plan_requires_citations(plan: DocumentTurnPlan | None) -> bool:
     if plan is None:
         return False
-    if plan.action is LearningAction.CHAT:
+    if plan.action is DocumentAction.CHAT:
         return bool(
             plan.retrieval_query
             or plan.evidence_refs
@@ -74,14 +74,14 @@ def _plan_requires_citations(plan: LearningTurnPlan | None) -> bool:
             or plan.requires_direct_evidence
         )
     return plan.action in {
-        LearningAction.PRESENT,
-        LearningAction.SOURCE_QA,
-        LearningAction.PRIORITY,
-        LearningAction.REVIEW,
-        LearningAction.CALIBRATE,
-        LearningAction.ASSESS,
-        LearningAction.HINT,
-        LearningAction.SIMPLIFY,
+        DocumentAction.PRESENT,
+        DocumentAction.SOURCE_QA,
+        DocumentAction.PRIORITY,
+        DocumentAction.REVIEW,
+        DocumentAction.CALIBRATE,
+        DocumentAction.ASSESS,
+        DocumentAction.HINT,
+        DocumentAction.SIMPLIFY,
     }
 
 

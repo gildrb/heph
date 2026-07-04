@@ -32,7 +32,7 @@ HARNESS_CONCERNS = {
     "privacy",
     "rag",
     "safety",
-    "study",
+    "documents",
     "vocab",
 }
 
@@ -253,7 +253,7 @@ def test_no_removed_harness_namespace_imports_remain() -> None:
     stale_pattern = (
         "^(from|import) "
         "(agent|armory|chat|diagnostics|extension_contracts|matching|materials|memory|"
-        "palette|parameters|privacy|rag|safety|study|terminal|tui|version|vocab|_types)"
+        "palette|parameters|privacy|rag|safety|documents|terminal|tui|version|vocab|_types)"
         "(\\.|\\s|$)"
     )
     if shutil.which("rg") is not None:
@@ -289,7 +289,7 @@ def test_no_removed_harness_namespace_imports_remain() -> None:
         "from privacy",
         "from rag",
         "from safety",
-        "from study",
+        "from documents",
         "from terminal",
         "from tui",
         "from version",
@@ -308,7 +308,7 @@ def test_no_removed_harness_namespace_imports_remain() -> None:
         "import privacy",
         "import rag",
         "import safety",
-        "import study",
+        "import documents",
         "import terminal",
         "import tui",
         "import version",

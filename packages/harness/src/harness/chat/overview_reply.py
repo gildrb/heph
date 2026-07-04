@@ -50,7 +50,7 @@ from harness.chat.overview_validation import (
 from harness.chat.reply_text import (
     _citation_tail_keep_end,
     _strip_tool_call_markup,
-    _strip_unsolicited_learning_followup,
+    _strip_unsolicited_practice_followup,
 )
 from harness.chat.turn_contract import (
     TurnContract,
@@ -60,8 +60,8 @@ from harness.chat.turn_contract_checks import (
     _contract_requests_table,
     _material_overview_turn,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
 from harness.rag.context import EvidenceChunk, TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
 
 _needs_overview_fallback = _overview_validation._needs_overview_fallback
 _overview_answer_has_bad_shape = _overview_validation._overview_answer_has_bad_shape
@@ -81,7 +81,7 @@ Do not discuss retrieval, validation, truncation, or sampling, and do not add of
 
 
 def _overview_fallback_reply(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     evidence: TurnEvidence | None,
     *,
     user_input: str = "",
@@ -148,7 +148,7 @@ def _compact_overview_citation_inventory(
         compacted = _compact_overview_citation_groups(base)
         if not compacted:
             continue
-        compacted = _strip_unsolicited_learning_followup(compacted)
+        compacted = _strip_unsolicited_practice_followup(compacted)
         compacted = re.sub(r"[ \t]+", " ", compacted).strip()
         for candidate in _overview_compaction_candidates(compacted):
             if _valid_overview_model_reply(
@@ -743,7 +743,7 @@ def _deduped_overview_model_fallback_candidates(candidates: Sequence[str]) -> tu
 
 
 def _clean_overview_model_fallback_candidate(candidate: str) -> str:
-    cleaned = _strip_unsolicited_learning_followup(candidate)
+    cleaned = _strip_unsolicited_practice_followup(candidate)
     return re.sub(r"[ \t]+", " ", cleaned).strip()
 
 

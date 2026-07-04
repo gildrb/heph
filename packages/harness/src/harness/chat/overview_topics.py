@@ -26,7 +26,7 @@ def _overview_topic_normalization_context(
         f"User request: {user_input.strip() or '(none)'}",
         "Task rules:",
         "- Treat title pages, logistics, and boilerplate as non-substantive unless requested.",
-        "- Infer substantive learning material by semantic context, not hardcoded keywords.",
+        "- Infer substantive source material by semantic context, not hardcoded keywords.",
     ]
     if rejected_reply.strip():
         lines.extend(

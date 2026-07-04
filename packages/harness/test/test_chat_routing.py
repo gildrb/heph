@@ -32,12 +32,12 @@ from harness.chat.turn_contract import (
 from harness.chat.turn_planning import (
     _turn_contract_can_seed_followup,
 )
-from harness.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
-from harness.study import (
-    LearningTurnPlan,
+from harness.documents import (
+    DocumentTurnPlan,
     material_overview_plan,
     material_topic_presentation_plan,
 )
+from harness.safety import GUARDRAIL_STAGE_INPUT, block_guardrail
 from heph.product.context import heph_product_routing_context
 
 
@@ -202,11 +202,11 @@ def test_armory_heph_help_route_does_not_prepare_material_index() -> None:
     session.source_file_count = 1
     orchestrator = TurnOrchestrator(session)
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         assert plan.retrieval_query is None
         assert "Execute HEPH_HELP" in plan.prompt
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=None,
             evidence_assessment=assess_turn_evidence(plan, None),
         )
@@ -271,7 +271,7 @@ def test_armory_heph_action_route_uses_narrow_setup_tools(tmp_path: Path) -> Non
     object.__setattr__(session, "trace", MagicMock())
     orchestrator = TurnOrchestrator(session)
 
-    def resolve(plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         assert plan.retrieval_query is None
         assert plan.retrieval_strategy == RETRIEVAL_STRATEGY_NONE
         assert plan.allow_tools is True
@@ -283,7 +283,7 @@ def test_armory_heph_action_route_uses_narrow_setup_tools(tmp_path: Path) -> Non
         )
         assert "Execute HEPH_ACTION" in plan.prompt
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=None,
             evidence_assessment=assess_turn_evidence(plan, None),
         )

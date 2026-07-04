@@ -195,7 +195,7 @@ def test_negation_precision_penalty_ignores_unrelated_negated_sentence() -> None
             chunk=_make_chunk(
                 "Active recall is useful after an explanation. "
                 "If the source material does not contain the answer, the tutor abstains.",
-                "harness.study.md",
+                "harness.documents.md",
             ),
             score=0.9,
         ),
@@ -213,7 +213,7 @@ def test_negation_precision_penalty_ignores_unrelated_negated_sentence() -> None
         results,
     )
 
-    assert [result.chunk.source for result in reranked] == ["harness.study.md", "biochem.md"]
+    assert [result.chunk.source for result in reranked] == ["harness.documents.md", "biochem.md"]
     assert reranked[0].score == 0.9
 
 

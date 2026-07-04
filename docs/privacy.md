@@ -72,7 +72,7 @@ All your data is stored locally in your armory:
 ├── .harness/
 │   ├── armory.toml     # Armory marker and metadata
 │   ├── rag_index.json  # Retrieval index (local only)
-│   ├── memory.json     # Learning memory (local only)
+│   ├── memory.json     # Armory memory (local only)
 │   ├── chats/          # Chat history (local only)
 │   ├── traces/         # Session traces (local only)
 │   └── usage/          # Token/cost snapshots (local only)
@@ -82,7 +82,7 @@ All your data is stored locally in your armory:
 
 - Documents are never uploaded to Heph servers
 - Chat history stays on your machine
-- Learning memory is local to each armory
+- Armory memory is local to each armory
 - Retrieval indexes are built and stored locally
 - Session traces and usage snapshots stay local to the armory
 - Local llama.cpp model validation state stays in your user config, and managed
@@ -323,7 +323,7 @@ rm -rf ~/.armories/my-armory
 This permanently deletes:
 - Your documents in `materials/`
 - All chat history
-- Learning memory
+- Armory memory
 - Retrieval index
 - Session traces and usage snapshots
 

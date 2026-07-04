@@ -12,7 +12,7 @@ from harness.chat.events import (
 
 
 @dataclass(frozen=True, slots=True)
-class _LearningAgentOutput:
+class _DocumentAgentOutput:
     streamed_reply: str
     raw_reply: str
     visible_reply: str
@@ -20,7 +20,7 @@ class _LearningAgentOutput:
 
 
 @dataclass(slots=True)
-class _LearningAgentBuffer:
+class _DocumentAgentBuffer:
     raw_parts: list[str] = field(default_factory=list)
     visible_parts: list[str] = field(default_factory=list)
     completion_event: TurnCompleteEvent | None = None
@@ -40,22 +40,22 @@ class _LearningAgentBuffer:
 
 
 @dataclass(frozen=True, slots=True)
-class _LearningAgentRequest:
+class _DocumentAgentRequest:
     conversation: Conversation
     buffer_output: bool
 
 
 @dataclass(frozen=True, slots=True)
-class _ProcessedLearningReply:
+class _ProcessedDocumentReply:
     raw_reply: str
     visible_reply: str
     pass_count: int
 
 
 @dataclass(frozen=True, slots=True)
-class _DeterministicLearningReply:
+class _DeterministicDocumentReply:
     reply: str
     source_refs: list[str] | None = None
     internal_passes: int | None = None
     citation_required: bool | None = None
-    updates_learning_state: bool = True
+    updates_recall_state: bool = True

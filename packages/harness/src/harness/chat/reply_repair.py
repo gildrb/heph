@@ -31,7 +31,7 @@ from harness.chat.overview_reply import (
 from harness.chat.reply_text import (
     _strip_leading_control_json,
     _strip_tool_call_markup,
-    _strip_unsolicited_learning_followup,
+    _strip_unsolicited_practice_followup,
     _unicode_math_reply,
 )
 from harness.chat.turn_contract import (
@@ -43,9 +43,9 @@ from harness.chat.turn_predicates import (
     _trace_excerpt,
 )
 from harness.chat.turn_query import _normalized_query_text
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag.context import EvidenceChunk, TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
 
 _THIN_EVIDENCE_POINTER_MAX_WORDS = 8
 _MATERIAL_REPLY_MAX_CHARS = 700
@@ -55,7 +55,7 @@ _MAX_INTERNAL_PASSES = 2
 
 
 def _repair_missing_evidence_citations(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
 ) -> str:
@@ -74,7 +74,7 @@ def _repair_missing_evidence_citations(
 
 
 def _append_required_action_citation(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence,
     verification: VerificationResult,
@@ -86,12 +86,12 @@ def _append_required_action_citation(
 
 
 def _should_append_required_action_citation(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     verification: VerificationResult,
 ) -> bool:
     if verification.has_citations or not _plan_requires_citations(plan):
         return False
-    return plan.action is not LearningAction.PRESENT
+    return plan.action is not DocumentAction.PRESENT
 
 
 def _can_repair_evidence_citations(reply: str, evidence: TurnEvidence | None) -> bool:
@@ -111,15 +111,15 @@ def _remove_unverified_citation_refs(
     return cleaned_reply, verify_citations(cleaned_reply, evidence)
 
 
-def _user_visible_reply(plan: LearningTurnPlan, reply: str) -> str:
+def _user_visible_reply(plan: DocumentTurnPlan, reply: str) -> str:
     cleaned = _strip_tool_call_markup(reply).strip()
     cleaned = _normalize_escaped_evidence_citations(cleaned)
     cleaned = _strip_leading_control_json(cleaned)
     cleaned = _normalize_structural_table_reply(cleaned)
     cleaned = _unicode_math_reply(cleaned)
-    if plan.action is LearningAction.SOURCE_QA:
-        cleaned = _strip_unsolicited_learning_followup(cleaned)
-    if plan.action is LearningAction.CALIBRATE:
+    if plan.action is DocumentAction.SOURCE_QA:
+        cleaned = _strip_unsolicited_practice_followup(cleaned)
+    if plan.action is DocumentAction.CALIBRATE:
         return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
     return cleaned
 
@@ -135,16 +135,16 @@ def _normalize_structural_table_reply(reply: str) -> str:
     return _overview_pipe_table_as_markdown(reply) or reply
 
 
-def _should_buffer_learning_output(plan: LearningTurnPlan) -> bool:
+def _should_buffer_document_output(plan: DocumentTurnPlan) -> bool:
     return (
         plan.buffer_response
-        or plan.action is LearningAction.CHAT
+        or plan.action is DocumentAction.CHAT
         or _plan_requires_citations(plan)
     )
 
 
 def _run_bounded_internal_repairs(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
     *,
@@ -181,7 +181,7 @@ def _run_bounded_internal_repairs(
 
 
 def _repair_table_source_coverage_output(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
     *,
@@ -195,12 +195,12 @@ def _repair_table_source_coverage_output(
 
 
 def _table_reply_needs_source_coverage_repair(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
     contract: TurnContract | None,
 ) -> bool:
-    if plan.action not in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
+    if plan.action not in {DocumentAction.PRESENT, DocumentAction.SOURCE_QA}:
         return False
     if not _contract_requests_table(contract) or evidence is None or not evidence.items:
         return False
@@ -231,7 +231,7 @@ def _deterministic_evidence_table(evidence: TurnEvidence) -> str:
 
 
 def _repair_structurally_invalid_evidence_output(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
     *,
@@ -305,7 +305,7 @@ def _model_repaired_evidence_output(
         _evidence_output_repair_context(reply, evidence, user_input=user_input),
     )
     repaired = _model_text._stream_one_shot_model_text(config, conversation)
-    return _strip_unsolicited_learning_followup(_strip_tool_call_markup(repaired).strip())
+    return _strip_unsolicited_practice_followup(_strip_tool_call_markup(repaired).strip())
 
 
 def _invalid_model_evidence_output_fallback(reply: str, evidence: TurnEvidence) -> str:
@@ -313,7 +313,7 @@ def _invalid_model_evidence_output_fallback(reply: str, evidence: TurnEvidence) 
 
 
 def _evidence_output_needs_model_repair(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
     *,
@@ -328,10 +328,10 @@ def _evidence_output_needs_model_repair(
     return _reply_requires_structural_evidence_repair(reply, verification)
 
 
-def _plan_output_can_use_evidence_repair(plan: LearningTurnPlan) -> bool:
-    if plan.action in {LearningAction.PRESENT, LearningAction.SOURCE_QA}:
+def _plan_output_can_use_evidence_repair(plan: DocumentTurnPlan) -> bool:
+    if plan.action in {DocumentAction.PRESENT, DocumentAction.SOURCE_QA}:
         return True
-    return plan.action is LearningAction.CHAT and _plan_requires_citations(plan)
+    return plan.action is DocumentAction.CHAT and _plan_requires_citations(plan)
 
 
 def _reply_requires_structural_evidence_repair(
@@ -545,5 +545,5 @@ _EVIDENCE_OUTPUT_REPAIR_SYSTEM_PROMPT = (
     "Repair the draft into a concise user-visible answer using only the evidence excerpts. "
     "Return only the final answer. Every material claim must cite evidence IDs from the "
     "provided excerpts. Do not return citation IDs alone; name the claim or phrase the "
-    "evidence supports. Do not add optional next steps, offers, menus, or study-plan prompts."
+    "evidence supports. Do not add optional next steps, offers, menus, or practice-plan prompts."
 )

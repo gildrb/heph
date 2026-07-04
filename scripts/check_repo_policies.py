@@ -201,14 +201,14 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
 PROMPT_RULE_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "harness/agent/",
     "harness/chat/",
-    "harness/study/",
+    "harness/documents/",
 )
 PROMPT_RULE_DUPLICATE_MESSAGE: Final[str] = (
     "duplicate model-facing prompt rule; define the rule once as a named policy constant"
 )
 HARDCODED_ANSWER_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "harness/chat/",
-    "harness/study/",
+    "harness/documents/",
     "interfaces/tui/",
 )
 HARDCODED_ANSWER_CALL_NAMES: Final[frozenset[str]] = frozenset(
@@ -244,10 +244,10 @@ HARDCODED_ANSWER_FUNCTION_NAME_PARTS: Final[frozenset[str]] = frozenset(
 HARDCODED_REPLY_FUNCTION_ALLOWLIST: Final[frozenset[str]] = frozenset(
     {
         "_all_material_disabled_reply",
-        "_empty_learning_reply",
+        "_empty_document_reply",
         "_empty_material_index_reply",
         "_fallback_assessment_message",
-        "_generic_empty_learning_reply",
+        "_generic_empty_document_reply",
         "_index_unavailable_reply",
         "_missing_indexed_material_reply",
         "_missing_source_span_message",
@@ -273,7 +273,7 @@ SEMANTIC_DISPATCH_MESSAGE: Final[str] = (
 SEMANTIC_DISPATCH_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "harness/chat/",
     "harness/rag/",
-    "harness/study/",
+    "harness/documents/",
 )
 SEMANTIC_DISPATCH_TARGET_PARTS: Final[frozenset[str]] = frozenset(
     {

@@ -4,9 +4,8 @@
 
 # Heph
 
-Heph is an agentic local document harness for accurate, cited answers. It indexes
-armory materials, cites retrieved evidence, and keeps learning memory scoped to
-that armory.
+Heph CLI is a local document agent. It indexes files in an armory, answers from
+those files, and shows the cited source passages.
 
 Heph is built around normal folders. An armory keeps your documents in
 `materials/` and Heph-owned local state in `.harness/`, so the workspace stays

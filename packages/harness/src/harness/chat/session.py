@@ -34,14 +34,14 @@ from harness.chat.usage import SessionUsage
 from harness.diagnostics.crashes import set_session_context
 from harness.diagnostics.events import capture as capture_analytics
 from harness.diagnostics.traces import TraceWriter
+from harness.documents import RecallState
 from harness.materials import iter_material_files
 from harness.memory import MemoryStore, load_memory
 from harness.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
 from harness.rag.health import ExtractionHealthIssue, scan_extraction_health
-from harness.study import LearningState
 
 _log = get_logger("harness.chat.session")
-_LEGACY_LEARNING_STATE_KEY = "study_state"
+_LEGACY_RECALL_STATE_KEYS = ("learning_state", "study_state")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +81,8 @@ class ChatSession:
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(init=False, repr=False)
     steering: Steering = field(default_factory=Steering, init=False, repr=False)
-    learning_state: LearningState = field(default_factory=LearningState)
-    _last_learning_cost_usd: float = field(default=0.0, init=False, repr=False)
+    recall_state: RecallState = field(default_factory=RecallState)
+    _last_document_cost_usd: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
@@ -371,7 +371,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         armory_path=armory_path,
         source_file_count=context.source_file_count,
         source_files=tuple(context.source_files),
-        learning_state=LearningState.from_dict(_session_learning_state_payload(metadata)),
+        recall_state=RecallState.from_dict(_session_recall_state_payload(metadata)),
         disabled_source_files=context.disabled_source_files,
         last_plan_intent=_metadata_string(metadata, "last_plan_intent"),
         last_turn_contract=TurnContract.from_dict(metadata.get("last_turn_contract")),
@@ -434,11 +434,15 @@ def _metadata_string(metadata: Mapping[str, object], key: str) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _session_learning_state_payload(metadata: Mapping[str, object]) -> object:
-    current_payload = metadata.get("learning_state")
+def _session_recall_state_payload(metadata: Mapping[str, object]) -> object:
+    current_payload = metadata.get("recall_state")
     if current_payload is not None:
         return current_payload
-    return metadata.get(_LEGACY_LEARNING_STATE_KEY)
+    for key in _LEGACY_RECALL_STATE_KEYS:
+        legacy_payload = metadata.get(key)
+        if legacy_payload is not None:
+            return legacy_payload
+    return None
 
 
 def send_user_message(
@@ -477,7 +481,7 @@ def record_turn_snapshot(
     snapshot = build_turn_snapshot(
         session.conversation,
         session.turn_history,
-        learning_state=session.learning_state,
+        recall_state=session.recall_state,
         user_input=user_input,
         assistant_reply=assistant_reply,
         evidence=evidence,
@@ -515,7 +519,7 @@ def fork_session_at_turn(session: ChatSession, turn_id: str) -> ChatSession:
         last_plan_intent=snapshot.plan_intent,
         last_turn_contract=snapshot.contract,
         turn_history=turn_history_through(session.turn_history, snapshot),
-        learning_state=snapshot.learning_state.clone(),
+        recall_state=snapshot.recall_state.clone(),
     )
     if session.armory_path is not None:
         _configure_session_armory_context(branched, session.armory_path)

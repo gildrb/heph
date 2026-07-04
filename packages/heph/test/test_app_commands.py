@@ -8,7 +8,7 @@ import ai.providers.model_choices as _model_choices
 import heph.commands.display as _commands_display
 import heph.commands.local as _commands_local
 import heph.commands.model as _commands_model
-import heph.commands.study as _learning_commands
+import heph.commands.practice as _practice_commands
 import pytest
 from ai.providers import catalog
 from ai.providers.catalog import LiveProviderCatalog
@@ -26,13 +26,13 @@ from ai.runtime import ChatConfig, Conversation
 from harness.armory.storage import initialize
 from harness.chat import model_selection as _model_selection
 from harness.chat.session import ChatSession, create_plain_session
+from harness.documents import RecallFeedbackType, RecallPhase, RecallRating
+from harness.documents.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
+from harness.documents.schedule import load_recall_schedule
 from harness.memory import MemoryStore
 from harness.parameters import settings as settings_store
 from harness.rag.chunker import Chunk
 from harness.rag.context import EvidenceChunk, TurnEvidence
-from harness.study import LearningFeedbackType, LearningPhase, RecallRating
-from harness.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
-from harness.study.schedule import load_recall_schedule
 from heph import commands
 from interfaces.terminal import MenuOption
 from interfaces.terminal.source_open import SourceOpenResult
@@ -324,10 +324,10 @@ def test_exam_command_starts_from_structured_bank(
     assert "Time limit: 4 minutes" in out
     assert "Explain the invariant." in out
     assert "tell Heph what your result was" in out
-    assert session.learning_state.phase is LearningPhase.RECALL
-    assert session.learning_state.current_item == "Explain the invariant."
-    assert session.learning_state.expected_source_refs == ["materials/sheet.md#chunk=0"]
-    assert session.learning_state.practice_session_type == "exam"
+    assert session.recall_state.phase is RecallPhase.RECALL
+    assert session.recall_state.current_item == "Explain the invariant."
+    assert session.recall_state.expected_source_refs == ["materials/sheet.md#chunk=0"]
+    assert session.recall_state.practice_session_type == "exam"
 
 
 def test_exam_command_refuses_empty_structured_bank(
@@ -369,8 +369,8 @@ def test_priority_command_prints_local_priority_scan(
         "Explain Dijkstra shortest paths. [10 marks]\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(_learning_commands, "_priority_output_dir", lambda: tmp_path / "Downloads")
-    original_generate_priority_report = _learning_commands.generate_priority_report
+    monkeypatch.setattr(_practice_commands, "_priority_output_dir", lambda: tmp_path / "Downloads")
+    original_generate_priority_report = _practice_commands.generate_priority_report
 
     def generate_test_priority_report(
         analysis: PriorityAnalysis,
@@ -393,7 +393,7 @@ def test_priority_command_prints_local_priority_scan(
         )
 
     monkeypatch.setattr(
-        _learning_commands,
+        _practice_commands,
         "generate_priority_report",
         generate_test_priority_report,
     )
@@ -554,24 +554,24 @@ def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str
     assert "Assistant: 1 messages" in out
 
 
-def test_stats_command_reports_study_recall_timing(
+def test_stats_command_reports_recall_timing(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    armory = tmp_path / "study-stats"
+    armory = tmp_path / "recall-stats"
     initialize(armory)
     session = ChatSession(
         config=ChatConfig(api_key="test-key"),
         conversation=Conversation(),
-        session_id="study-stats",
+        session_id="recall-stats",
         armory_path=armory,
     )
-    session.learning_state.phase = LearningPhase.RECALL
-    session.learning_state.current_item = "Q1"
-    session.learning_state.attempt_count = 2
-    session.learning_state.last_feedback_type = LearningFeedbackType.PARTIAL
-    session.learning_state.last_recall_seconds = 75
-    session.learning_state.last_recall_rating = RecallRating.HARD
+    session.recall_state.phase = RecallPhase.RECALL
+    session.recall_state.current_item = "Q1"
+    session.recall_state.attempt_count = 2
+    session.recall_state.last_feedback_type = RecallFeedbackType.PARTIAL
+    session.recall_state.last_recall_seconds = 75
+    session.recall_state.last_recall_rating = RecallRating.HARD
     store = load_recall_schedule(armory)
     store.record_review(
         "Q1",
@@ -585,13 +585,13 @@ def test_stats_command_reports_study_recall_timing(
     commands.StatsCommand().handle(session, "")
 
     out = capsys.readouterr().out
-    assert "Learning state:" in out
+    assert "Recall state:" in out
     assert "Recall:    1m 15s" in out
     assert "Effort:    hard" in out
     assert "Scheduled: 1 item(s)" in out
 
 
-def test_terminal_study_rating_menu_uses_label_value_rows(
+def test_terminal_practice_rating_menu_uses_label_value_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     visible_options: list[MenuOption] = []
@@ -600,11 +600,11 @@ def test_terminal_study_rating_menu_uses_label_value_rows(
         visible_options.extend(options)
         return 0
 
-    monkeypatch.setattr(_learning_commands, "select_option", capture_options)
+    monkeypatch.setattr(_practice_commands, "select_option", capture_options)
 
-    rating = _learning_commands.TerminalDrillUi().prompt_rating()
+    rating = _practice_commands.TerminalDrillUi().prompt_rating()
 
-    assert rating is _learning_commands.Rating.HARD
+    assert rating is _practice_commands.Rating.HARD
     assert [option.label for option in visible_options] == ["HARD", "GOOD", "EASY"]
     assert [option.description for option in visible_options] == [
         "EFFORT had to think",

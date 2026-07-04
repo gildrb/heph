@@ -20,7 +20,7 @@ from harness.chat.events import GuardrailEvent, ReasoningDeltaEvent, TurnComplet
 from harness.chat.orchestrator import TurnOrchestrator
 from harness.chat.session import ChatSession
 from harness.chat.turn_execution import _plain_reasoning_delta_event
-from harness.chat.turn_outputs import _LearningAgentBuffer
+from harness.chat.turn_outputs import _DocumentAgentBuffer
 from harness.chat.usage import ContextBudget
 
 
@@ -86,7 +86,7 @@ def test_reasoning_delta_visibility_respects_configured_mode() -> None:
     )
 
 
-def test_buffered_learning_agent_suppresses_reasoning_events() -> None:
+def test_buffered_document_agent_suppresses_reasoning_events() -> None:
     orchestrator = TurnOrchestrator(
         ChatSession(
             config=ChatConfig(model="test-model"),
@@ -98,16 +98,16 @@ def test_buffered_learning_agent_suppresses_reasoning_events() -> None:
     visible_reasoning = ReasoningDeltaEvent("visible pass", summary=True)
 
     hidden_events = list(
-        orchestrator._record_learning_agent_event(
+        orchestrator._record_document_agent_event(
             hidden_reasoning,
-            _LearningAgentBuffer(),
+            _DocumentAgentBuffer(),
             buffer_output=True,
         )
     )
     visible_events = list(
-        orchestrator._record_learning_agent_event(
+        orchestrator._record_document_agent_event(
             visible_reasoning,
-            _LearningAgentBuffer(),
+            _DocumentAgentBuffer(),
             buffer_output=False,
         )
     )

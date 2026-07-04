@@ -26,7 +26,7 @@ Core commands:
   subscription login, OpenAI API key, OpenRouter, Pollinations AI, Z.AI, and custom
   OpenAI-compatible endpoints.
 - Sessions: `/new`, `/sessions`, `/export`, `/compact`, `/exit`.
-- Learning: `/priority`, `/exam`, `/vocabulary`.
+- Practice: `/priority`, `/exam`, `/vocabulary`.
 
 Armory layout:
 

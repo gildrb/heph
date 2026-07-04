@@ -10,8 +10,8 @@ from ai.runtime import Conversation
 
 from harness._types import is_object_list, is_string_mapping
 from harness.chat.turn_contract import TurnContract
+from harness.documents import RecallState
 from harness.rag import TurnEvidence
-from harness.study import LearningState
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ class TurnSnapshot:
     plan_intent: str = ""
     contract: TurnContract | None = None
     evidence: TurnEvidence | None = None
-    learning_state: LearningState = field(default_factory=LearningState)
+    recall_state: RecallState = field(default_factory=RecallState)
     created_at: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -39,7 +39,7 @@ class TurnSnapshot:
             "plan_intent": self.plan_intent,
             "contract": self.contract.to_dict() if self.contract is not None else {},
             "evidence": self.evidence.to_dict() if self.evidence is not None else {},
-            "learning_state": self.learning_state.to_dict(),
+            "recall_state": self.recall_state.to_dict(),
             "created_at": self.created_at,
         }
 
@@ -65,7 +65,7 @@ class TurnSnapshot:
             plan_intent=_payload_string(payload, "plan_intent"),
             contract=TurnContract.from_dict(payload.get("contract")),
             evidence=TurnEvidence.from_dict(payload.get("evidence")),
-            learning_state=LearningState.from_dict(payload.get("learning_state")),
+            recall_state=RecallState.from_dict(_snapshot_recall_state_payload(payload)),
             created_at=_payload_string(payload, "created_at"),
         )
 
@@ -84,7 +84,7 @@ def build_turn_snapshot(
     conversation: Conversation,
     existing: Sequence[TurnSnapshot],
     *,
-    learning_state: LearningState,
+    recall_state: RecallState,
     user_input: str,
     assistant_reply: str,
     evidence: TurnEvidence | None,
@@ -107,7 +107,7 @@ def build_turn_snapshot(
         plan_intent=plan_intent,
         contract=contract,
         evidence=evidence,
-        learning_state=learning_state.clone(),
+        recall_state=recall_state.clone(),
         created_at=datetime.now(UTC).isoformat(),
     )
 
@@ -158,3 +158,10 @@ def _payload_int(payload: Mapping[str, object], key: str) -> int:
     if isinstance(value, int):
         return value
     return 0
+
+
+def _snapshot_recall_state_payload(payload: Mapping[str, object]) -> object:
+    current_payload = payload.get("recall_state")
+    if current_payload is not None:
+        return current_payload
+    return payload.get("learning_state")

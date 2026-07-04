@@ -15,9 +15,9 @@ from harness.chat.turn_predicates import (
     _trace_excerpt,
     _visible_turn_evidence,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag.context import TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
 
 if TYPE_CHECKING:
     from harness.chat.evidence import ResolvedTurnPlan
@@ -26,28 +26,28 @@ if TYPE_CHECKING:
 
 _EVIDENCE_REQUIRED_ACTIONS = frozenset(
     {
-        LearningAction.PRIORITY,
-        LearningAction.SOURCE_QA,
-        LearningAction.PRESENT,
-        LearningAction.HINT,
-        LearningAction.SIMPLIFY,
-        LearningAction.REVIEW,
-        LearningAction.ASSESS,
+        DocumentAction.PRIORITY,
+        DocumentAction.SOURCE_QA,
+        DocumentAction.PRESENT,
+        DocumentAction.HINT,
+        DocumentAction.SIMPLIFY,
+        DocumentAction.REVIEW,
+        DocumentAction.ASSESS,
     }
 )
 _MATERIAL_ANSWER_CONVERSATION_ACTIONS = frozenset(
     {
-        LearningAction.PRIORITY,
-        LearningAction.SOURCE_QA,
-        LearningAction.PRESENT,
-        LearningAction.CALIBRATE,
-        LearningAction.SIMPLIFY,
-        LearningAction.REVIEW,
+        DocumentAction.PRIORITY,
+        DocumentAction.SOURCE_QA,
+        DocumentAction.PRESENT,
+        DocumentAction.CALIBRATE,
+        DocumentAction.SIMPLIFY,
+        DocumentAction.REVIEW,
     }
 )
 
 
-def _missing_indexed_material_reply(session: ChatSession, action: LearningAction) -> str:
+def _missing_indexed_material_reply(session: ChatSession, action: DocumentAction) -> str:
     if not _requires_indexed_material(session, action):
         return ""
     index = session.rag_index
@@ -56,7 +56,7 @@ def _missing_indexed_material_reply(session: ChatSession, action: LearningAction
     return _indexed_material_state_reply(session, index)
 
 
-def _requires_indexed_material(session: ChatSession, action: LearningAction) -> bool:
+def _requires_indexed_material(session: ChatSession, action: DocumentAction) -> bool:
     return action in _EVIDENCE_REQUIRED_ACTIONS and session.source_file_count > 0
 
 
@@ -121,7 +121,7 @@ def _empty_material_index_reply() -> str:
 
 def _no_matching_indexed_evidence_reply(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract | None = None,
 ) -> str:
     index = session.rag_index
@@ -200,10 +200,10 @@ def _tool_result_refreshes_current_armory(event: TurnEvent) -> bool:
 
 def _material_operation_events(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> Iterator[MaterialOperationEvent]:
-    if plan.action is LearningAction.CALIBRATE:
+    if plan.action is DocumentAction.CALIBRATE:
         return
     if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
         return
@@ -246,7 +246,7 @@ def _index_ready_events(
 
 def _material_operation_start_events(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     evidence: TurnEvidence | None,
     index_counts: tuple[int, int],
 ) -> Iterator[MaterialOperationEvent]:
@@ -254,14 +254,14 @@ def _material_operation_start_events(
     if _overview_turn(plan):
         yield _overview_sampling_event(plan, evidence, indexed_sources)
         return
-    if plan.use_expected_source_refs and session.learning_state.expected_source_refs:
+    if plan.use_expected_source_refs and session.recall_state.expected_source_refs:
         yield _material_operation_event(
             "open_stored_evidence",
             (
                 "Opening stored material evidence from the current recall item: "
-                + ", ".join(session.learning_state.expected_source_refs[:3])
+                + ", ".join(session.recall_state.expected_source_refs[:3])
             ),
-            refs=list(session.learning_state.expected_source_refs),
+            refs=list(session.recall_state.expected_source_refs),
         )
         return
     if plan.retrieval_query:
@@ -275,7 +275,7 @@ def _material_operation_start_events(
 
 
 def _overview_sampling_event(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     evidence: TurnEvidence | None,
     indexed_sources: int,
 ) -> MaterialOperationEvent:
@@ -296,7 +296,7 @@ def _overview_sampling_event(
 
 
 def _material_evidence_events(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     evidence: TurnEvidence | None,
     index_counts: tuple[int, int],
 ) -> Iterator[MaterialOperationEvent]:
@@ -327,8 +327,8 @@ def _material_evidence_events(
         )
 
 
-def _reading_notice(plan: LearningTurnPlan) -> str:
-    if plan.action is LearningAction.CALIBRATE:
+def _reading_notice(plan: DocumentTurnPlan) -> str:
+    if plan.action is DocumentAction.CALIBRATE:
         return ""
     if _overview_turn(plan):
         return "Preparing the material index and reading enabled evidence for a corpus overview."
@@ -337,12 +337,12 @@ def _reading_notice(plan: LearningTurnPlan) -> str:
     return ""
 
 
-def _writing_notice(plan: LearningTurnPlan) -> str:
-    if plan.action is LearningAction.CALIBRATE:
+def _writing_notice(plan: DocumentTurnPlan) -> str:
+    if plan.action is DocumentAction.CALIBRATE:
         return ""
     if _overview_turn(plan):
         return "Writing a grounded corpus overview."
-    if plan.action is LearningAction.CHAT and not (
+    if plan.action is DocumentAction.CHAT and not (
         plan.retrieval_query or plan.use_expected_source_refs
     ):
         return "Writing a response."
@@ -350,10 +350,10 @@ def _writing_notice(plan: LearningTurnPlan) -> str:
 
 
 def _should_use_material_answer_conversation_window(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     _contract: TurnContract | None,
 ) -> bool:
     return (
         plan.action in _MATERIAL_ANSWER_CONVERSATION_ACTIONS
-        and plan.action is not LearningAction.CALIBRATE
+        and plan.action is not DocumentAction.CALIBRATE
     )

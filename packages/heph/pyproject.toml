@@ -1,14 +1,14 @@
 [project]
 name = "heph"
 version = "0.0.58"
-description = "Heph is an agentic local document harness for accurate, cited answers."
+description = "Heph CLI is a local document agent."
 readme = "README.md"
 license = "MIT"
 authors = [
     { name = "Gil", email = "hi@gildrb.com" },
 ]
 requires-python = ">=3.13"
-keywords = ["cli", "documents", "llm", "rag", "retrieval", "learning"]
+keywords = ["agent", "cli", "documents", "llm", "rag", "retrieval"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

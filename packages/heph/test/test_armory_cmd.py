@@ -21,9 +21,9 @@ def test_init_armory_returns_success_message(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
-    armory_path = armory_home / "study-armory"
+    armory_path = armory_home / "notes-armory"
 
-    run_argv(parser, ["armory", "init", "study-armory"])
+    run_argv(parser, ["armory", "init", "notes-armory"])
 
     out = capsys.readouterr().out
     assert "Created armory" in out
@@ -39,7 +39,7 @@ def test_init_armory_fails_outside_armories_directory(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
-    armory_path = tmp_path / "outside-armories" / "study-armory"
+    armory_path = tmp_path / "outside-armories" / "notes-armory"
 
     with pytest.raises(SystemExit) as exc:
         run_argv(parser, ["armory", "init", str(armory_path)])
@@ -90,7 +90,7 @@ def test_open_armory_returns_success_message(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
-    armory_path = armory_home / "study-armory"
+    armory_path = armory_home / "notes-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
 
     run_argv(parser, ["armory", "open", str(armory_path)])
@@ -108,7 +108,7 @@ def test_open_armory_migrates_legacy_layout(
     parser = build_parser()
     armory_home = tmp_path / ".armories"
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(armory_home))
-    armory_path = armory_home / "legacy-study-armory"
+    armory_path = armory_home / "legacy-armory"
     _initialize_legacy_armory(armory_path)
 
     run_argv(parser, ["armory", "open", str(armory_path)])

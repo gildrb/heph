@@ -2,7 +2,7 @@
 
 Heph can be configured through provider credentials, environment variables, the
 `/settings` TUI, and `heph config`. Armories keep their own materials,
-memory, chats, traces, indexes, and learning data, but model/provider preferences
+memory, chats, traces, indexes, and practice data, but model/provider preferences
 are machine-local user settings unless overridden by environment variables.
 
 Run `heph trust` at any time to see who owns the data, where Heph stores cache
@@ -61,7 +61,7 @@ Access settings via the `/settings` command in Heph:
   Enter to toggle
 - **Live cost**: show or hide cost estimates in the TUI status bar; press
   Enter to toggle
-- **Vocabulary practice**: learning/practice preferences; press Enter to cycle
+- **Vocabulary practice**: practice preferences; press Enter to cycle
   modes
 - **Login / Logout**: provider authentication flow
 
@@ -177,7 +177,7 @@ old/
 ## Armory State
 
 Each armory stores local state under `.harness/`, including retrieval indexes,
-memory, chats, traces, and learning attempt logs. Index files are rebuildable
+memory, chats, traces, and practice attempt logs. Index files are rebuildable
 machine-local state; source materials plus armory metadata are enough for Heph to
 open a copied or synced armory and rebuild what it needs.
 

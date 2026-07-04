@@ -14,7 +14,7 @@ files, chat history, retrieval index, traces, usage snapshots, and local memory.
 ├── .harness/          # Heph state
 │   ├── armory.toml     # Armory marker and metadata
 │   ├── rag_index.json  # Retrieval index
-│   ├── memory.json     # Learning memory
+│   ├── memory.json     # Armory memory
 │   ├── chats/          # Chat history
 │   ├── traces/         # JSONL traces when enabled
 │   ├── usage/          # Token and cost snapshots
@@ -39,7 +39,7 @@ You can:
 ### Isolation
 
 Each armory is completely isolated:
-- **Memory**: Learning memory is scoped to the armory
+- **Memory**: Armory memory is scoped to the armory
 - **Index**: Retrieval index is armory-specific
 - **Chats**: Chat history stays with the armory
 - **Traces and usage**: diagnostics traces and usage snapshots are armory-local
@@ -154,13 +154,13 @@ Check index health:
 heph health ~/.armories/my-armory
 ```
 
-## Memory and Learning
+## Memory
 
-Each armory maintains its own learning memory:
+Each armory maintains its own local memory:
 
-- **What you've asked**: Track questions you've explored
-- **What you've learned**: Remember key concepts and explanations
-- **Follow-up suggestions**: Proactively suggest related topics
+- **Answer preferences**: Keep stable preferences for cited answers
+- **Material context**: Remember sparse facts and concepts from the armory
+- **Follow-up context**: Keep prior context scoped to the same armory
 
 Memory is stored in `.harness/memory.json` and is completely local.
 
@@ -195,7 +195,7 @@ Keep different projects in separate armories:
 ### Descriptive Names
 
 Use clear, descriptive names:
-- `machine-learning-course` instead of `ml`
+- `research-course` instead of `rc`
 - `q3-financial-reports` instead of `reports`
 
 ### Regular Maintenance

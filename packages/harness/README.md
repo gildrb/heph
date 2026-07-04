@@ -9,7 +9,7 @@ public Python package is `heph`; this workspace currently imports the harness
 through `harness.*`.
 
 It owns the local document machinery that lets Heph answer from user materials
-with verifiable citations, armory-scoped memory, retrieval indexes, learning
+with verifiable citations, armory-scoped memory, retrieval indexes, recall
 state, diagnostics, and session persistence.
 
 The harness is not the agent brain or persona. Users talk to Heph.
@@ -23,14 +23,15 @@ src/
     armory/      Portable armory validation, discovery, and local state helpers
     chat/        Session state, turn orchestration, evidence, events, storage
     diagnostics/ Redacted crash, anonymous event, and armory trace surfaces
+    attempts/    Structural answer-attempt observations and guard policy
+    documents/   Document-backed recall controller, schedules, priority workflows
     matching/    Human-facing fuzzy matching helpers
     materials/   Material discovery, ignore rules, import helpers
-    memory/      Armory-scoped learning memory extraction and persistence
+    memory/      Armory-scoped memory extraction and persistence
     parameters/  Settings storage and parameter helpers
     privacy/     Consent and release-time diagnostics config
     rag/         Chunking, indexing, retrieval, source mapping
     safety/      Local safety contracts
-    study/       Learning controller, schedules, priority workflows
     version/     Package version helpers
     vocab/       Vocabulary parsing, scheduling, drills
 ```
@@ -45,8 +46,8 @@ Within the harness:
 
 - `materials` owns discovery and ignore policy;
 - `rag` may import `materials`, but `materials` must not import `rag`, `chat`,
-  `agent`, or `study`;
-- `study` remains a controller/state layer and must not import `chat`, `agent`,
+  `agent`, or `documents`;
+- `documents` remains a controller/state layer and must not import `chat`, `agent`,
   `rag`, or adapters;
 - `agent` must not import `chat`;
 - `chat.session` and `chat.orchestrator` stay independent at runtime.

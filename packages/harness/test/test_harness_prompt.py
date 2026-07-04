@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 from harness.agent.prompt import build_system_prompt, build_system_prompt_sections
+from harness.documents import RecallPhase, RecallState, plan_turn
 from harness.rag.context import estimate_tokens
 from harness.rag.health import ExtractionHealthIssue
-from harness.study import LearningPhase, LearningState, plan_turn
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
@@ -28,12 +28,12 @@ def test_default_prompt_and_common_steering_fit_token_budget() -> None:
     assert estimate_tokens(prompt) <= 600
 
     common_steering = [
-        plan_turn(LearningState(), "what is this material about").prompt,
-        plan_turn(LearningState(), "what do the notes say about this topic?").prompt,
-        plan_turn(LearningState(), "explain the selected concept").prompt,
+        plan_turn(RecallState(), "what is this material about").prompt,
+        plan_turn(RecallState(), "what do the notes say about this topic?").prompt,
+        plan_turn(RecallState(), "explain the selected concept").prompt,
         plan_turn(
-            LearningState(
-                phase=LearningPhase.WAITING_FOR_READY,
+            RecallState(
+                phase=RecallPhase.WAITING_FOR_READY,
                 current_item="the selected concept",
             ),
             "ready",

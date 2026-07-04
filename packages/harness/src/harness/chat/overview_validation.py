@@ -23,9 +23,9 @@ from harness.chat.turn_contract_checks import (
     _contract_requests_table,
     _material_overview_turn,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
 from harness.rag.context import TurnEvidence
 from harness.rag.scoring import tokenize
-from harness.study.prompt_plans import LearningTurnPlan
 
 _MARKDOWN_TABLE_SEPARATOR_LINE_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
@@ -78,7 +78,7 @@ def _valid_overview_model_reply(
 
 
 def _needs_overview_fallback(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     raw_reply: str,
     evidence: TurnEvidence | None,
     *,

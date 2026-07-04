@@ -62,7 +62,7 @@ def _stabilized_followup_intent_resolution(
     )
     if stabilized is not None:
         return stabilized
-    stabilized = _continuable_learning_request_resolution(
+    stabilized = _continuable_document_request_resolution(
         resolution,
         prior_intent=prior_intent,
     )
@@ -193,7 +193,7 @@ def _source_followup_prior_answer_resolution(
     )
 
 
-def _continuable_learning_request_resolution(
+def _continuable_document_request_resolution(
     resolution: TurnIntentResolution,
     *,
     prior_intent: str,
@@ -256,7 +256,7 @@ def _continuable_priority_followup_resolution(
     if (
         not resolution.is_followup
         or prior_intent not in _CONTINUABLE_MATERIAL_INTENTS
-        or resolution.intent not in {"priority_request", "driven_learning_calibration"}
+        or resolution.intent not in {"priority_request", "driven_recall_calibration"}
     ):
         return None
     return replace(resolution, intent=prior_intent)

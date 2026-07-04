@@ -10,13 +10,13 @@ from harness.chat.turn_contract import (
     RETRIEVAL_STRATEGY_OVERVIEW,
     TurnContract,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag.context import TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
 
 
-def _overview_turn(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.PRESENT and (
+def _overview_turn(plan: DocumentTurnPlan) -> bool:
+    return plan.action is DocumentAction.PRESENT and (
         plan.retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW or plan.uses_overview_sampling
     )
 
@@ -51,8 +51,8 @@ def _readable_material_label(source: str) -> str:
 def _visible_turn_evidence(resolved: object) -> TurnEvidence | None:
     if not isinstance(resolved, ResolvedTurnPlan):
         return None
-    plan = resolved.learning_plan
-    if plan is not None and plan.action is LearningAction.CALIBRATE:
+    plan = resolved.document_plan
+    if plan is not None and plan.action is DocumentAction.CALIBRATE:
         return None
     return resolved.turn_evidence
 
@@ -61,8 +61,8 @@ def _stored_turn_evidence(resolved: object) -> TurnEvidence | None:
     if not isinstance(resolved, ResolvedTurnPlan):
         return None
     if (
-        resolved.learning_plan is not None
-        and resolved.learning_plan.action is LearningAction.CALIBRATE
+        resolved.document_plan is not None
+        and resolved.document_plan.action is DocumentAction.CALIBRATE
     ):
         return resolved.turn_evidence
     return _visible_turn_evidence(resolved)

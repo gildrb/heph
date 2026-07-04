@@ -33,9 +33,9 @@ from harness.chat.turn_predicates import (
     _count_label,
     _trace_excerpt,
 )
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction, RecallPhase, RecallState
 from harness.rag.context import EvidenceChunk, TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction, LearningPhase, LearningState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -45,7 +45,7 @@ from harness.chat.conversation_context import _recent_assistant_messages
 from harness.chat.evidence_prompt import _append_evidence_assessment_prompt
 from harness.chat.reply_repair import _evidence_pointer_excerpt
 from harness.chat.turn_contract_checks import _intent_contract_refs_text
-from harness.chat.turn_outputs import _DeterministicLearningReply
+from harness.chat.turn_outputs import _DeterministicDocumentReply
 from harness.chat.turn_query import _normalized_query_text
 
 _PRIOR_ANSWER_CONTEXT_LIMIT = 500
@@ -62,25 +62,25 @@ _PRIOR_CONTEXT_DEFAULT_INSTRUCTION = (
 
 
 def _isolated_recall_conversation(
-    plan: LearningTurnPlan,
-    original_learning_state: LearningState,
+    plan: DocumentTurnPlan,
+    original_recall_state: RecallState,
     user_input: str,
     contract: TurnContract | None,
 ) -> Conversation | None:
     if _should_use_material_answer_conversation_window(plan, contract):
         return None
     if plan.action in {
-        LearningAction.CALIBRATE,
-        LearningAction.PROMPT_RECALL,
-        LearningAction.REFUSE_REVEAL,
-        LearningAction.WAIT_READY_REMINDER,
+        DocumentAction.CALIBRATE,
+        DocumentAction.PROMPT_RECALL,
+        DocumentAction.REFUSE_REVEAL,
+        DocumentAction.WAIT_READY_REMINDER,
     }:
         conversation = Conversation()
         conversation.add("user", user_input)
         return conversation
     if (
-        original_learning_state.phase is LearningPhase.RECALL
-        and plan.action is LearningAction.CHAT
+        original_recall_state.phase is RecallPhase.RECALL
+        and plan.action is DocumentAction.CHAT
         and plan.retrieval_query is None
     ):
         conversation = Conversation()
@@ -89,9 +89,9 @@ def _isolated_recall_conversation(
     return None
 
 
-def _learning_extra_system_prompt(
+def _document_extra_system_prompt(
     session: ChatSession,
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     resolved: ResolvedTurnPlan,
     *,
     user_input: str = "",
@@ -107,7 +107,7 @@ def _learning_extra_system_prompt(
     )
     if prior_answer_context:
         extra_system_prompt = f"{extra_system_prompt}\n\n{prior_answer_context}"
-    if plan.action is LearningAction.PRIORITY:
+    if plan.action is DocumentAction.PRIORITY:
         priority_context = _build_priority_context(session)
         if priority_context:
             extra_system_prompt = f"{extra_system_prompt}\n\n{priority_context}"
@@ -387,7 +387,7 @@ def _contract_prior_positions_text(contract: TurnContract) -> str:
 def _prior_answer_position_absence_reply(
     session: ChatSession,
     contract: TurnContract | None,
-) -> _DeterministicLearningReply | None:
+) -> _DeterministicDocumentReply | None:
     if not _contract_can_report_missing_prior_positions(contract):
         return None
     assert contract is not None
@@ -419,7 +419,7 @@ def _prior_answer_position_absence_reply(
         missing_positions=missing_positions,
         basis=contract.prior_answer_position_basis,
     )
-    return _DeterministicLearningReply(reply, citation_required=False)
+    return _DeterministicDocumentReply(reply, citation_required=False)
 
 
 def _contract_can_report_missing_prior_positions(contract: TurnContract | None) -> bool:
@@ -460,7 +460,7 @@ def _prior_answer_cited_claims_cover_list_positions(
 def _prior_answer_source_object_absence_reply(
     session: ChatSession,
     contract: TurnContract | None,
-) -> _DeterministicLearningReply | None:
+) -> _DeterministicDocumentReply | None:
     if (
         contract is None
         or not contract.prior_answer_reference
@@ -476,7 +476,7 @@ def _prior_answer_source_object_absence_reply(
     selected_answer = _prior_answer_message_for_contract(recent_assistant, contract)
     if selected_answer is None or _prior_answer_has_any_structure(selected_answer.content):
         return None
-    return _DeterministicLearningReply(
+    return _DeterministicDocumentReply(
         "The prior answer does not contain a cited material claim to extend.",
         citation_required=False,
     )
@@ -485,7 +485,7 @@ def _prior_answer_source_object_absence_reply(
 def _prior_answer_list_transform_reply(
     contract: TurnContract | None,
     evidence: TurnEvidence | None,
-) -> _DeterministicLearningReply | None:
+) -> _DeterministicDocumentReply | None:
     if (
         contract is None
         or contract.answer_mode != ANSWER_MODE_TRANSFORM_PRIOR
@@ -503,14 +503,14 @@ def _prior_answer_list_transform_reply(
         f"{index}. {excerpt} [{item.evidence_id}]"
         for index, (item, excerpt) in enumerate(cited_items, start=1)
     )
-    return _DeterministicLearningReply(reply, source_refs=_evidence_refs(evidence))
+    return _DeterministicDocumentReply(reply, source_refs=_evidence_refs(evidence))
 
 
 def _prior_answer_target_phrase_reply(
     session: ChatSession,
     contract: TurnContract | None,
     evidence: TurnEvidence | None,
-) -> _DeterministicLearningReply | None:
+) -> _DeterministicDocumentReply | None:
     if not _contract_can_use_prior_target_phrase(contract) or not _has_evidence_items(evidence):
         return None
     assert contract is not None
@@ -524,7 +524,7 @@ def _prior_answer_target_phrase_reply(
         evidence,
     )
     if item is not None and (excerpt := _evidence_pointer_excerpt(item)):
-        return _DeterministicLearningReply(
+        return _DeterministicDocumentReply(
             f"“{excerpt}” [{item.evidence_id}].",
             source_refs=_evidence_refs(evidence),
         )
@@ -557,7 +557,7 @@ def _prior_answer_single_citation_reply(
     session: ChatSession,
     contract: TurnContract | None,
     evidence: TurnEvidence | None,
-) -> _DeterministicLearningReply | None:
+) -> _DeterministicDocumentReply | None:
     if not _contract_can_use_single_prior_citation(contract) or not _has_evidence_items(evidence):
         return None
     assert contract is not None
@@ -575,7 +575,7 @@ def _prior_answer_single_citation_reply(
     excerpt = _evidence_pointer_excerpt(item)
     if not excerpt:
         return None
-    return _DeterministicLearningReply(
+    return _DeterministicDocumentReply(
         f"“{excerpt}” [{item.evidence_id}].",
         source_refs=_evidence_refs(evidence),
     )

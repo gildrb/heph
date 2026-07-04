@@ -22,7 +22,7 @@ dependency flow, not another architecture narrative.
   lower packages. Lower packages must not import Heph.
 - **The harness** lives in the `harness.*` implementation namespace. It owns
   turns, guardrails, grounding, citations, retrieval, armory state, memory,
-  local learning attempts and policies, study workflows, diagnostics, and
+  local recall attempts and policies, document workflows, diagnostics, and
   session persistence. It must not import Heph or interface adapters.
 - **AI** owns provider configuration, auth, model catalogs, runtime streaming,
   retry, usage, prompt-cache request shaping, logging, diagnostics, and narrow
@@ -76,8 +76,8 @@ graph TD
     Harness --> Extensions
     Harness --> Materials["materials"]
     Harness --> RAG["rag"]
-    Harness --> Study["study"]
-    Harness --> Learning["learning"]
+    Harness --> Documents["documents"]
+    Harness --> Attempts["attempts"]
     Harness --> Memory["memory"]
     Harness --> AgentLoop["agent helpers"]
     RAG --> Materials
@@ -120,7 +120,7 @@ graph LR
   assessment remain separate responsibilities.
 - Generation and repair must remain grounded in `TurnEvidence`, citation
   verification, and structural reply checks before turn finalization records the
-  result, usage, memory scheduling, and learning state changes.
+  result, usage, memory scheduling, and recall state changes.
 
 ## Package layout
 
@@ -154,15 +154,15 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-      learning/    Structural answer-attempt observations and static guard policy
+      attempts/    Structural answer-attempt observations and static guard policy
       matching/    Fuzzy matching helpers for human-facing selectors
-      materials/   Study-file discovery, ignore rules, and material role classification
+      materials/   Material-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage
       parameters/  Parameter management and settings
       privacy/     Consent, anonymous install ID, release-time diagnostics config
       rag/         RAG chunking, indexing, retrieval, source mapping
       safety/      Local safety contracts
-      study/       Prompt plans, recall controller, priority analysis
+      documents/   Prompt plans, recall controller, priority analysis
       version/     Package version helpers
       vocab/       Vocabulary drill, scheduler, state
     test/
@@ -187,8 +187,8 @@ The following packages cannot import anything from adapter packages:
 - `ai.providers`
 - `harness.rag`
 - `harness.armory`
-- `harness.learning`
-- `harness.study`
+- `harness.attempts`
+- `harness.documents`
 - `harness.memory`
 - `harness.parameters`
 - `harness.materials`
@@ -224,7 +224,7 @@ It must not import `harness.chat`, `harness.agent`, or `harness.rag`.
 
 `ai.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
-and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
+and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `documents`,
 `materials`, `memory`, or `armory` harness modules. Providers may be used by
 runtime, but providers must not import Heph or harness workflow packages.
 
@@ -232,12 +232,12 @@ runtime, but providers must not import Heph or harness workflow packages.
 
 `ai.providers` owns provider configuration, model catalogs, registry
 metadata, and key resolution. It must not import adapters, `chat`, `agent`,
-`rag`, `study`, or `materials`.
+`rag`, `documents`, or `materials`.
 
-### Domain: memory and study
+### Domain: memory and documents
 
 `harness.memory` may use `ai.runtime` to extract concepts, but it must not
-import adapters, `harness.chat`, or `harness.agent`. `harness.study` stays a
+import adapters, `harness.chat`, or `harness.agent`. `harness.documents` stays a
 pure controller/state layer and must not import adapters, `harness.chat`,
 `harness.agent`, or `harness.rag`.
 
@@ -255,7 +255,7 @@ my-armory/
     rag_index.json      # persisted retrieval index
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
-  materials/            # user study files, indexed for RAG
+  materials/            # user material files, indexed for RAG
   parameters/           # reserved workspace parameters directory
 ```
 
@@ -263,9 +263,9 @@ Only `materials/` is used for retrieval. Hidden files inside that directory are
 skipped by the materials scanner. `source` in citations or chunk metadata means
 the provenance path for a retrieved chunk.
 
-## Study memory
+## Armory memory
 
-Heph is local-first by default: extracted study concepts are written to
+Heph is local-first by default: extracted source concepts are written to
 `<armory>/.harness/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 

@@ -24,6 +24,11 @@ from heph.commands.help import ExitCommand, HelpCommand
 from heph.commands.local import LocalCommand
 from heph.commands.memory import MemoryCommand
 from heph.commands.model import ModelsCommand
+from heph.commands.practice import (
+    ExamCommand,
+    PriorityCommand,
+    VocabCommand,
+)
 from heph.commands.session import (
     ArmoryCommand,
     DetachCommand,
@@ -34,11 +39,6 @@ from heph.commands.session import (
     TurnCommand,
 )
 from heph.commands.settings import SettingsCommand
-from heph.commands.study import (
-    ExamCommand,
-    PriorityCommand,
-    VocabCommand,
-)
 from heph.commands.suggestions import CommandSuggestion
 from heph.commands.trust import TrustCommand
 

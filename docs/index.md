@@ -10,9 +10,8 @@
   <a href="../LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-000000?style=for-the-badge&labelColor=000000"></a>
 </p>
 
-Heph is an agentic local document harness for accurate, cited answers. It
-indexes armory materials, cites retrieved evidence, and keeps learning memory
-scoped to that armory.
+Heph CLI is a local document agent. It indexes files in an armory, answers from
+those files, and shows the cited source passages.
 
 <p align="center">
   <img alt="Heph TUI" src="../assets/app-screenshot.png" width="100%">
@@ -49,7 +48,7 @@ A typical Heph armory has this structure:
 ├── .harness/             # Local Heph state
 │   ├── armory.toml       # Armory marker
 │   ├── rag_index.json    # Retrieval index
-│   ├── memory.json       # Learning memory
+│   ├── memory.json       # Armory memory
 │   ├── chats/            # Saved sessions
 │   ├── traces/           # JSONL traces when enabled
 │   ├── usage/            # Token and cost snapshots

@@ -1,7 +1,8 @@
-"""Tests for persisted learning-session state."""
+"""Tests for persisted recall-session state."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,14 +21,14 @@ from harness.chat.turn_contract import (
     ANSWER_MODE_TRANSFORM_PRIOR,
     TurnContract,
 )
+from harness.documents import (
+    RecallFeedbackType,
+    RecallPhase,
+    RecallRating,
+)
 from harness.memory import MemoryStore
 from harness.rag import Chunk, EvidenceChunk, TurnEvidence
 from harness.rag.health import ExtractionHealthIssue
-from harness.study import (
-    LearningFeedbackType,
-    LearningPhase,
-    RecallRating,
-)
 
 
 def _make_armory(tmp_path: Path) -> Path:
@@ -38,40 +39,74 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory
 
 
-def test_save_and_resume_preserves_learning_state(tmp_path: Path) -> None:
+def test_save_and_resume_preserves_recall_state(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
     session = create_session(
         ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
         armory,
     )
-    session.learning_state.phase = LearningPhase.RECALL
-    session.learning_state.current_item = "Q1"
-    session.learning_state.retrieval_query = "Q1"
-    session.learning_state.expected_source_refs = ["materials/exam.md#chunk=0"]
-    session.learning_state.attempt_count = 3
-    session.learning_state.last_feedback_type = LearningFeedbackType.PARTIAL
-    session.learning_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    session.learning_state.last_recall_seconds = 75
-    session.learning_state.last_recall_rating = RecallRating.HARD
-    session.learning_state.session_goal = "exam preparation"
-    session.learning_state.time_budget_minutes = 45
-    session.learning_state.practice_session_type = "exam"
+    session.recall_state.phase = RecallPhase.RECALL
+    session.recall_state.current_item = "Q1"
+    session.recall_state.retrieval_query = "Q1"
+    session.recall_state.expected_source_refs = ["materials/exam.md#chunk=0"]
+    session.recall_state.attempt_count = 3
+    session.recall_state.last_feedback_type = RecallFeedbackType.PARTIAL
+    session.recall_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    session.recall_state.last_recall_seconds = 75
+    session.recall_state.last_recall_rating = RecallRating.HARD
+    session.recall_state.session_goal = "exam preparation"
+    session.recall_state.time_budget_minutes = 45
+    session.recall_state.practice_session_type = "exam"
 
     save_session(session)
+    saved = json.loads(
+        (armory / ".harness" / "chats" / f"{session.session_id}.json").read_text(encoding="utf-8")
+    )
+    metadata = saved["metadata"]
+    assert "recall_state" in metadata
+    assert "learning_state" not in metadata
 
     resumed = resume_session(session.config, armory, session.session_id)
-    assert resumed.learning_state.phase is LearningPhase.RECALL
-    assert resumed.learning_state.current_item == "Q1"
-    assert resumed.learning_state.retrieval_query == "Q1"
-    assert resumed.learning_state.expected_source_refs == ["materials/exam.md#chunk=0"]
-    assert resumed.learning_state.attempt_count == 3
-    assert resumed.learning_state.last_feedback_type is LearningFeedbackType.PARTIAL
-    assert resumed.learning_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    assert resumed.learning_state.last_recall_seconds == 75
-    assert resumed.learning_state.last_recall_rating is RecallRating.HARD
-    assert resumed.learning_state.session_goal == "exam preparation"
-    assert resumed.learning_state.time_budget_minutes == 45
-    assert resumed.learning_state.practice_session_type == "exam"
+    assert resumed.recall_state.phase is RecallPhase.RECALL
+    assert resumed.recall_state.current_item == "Q1"
+    assert resumed.recall_state.retrieval_query == "Q1"
+    assert resumed.recall_state.expected_source_refs == ["materials/exam.md#chunk=0"]
+    assert resumed.recall_state.attempt_count == 3
+    assert resumed.recall_state.last_feedback_type is RecallFeedbackType.PARTIAL
+    assert resumed.recall_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    assert resumed.recall_state.last_recall_seconds == 75
+    assert resumed.recall_state.last_recall_rating is RecallRating.HARD
+    assert resumed.recall_state.session_goal == "exam preparation"
+    assert resumed.recall_state.time_budget_minutes == 45
+    assert resumed.recall_state.practice_session_type == "exam"
+
+
+@pytest.mark.parametrize("legacy_key", ["learning_state", "study_state"])
+def test_resume_accepts_legacy_recall_state_metadata(
+    tmp_path: Path,
+    legacy_key: str,
+) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.recall_state.phase = RecallPhase.RECALL
+    session.recall_state.current_item = "legacy prompt"
+    session.recall_state.attempt_count = 2
+    save_session(session)
+
+    session_file = armory / ".harness" / "chats" / f"{session.session_id}.json"
+    saved = json.loads(session_file.read_text(encoding="utf-8"))
+    metadata = saved["metadata"]
+    metadata[legacy_key] = metadata.pop("recall_state")
+    session_file.write_text(json.dumps(saved, indent=2) + "\n", encoding="utf-8")
+
+    resumed = resume_session(session.config, armory, session.session_id)
+
+    assert resumed.recall_state.phase is RecallPhase.RECALL
+    assert resumed.recall_state.current_item == "legacy prompt"
+    assert resumed.recall_state.attempt_count == 2
 
 
 def test_save_and_resume_preserves_last_turn_contract(tmp_path: Path) -> None:
@@ -194,6 +229,39 @@ def test_save_and_resume_preserves_turn_history_with_evidence(tmp_path: Path) ->
     assert snapshot.contract == contract
     assert snapshot.evidence is not None
     assert "[E1] materials/exam.md" in snapshot.evidence.render()
+
+
+def test_resume_accepts_legacy_turn_history_state_key(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.recall_state.phase = RecallPhase.RECALL
+    session.recall_state.current_item = "legacy snapshot prompt"
+    session.conversation.add("user", "What is Q1?")
+    session.conversation.add("assistant", "Q1 asks for four.")
+    record_turn_snapshot(
+        session,
+        user_input="What is Q1?",
+        assistant_reply="Q1 asks for four.",
+        evidence=None,
+        plan_intent="source_qa",
+        contract=None,
+    )
+    save_session(session)
+
+    session_file = armory / ".harness" / "chats" / f"{session.session_id}.json"
+    saved = json.loads(session_file.read_text(encoding="utf-8"))
+    snapshot = saved["metadata"]["turn_history"][0]
+    snapshot["learning_state"] = snapshot.pop("recall_state")
+    session_file.write_text(json.dumps(saved, indent=2) + "\n", encoding="utf-8")
+
+    resumed = resume_session(session.config, armory, session.session_id)
+
+    assert len(resumed.turn_history) == 1
+    assert resumed.turn_history[0].recall_state.phase is RecallPhase.RECALL
+    assert resumed.turn_history[0].recall_state.current_item == "legacy snapshot prompt"
 
 
 def test_fork_session_at_turn_restores_chat_and_last_evidence(tmp_path: Path) -> None:

@@ -1687,14 +1687,14 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             await pilot.pause()
 
-            await pilot.mouse_down("#info-panel", offset=(3, 1))
-            await pilot.hover("#info-panel", offset=(11, 1))
+            await pilot.mouse_down("#info-panel", offset=(3, 0))
+            await pilot.hover("#info-panel", offset=(11, 0))
             await pilot.pause()
 
             panel = app.query_one("#info-panel", tui.Static)
             selected_styles = [
                 str(segment.style).lower()
-                for segment in panel.render_line(1)
+                for segment in panel.render_line(0)
                 if segment.text.strip() and "reverse" in str(segment.style)
             ]
 
@@ -3169,7 +3169,7 @@ def test_info_panel_shows_new_layout_and_material_names_without_session_duration
 def test_info_panel_ignores_generated_session_title() -> None:
     session = _plain_session()
     session.title = (
-        "Build a careful comparison of very long learning goals\n"
+        "Build a careful comparison of very long research goals\n"
         "that should never wrap into the Scope lines"
     )
 
@@ -3711,7 +3711,7 @@ def test_tui_new_chat_applies_live_usage_settings(
     asyncio.run(check_new_chat_settings())
 
 
-def test_status_lines_omits_removed_learning_mode() -> None:
+def test_status_lines_omits_removed_practice_mode() -> None:
     session = _plain_session()
 
     status = tui._status_lines(session)
@@ -3719,7 +3719,7 @@ def test_status_lines_omits_removed_learning_mode() -> None:
     assert " mode " not in status
 
 
-def test_status_text_omits_removed_learning_mode() -> None:
+def test_status_text_omits_removed_practice_mode() -> None:
     session = _plain_session()
 
     status = tui._status_text(session)
@@ -7564,7 +7564,7 @@ def test_armory_inline_enter_opens_highlighted_armory(
         pytest.skip("Textual is not installed")
 
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
-    armory_path = tmp_path / "study"
+    armory_path = tmp_path / "notes"
     initialize(armory_path)
     (armory_path / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
     app = tui.HephTui(
@@ -7578,7 +7578,7 @@ def test_armory_inline_enter_opens_highlighted_armory(
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._handle_armory_browser("/armory")
             labels = [entry.label for entry in app._armory_entries]
-            index = next(i for i, label in enumerate(labels) if "study" in label)
+            index = next(i for i, label in enumerate(labels) if "notes" in label)
             current = app.query_one("#armory-current-inline", tui.OptionList)
             current.highlighted = index
             await pilot.press("enter")
@@ -7598,7 +7598,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
         pytest.skip("Textual is not installed")
 
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
-    armory_path = tmp_path / "study"
+    armory_path = tmp_path / "notes"
     initialize(armory_path)
     session = _plain_session()
     new_session = _plain_session()
@@ -7622,7 +7622,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
             app._handle_armory_browser("/armory open")
             app._open_selected_armory(armory_path)
             assert app.session is new_session
-            assert any(entry.content == "Using armory study" for entry in app.state.transcript)
+            assert any(entry.content == "Using armory notes" for entry in app.state.transcript)
             composer = app.query_one("#composer", tui.Input)
             assert app.focused is composer
 
@@ -7746,7 +7746,7 @@ def test_armory_inline_marks_armories_with_running_turns(
         pytest.skip("Textual is not installed")
 
     monkeypatch.setenv("HARNESS_ARMORY_HOME", str(tmp_path))
-    armory = tmp_path / "study"
+    armory = tmp_path / "notes"
     initialize(armory)
     session = _plain_session()
     session.armory_path = armory

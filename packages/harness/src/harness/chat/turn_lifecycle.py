@@ -15,13 +15,13 @@ from harness.chat.events import GuardrailEvent, NoticeEvent, TurnEvent
 from harness.chat.evidence import ResolvedTurnPlan
 from harness.chat.model_selection import ensure_session_model_ready
 from harness.chat.turn_event_helpers import _final_reply_events
+from harness.documents.state import RecallState
 from harness.safety.contracts import (
     GUARDRAIL_ACTION_WARN,
     GUARDRAIL_STAGE_OUTPUT,
     GuardrailMessage,
 )
 from harness.safety.local import check_user_input
-from harness.study.state import LearningState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -36,7 +36,7 @@ _MODEL_UNAVAILABLE_REPLY = (
 @dataclass(frozen=True, slots=True)
 class _PreparedTurn:
     original_messages: list[Message]
-    original_learning_state: LearningState
+    original_recall_state: RecallState
     guardrail_event: GuardrailEvent | None
     blocked: bool
 
@@ -49,7 +49,7 @@ class _TurnLifecycleHost(Protocol):
 
     def _prepare_turn(self, user_input: str) -> _PreparedTurn: ...
 
-    def _reset_learning_attempt_overrides(self) -> None: ...
+    def _reset_attempt_overrides(self) -> None: ...
 
     def _record_user_turn(self, user_input: str) -> None: ...
 
@@ -63,7 +63,7 @@ class _TurnLifecycleHost(Protocol):
 
     def _iter_session_turn_events(
         self,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         user_input: str,
         *,
         abort: threading.Event | None,
@@ -71,7 +71,7 @@ class _TurnLifecycleHost(Protocol):
 
     def _iter_armory_turn_events(
         self,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         user_input: str,
         *,
         abort: threading.Event | None,
@@ -122,7 +122,7 @@ class _TurnLifecycleHost(Protocol):
     def _rollback_turn(
         self,
         original_messages: list[Message],
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
     ) -> None: ...
 
 
@@ -156,7 +156,7 @@ class TurnLifecycleMixin:
         self.last_reply = ""
         self.last_internal_passes = 1
         self._last_reply_citation_required = None
-        self._reset_learning_attempt_overrides()
+        self._reset_attempt_overrides()
         decision = check_user_input(
             user_input,
             conversation=tuple(
@@ -169,7 +169,7 @@ class TurnLifecycleMixin:
             self.last_reply = decision.message
         return _PreparedTurn(
             original_messages=list(self.session.conversation.messages),
-            original_learning_state=self.session.learning_state.clone(),
+            original_recall_state=self.session.recall_state.clone(),
             guardrail_event=guardrail_event,
             blocked=decision.blocks,
         )
@@ -184,7 +184,7 @@ class TurnLifecycleMixin:
                     "session_id": self.session.session_id,
                     "input_len": len(user_input),
                     "message_count": len(self.session.conversation.messages),
-                    "learning_phase": self.session.learning_state.phase.value,
+                    "recall_phase": self.session.recall_state.phase.value,
                 }
             },
         )
@@ -201,7 +201,7 @@ class TurnLifecycleMixin:
         try:
             with timer:
                 resolved = yield from self._iter_session_turn_events(
-                    prepared.original_learning_state,
+                    prepared.original_recall_state,
                     user_input,
                     abort=abort,
                 )
@@ -220,7 +220,7 @@ class TurnLifecycleMixin:
 
     def _iter_session_turn_events(
         self: _TurnLifecycleHost,
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
         user_input: str,
         *,
         abort: threading.Event | None,
@@ -228,7 +228,7 @@ class TurnLifecycleMixin:
         if self.session.armory_path is not None:
             return (
                 yield from self._iter_armory_turn_events(
-                    original_learning_state,
+                    original_recall_state,
                     user_input,
                     abort=abort,
                 )
@@ -264,7 +264,7 @@ class TurnLifecycleMixin:
             },
         )
         self._record_turn_error(user_input, timer, str(error))
-        self._rollback_turn(prepared.original_messages, prepared.original_learning_state)
+        self._rollback_turn(prepared.original_messages, prepared.original_recall_state)
         self.session.dirty = True
 
     def _handle_engine_error(
@@ -280,7 +280,7 @@ class TurnLifecycleMixin:
             extra={"fields": {"session_id": self.session.session_id, "latency_ms": timer.ms}},
         )
         self._record_turn_error(user_input, timer, str(error))
-        self._rollback_turn(prepared.original_messages, prepared.original_learning_state)
+        self._rollback_turn(prepared.original_messages, prepared.original_recall_state)
 
     def _handle_unexpected_error(
         self: _TurnLifecycleHost,
@@ -294,7 +294,7 @@ class TurnLifecycleMixin:
             exc_info=True,
         )
         self._record_turn_error(user_input, timer, "unexpected turn orchestration failure")
-        self._rollback_turn(prepared.original_messages, prepared.original_learning_state)
+        self._rollback_turn(prepared.original_messages, prepared.original_recall_state)
 
     def _record_turn_error(
         self: _TurnLifecycleHost,

@@ -498,7 +498,7 @@ class TestConversationConsistency:
                 return_value=MagicMock(),
             ),
             patch(
-                "harness.chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "harness.chat.orchestrator.TurnOrchestrator._iter_document_events",
                 side_effect=EngineError("boom"),
             ),
             pytest.raises(EngineError),
@@ -528,7 +528,7 @@ class TestConversationConsistency:
                 return_value=MagicMock(),
             ),
             patch(
-                "harness.chat.orchestrator.TurnOrchestrator._iter_learning_events",
+                "harness.chat.orchestrator.TurnOrchestrator._iter_document_events",
                 side_effect=StreamRecoveryError("Partial reply"),
             ),
             pytest.raises(StreamRecoveryError) as exc_info,

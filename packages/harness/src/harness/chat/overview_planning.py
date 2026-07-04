@@ -10,7 +10,7 @@ from harness.chat.turn_contract import (
 )
 from harness.chat.turn_contract_checks import _contract_has_specific_material_target
 from harness.chat.turn_query import _lacks_retrievable_content
-from harness.study.prompt_plans import LearningTurnPlan
+from harness.documents.prompt_plans import DocumentTurnPlan
 
 
 def _contract_requires_overview_sampling(
@@ -59,7 +59,7 @@ def _overview_followup_can_reuse_prior_evidence(
 
 
 def _overview_retrieval_surface(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     fallback: str | None,
 ) -> str | None:
@@ -68,7 +68,7 @@ def _overview_retrieval_surface(
 
 
 def _overview_retrieval_candidates(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     fallback: str | None,
 ) -> tuple[str | None, ...]:

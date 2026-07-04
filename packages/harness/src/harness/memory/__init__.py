@@ -1,4 +1,4 @@
-"""Armory-scoped learning memory."""
+"""Armory-scoped memory."""
 
 from __future__ import annotations
 

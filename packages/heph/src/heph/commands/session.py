@@ -19,8 +19,8 @@ from harness.chat.session import (
 )
 from harness.chat.usage import load_usage_summaries
 from harness.diagnostics.events import capture as capture_analytics
-from harness.study.schedule import load_recall_schedule
-from harness.study.state import LearningFeedbackType
+from harness.documents.schedule import load_recall_schedule
+from harness.documents.state import RecallFeedbackType
 from harness.vocab.parser import scan_armory
 from harness.vocab.state import VocabCardState, load_schedule, save_schedule
 from interfaces.terminal import STYLE_DIM, print_error, print_info, print_success, styled
@@ -68,7 +68,7 @@ def _session_status(session: ChatSession) -> str:
     if session.armory_path is not None:
         lines.extend(_armory_stats(session.armory_path))
         lines.extend(_vocab_stats(session.armory_path))
-        lines.extend(_learning_stats(session))
+        lines.extend(_recall_stats(session))
     return "\n".join(lines)
 
 
@@ -126,40 +126,40 @@ def _due_vocab_count(cards: list[VocabCardState], deadline: datetime) -> int:
     )
 
 
-def _learning_stats(session: ChatSession) -> list[str]:
-    learning = session.learning_state
-    if learning.last_feedback_type == LearningFeedbackType.NONE:
+def _recall_stats(session: ChatSession) -> list[str]:
+    recall = session.recall_state
+    if recall.last_feedback_type == RecallFeedbackType.NONE:
         return []
     lines = [
         "",
-        "Learning state:",
-        f"  Phase:     {learning.phase.value}",
-        *_learning_optional_lines(session),
-        f"  Feedback:  {learning.last_feedback_type.value}",
+        "Recall state:",
+        f"  Phase:     {recall.phase.value}",
+        *_recall_optional_lines(session),
+        f"  Feedback:  {recall.last_feedback_type.value}",
     ]
-    lines.extend(_learning_schedule_lines(session))
+    lines.extend(_recall_schedule_lines(session))
     return lines
 
 
-def _learning_optional_lines(session: ChatSession) -> list[str]:
-    learning = session.learning_state
+def _recall_optional_lines(session: ChatSession) -> list[str]:
+    recall = session.recall_state
     lines: list[str] = []
-    if learning.time_budget_minutes is not None:
-        lines.append(f"  Budget:    {learning.time_budget_minutes}m")
-    if learning.current_item:
-        lines.append(f"  Item:      {learning.current_item[:60]}")
-    if learning.attempt_count > 0:
-        lines.append(f"  Attempts:  {learning.attempt_count}")
-    if learning.hint_level > 0:
-        lines.append(f"  Hint lvl:  {learning.hint_level}")
-    if learning.last_recall_seconds is not None:
-        lines.append(f"  Recall:    {format_duration(learning.last_recall_seconds)}")
-    if learning.last_recall_rating.value != "none":
-        lines.append(f"  Effort:    {learning.last_recall_rating.value}")
+    if recall.time_budget_minutes is not None:
+        lines.append(f"  Budget:    {recall.time_budget_minutes}m")
+    if recall.current_item:
+        lines.append(f"  Item:      {recall.current_item[:60]}")
+    if recall.attempt_count > 0:
+        lines.append(f"  Attempts:  {recall.attempt_count}")
+    if recall.hint_level > 0:
+        lines.append(f"  Hint lvl:  {recall.hint_level}")
+    if recall.last_recall_seconds is not None:
+        lines.append(f"  Recall:    {format_duration(recall.last_recall_seconds)}")
+    if recall.last_recall_rating.value != "none":
+        lines.append(f"  Effort:    {recall.last_recall_rating.value}")
     return lines
 
 
-def _learning_schedule_lines(session: ChatSession) -> list[str]:
+def _recall_schedule_lines(session: ChatSession) -> list[str]:
     if session.armory_path is None:
         return []
     store = load_recall_schedule(session.armory_path)

@@ -33,15 +33,15 @@ packages/
       armory/      Armory data, validation, discovery, and local state helpers
       chat/        Session lifecycle, intent contracts, evidence, turn orchestration
       diagnostics/ Anonymous events, local diagnostics, redacted crash reports
-      learning/    Structural answer-attempt observations and static guard policy
+      attempts/    Structural answer-attempt observations and static guard policy
       matching/    Fuzzy matching helpers for human-facing selectors
-      materials/   Study-file discovery, ignore rules, and material role classification
+      materials/   Material-file discovery, ignore rules, and material role classification
       memory/      Memory extraction and storage
       parameters/  Parameter management and settings
       privacy/     Consent, anonymous install ID, release-time diagnostics config
       rag/         RAG chunking, indexing, retrieval, source mapping
       safety/      Local safety contracts
-      study/       Prompt plans, recall controller, priority analysis
+      documents/   Prompt plans, recall controller, priority analysis
       version/     Package version helpers
       vocab/       Vocabulary drill, scheduler, state
     test/
@@ -66,8 +66,8 @@ graph TD
     Harness --> Extensions
     Harness --> Materials["materials"]
     Harness --> RAG["rag"]
-    Harness --> Study["study"]
-    Harness --> Learning["learning"]
+    Harness --> Documents["documents"]
+    Harness --> Attempts["attempts"]
     Harness --> Memory["memory"]
     Harness --> AgentLoop["agent helpers"]
     RAG --> Materials
@@ -80,7 +80,7 @@ Core invariants:
 - `ai.*` is provider and model API substrate. It should almost never change for
   Heph-specific behavior.
 - `harness.*` is the harness implementation namespace: guardrails, armories,
-  retrieval, citations, memory, local learning, diagnostics, and session state.
+  retrieval, citations, memory, local recall, diagnostics, and session state.
 - Heph owns the `heph` command, SDK surface, agent identity, and composition of
   the lower packages.
 - Interfaces and Extensions compose the core through public contracts instead

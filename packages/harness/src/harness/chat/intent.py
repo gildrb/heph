@@ -22,7 +22,7 @@ MODEL_NORMALIZED_INTENTS = (
     "scaffold_request",
     "material_review",
     "priority_request",
-    "driven_learning_calibration",
+    "driven_recall_calibration",
     "wait",
     "heph_action",
     "heph_help",
@@ -110,7 +110,7 @@ def classifier_intent_from_payload(
     return (intent, normalized_confidence(payload.get("confidence")))
 
 
-def normalized_learning_intent_from_payload(
+def normalized_document_intent_from_payload(
     payload: Mapping[str, object] | None,
 ) -> TurnIntentResolution | None:
     intent, confidence = classifier_intent_from_payload(payload)
@@ -139,5 +139,5 @@ _MODEL_NORMALIZED_CONFIDENCE_THRESHOLD = MODEL_NORMALIZED_CONFIDENCE_THRESHOLD
 _LEARNING_INTENT_NORMALIZATION_SCHEMA = LEARNING_INTENT_NORMALIZATION_SCHEMA
 _LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
 _classifier_intent_from_payload = classifier_intent_from_payload
-_normalized_learning_intent_from_payload = normalized_learning_intent_from_payload
+_normalized_document_intent_from_payload = normalized_document_intent_from_payload
 _normalized_confidence = normalized_confidence

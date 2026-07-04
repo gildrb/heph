@@ -9,11 +9,11 @@ from harness.chat.turn_contract import (
     RETRIEVAL_STRATEGY_EXPAND_PRIOR,
     RETRIEVAL_STRATEGY_REUSE_PRIOR,
 )
+from harness.documents.policy import EvidenceAssessment, assess_evidence
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag.context import EvidenceChunk, TurnEvidence
 from harness.rag.scoring import tokenize
-from harness.study.policy import EvidenceAssessment, assess_evidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
 
 _QUOTE_CHARS = "'\"\u201c\u201d\u2018\u2019"
 _DIRECT_SUPPORT_MIN_TOKEN_LEN = 4
@@ -40,7 +40,7 @@ class _DirectSupportSignals:
 
 
 def assess_turn_evidence(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> EvidenceAssessment:
     source_only = _plan_needs_source_only_answer(plan)
@@ -53,22 +53,22 @@ def assess_turn_evidence(
     return _direct_support_adjusted_assessment(plan, turn_evidence, assessment)
 
 
-def _plan_needs_source_only_answer(plan: LearningTurnPlan) -> bool:
-    return plan.action is LearningAction.SOURCE_QA
+def _plan_needs_source_only_answer(plan: DocumentTurnPlan) -> bool:
+    return plan.action is DocumentAction.SOURCE_QA
 
 
-def _missing_evidence_hint(plan: LearningTurnPlan, *, source_only: bool) -> str:
-    if plan.action is LearningAction.PRIORITY:
+def _missing_evidence_hint(plan: DocumentTurnPlan, *, source_only: bool) -> str:
+    if plan.action is DocumentAction.PRIORITY:
         return "recurring topics, exam weighting, or prerequisite evidence"
     if source_only:
         return "source span that directly answers the source-only question"
-    if plan.action is LearningAction.ASSESS:
+    if plan.action is DocumentAction.ASSESS:
         return "rubric, mark scheme, or source span for grounded assessment"
     return "source span that supports the requested response"
 
 
 def _adjust_evidence_assessment(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     assessment: EvidenceAssessment,
 ) -> EvidenceAssessment:
     if assessment.sufficient or assessment.recommended_action != "retrieve_more":
@@ -79,11 +79,11 @@ def _adjust_evidence_assessment(
 
 
 def _direct_support_adjusted_assessment(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
     assessment: EvidenceAssessment,
 ) -> EvidenceAssessment:
-    if plan.action is not LearningAction.SOURCE_QA:
+    if plan.action is not DocumentAction.SOURCE_QA:
         return assessment
     if _source_answer_reuses_prior_evidence(plan, turn_evidence):
         return _direct_support_sufficient_assessment(
@@ -105,7 +105,7 @@ def _direct_support_adjusted_assessment(
 
 
 def _direct_support_signals(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
     query: str,
 ) -> _DirectSupportSignals:
@@ -178,7 +178,7 @@ def _query_terms_missing(query: str, turn_evidence: TurnEvidence | None) -> bool
 
 
 def _expanded_prior_direct_query_missing(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     *,
     expanded_prior: bool,
     query_terms_missing: bool,
@@ -198,7 +198,7 @@ def _expanded_prior_direct_query_missing(
 
 
 def _quoted_phrase_missing(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> bool:
     return bool(
@@ -262,7 +262,7 @@ def _direct_support_abstention_assessment(
 
 
 def _source_answer_reuses_prior_evidence(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> bool:
     return bool(
@@ -274,11 +274,11 @@ def _source_answer_reuses_prior_evidence(
     )
 
 
-def _source_answer_expands_prior_evidence(plan: LearningTurnPlan) -> bool:
+def _source_answer_expands_prior_evidence(plan: DocumentTurnPlan) -> bool:
     return bool(plan.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR and plan.evidence_refs)
 
 
-def _source_answer_query(plan: LearningTurnPlan) -> str:
+def _source_answer_query(plan: DocumentTurnPlan) -> str:
     original_request = _source_answer_original_request(plan)
     if plan.requires_direct_evidence and original_request:
         return original_request
@@ -287,7 +287,7 @@ def _source_answer_query(plan: LearningTurnPlan) -> str:
     return original_request
 
 
-def _source_answer_original_request(plan: LearningTurnPlan) -> str:
+def _source_answer_original_request(plan: DocumentTurnPlan) -> str:
     return plan.original_user_input.strip()
 
 
@@ -477,14 +477,14 @@ def _is_quote_delimiter(text: str, index: int, character: str) -> bool:
 
 
 def _should_ask_clarifying_query(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     assessment: EvidenceAssessment,
 ) -> bool:
-    if plan.action not in {LearningAction.PRESENT, LearningAction.PRIORITY}:
+    if plan.action not in {DocumentAction.PRESENT, DocumentAction.PRIORITY}:
         return False
     if not _needs_clarifying_query(plan.retrieval_query or ""):
         return False
-    return plan.action is not LearningAction.PRESENT or bool(assessment.supporting_refs)
+    return plan.action is not DocumentAction.PRESENT or bool(assessment.supporting_refs)
 
 
 def _needs_clarifying_query(query: str) -> bool:

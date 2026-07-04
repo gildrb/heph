@@ -26,7 +26,7 @@ from harness.chat.turn_predicates import (
     _overview_turn,
     _trace_excerpt,
 )
-from harness.study.prompt_plans import LearningTurnPlan
+from harness.documents.prompt_plans import DocumentTurnPlan
 
 if TYPE_CHECKING:
     from harness.rag.index import ArmoryIndex
@@ -54,7 +54,7 @@ _LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT = (
     _chat_intent.LEARNING_INTENT_NORMALIZATION_SYSTEM_PROMPT
 )
 _classifier_intent_from_payload = _chat_intent.classifier_intent_from_payload
-_normalized_learning_intent_from_payload = _chat_intent.normalized_learning_intent_from_payload
+_normalized_document_intent_from_payload = _chat_intent.normalized_document_intent_from_payload
 _normalized_confidence = _chat_intent.normalized_confidence
 
 
@@ -193,7 +193,7 @@ def _stabilized_intent_for_default_material_plan(
     resolution: TurnIntentResolution,
     *,
     user_input: str,
-    default_plan: LearningTurnPlan,
+    default_plan: DocumentTurnPlan,
     prior_contract: TurnContract | None,
     index: ArmoryIndex | None,
 ) -> TurnIntentResolution:
@@ -235,7 +235,7 @@ def _should_default_to_material_overview(
     resolution: TurnIntentResolution,
     *,
     user_input: str,
-    default_plan: LearningTurnPlan,
+    default_plan: DocumentTurnPlan,
     prior_contract: TurnContract | None,
 ) -> bool:
     return (
@@ -250,7 +250,7 @@ def _should_convert_source_route_to_overview(
     resolution: TurnIntentResolution,
     *,
     user_input: str,
-    default_plan: LearningTurnPlan,
+    default_plan: DocumentTurnPlan,
     prior_contract: TurnContract | None,
     index: ArmoryIndex | None,
 ) -> bool:
@@ -289,7 +289,7 @@ def _direct_source_resolution_should_keep_source_route(
 def _overview_resolution_query(
     resolution: TurnIntentResolution,
     user_input: str,
-    default_plan: LearningTurnPlan,
+    default_plan: DocumentTurnPlan,
 ) -> str:
     for candidate in (
         resolution.retrieval_query,
@@ -307,7 +307,7 @@ def _unresolved_followup_intent_resolution(
     resolution: TurnIntentResolution,
     *,
     user_input: str,
-    default_plan: LearningTurnPlan,
+    default_plan: DocumentTurnPlan,
     prior_contract: TurnContract | None,
 ) -> TurnIntentResolution:
     if resolution.intent or prior_contract is None or not _overview_turn(default_plan):

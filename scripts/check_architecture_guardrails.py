@@ -39,7 +39,7 @@ COMPLEXITY_BASELINE = {
     "chat/intent_resolution.py:_stabilized_followup_intent_resolution": 33,
     "chat/intent_resolution.py:_stabilized_intent_for_default_material_plan": 14,
     "chat/intent_resolution.py:_transform_resolution_points_at_prior_answer": 11,
-    "chat/learning_reply.py:_deterministic_learning_reply": 13,
+    "chat/document_reply.py:_deterministic_document_reply": 13,
     "chat/overview_reply.py:_overview_answer_has_bad_shape": 26,
     "chat/overview_reply.py:_overview_cue_looks_like_byline": 12,
     "chat/overview_reply.py:_overview_fallback_cue_is_substantive": 11,
@@ -59,8 +59,8 @@ COMPLEXITY_BASELINE = {
     "chat/turn_planning.py:_expanded_prior_followup_query": 11,
     "chat/turn_planning.py:_stabilized_current_topic_query": 13,
     "chat/turn_planning.py:_stabilized_followup_retrieval": 62,
-    "study/controller.py:_plan_recall_phase_intent": 14,
-    "study/controller.py:_plan_waiting_intent": 11,
+    "documents/controller.py:_plan_recall_phase_intent": 14,
+    "documents/controller.py:_plan_waiting_intent": 11,
 }
 
 FACADE_IMPORT_BASELINE = {
@@ -88,7 +88,7 @@ FACADE_IMPORT_BASELINE = {
     "rag/retrieve.py": 1,
     "rag/semantic.py": 1,
     "rag/sparse.py": 1,
-    "study/priority.py": 1,
+    "documents/priority.py": 1,
     "vocab/parser.py": 1,
 }
 

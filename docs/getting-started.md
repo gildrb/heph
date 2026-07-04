@@ -131,7 +131,7 @@ Heph will:
 2. Retrieve the most relevant passages
 3. Generate an answer based on your materials
 4. Show you the sources it used
-5. Save armory-scoped learning memory
+5. Save armory-scoped memory
 
 ## Key Commands
 

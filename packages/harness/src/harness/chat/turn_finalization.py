@@ -11,6 +11,16 @@ from ai.logging import Timer, get_logger
 from ai.runtime.conversation import Message
 
 from harness.agent.citation import VerificationResult, verify_citations, verify_response
+from harness.attempts.actions import AttemptAction
+from harness.attempts.observation import AttemptObservation, build_attempt_observation
+from harness.attempts.policy import StaticAttemptPolicy
+from harness.chat.document_reply import _source_qa_abstain_reply, _validation_guard_abstain_reply
+from harness.chat.document_signals import (
+    _learner_assessment_trace,
+    _pedagogy_validation_trace,
+    _trace_task,
+    _trace_turn_retrieval_query,
+)
 from harness.chat.events import MaterialOperationEvent
 from harness.chat.evidence import (
     ResolvedTurnPlan,
@@ -32,13 +42,6 @@ from harness.chat.evidence import (
 )
 from harness.chat.evidence import (
     resolve_turn_evidence as _resolve_turn_evidence,
-)
-from harness.chat.learning_reply import _source_qa_abstain_reply, _validation_guard_abstain_reply
-from harness.chat.learning_signals import (
-    _learner_assessment_trace,
-    _pedagogy_validation_trace,
-    _trace_task,
-    _trace_turn_retrieval_query,
 )
 from harness.chat.material_state import _material_operation_events
 from harness.chat.overview_reply import _overview_answer_has_bad_shape
@@ -66,13 +69,10 @@ from harness.chat.turn_predicates import (
 )
 from harness.chat.usage import save_usage
 from harness.diagnostics.crashes import get_meter, get_tracer
-from harness.learning.actions import AttemptAction
-from harness.learning.observation import AttemptObservation, build_attempt_observation
-from harness.learning.policy import StaticAttemptPolicy
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction, RecallState
 from harness.memory.workflow import schedule_memory_extraction
 from harness.rag.context import TurnEvidence
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction, LearningState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -92,21 +92,21 @@ class TurnFinalizationMixin:
     last_reply: str
     last_internal_passes: int
     _last_reply_citation_required: bool | None
-    _learning_action_override: AttemptAction | None
-    _learning_followup_seed_blocked: bool
+    _attempt_action_override: AttemptAction | None
+    _attempt_followup_seed_blocked: bool
 
-    def _reset_learning_attempt_overrides(self) -> None:
-        self._learning_action_override = None
-        self._learning_followup_seed_blocked = False
+    def _reset_attempt_overrides(self) -> None:
+        self._attempt_action_override = None
+        self._attempt_followup_seed_blocked = False
 
-    def _resolve_timed_turn_plan(self, plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def _resolve_timed_turn_plan(self, plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         session = self.session
         rag_span = _tracer.start_span("harness.rag.retrieval")
         rag_timer = Timer()
         with rag_timer:
             resolved = self._resolve_turn_plan(plan)
         if not isinstance(resolved, ResolvedTurnPlan):
-            resolved = ResolvedTurnPlan(learning_plan=plan)
+            resolved = ResolvedTurnPlan(document_plan=plan)
         resolved = replace(resolved, retrieval_latency_ms=rag_timer.ms)
         session.last_turn_evidence = _stored_turn_evidence(resolved)
         if resolved.turn_evidence is not None:
@@ -115,17 +115,17 @@ class TurnFinalizationMixin:
         _rag_duration_hist.record(rag_timer.ms, {"armory": str(session.armory_path or "none")})
         return resolved
 
-    def _resolve_turn_plan(self, plan: LearningTurnPlan) -> ResolvedTurnPlan:
+    def _resolve_turn_plan(self, plan: DocumentTurnPlan) -> ResolvedTurnPlan:
         turn_evidence = _resolve_turn_evidence(self.session, plan)
         return ResolvedTurnPlan(
-            learning_plan=plan,
+            document_plan=plan,
             turn_evidence=turn_evidence,
             evidence_assessment=_assess_turn_evidence(plan, turn_evidence),
         )
 
     def _iter_material_operation_events(
         self,
-        plan: LearningTurnPlan,
+        plan: DocumentTurnPlan,
         resolved: ResolvedTurnPlan,
     ) -> Iterator[MaterialOperationEvent]:
         yield from self._record_material_operation_events(
@@ -147,10 +147,10 @@ class TurnFinalizationMixin:
     def _rollback_turn(
         self,
         original_messages: list[Message],
-        original_learning_state: LearningState,
+        original_recall_state: RecallState,
     ) -> None:
         self.session.conversation.messages = original_messages
-        self.session.learning_state = original_learning_state
+        self.session.recall_state = original_recall_state
 
     def _finalize_successful_turn(
         self,
@@ -180,12 +180,10 @@ class TurnFinalizationMixin:
             latency_ms=latency_ms,
         )
         visible_evidence = _visible_turn_evidence(resolved)
-        followup_evidence = None if self._learning_followup_seed_blocked else visible_evidence
+        followup_evidence = None if self._attempt_followup_seed_blocked else visible_evidence
         notice = self._verification_notice(resolved, visible_evidence)
         resolved = _resolved_with_validation_result(resolved, notice)
-        followup_contract = (
-            None if self._learning_followup_seed_blocked else resolved.turn_contract
-        )
+        followup_contract = None if self._attempt_followup_seed_blocked else resolved.turn_contract
         self._mark_session_dirty()
         self._record_successful_reply(
             resolved,
@@ -200,12 +198,12 @@ class TurnFinalizationMixin:
         ):
             self.session.last_plan_intent = _resolved_turn_intent(resolved)
             self.session.last_turn_contract = followup_contract
-        elif self._learning_followup_seed_blocked:
+        elif self._attempt_followup_seed_blocked:
             self.session.last_turn_contract = None
         snapshot = build_turn_snapshot(
             self.session.conversation,
             self.session.turn_history,
-            learning_state=self.session.learning_state,
+            recall_state=self.session.recall_state,
             user_input=user_input,
             assistant_reply=self.last_reply,
             evidence=followup_evidence,
@@ -218,7 +216,7 @@ class TurnFinalizationMixin:
         self._save_usage_if_armory_session()
         return notice
 
-    def _prepare_learning_reply_for_emit(
+    def _prepare_document_reply_for_emit(
         self,
         resolved: ResolvedTurnPlan,
         final_reply: str,
@@ -255,8 +253,8 @@ class TurnFinalizationMixin:
         visible_evidence: TurnEvidence | None,
     ) -> str:
         if (
-            resolved.learning_plan is not None
-            and resolved.learning_plan.action is LearningAction.CALIBRATE
+            resolved.document_plan is not None
+            and resolved.document_plan.action is DocumentAction.CALIBRATE
         ):
             return ""
         if resolved.turn_contract is not None and not resolved.turn_contract.citation_required:
@@ -292,7 +290,7 @@ class TurnFinalizationMixin:
         *,
         latency_ms: float,
     ) -> ResolvedTurnPlan:
-        if self._learning_action_override is not None:
+        if self._attempt_action_override is not None:
             return resolved
         observation = _policy_observation(
             resolved,
@@ -307,11 +305,11 @@ class TurnFinalizationMixin:
         if recommended_action is AttemptAction.ACCEPT:
             recommended_action = _validation_failure_action(observation)
         guard_reply = _validation_guard_abstain_reply(resolved, observation)
-        self._learning_action_override = AttemptAction.ABSTAIN
+        self._attempt_action_override = AttemptAction.ABSTAIN
         self.last_reply = guard_reply
         self._replace_last_assistant_message(self.last_reply)
         self.session.trace.record_session_event(
-            "learning_validation_guard",
+            "attempt_validation_guard",
             recommended_action=recommended_action.value,
             missing_required_citations=observation.missing_required_citation_count,
             unverified_citations=observation.unverified_citation_count,
@@ -319,7 +317,7 @@ class TurnFinalizationMixin:
         )
         self.session.last_turn_evidence = None
         self.session.last_turn_contract = None
-        self._learning_followup_seed_blocked = True
+        self._attempt_followup_seed_blocked = True
         return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
 
     def _apply_structural_relevance_guard(
@@ -329,7 +327,7 @@ class TurnFinalizationMixin:
         *,
         latency_ms: float,
     ) -> ResolvedTurnPlan:
-        if self._learning_action_override is not None:
+        if self._attempt_action_override is not None:
             return resolved
         observation = _policy_observation(
             resolved,
@@ -343,19 +341,19 @@ class TurnFinalizationMixin:
         abstain_reply = _structural_abstain_reply(resolved)
         if not abstain_reply:
             return resolved
-        self._learning_action_override = AttemptAction.ABSTAIN
+        self._attempt_action_override = AttemptAction.ABSTAIN
         self.last_reply = abstain_reply
         self._replace_last_assistant_message(self.last_reply)
         self._last_reply_citation_required = False
         self.session.trace.record_session_event(
-            "learning_relevance_guard",
+            "attempt_relevance_guard",
             answer_relevance_score=observation.answer_relevance_score,
             retrieval_strategy=observation.retrieval_strategy,
             answer_mode=observation.answer_mode,
         )
         self.session.last_turn_evidence = None
         self.session.last_turn_contract = None
-        self._learning_followup_seed_blocked = True
+        self._attempt_followup_seed_blocked = True
         resolved = _resolved_with_citation_requirement(resolved, citation_required=False)
         return _resolved_with_visible_evidence_refs(resolved, self.last_reply, visible_evidence)
 
@@ -380,8 +378,8 @@ class TurnFinalizationMixin:
                     "session_id": session.session_id,
                     "reply_len": len(self.last_reply),
                     "latency_ms": latency_ms,
-                    "learning_phase": session.learning_state.phase.value,
-                    "learning_feedback": session.learning_state.last_feedback_type.value,
+                    "recall_phase": session.recall_state.phase.value,
+                    "recall_feedback": session.recall_state.last_feedback_type.value,
                     "evidence_blocks": len(visible_evidence.items) if visible_evidence else 0,
                 }
             },
@@ -401,14 +399,14 @@ class TurnFinalizationMixin:
             latency_ms=round(latency_ms, 1),
             reply_len=len(self.last_reply),
             reply_excerpt=_trace_excerpt(self.last_reply),
-            learning_phase=session.learning_state.phase.value,
-            learning_action=resolved.learning_plan.action.value if resolved.learning_plan else "",
-            material_task=_trace_task(resolved.learning_plan),
+            recall_phase=session.recall_state.phase.value,
+            document_action=resolved.document_plan.action.value if resolved.document_plan else "",
+            material_task=_trace_task(resolved.document_plan),
             retrieval_query=_trace_turn_retrieval_query(resolved),
             turn_contract=(
                 resolved.turn_contract.to_dict() if resolved.turn_contract is not None else {}
             ),
-            learning_feedback=session.learning_state.last_feedback_type.value,
+            recall_feedback=session.recall_state.last_feedback_type.value,
             evidence_blocks=len(visible_evidence.items) if visible_evidence else 0,
             evidence_refs=(
                 list(resolved.turn_contract.evidence_refs)
@@ -419,12 +417,12 @@ class TurnFinalizationMixin:
             evidence_items=_evidence_trace_items(visible_evidence),
             evidence_assessment=_evidence_assessment_trace(resolved.evidence_assessment),
             pedagogy_validation=_pedagogy_validation_trace(
-                resolved.learning_plan,
+                resolved.document_plan,
                 self.last_reply,
             ),
             learner_assessment=_learner_assessment_trace(
-                resolved.learning_plan,
-                session.learning_state,
+                resolved.document_plan,
+                session.recall_state,
             ),
             internal_passes=self.last_internal_passes,
             internal_pass_max=_MAX_INTERNAL_PASSES,
@@ -532,7 +530,7 @@ def _answer_shape_failed(
     visible_evidence: TurnEvidence | None,
     reply: str,
 ) -> bool:
-    plan = resolved.learning_plan
+    plan = resolved.document_plan
     contract = resolved.turn_contract
     if (
         plan is None
@@ -579,7 +577,7 @@ def _prior_answer_relevance_target(contract: TurnContract) -> str:
 
 
 def _structural_abstain_reply(resolved: ResolvedTurnPlan) -> str:
-    plan = resolved.learning_plan
+    plan = resolved.document_plan
     if plan is None:
         return ""
     return _source_qa_abstain_reply(plan, resolved, force=True)

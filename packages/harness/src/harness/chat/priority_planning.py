@@ -9,8 +9,8 @@ from harness.chat.turn_contract import (
     RETRIEVAL_STRATEGY_REUSE_PRIOR,
     TurnContract,
 )
-from harness.study.prompt_plans import LearningTurnPlan
-from harness.study.state import LearningAction
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +20,7 @@ class _PriorityRetrievalState:
 
 
 def _priority_retrieval_state(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     *,
     retrieval_strategy: str,
@@ -39,12 +39,12 @@ def _priority_retrieval_state(
 
 
 def _priority_reuse_should_retrieve_current_request(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     *,
     retrieval_strategy: str,
 ) -> bool:
-    if plan.action is not LearningAction.PRIORITY:
+    if plan.action is not DocumentAction.PRIORITY:
         return False
     if retrieval_strategy != RETRIEVAL_STRATEGY_REUSE_PRIOR:
         return False
@@ -52,7 +52,7 @@ def _priority_reuse_should_retrieve_current_request(
 
 
 def _priority_current_request_query(
-    plan: LearningTurnPlan,
+    plan: DocumentTurnPlan,
     contract: TurnContract,
     fallback: str | None,
 ) -> str | None:

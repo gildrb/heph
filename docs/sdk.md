@@ -716,7 +716,7 @@ use for service-state availability records.
 - SDK modules must not import `interfaces.*`.
 - SDK methods should return values or yield events; they should not print.
 - SDK wrappers should hide mutable harness internals such as `ChatSession`,
-  `TurnContract`, RAG indexes, and learning state unless a public DTO exists.
+  `TurnContract`, RAG indexes, and recall state unless a public DTO exists.
 - New UI behavior should use SDK services rather than copying CLI or TUI logic.
 - Cross-language clients should target a transport built over the SDK, not the
   internal harness objects.

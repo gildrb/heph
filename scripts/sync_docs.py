@@ -62,9 +62,8 @@ HOME_TEMPLATE: Final[str] = """\
 
 [[README_LOGO_BLOCK]][[BADGES_BLOCK]]
 
-Heph is an agentic local document harness for accurate, cited answers. It
-indexes armory materials, cites retrieved evidence, and keeps learning memory
-scoped to that armory.
+Heph CLI is a local document agent. It indexes files in an armory, answers from
+those files, and shows the cited source passages.
 
 [[README_SCREENSHOT_BLOCK]]
 
@@ -694,7 +693,7 @@ def render_armory_layout_block(*, docs_index: bool) -> str:
         "├── .harness/             # Local Heph state\n"
         "│   ├── armory.toml       # Armory marker\n"
         "│   ├── rag_index.json    # Retrieval index\n"
-        "│   ├── memory.json       # Learning memory\n"
+        "│   ├── memory.json       # Armory memory\n"
         "│   ├── chats/            # Saved sessions\n"
         "│   ├── traces/           # JSONL traces when enabled\n"
         "│   ├── usage/            # Token and cost snapshots\n"

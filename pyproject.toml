@@ -196,7 +196,7 @@ source_modules = [
     "harness.armory",
     "harness.chat",
     "harness.diagnostics",
-    "harness.learning",
+    "harness.attempts",
     "harness.matching",
     "harness.materials",
     "harness.memory",
@@ -204,7 +204,7 @@ source_modules = [
     "harness.privacy",
     "harness.rag",
     "harness.safety",
-    "harness.study",
+    "harness.documents",
     "harness.vocab",
 ]
 forbidden_modules = [
@@ -220,7 +220,7 @@ forbidden_modules = [
     "harness.chat",
     "harness.agent",
     "harness.rag",
-    "harness.study",
+    "harness.documents",
 ]
 
 [[tool.importlinter.contracts]]
@@ -230,7 +230,7 @@ source_modules = ["harness.rag"]
 forbidden_modules = [
     "harness.agent",
     "harness.chat",
-    "harness.study",
+    "harness.documents",
 ]
 
 [[tool.importlinter.contracts]]
@@ -240,9 +240,9 @@ source_modules = ["harness.memory"]
 forbidden_modules = ["harness.chat", "harness.agent"]
 
 [[tool.importlinter.contracts]]
-name = "study must remain a pure controller layer"
+name = "documents must remain a pure controller layer"
 type = "forbidden"
-source_modules = ["harness.study"]
+source_modules = ["harness.documents"]
 forbidden_modules = [
     "harness.chat",
     "harness.agent",
