@@ -20,7 +20,7 @@ jobs:
       contents: read
     env:
       FACTORY_DISABLE_KEYRING: "true"
-      HEPHAION_DISABLE_LIVE_MODELS: "1"
+      HARNESS_DISABLE_LIVE_MODELS: "1"
       CI: "true"
     steps:
       - name: Checkout
@@ -67,7 +67,7 @@ jobs:
             echo ""
             echo '```'
             uv run pytest \
-              packages/hephaion/test/test_rag_index.py \
+              packages/harness/test/test_rag_index.py \
               packages/interfaces/test/test_tui_keyboard_protocol.py \
               -q --no-cov
             status=$?

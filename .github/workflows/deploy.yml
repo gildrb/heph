@@ -68,61 +68,27 @@ jobs:
         run: uv run ty check
 
       - name: Bandit
-        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src -c pyproject.toml
+        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/hephaion/test packages/interfaces/test vulture-whitelist.py
+        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/hephaion/src packages/interfaces/src
+        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
 
       - name: Pytest
         run: uv run pytest
 
-      - name: Inject edge privacy and diagnostics config
-        env:
-          HEPHAION_POSTHOG_HOST: ${{ secrets.HEPHAION_POSTHOG_HOST }}
-          HEPHAION_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAION_POSTHOG_PROJECT_TOKEN }}
-          HEPHAION_SENTRY_DSN: ${{ secrets.HEPHAION_SENTRY_DSN }}
-          HEPHAION_RELEASE_CHANNEL: edge
-          HEPHAION_RELEASE_VERSION: edge-${{ github.sha }}
-        run: |
-          uv run python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          def literal(value: str) -> str:
-              stripped = value.strip()
-              return json.dumps(stripped) if stripped else "None"
-
-          target = Path("packages/hephaion/src/hephaion/privacy/release.py")
-          if not target.is_file():
-              raise SystemExit(f"release config stub not found: {target}")
-          target.write_text(
-              "\n".join(
-                  [
-                      '"""Release-time privacy and diagnostics configuration."""',
-                      "",
-                      "from __future__ import annotations",
-                      "",
-                      f"POSTHOG_HOST: str | None = {literal(os.environ.get('HEPHAION_POSTHOG_HOST', ''))}",
-                      (
-                          "POSTHOG_PROJECT_TOKEN: str | None = "
-                          f"{literal(os.environ.get('HEPHAION_POSTHOG_PROJECT_TOKEN', ''))}"
-                      ),
-                      f"SENTRY_DSN: str | None = {literal(os.environ.get('HEPHAION_SENTRY_DSN', ''))}",
-                      f"RELEASE_CHANNEL: str | None = {literal(os.environ.get('HEPHAION_RELEASE_CHANNEL', ''))}",
-                      f"RELEASE_VERSION: str | None = {literal(os.environ.get('HEPHAION_RELEASE_VERSION', ''))}",
-                      "",
-                  ]
-              ),
-              encoding="utf-8",
-          )
-          PY
-
       - name: Build package
-        run: uv build --all-packages --build-constraints build-constraints.txt --require-hashes --no-sources
+        env:
+          HARNESS_POSTHOG_HOST: ${{ secrets.HARNESS_POSTHOG_HOST }}
+          HARNESS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HARNESS_POSTHOG_PROJECT_TOKEN }}
+          HARNESS_SENTRY_DSN: ${{ secrets.HARNESS_SENTRY_DSN }}
+        run: |
+          uv run python -m scripts.build_release_artifacts \
+            --allow-dirty-build-inputs \
+            --channel edge \
+            --release-version "edge-${{ github.sha }}"
 
       - name: Release state check
         run: uv run python -m scripts.check_release_state
@@ -140,7 +106,7 @@ jobs:
           uv export --frozen --no-dev --all-extras --format pylock.toml --output-file .artifacts/release/pylock.optional.toml > /dev/null
 
       - name: Release stress test
-        run: uv run python -m scripts.release_stress_test
+        run: uv run python -m scripts.release_stress_test --expect-runtime-channel edge --expect-runtime-version "edge-${{ github.sha }}"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3

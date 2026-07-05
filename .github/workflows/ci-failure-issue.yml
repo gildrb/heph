@@ -33,9 +33,9 @@ jobs:
             exit 0
           fi
 
-          TRACKING_MARKER="<!-- hephaion-ci-failure-main -->"
+          TRACKING_MARKER="<!-- heph-ci-failure-main -->"
           TRACKING_LABEL="status/ci-failure"
-          FIND_MANAGED_ISSUES='map(select((.body // "") | contains("<!-- hephaion-ci-failure-main -->")) | select(.author.is_bot == true) | select(any(.labels[]?; .name == "status/ci-failure"))) | sort_by(.number) | reverse | map(.number) | @tsv'
+          FIND_MANAGED_ISSUES='map(select(.author.is_bot == true) | select(any(.labels[]?; .name == "status/ci-failure"))) | sort_by(.number) | reverse | map(.number) | @tsv'
           CURRENT_MAIN_SHA=$(gh api "repos/$REPO/git/ref/heads/main" --jq '.object.sha' 2>/dev/null || echo "")
 
           if [ -z "$CURRENT_MAIN_SHA" ]; then
