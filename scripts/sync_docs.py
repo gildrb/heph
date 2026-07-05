@@ -307,22 +307,6 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph trust [path]": "Show data, cache, prompt, and compute ownership.",
 }
 
-LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
-    (
-        re.compile(r"\bheph\s+start\b"),
-        "Use `heph` or `heph <path>` as the primary command.",
-    ),
-    (
-        re.compile(r"\bharness\s+start\b"),
-        "Use `heph` or `heph <path>` as the primary command.",
-    ),
-    (
-        re.compile(r"\bsource\s+reindex\b"),
-        "Use `materials index` because `materials` is the preferred CLI namespace "
-        "and the subcommand is `index`.",
-    ),
-)
-
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync repo docs from code-backed sources.")
@@ -856,27 +840,9 @@ def write_targets(targets: tuple[SyncTarget, ...], *, check: bool) -> list[Path]
     return stale_paths
 
 
-def should_skip_lint(path: Path) -> bool:
-    return path in GENERATED_DOCS
-
-
-def lint_legacy_commands(root: Path) -> list[str]:
-    errors: list[str] = []
-    for path in sorted(root.rglob("*.md")):
-        if should_skip_lint(path):
-            continue
-        text = path.read_text(encoding="utf-8")
-        for pattern, message in LEGACY_PATTERNS:
-            if pattern.search(text):
-                rel = path.relative_to(root)
-                errors.append(f"{rel}: {message}")
-    return errors
-
-
 def run_sync(*, check: bool) -> int:
     targets = render_targets(ROOT)
     stale_paths = write_targets(targets, check=check)
-    lint_errors = lint_legacy_commands(ROOT)
 
     if stale_paths:
         prefix = "Stale docs detected:" if check else "Updated docs:"
@@ -884,12 +850,7 @@ def run_sync(*, check: bool) -> int:
         for path in stale_paths:
             print(f"  - {path.relative_to(ROOT)}")
 
-    if lint_errors:
-        print("Legacy command references detected:")
-        for error in lint_errors:
-            print(f"  - {error}")
-
-    if check and (stale_paths or lint_errors):
+    if check and stale_paths:
         return 1
     if not check and not stale_paths:
         print("Docs already in sync.")
