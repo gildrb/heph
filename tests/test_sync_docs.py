@@ -78,19 +78,13 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     root_hero = (
         '<p align="center">\n'
-        "  <strong>A local document agent for accurate, cited answers.</strong><br>\n"
-        "  Heph indexes armory files, answers from them, and shows citations.<br>\n"
-        "  <sub>Armory materials and Heph state stay local.<br>\n"
-        "  Hosted providers receive only the selected context needed to answer.</sub>\n"
+        "  A local document agent for accurate, cited answers from your files.\n"
         "</p>"
     )
     assert root_hero in root_text
-    assert root_text.index('src="assets/logo-auto.svg"') < root_text.index(
-        "A local document agent for accurate, cited answers."
-    )
-    assert root_text.index(
-        "A local document agent for accurate, cited answers."
-    ) < root_text.index('src="assets/app-screenshot.png')
+    hero_text = "A local document agent for accurate, cited answers from your files."
+    assert root_text.index('src="assets/logo-auto.svg"') < root_text.index(hero_text)
+    assert root_text.index(hero_text) < root_text.index('src="assets/app-screenshot.png')
     screenshot_cache_key = sync_docs._asset_cache_key(sync_docs.README_SCREENSHOT_PATH)
     assert f'href="{sync_docs.README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"' in root_text
     assert f'src="assets/app-screenshot.png?v={screenshot_cache_key}"' in root_text

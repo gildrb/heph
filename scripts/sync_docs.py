@@ -716,10 +716,7 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
 def render_readme_hero_block() -> str:
     return (
         '<p align="center">\n'
-        "  <strong>A local document agent for accurate, cited answers.</strong><br>\n"
-        "  Heph indexes armory files, answers from them, and shows citations.<br>\n"
-        "  <sub>Armory materials and Heph state stay local.<br>\n"
-        "  Hosted providers receive only the selected context needed to answer.</sub>\n"
+        "  A local document agent for accurate, cited answers from your files.\n"
         "</p>\n\n"
     )
 

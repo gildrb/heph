@@ -5,10 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A local document agent for accurate, cited answers.</strong><br>
-  Heph indexes armory files, answers from them, and shows citations.<br>
-  <sub>Armory materials and Heph state stay local.<br>
-  Hosted providers receive only the selected context needed to answer.</sub>
+  A local document agent for accurate, cited answers from your files.
 </p>
 
 <p align="center">
