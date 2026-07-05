@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg" width="180">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg" width="240">
 </p>
 
 # Extensions

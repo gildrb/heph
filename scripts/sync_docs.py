@@ -39,7 +39,7 @@ README_LOGO_PATH: Final[Path] = ROOT / "assets" / "logo-auto.svg"
 README_LOGO_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg"
 )
-README_LOGO_WIDTH: Final[int] = 180
+README_LOGO_WIDTH: Final[int] = 240
 README_SCREENSHOT_PATH: Final[Path] = ROOT / "assets" / "app-screenshot.png"
 README_SCREENSHOT_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png"
@@ -716,10 +716,10 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
 def render_readme_hero_block() -> str:
     return (
         '<p align="center">\n'
-        "  A local document agent for accurate, cited answers.<br>\n"
+        "  <strong>A local document agent for accurate, cited answers.</strong><br>\n"
         "  Heph indexes armory files, answers from them, and shows citations.<br>\n"
-        "  Armory materials and Heph state stay local; hosted providers receive "
-        "selected context needed to answer.\n"
+        "  <sub>Armory materials and Heph state stay local.<br>\n"
+        "  Hosted providers receive only the selected context needed to answer.</sub>\n"
         "</p>\n\n"
     )
 

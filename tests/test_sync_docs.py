@@ -78,10 +78,10 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     root_hero = (
         '<p align="center">\n'
-        "  A local document agent for accurate, cited answers.<br>\n"
+        "  <strong>A local document agent for accurate, cited answers.</strong><br>\n"
         "  Heph indexes armory files, answers from them, and shows citations.<br>\n"
-        "  Armory materials and Heph state stay local; hosted providers receive "
-        "selected context needed to answer.\n"
+        "  <sub>Armory materials and Heph state stay local.<br>\n"
+        "  Hosted providers receive only the selected context needed to answer.</sub>\n"
         "</p>"
     )
     assert root_hero in root_text
