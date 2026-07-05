@@ -4,12 +4,6 @@
   <img alt="Heph" src="assets/logo-auto.svg" width="240">
 </p>
 
-<p align="center">
-  <a href="https://pypi.org/project/heph/"><img alt="PyPI" src="https://img.shields.io/pypi/v/heph?style=for-the-badge&label=PyPI&labelColor=000000&color=000000"></a>
-  <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/uv-tool%20install-000000?style=for-the-badge&labelColor=000000"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-000000?style=for-the-badge&labelColor=000000"></a>
-</p>
-
 Heph CLI is a local document agent. It indexes files in an armory, answers from
 those files, and shows the cited source passages.
 
