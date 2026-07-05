@@ -44,7 +44,7 @@ SwiftUI / GUI / automation client
   and deprecation surfaces.
 - Capability-advertised method availability requirements so clients can see
   which methods require an armory, a session, an armory-backed session, or
-  attached source files.
+  attached materials.
 - JSON-ready `to_dict()` helpers for transport clients.
 - `JsonlSdkProcess`, `JsonlSdkClient`, and JSONL request/message helpers for
   Python clients that spawn `heph sdk serve`.
@@ -350,7 +350,7 @@ The transport should expose the same SDK concepts:
 - sessions: new, resume, fork, list, save;
 - turns: prompt, abort, stream events;
 - messages: list current conversation messages;
-- source scope: inspect and enable or disable attached source files;
+- material scope: inspect and enable or disable attached materials;
 - config: inspect and switch model/provider settings, reasoning level, and
   thinking visibility;
 - app settings: inspect and update GUI/mobile preferences such as theme,

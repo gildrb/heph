@@ -4,8 +4,11 @@
   <img alt="Heph" src="assets/logo-auto.svg" width="240">
 </p>
 
-<p style="text-align: center;">Heph CLI is a local document agent. It indexes files in an armory, answers from
-those files, and shows the cited source passages.</p>
+<p align="center">
+  <strong>A local document agent for accurate, cited answers.</strong><br>
+  Heph indexes armory files, answers from them, and shows citations.<br>
+  <sub>Armory materials and Heph state stay local; hosted providers receive the selected context needed to answer.</sub>
+</p>
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png?v=c83c45bf619c">
@@ -22,19 +25,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Install Heph
 uv tool install heph@latest
 
-# Create a workspace for your files
+# Create an armory for your files
 heph armory init [name]
 
-# Add documents, notes, or code that Heph can answer from
+# Add materials that Heph can answer from
 cp ~/Downloads/[file] ~/.armories/[name]/materials/
 
 # Start Heph in that armory
 heph [name]
 ```
 
-## The armory is the interface
+## Armory layout
 
-A typical Heph armory has this structure:
+An armory is a normal folder:
 
 ```text
 ~/.armories/[name]/
@@ -52,12 +55,12 @@ A typical Heph armory has this structure:
 └── README.md             # Armory notes
 ```
 
-Heph reads `materials/`, writes local state under `.harness/`, and leaves the
-armory portable. Read [Armories](docs/armories.md) for storage, indexing, and memory
-details.
+`materials/` holds files Heph can index and cite. `.harness/` holds local state:
+the retrieval index, memory, chats, traces, usage snapshots, and ignore rules.
+Copy or sync the armory folder to move work between machines; configure provider
+credentials again on each machine.
 
-Copy or sync `.armories` to move work between machines; set provider credentials
-again on each machine.
+Read [Armories](docs/armories.md) for storage, indexing, and memory details.
 
 ## Installation
 

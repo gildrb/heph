@@ -256,7 +256,7 @@ my-armory/
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
   materials/            # user material files, indexed for RAG
-  parameters/           # reserved workspace parameters directory
+  parameters/           # reserved armory parameters directory
 ```
 
 Only `materials/` is used for retrieval. Hidden files inside that directory are
@@ -275,7 +275,7 @@ memory count when a local memory store is attached.
 ## Diagnostics
 
 Heph uses local diagnostics that keep debugging data inside the CLI workflow
-and armory workspace.
+and armory state.
 
 ```mermaid
 graph TD
@@ -303,7 +303,7 @@ graph TD
   excerpts, material/tool metadata, and LLM timing
 - Trace files are local armory data; recognized secrets are redacted before writing,
   but trace contents should still be treated as private when sharing an armory
-- Plain chat mode skips armory trace files unless a workspace is attached
+- Plain chat mode skips armory trace files unless an armory is attached
 
 ### Profiling
 

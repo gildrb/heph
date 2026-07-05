@@ -9,11 +9,11 @@ The short ownership contract is in [Trust and ownership](trust.md).
 
 You own the data. Heph stores source materials and generated state as normal
 local files in directories you control. There is no Heph-hosted document sync,
-remote account store, or cloud workspace service.
+remote account store, or hosted armory service.
 
 The main data owner boundary is the armory:
 
-- `materials/` contains the source files you add
+- `materials/` contains the materials you add
 - `.harness/` contains Heph's local state for that armory
 - API keys stay machine-local in the OS keyring, environment variables, or the
   session-only fallback
@@ -56,7 +56,7 @@ Heph is designed so users can own all three layers:
 - **Mode**: local armory workflow by default, explicit provider and diagnostics
   choices, and optional local model execution.
 - **Application layer**: open-source CLI, TUI, and SDK process that can be run,
-  inspected, forked, or embedded without a Heph-hosted workspace.
+  inspected, forked, or embedded without a Heph-hosted armory service.
 - **Compute**: swappable provider layer. Use local llama.cpp, your own
   OpenAI-compatible endpoint, or a hosted provider you trust.
 

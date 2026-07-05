@@ -45,13 +45,13 @@ uv run heph
 
 ## Create an Armory
 
-An armory is a normal folder containing source files, chat history, retrieval
+An armory is a normal folder containing materials, chat history, retrieval
 index, traces, usage snapshots, and local memory.
 
 ```bash
 heph armory init [name]
 cd ~/.armories/[name]
-# Add source files to the materials/ directory
+# Add materials to the materials/ directory
 ```
 
 Named armories are stored in `~/.armories`. To move Heph to another PC, install
@@ -63,7 +63,7 @@ armory and shows a no-materials state until files are present in `materials/`.
 
 ## Add Documents
 
-Place source files in the armory's `materials/` directory:
+Place files in the armory's `materials/` directory:
 
 ```bash
 ~/.armories/[name]/

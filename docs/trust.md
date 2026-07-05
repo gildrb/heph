@@ -6,10 +6,10 @@ inspect it, move it, or replace the compute layer.
 ## Who Owns the Data?
 
 You do. Source materials and Heph state are normal local files in directories
-you control. Heph has no hosted document sync, remote account store, or cloud
-workspace service.
+you control. Heph has no hosted document sync, remote account store, or hosted
+armory service.
 
-- `materials/` contains the source files you add
+- `materials/` contains the materials you add
 - `.harness/` contains local state for retrieval, memory, chats, traces, usage,
   generated artifacts, and trusted local tools
 - API keys stay machine-local in the OS keyring, environment variables, or the
@@ -48,6 +48,6 @@ Session traces are local armory files.
 - **Mode**: local armory workflow by default, explicit provider and diagnostics
   choices, and optional local model execution.
 - **Application layer**: open-source CLI, TUI, and SDK process that can be run,
-  inspected, forked, or embedded without a Heph-hosted workspace.
+  inspected, forked, or embedded without a Heph-hosted armory service.
 - **Compute**: swappable provider layer. Use local llama.cpp, your own
   OpenAI-compatible endpoint, or a hosted provider you trust.

@@ -40,7 +40,7 @@ generic runtime concerns, but it must not import `heph`, `harness`,
 `interfaces`, or `extensions` code. Extend provider behavior through explicit
 provider/runtime APIs rather than product-specific conditionals.
 
-If code needs armory paths, citations, source files, armory memory, or UI
+If code needs armory paths, citations, materials, armory memory, or UI
 state, it is too high-level for AI.
 
 ## Development

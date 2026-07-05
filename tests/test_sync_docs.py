@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -169,36 +170,42 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<h1 align="center">Heph</h1>' not in root_text
     assert 'src="assets/logo-auto.svg"' in root_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
-    assert "img.shields.io/pypi/v/heph" in root_text
+    assert "<strong>A local document agent for accurate, cited answers.</strong><br>" in root_text
+    assert "Heph indexes armory files, answers from them, and shows citations.<br>" in root_text
     assert (
-        "img.shields.io/pypi/v/heph"
-        "?style=for-the-badge&label=PyPI&labelColor=000000&color=000000" in root_text
+        "Armory materials and Heph state stay local; hosted providers receive "
+        "the selected context needed to answer."
+    ) in root_text
+    assert "Heph CLI is a local document agent." not in root_text
+    assert root_text.index('src="assets/logo-auto.svg"') < root_text.index(
+        "A local document agent for accurate, cited answers."
     )
-    assert "img.shields.io/badge/uv-tool%20install" in root_text
-    assert (
-        "img.shields.io/badge/uv-tool%20install-000000"
-        "?style=for-the-badge&labelColor=000000" in root_text
-    )
-    assert '<a href="#installation"><img alt="uv"' in root_text
+    assert root_text.index(
+        "A local document agent for accurate, cited answers."
+    ) < root_text.index('src="assets/app-screenshot.png')
+    assert "img.shields.io" not in root_text
+    assert '<a href="#installation"><img alt="uv"' not in root_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in root_text
-    assert "img.shields.io/badge/license-MIT" in root_text
-    assert (
-        "img.shields.io/badge/license-MIT-000000"
-        "?style=for-the-badge&labelColor=000000" in root_text
-    )
     screenshot_cache_key = sync_docs._asset_cache_key(sync_docs.README_SCREENSHOT_PATH)
     assert f'href="{sync_docs.README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"' in root_text
     assert f'src="assets/app-screenshot.png?v={screenshot_cache_key}"' in root_text
     assert "## Installation" in root_text
     assert "### Using UV (recommended)" in root_text
-    assert root_text.index("## Quick Start") < root_text.index("## The armory is the interface")
-    assert root_text.index("## The armory is the interface") < root_text.index("## Installation")
+    assert "## The armory is the interface" not in root_text
+    assert "## Armory layout" in root_text
+    assert "An armory is a normal folder:" in root_text
+    assert (
+        "`materials/` holds files Heph can index and cite. `.harness/` holds local state:"
+        in root_text
+    )
+    assert root_text.index("## Quick Start") < root_text.index("## Armory layout")
+    assert root_text.index("## Armory layout") < root_text.index("## Installation")
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in root_text
     assert "Install UV:" in root_text
     assert "Then Heph:" in root_text
     assert "### Using Pip" in root_text
-    assert "# Create a workspace for your files" in root_text
-    assert "# Add documents, notes, or code that Heph can answer from" in root_text
+    assert "# Create an armory for your files" in root_text
+    assert "# Add materials that Heph can answer from" in root_text
     assert "# Start Heph in that armory" in root_text
     assert "# Inside Heph, run /login if needed" not in root_text
     assert "heph trust ~/.armories/[name]" not in root_text
@@ -218,7 +225,20 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert '<h1 align="center">Heph</h1>' not in docs_index_text
     assert 'src="../assets/logo-auto.svg"' in docs_index_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in docs_index_text
-    assert '<a href="#installation"><img alt="uv"' in docs_index_text
+    assert (
+        "<strong>A local document agent for accurate, cited answers.</strong><br>"
+        in docs_index_text
+    )
+    assert (
+        "Heph indexes armory files, answers from them, and shows citations.<br>" in docs_index_text
+    )
+    assert (
+        "Armory materials and Heph state stay local; hosted providers receive "
+        "the selected context needed to answer."
+    ) in docs_index_text
+    assert "Heph CLI is a local document agent." not in docs_index_text
+    assert "img.shields.io" not in docs_index_text
+    assert '<a href="#installation"><img alt="uv"' not in docs_index_text
     assert '<a href="https://docs.astral.sh/uv/"><img alt="uv"' not in docs_index_text
     assert (
         f'href="{sync_docs.README_SCREENSHOT_RAW_URL}?v={screenshot_cache_key}"' in docs_index_text
@@ -226,18 +246,21 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert f'src="../assets/app-screenshot.png?v={screenshot_cache_key}"' in docs_index_text
     assert "## Installation" in docs_index_text
     assert "### Using UV (recommended)" in docs_index_text
-    assert docs_index_text.index("## Quick Start") < docs_index_text.index(
-        "## The armory is the interface"
+    assert "## The armory is the interface" not in docs_index_text
+    assert "## Armory layout" in docs_index_text
+    assert "An armory is a normal folder:" in docs_index_text
+    assert (
+        "`materials/` holds files Heph can index and cite. `.harness/` holds local state:"
+        in docs_index_text
     )
-    assert docs_index_text.index("## The armory is the interface") < docs_index_text.index(
-        "## Installation"
-    )
+    assert docs_index_text.index("## Quick Start") < docs_index_text.index("## Armory layout")
+    assert docs_index_text.index("## Armory layout") < docs_index_text.index("## Installation")
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in docs_index_text
     assert "Install UV:" in docs_index_text
     assert "Then Heph:" in docs_index_text
     assert "### Using Pip" in docs_index_text
-    assert "# Create a workspace for your files" in docs_index_text
-    assert "# Add documents, notes, or code that Heph can answer from" in docs_index_text
+    assert "# Create an armory for your files" in docs_index_text
+    assert "# Add materials that Heph can answer from" in docs_index_text
     assert "# Start Heph in that armory" in docs_index_text
     assert "# Inside Heph, run /login if needed" not in docs_index_text
     assert "heph trust ~/.armories/[name]" not in docs_index_text
@@ -265,3 +288,19 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
         assert f'src="{sync_docs.README_LOGO_RAW_URL}"' in text
         assert f'width="{sync_docs.README_LOGO_WIDTH}"' in text
         assert "https://gildrb.github.io/heph/logo-auto.svg" not in text
+
+    heph_readme_text = (sync_docs.ROOT / "packages" / "heph" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "<strong>A local document agent for accurate, cited answers.</strong><br>" in (
+        heph_readme_text
+    )
+    assert "Heph indexes armory files, answers from them, and shows citations.<br>" in (
+        heph_readme_text
+    )
+    assert "Heph CLI is a local document agent." not in heph_readme_text
+
+    heph_project = tomllib.loads(sync_docs.HEPH_PYPROJECT_PATH.read_text(encoding="utf-8"))[
+        "project"
+    ]
+    assert heph_project["description"] == "Local document agent for accurate, cited answers."

@@ -4,11 +4,14 @@
 
 # Heph
 
-Heph CLI is a local document agent. It indexes files in an armory, answers from
-those files, and shows the cited source passages.
+<p align="center">
+  <strong>A local document agent for accurate, cited answers.</strong><br>
+  Heph indexes armory files, answers from them, and shows citations.<br>
+  <sub>Armory materials and Heph state stay local; hosted providers receive the selected context needed to answer.</sub>
+</p>
 
 Heph is built around normal folders. An armory keeps your documents in
-`materials/` and Heph-owned local state in `.harness/`, so the workspace stays
+`materials/` and Heph-owned local state in `.harness/`, so the armory stays
 portable and inspectable.
 
 ## What Heph Does
@@ -55,7 +58,7 @@ the Evidence panel or `/evidence` command to inspect the cited source context.
 
 ## Trust Model
 
-Heph is local-first beta software. Source files remain in your armory, and
+Heph is local-first beta software. Materials remain in your armory, and
 memory is scoped to that armory unless you explicitly choose to move or share
 state. Analytics and crash reporting are opt-in from `/settings`.
 

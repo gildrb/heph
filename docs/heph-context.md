@@ -33,7 +33,7 @@ Armory layout:
 ```text
 ARMORY/
   materials/        indexed user sources
-  parameters/       reserved workspace parameters
+    parameters/       reserved armory parameters
   .harness/
     armory.toml     armory marker
     system_prompt.md optional custom role prompt

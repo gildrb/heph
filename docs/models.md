@@ -190,4 +190,4 @@ If a model isn't showing up in `/models`:
 4. Use `/evidence` to see what context was retrieved
 
 Provider catalogs and configuration can change without changing your armories or
-source files.
+materials.

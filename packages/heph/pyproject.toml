@@ -1,7 +1,7 @@
 [project]
 name = "heph"
 version = "0.0.58"
-description = "Heph CLI is a local document agent."
+description = "Local document agent for accurate, cited answers."
 readme = "README.md"
 license = "MIT"
 authors = [

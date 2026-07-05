@@ -64,29 +64,24 @@ GENERATED_DOCS: Final[frozenset[Path]] = frozenset(
 HOME_TEMPLATE: Final[str] = """\
 [[GENERATED_NOTICE]]
 
-[[README_LOGO_BLOCK]][[BADGES_BLOCK]]
-
-Heph CLI is a local document agent. It indexes files in an armory, answers from
-those files, and shows the cited source passages.
-
-[[README_SCREENSHOT_BLOCK]]
+[[README_LOGO_BLOCK]][[README_HERO_BLOCK]][[README_SCREENSHOT_BLOCK]]
 
 ## Quick Start
 
 [[QUICK_START_BLOCK]]
 
-## The armory is the interface
+## Armory layout
 
-A typical Heph armory has this structure:
+An armory is a normal folder:
 
 [[ARMORY_LAYOUT_BLOCK]]
 
-Heph reads `materials/`, writes local state under `.harness/`, and leaves the
-armory portable. Read [[ARMORY_DOC_LINK]] for storage, indexing, and memory
-details.
+`materials/` holds files Heph can index and cite. `.harness/` holds local state:
+the retrieval index, memory, chats, traces, usage snapshots, and ignore rules.
+Copy or sync the armory folder to move work between machines; configure provider
+credentials again on each machine.
 
-Copy or sync `.armories` to move work between machines; set provider credentials
-again on each machine.
+Read [[ARMORY_DOC_LINK]] for storage, indexing, and memory details.
 
 ## Installation
 
@@ -648,43 +643,15 @@ def render_quick_start_block(model: DocsModel) -> str:
         "curl -LsSf https://astral.sh/uv/install.sh | sh\n\n"
         "# Install Heph\n"
         "uv tool install heph@latest\n\n"
-        "# Create a workspace for your files\n"
+        "# Create an armory for your files\n"
         f"{model.short_command} armory init [name]\n"
         "\n"
-        "# Add documents, notes, or code that Heph can answer from\n"
+        "# Add materials that Heph can answer from\n"
         "cp ~/Downloads/[file] ~/.armories/[name]/materials/\n\n"
         "# Start Heph in that armory\n"
         f"{model.short_command} [name]\n"
         "```"
     )
-
-
-def render_readme_badges_block(*, docs_index: bool) -> str:
-    license_link = "../LICENSE" if docs_index else "LICENSE"
-    badges = (
-        (
-            "PyPI",
-            "https://img.shields.io/pypi/v/heph"
-            "?style=for-the-badge&label=PyPI&labelColor=000000&color=000000",
-            "https://pypi.org/project/heph/",
-        ),
-        (
-            "uv",
-            "https://img.shields.io/badge/uv-tool%20install"
-            "-000000?style=for-the-badge&labelColor=000000",
-            "#installation",
-        ),
-        (
-            "License: MIT",
-            "https://img.shields.io/badge/license-MIT"
-            "-000000?style=for-the-badge&labelColor=000000",
-            license_link,
-        ),
-    )
-    links = "\n  ".join(
-        f'<a href="{target}"><img alt="{alt}" src="{image}"></a>' for alt, image, target in badges
-    )
-    return f'<p align="center">\n  {links}\n</p>'
 
 
 def render_armory_layout_block(*, docs_index: bool) -> str:
@@ -762,6 +729,17 @@ def render_readme_logo_block(*, docs_index: bool) -> str:
     )
 
 
+def render_readme_hero_block() -> str:
+    return (
+        '<p align="center">\n'
+        "  <strong>A local document agent for accurate, cited answers.</strong><br>\n"
+        "  Heph indexes armory files, answers from them, and shows citations.<br>\n"
+        "  <sub>Armory materials and Heph state stay local; hosted providers receive "
+        "the selected context needed to answer.</sub>\n"
+        "</p>\n\n"
+    )
+
+
 def _asset_cache_key(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
@@ -796,7 +774,6 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/heph\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
         "QUICK_START_BLOCK": render_quick_start_block(model),
-        "BADGES_BLOCK": render_readme_badges_block(docs_index=docs_index),
         "ARMORY_LAYOUT_BLOCK": render_armory_layout_block(docs_index=docs_index),
         "ARMORY_DOC_LINK": "[Armories](docs/armories.md)"
         if not docs_index
@@ -808,6 +785,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
         "README_LOGO_BLOCK": render_readme_logo_block(docs_index=docs_index),
+        "README_HERO_BLOCK": render_readme_hero_block(),
         "README_SCREENSHOT_BLOCK": render_readme_screenshot_block(docs_index=docs_index),
         "DOCS_SECTION": render_home_docs_section(docs_index=docs_index),
         "CONTRIBUTING_LINK": "../CONTRIBUTING.md" if docs_index else "CONTRIBUTING.md",

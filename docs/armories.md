@@ -1,13 +1,14 @@
 # Armories
 
-An armory is the core workspace in Heph. It is a normal directory with source
-files, chat history, retrieval index, traces, usage snapshots, and local memory.
+An armory is the local unit of work in Heph. It is a normal directory with
+materials, chat history, retrieval index, traces, usage snapshots, and local
+memory.
 
 ## Armory Structure
 
 ```
 ~/.armories/my-armory/
-├── materials/           # Your source documents
+├── materials/           # Your materials
 │   ├── document1.pdf
 │   ├── notes.md
 │   └── chapter1.txt
@@ -50,7 +51,7 @@ This separation prevents cross-contamination between different projects or domai
 
 The armory cache is local state, not a hosted account:
 
-- `materials/` is your source-of-truth data
+- `materials/` is your user-owned material data
 - `.harness/` is rebuildable or inspectable Heph state for retrieval, memory,
   chats, traces, usage, generated artifacts, and trusted local tools
 - `~/.cache/harness/llama.cpp/` is only for managed local model binaries, logs,
@@ -176,7 +177,7 @@ On the other machine, place the folder at `~/.armories`, set up `/login` or your
 provider environment variables, and run `heph`. Indexes are rebuildable, so a
 copied armory can still work when generated index files are missing or stale.
 
-If you intentionally share only source files, copy just one armory's
+If you intentionally share only materials, copy just one armory's
 `materials/` folder:
 
 ```bash
@@ -207,7 +208,7 @@ Use clear, descriptive names:
 ### Backup Strategy
 
 - Back up or sync `~/.armories` when you want every armory to travel
-- Back up `materials/` when you only need the source documents
+- Back up `materials/` when you only need the source material files
 - Indexes can be regenerated if needed
 - Provider credentials stay machine-local and are not stored in `.armories`
 
