@@ -14,7 +14,7 @@
   </a>
 </p>
 
-## Quick Start
+### Quick Start
 
 ```bash
 # Install UV (if not already installed)
@@ -33,7 +33,7 @@ cp ~/Downloads/[file] ~/.armories/[name]/materials/
 heph [name]
 ```
 
-## Armory layout
+### Armory layout
 
 An armory is a normal folder:
 
@@ -60,13 +60,13 @@ credentials again on each machine.
 
 Read [Armories](docs/armories.md) for storage, indexing, and memory details.
 
-## Installation
+### Installation
 
 > [!NOTE]
 > Heph is currently in beta, so unexpected issues may occur. Please report them if
 > they have not already been reported.
 
-### Using UV (recommended)
+#### Using UV (recommended)
 
 Install UV:
 
@@ -80,13 +80,13 @@ Then Heph:
 uv tool install heph@latest
 ```
 
-### Using Pip
+#### Using Pip
 
 ```bash
 pip install heph
 ```
 
-### Updating
+#### Updating
 
 ```bash
 heph update
@@ -98,7 +98,7 @@ Check the installed version:
 heph --version
 ```
 
-## Docs
+### Docs
 
 [Getting started](docs/getting-started.md)<br>
 [Armories](docs/armories.md)<br>
@@ -113,12 +113,12 @@ heph --version
 [Developers](docs/developers.md)<br>
 [Runbooks](docs/runbooks.md)
 
-## Contributing
+### Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local development, tests, and pull request
 guidelines.
 
-## Safety
+### Safety
 
 Analytics and crash reporting are opt-in from `/settings`. Source and Git installs do
 not enable hosted diagnostics by default.
