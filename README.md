@@ -1,13 +1,13 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Heph" src="assets/logo-auto.svg" width="240">
+  <img alt="Heph" src="assets/logo-auto.svg" width="180">
 </p>
 
 <p align="center">
-  <strong>A local document agent for accurate, cited answers.</strong><br>
+  A local document agent for accurate, cited answers.<br>
   Heph indexes armory files, answers from them, and shows citations.<br>
-  <sub>Armory materials and Heph state stay local; hosted providers receive the selected context needed to answer.</sub>
+  Armory materials and Heph state stay local; hosted providers receive selected context needed to answer.
 </p>
 
 <p align="center">
@@ -102,18 +102,18 @@ heph --version
 
 ## Docs
 
-- [Getting started](docs/getting-started.md): first armory, first answer
-- [Armories](docs/armories.md): layout, portability, memory
-- [CLI reference](docs/cli-reference.md): commands, shortcuts, env vars
-- [Configuration](docs/configuration.md): providers, models, settings
-- [Models](docs/models.md): provider choices and API keys
-- [Trust and ownership](docs/trust.md): data, cache, prompts, compute
-- [Privacy](docs/privacy.md): local state, diagnostics, network behavior
-- [Architecture](docs/architecture.md): harness, package boundaries, flow
-- [SDK](docs/sdk.md): native apps, GUI shells, automation
-- [Troubleshooting](docs/troubleshooting.md): setup, indexing, providers
-- [Developers](docs/developers.md): internal docs
-- [Runbooks](docs/runbooks.md): operational debugging
+[Getting started](docs/getting-started.md)<br>
+[Armories](docs/armories.md)<br>
+[CLI reference](docs/cli-reference.md)<br>
+[Configuration](docs/configuration.md)<br>
+[Models](docs/models.md)<br>
+[Trust and ownership](docs/trust.md)<br>
+[Privacy](docs/privacy.md)<br>
+[Architecture](docs/architecture.md)<br>
+[SDK](docs/sdk.md)<br>
+[Troubleshooting](docs/troubleshooting.md)<br>
+[Developers](docs/developers.md)<br>
+[Runbooks](docs/runbooks.md)
 
 ## Contributing
 

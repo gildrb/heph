@@ -1,13 +1,13 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Heph" src="../assets/logo-auto.svg" width="240">
+  <img alt="Heph" src="../assets/logo-auto.svg" width="180">
 </p>
 
 <p align="center">
-  <strong>A local document agent for accurate, cited answers.</strong><br>
+  A local document agent for accurate, cited answers.<br>
   Heph indexes armory files, answers from them, and shows citations.<br>
-  <sub>Armory materials and Heph state stay local; hosted providers receive the selected context needed to answer.</sub>
+  Armory materials and Heph state stay local; hosted providers receive selected context needed to answer.
 </p>
 
 <p align="center">
@@ -102,19 +102,19 @@ heph --version
 
 ## Docs
 
-- [Getting started](getting-started.md): first armory, first answer
-- [Armories](armories.md): layout, portability, memory
-- [CLI reference](cli-reference.md): commands, shortcuts, env vars
-- [Configuration](configuration.md): providers, models, settings
-- [Models](models.md): provider choices and API keys
-- [Trust and ownership](trust.md): data, cache, prompts, compute
-- [Privacy](privacy.md): local state, diagnostics, network behavior
-- [Architecture](architecture.md): harness, package boundaries, flow
-- [SDK](sdk.md): native apps, GUI shells, automation
-- [Troubleshooting](troubleshooting.md): setup, indexing, providers
-- [Developers](developers.md): internal docs
-- [Runbooks](runbooks.md): operational debugging
-- [Contributing](../CONTRIBUTING.md): repo layout and local workflow
+[Getting started](getting-started.md)<br>
+[Armories](armories.md)<br>
+[CLI reference](cli-reference.md)<br>
+[Configuration](configuration.md)<br>
+[Models](models.md)<br>
+[Trust and ownership](trust.md)<br>
+[Privacy](privacy.md)<br>
+[Architecture](architecture.md)<br>
+[SDK](sdk.md)<br>
+[Troubleshooting](troubleshooting.md)<br>
+[Developers](developers.md)<br>
+[Runbooks](runbooks.md)<br>
+[Contributing](../CONTRIBUTING.md)
 
 ## Contributing
 

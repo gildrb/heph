@@ -1,13 +1,13 @@
 <p align="center">
-  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg" width="240">
+  <img alt="Heph" src="https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg" width="180">
 </p>
 
 # Heph
 
 <p align="center">
-  <strong>A local document agent for accurate, cited answers.</strong><br>
+  A local document agent for accurate, cited answers.<br>
   Heph indexes armory files, answers from them, and shows citations.<br>
-  <sub>Armory materials and Heph state stay local; hosted providers receive the selected context needed to answer.</sub>
+  Armory materials and Heph state stay local; hosted providers receive selected context needed to answer.
 </p>
 
 Heph is built around normal folders. An armory keeps your documents in
