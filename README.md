@@ -4,8 +4,8 @@
   <img alt="Heph" src="assets/logo-auto.svg" width="240">
 </p>
 
-Heph CLI is a local document agent. It indexes files in an armory, answers from
-those files, and shows the cited source passages.
+<p style="text-align: center;">Heph CLI is a local document agent. It indexes files in an armory, answers from
+those files, and shows the cited source passages.</p>
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png?v=c83c45bf619c">
