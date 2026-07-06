@@ -32,6 +32,7 @@ class TestFileMutationQueue:
             raise ValueError("disk full")
 
         result = queue.execute(Path("/tmp/test.txt"), failing_handler)
+        assert isinstance(result, str)
         assert "Error:" in result
         assert "disk full" in result
 
@@ -87,7 +88,7 @@ class TestFileMutationQueue:
             release.wait(timeout=5)
             return "ok"
 
-        results: list[str] = []
+        results: list[object] = []
 
         t1 = threading.Thread(
             target=lambda: results.append(queue.execute(Path("/tmp/alpha.txt"), slow_handler))

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from difflib import unified_diff
 from pathlib import Path
+from typing import cast
 
 from harness.agent.mutation_queue import get_queue
 from harness.agent.path_safety import prepare_write_target, safe_path, write_text_no_follow
@@ -33,7 +35,20 @@ class SearchFilesResult:
     matches: list[str]
 
 
-def mutation_wrap(fn: Callable[..., str], **kwargs: object) -> str:
+@dataclass(frozen=True, slots=True)
+class EditOperation:
+    old_text: str
+    new_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class EditMatch:
+    start: int
+    end: int
+    new_text: str
+
+
+def mutation_wrap(fn: Callable[..., ToolHandlerResult], **kwargs: object) -> ToolHandlerResult:
     path = kwargs.get("path")
     workspace = kwargs.get("workspace")
     if isinstance(path, str) and isinstance(workspace, Path):
@@ -92,28 +107,44 @@ def run_write_file(
 
 def run_edit_file(
     path: str,
-    old_text: str,
-    new_text: str,
+    old_text: str = "",
+    new_text: str = "",
     *,
     workspace: Path,
+    edits: object = None,
     **_kwargs: object,
-) -> str:
+) -> ToolResult:
+    operations = _edit_operations(old_text=old_text, new_text=new_text, edits=edits)
+    if isinstance(operations, ToolResult):
+        return operations
+
     read_result = _edit_file_text(workspace, path)
     if isinstance(read_result, str):
-        return read_result
+        return _edit_error(read_result)
 
     _target, text = read_result
-    match_error = _edit_match_error(path, text.count(old_text))
-    if match_error:
-        return match_error
+    bom, body = _strip_utf8_bom(text)
+    original_ending = _detect_line_ending(body)
+    normalized_body = _normalize_to_lf(body)
+    normalized_operations = _normalized_edit_operations(operations)
+
+    matches = _validated_edit_matches(path, normalized_body, normalized_operations)
+    if isinstance(matches, ToolResult):
+        return matches
+
+    new_body = _apply_edit_matches(normalized_body, matches)
+    if new_body == normalized_body:
+        return _edit_error(_no_change_error(path, len(normalized_operations)))
+
     try:
         write_target = prepare_write_target(workspace, path)
         if isinstance(write_target, str):
-            return write_target
-        write_text_no_follow(write_target, text.replace(old_text, new_text, 1))
-        return f"Edited {path} (replaced 1 match)"
+            return _edit_error(write_target)
+        final_text = bom + _restore_line_endings(new_body, original_ending)
+        write_text_no_follow(write_target, final_text)
+        return _edit_success(path, normalized_body, new_body, len(normalized_operations))
     except OSError as exc:
-        return f"Error writing file: {exc}"
+        return _edit_error(f"Error writing file: {exc}")
 
 
 def run_list_files(
@@ -239,17 +270,208 @@ def _edit_file_text(workspace: Path, path: str) -> tuple[Path, str] | str:
     if error := _large_text_file_error(target, path):
         return error
     try:
-        return target, target.read_text(encoding="utf-8")
+        return target, target.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return _binary_read_error(path, target.suffix.lower())
     except OSError as exc:
         return f"Error reading file: {exc}"
 
 
-def _edit_match_error(path: str, count: int) -> str:
-    if count == 0:
-        return f"Text not found in {path}"
-    if count > 1:
-        return f"Found {count} matches in {path}; please provide more context to make it unique."
+def _edit_operations(
+    *,
+    old_text: str,
+    new_text: str,
+    edits: object,
+) -> list[EditOperation] | ToolResult:
+    operations = _edit_operations_from_edits(edits)
+    if isinstance(operations, ToolResult):
+        return operations
+    if operations:
+        if old_text or new_text:
+            operations.append(EditOperation(old_text=old_text, new_text=new_text))
+        return operations
+    if not old_text:
+        return _edit_error("Edit tool input is invalid. old_text or edits[] is required.")
+    return [EditOperation(old_text=old_text, new_text=new_text)]
+
+
+def _edit_operations_from_edits(edits: object) -> list[EditOperation] | ToolResult:
+    if edits is None:
+        return []
+    if not isinstance(edits, list) or not edits:
+        return _edit_error("Edit tool input is invalid. edits must be a non-empty array.")
+    operations: list[EditOperation] = []
+    for index, item in enumerate(edits):
+        if not isinstance(item, Mapping):
+            return _edit_error(f"edits[{index}] must be an object.")
+        item_map = cast("Mapping[object, object]", item)
+        old_text = item_map.get("old_text")
+        if not isinstance(old_text, str):
+            old_text = item_map.get("oldText")
+        new_text = item_map.get("new_text")
+        if not isinstance(new_text, str):
+            new_text = item_map.get("newText")
+        if not isinstance(old_text, str) or not isinstance(new_text, str):
+            return _edit_error(
+                f"edits[{index}].old_text and edits[{index}].new_text must be strings."
+            )
+        operations.append(EditOperation(old_text=old_text, new_text=new_text))
+    return operations
+
+
+def _normalized_edit_operations(operations: Sequence[EditOperation]) -> list[EditOperation]:
+    return [
+        EditOperation(
+            old_text=_normalize_to_lf(operation.old_text),
+            new_text=_normalize_to_lf(operation.new_text),
+        )
+        for operation in operations
+    ]
+
+
+def _validated_edit_matches(
+    path: str,
+    text: str,
+    operations: Sequence[EditOperation],
+) -> list[EditMatch] | ToolResult:
+    matches: list[EditMatch] = []
+    for index, operation in enumerate(operations):
+        if not operation.old_text:
+            return _edit_error(_empty_old_text_error(path, index, len(operations)))
+        occurrences = _count_occurrences(text, operation.old_text)
+        if occurrences == 0:
+            return _edit_error(_not_found_error(path, index, len(operations)))
+        if occurrences > 1:
+            return _edit_error(_duplicate_error(path, index, len(operations), occurrences))
+        start = text.index(operation.old_text)
+        matches.append(
+            EditMatch(
+                start=start,
+                end=start + len(operation.old_text),
+                new_text=operation.new_text,
+            )
+        )
+    if overlap_error := _edit_overlap_error(matches):
+        return _edit_error(overlap_error)
+    return matches
+
+
+def _apply_edit_matches(text: str, matches: Sequence[EditMatch]) -> str:
+    edited = text
+    for match in sorted(matches, key=lambda item: item.start, reverse=True):
+        edited = f"{edited[: match.start]}{match.new_text}{edited[match.end :]}"
+    return edited
+
+
+def _edit_overlap_error(matches: Sequence[EditMatch]) -> str:
+    previous_end = -1
+    for match in sorted(matches, key=lambda item: item.start):
+        if match.start < previous_end:
+            return "Edit ranges must not overlap."
+        previous_end = match.end
     return ""
+
+
+def _count_occurrences(text: str, needle: str) -> int:
+    count = 0
+    start = 0
+    while True:
+        index = text.find(needle, start)
+        if index == -1:
+            return count
+        count += 1
+        start = index + len(needle)
+
+
+def _strip_utf8_bom(text: str) -> tuple[str, str]:
+    return ("\ufeff", text[1:]) if text.startswith("\ufeff") else ("", text)
+
+
+def _detect_line_ending(text: str) -> str:
+    crlf_index = text.find("\r\n")
+    lf_index = text.find("\n")
+    if lf_index == -1 or crlf_index == -1:
+        return "\n"
+    return "\r\n" if crlf_index < lf_index else "\n"
+
+
+def _normalize_to_lf(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _restore_line_endings(text: str, ending: str) -> str:
+    return text.replace("\n", "\r\n") if ending == "\r\n" else text
+
+
+def _empty_old_text_error(path: str, index: int, total: int) -> str:
+    if total == 1:
+        return f"old_text must not be empty in {path}."
+    return f"edits[{index}].old_text must not be empty in {path}."
+
+
+def _not_found_error(path: str, index: int, total: int) -> str:
+    if total == 1:
+        return f"Text not found in {path}"
+    return f"Text not found for edits[{index}] in {path}"
+
+
+def _duplicate_error(path: str, index: int, total: int, occurrences: int) -> str:
+    if total == 1:
+        return (
+            f"Found {occurrences} matches in {path}; "
+            "please provide more context to make it unique."
+        )
+    return (
+        f"Found {occurrences} matches for edits[{index}] in {path}; "
+        "please provide more context to make it unique."
+    )
+
+
+def _no_change_error(path: str, total: int) -> str:
+    if total == 1:
+        return f"No changes made to {path}. The replacement produced identical content."
+    return f"No changes made to {path}. The replacements produced identical content."
+
+
+def _edit_success(path: str, old_text: str, new_text: str, edit_count: int) -> ToolResult:
+    patch = _unified_patch(path, old_text, new_text)
+    return ToolResult(
+        success=True,
+        content=f"Edited {path} (replaced {edit_count} block{'s' if edit_count != 1 else ''})",
+        metadata={
+            "path": path,
+            "edits": edit_count,
+            "patch": patch,
+            "first_changed_line": _first_changed_line(old_text, new_text),
+        },
+    )
+
+
+def _edit_error(message: str) -> ToolResult:
+    return ToolResult(success=False, content=message, error=message)
+
+
+def _unified_patch(path: str, old_text: str, new_text: str) -> str:
+    return "".join(
+        unified_diff(
+            old_text.splitlines(keepends=True),
+            new_text.splitlines(keepends=True),
+            fromfile=path,
+            tofile=path,
+        )
+    )
+
+
+def _first_changed_line(old_text: str, new_text: str) -> int | None:
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+    max_len = max(len(old_lines), len(new_lines))
+    for index in range(max_len):
+        old_line = old_lines[index] if index < len(old_lines) else None
+        new_line = new_lines[index] if index < len(new_lines) else None
+        if old_line != new_line:
+            return index + 1
+    return None
 
 
 def _list_files_target(workspace: Path, path: str) -> Path | str:

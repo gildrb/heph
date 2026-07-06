@@ -17,7 +17,9 @@ from pathlib import Path
 
 from ai.logging import Timer, get_logger
 
-MutationFn = Callable[..., str]
+from harness.agent.tool_schema import ToolHandlerResult, ToolResult
+
+MutationFn = Callable[..., ToolHandlerResult]
 _log = get_logger("harness.agent.mutation_queue")
 
 
@@ -39,7 +41,7 @@ class FileMutationQueue:
         path: Path,
         fn: MutationFn,
         **kwargs: object,
-    ) -> str:
+    ) -> ToolHandlerResult:
         key = str(path.resolve())
         with self._global_lock:
             lock = self._locks[key]
@@ -73,7 +75,7 @@ class FileMutationQueue:
                 "fields": {
                     "path": str(path),
                     "latency_ms": round(timer.ms, 1),
-                    "result_len": len(result),
+                    "result_len": _result_len(result),
                     "pending": self._pending,
                 }
             },
@@ -95,3 +97,7 @@ def get_queue(workspace: Path) -> FileMutationQueue:
         if key not in _queues:
             _queues[key] = FileMutationQueue()
         return _queues[key]
+
+
+def _result_len(result: ToolHandlerResult) -> int:
+    return len(result.content) if isinstance(result, ToolResult) else len(str(result))

@@ -500,10 +500,34 @@ class TestToolArgumentLogging:
             "path": "notes/plan.md",
             "old_text_len": len("private old text"),
             "new_text_len": len("private new text"),
+            "edit_count": 0,
         }
         assert "private search pattern" not in repr(search_summary)
         assert "private old text" not in repr(edit_summary)
         assert "private new text" not in repr(edit_summary)
+
+    def test_edit_summary_counts_edits_without_logging_content(self) -> None:
+        summary = tool_execution_mod._tool_args_summary(
+            "edit_file",
+            {
+                "path": "notes/plan.md",
+                "edits": [
+                    {"old_text": "private old text", "new_text": "private new text"},
+                    {"old_text": "another private old", "new_text": "another private new"},
+                ],
+            },
+        )
+
+        assert summary == {
+            "path": "notes/plan.md",
+            "old_text_len": 0,
+            "new_text_len": 0,
+            "edit_count": 2,
+        }
+        assert "private old text" not in repr(summary)
+        assert "private new text" not in repr(summary)
+        assert "another private old" not in repr(summary)
+        assert "another private new" not in repr(summary)
 
     def test_web_fetch_summary_drops_url_query(self) -> None:
         summary = tool_execution_mod._tool_args_summary(

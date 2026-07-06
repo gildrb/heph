@@ -137,13 +137,29 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "edit_file",
-        "Replace exact text in a workspace file.",
+        "Replace exact text in a workspace file; supports atomic edits[].",
         {
             "path": _string("Relative path from workspace root."),
-            "old_text": _string("The exact text to find."),
-            "new_text": _string("The replacement text."),
+            "old_text": _string("Legacy single replacement text to find."),
+            "new_text": _string("Legacy single replacement text to write."),
+            "edits": {
+                "type": "array",
+                "description": (
+                    "One or more exact replacements. Each old_text must be unique in the "
+                    "original file and replacement ranges must not overlap."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "old_text": _string("Exact text to find."),
+                        "new_text": _string("Replacement text."),
+                    },
+                    "required": ["old_text", "new_text"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        required=("path", "old_text", "new_text"),
+        required=("path",),
     ),
     _tool(
         "list_files",
@@ -172,9 +188,8 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "create_named_armory",
         (
-            "Create or repair an exact named Heph armory in the configured armory home. "
-            "Use only when the user explicitly asks to create a new armory. Never fuzzy-match "
-            "or correct the requested name."
+            "Create or repair an exact named Heph armory after an explicit user request; "
+            "never fuzzy-match names."
         ),
         {
             "name": _string(
@@ -187,9 +202,8 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "import_materials",
         (
-            "Copy exact local source files into an armory materials directory. This never moves, "
-            "deletes, or overwrites different originals. Target armory names are exact; do not "
-            "fuzzy-match or autocorrect them."
+            "Copy exact local files into armory materials; never move, delete, overwrite "
+            "originals, or fuzzy-match target names."
         ),
         {
             "source_path": _string(
@@ -240,9 +254,8 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "memory",
         (
-            "Read or update durable armory memory. Use it for stable user preferences, "
-            "corrections, armory conventions, and facts that should survive future sessions. "
-            "Do not save temporary task progress."
+            "Read or update armory memory for stable preferences, corrections, conventions, "
+            "and durable facts; not temporary progress."
         ),
         {
             "action": _string("One of: read, add, replace, remove."),
@@ -393,6 +406,13 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "web_fetch": run_web_fetch,
 }
 
+_PROMPT_GUIDELINES: dict[str, tuple[str, ...]] = {
+    "edit_file": (
+        "For multiple edits in one file, use one `edit_file` call with `edits[]`; "
+        "invalid blocks reject the whole call.",
+    ),
+}
+
 default_registry = ToolRegistry()
 
 for _schema in _BUILTIN_SCHEMAS:
@@ -404,6 +424,7 @@ for _schema in _BUILTIN_SCHEMAS:
             schema=_schema,
             handler=_handler,
             kind=_kind,
+            prompt_guidelines=_PROMPT_GUIDELINES.get(_name, ()),
         )
     )
 

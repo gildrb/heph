@@ -161,6 +161,7 @@ def test_build_system_prompt_sections_render_matches_string_builder(armory: Path
     assert "- read_file: Read workspace file contents." in sections.tool_docs
     assert "Tool guidelines:" not in sections.tool_docs
     assert "Use edit_file for surgical changes" not in sections.guidelines
+    assert "For multiple edits in one file" in sections.guidelines
     assert "\nbash\n" not in sections.tool_docs
     assert "Tool arguments:" not in sections.tool_docs
     assert "materials/" in sections.guidelines
@@ -191,6 +192,14 @@ def test_tool_docs_are_generated_from_registry_schema() -> None:
     assert "- create_armory: Create or repair a portable Heph armory." in prompt
     assert "- validate_armory: Validate" in prompt
     assert "  - url: The URL to fetch" not in prompt
+
+
+def test_tool_prompt_guidance_is_registry_owned() -> None:
+    prompt = build_system_prompt()
+
+    assert prompt.count("For multiple edits in one file") == 1
+    assert "edit_file` call with `edits[]`" in prompt
+    assert "Tool guidelines:" not in prompt
 
 
 def test_harness_operations_teaches_armory_contract() -> None:

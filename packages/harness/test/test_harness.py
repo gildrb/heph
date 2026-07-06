@@ -175,17 +175,93 @@ class TestWriteFile:
 class TestEditFile:
     def test_edit_existing(self, workspace: Path) -> None:
         result = run_edit_file("hello.py", 'print("hello")', 'print("world")', workspace=workspace)
-        assert "Edited" in result
+        assert not isinstance(result, str)
+        assert result.success is True
+        assert "Edited" in result.content
         assert (workspace / "hello.py").read_text() == 'print("world")\n'
+        assert result.metadata["edits"] == 1
+        assert 'print("world")' in str(result.metadata["patch"])
 
     def test_edit_not_found(self, workspace: Path) -> None:
         result = run_edit_file("hello.py", "nonexistent", "x", workspace=workspace)
-        assert "not found" in result.lower()
+        assert not isinstance(result, str)
+        assert result.success is False
+        assert "not found" in result.content.lower()
 
     def test_edit_multiple_matches(self, workspace: Path) -> None:
         (workspace / "dup.txt").write_text("aaa\naaa\n")
         result = run_edit_file("dup.txt", "aaa", "bbb", workspace=workspace)
-        assert "2 matches" in result
+        assert not isinstance(result, str)
+        assert result.success is False
+        assert "2 matches" in result.content
+
+    def test_edit_multiple_blocks_atomically(self, workspace: Path) -> None:
+        (workspace / "multi.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+        result = run_edit_file(
+            "multi.txt",
+            workspace=workspace,
+            edits=[
+                {"old_text": "alpha", "new_text": "one"},
+                {"old_text": "gamma", "new_text": "three"},
+            ],
+        )
+
+        assert not isinstance(result, str)
+        assert result.success is True
+        assert result.metadata["edits"] == 2
+        assert result.metadata["first_changed_line"] == 1
+        assert (workspace / "multi.txt").read_text(encoding="utf-8") == "one\nbeta\nthree\n"
+
+    def test_edit_validates_all_blocks_before_writing(self, workspace: Path) -> None:
+        target = workspace / "atomic.txt"
+        target.write_text("alpha\nbeta\n", encoding="utf-8")
+
+        result = run_edit_file(
+            "atomic.txt",
+            workspace=workspace,
+            edits=[
+                {"old_text": "alpha", "new_text": "one"},
+                {"old_text": "missing", "new_text": "two"},
+            ],
+        )
+
+        assert not isinstance(result, str)
+        assert result.success is False
+        assert "edits[1]" in result.content
+        assert target.read_text(encoding="utf-8") == "alpha\nbeta\n"
+
+    def test_edit_rejects_overlapping_blocks_without_writing(self, workspace: Path) -> None:
+        target = workspace / "overlap.txt"
+        target.write_text("abcdef\n", encoding="utf-8")
+
+        result = run_edit_file(
+            "overlap.txt",
+            workspace=workspace,
+            edits=[
+                {"old_text": "abc", "new_text": "x"},
+                {"old_text": "bcd", "new_text": "y"},
+            ],
+        )
+
+        assert not isinstance(result, str)
+        assert result.success is False
+        assert "overlap" in result.content.lower()
+        assert target.read_text(encoding="utf-8") == "abcdef\n"
+
+    def test_edit_preserves_bom_and_crlf_line_endings(self, workspace: Path) -> None:
+        target = workspace / "windows.txt"
+        target.write_bytes("\ufeffalpha\r\nbeta\r\n".encode())
+
+        result = run_edit_file(
+            "windows.txt",
+            workspace=workspace,
+            edits=[{"old_text": "alpha\nbeta\n", "new_text": "one\ntwo\n"}],
+        )
+
+        assert not isinstance(result, str)
+        assert result.success is True
+        assert target.read_bytes() == "\ufeffone\r\ntwo\r\n".encode()
 
     def test_edit_rejects_armory_state(self, workspace: Path) -> None:
         state_dir = workspace / ".harness"
@@ -194,7 +270,9 @@ class TestEditFile:
 
         result = run_edit_file(".harness/memory.json", "old", "new", workspace=workspace)
 
-        assert "Access denied" in result
+        assert not isinstance(result, str)
+        assert result.success is False
+        assert "Access denied" in result.content
         assert (state_dir / "memory.json").read_text(encoding="utf-8") == "old"
 
 

@@ -321,10 +321,13 @@ def _summarize_write_file_args(arguments: dict[str, object]) -> dict[str, object
 
 
 def _summarize_edit_file_args(arguments: dict[str, object]) -> dict[str, object]:
+    edits = arguments.get("edits")
+    edit_count = len(edits) if isinstance(edits, list) else 0
     return {
         "path": _string_arg(arguments, "path"),
         "old_text_len": len(_string_arg(arguments, "old_text")),
         "new_text_len": len(_string_arg(arguments, "new_text")),
+        "edit_count": edit_count,
     }
 
 

@@ -103,8 +103,26 @@ def render_tool_docs(registry_or_schemas: ToolRegistry | list[ToolSchema]) -> st
     return "\n".join(lines)
 
 
-def render_guidelines(_registry_or_schemas: ToolRegistry | list[ToolSchema]) -> str:
-    return "\n".join(["## Guidelines", "", *(f"- {guideline}" for guideline in _BASE_GUIDELINES)])
+def render_guidelines(registry_or_schemas: ToolRegistry | list[ToolSchema]) -> str:
+    specs = (
+        registry_or_schemas.specs
+        if isinstance(registry_or_schemas, ToolRegistry)
+        else _tool_specs_from_schemas(registry_or_schemas)
+    )
+    guidelines = (*_BASE_GUIDELINES, *_tool_prompt_guidelines(specs))
+    return "\n".join(["## Guidelines", "", *(f"- {guideline}" for guideline in guidelines)])
+
+
+def _tool_prompt_guidelines(specs: Sequence[ToolSpec]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    guidelines: list[str] = []
+    for spec in specs:
+        for guideline in spec.prompt_guidelines:
+            guideline = _one_line(guideline)
+            if guideline and guideline not in seen:
+                seen.add(guideline)
+                guidelines.append(guideline)
+    return tuple(guidelines)
 
 
 def _prompt_role(armory_path: Path | None) -> str:

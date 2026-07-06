@@ -10,6 +10,10 @@ from typing import Literal, NotRequired, Required, TypedDict
 class ToolParameter(TypedDict, total=False):
     type: Required[str]
     description: NotRequired[str]
+    properties: NotRequired[dict[str, ToolParameter]]
+    items: NotRequired[ToolParameter]
+    required: NotRequired[list[str]]
+    additionalProperties: NotRequired[bool]
 
 
 class ToolParameters(TypedDict, total=False):
@@ -46,6 +50,7 @@ class ToolSpec:
     schema: ToolSchema
     handler: Callable[..., ToolHandlerResult]
     kind: Literal["normal", "control"] = "normal"
+    prompt_guidelines: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
