@@ -300,14 +300,15 @@ class TestAutoCompact:
         compressed = auto_compact(messages, config, tmp_path)
 
         system_msgs = [m for m in compressed if m["role"] == "system"]
-        assert len(system_msgs) == 1
+        assert len(system_msgs) == 2
 
         summary_msgs = [
             m
             for m in compressed
-            if m["role"] == "user" and "[Earlier conversation summary]" in _message_text(m)
+            if m["role"] == "system" and "[Earlier conversation summary]" in _message_text(m)
         ]
         assert len(summary_msgs) == 1
+        assert "untrusted historical context" in _message_text(summary_msgs[0])
 
     def test_preserves_recent_exchanges(
         self,
@@ -343,7 +344,11 @@ class TestAutoCompact:
         )
 
         compressed = auto_compact(messages, config, tmp_path)
-        summary_msgs = [m for m in compressed if m["role"] == "user"]
+        summary_msgs = [
+            m
+            for m in compressed
+            if m["role"] == "system" and "[Earlier conversation summary]" in _message_text(m)
+        ]
         assert any("42" in _message_text(message) for message in summary_msgs)
 
     def test_first_compaction_saves_summary_cache(
@@ -389,6 +394,54 @@ class TestAutoCompact:
         assert stat.S_IMODE(cache_path.stat().st_mode) == 0o600
         assert "compact-secret" not in serialized
         assert "***REDACTED***" in serialized
+
+    def test_summary_request_uses_sanitized_history(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages: list[ApiMessage] = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "old token=compact-secret"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": "password=compact-secret",
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "secret=compact-secret",
+                "tool_metadata": {"api_key": "compact-secret"},
+                "tool_error": "token=compact-secret",
+            },
+            {"role": "user", "content": "current request"},
+            {"role": "assistant", "content": "current answer"},
+        ]
+        config, mock_client = self._mock_config_and_client(summary="Safe summary.")
+        monkeypatch.setattr(
+            "harness.agent.compact.build_client",
+            lambda _c: mock_client,
+        )
+
+        auto_compact(messages, config, tmp_path, keep_recent_exchanges=1)
+
+        request_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        serialized_request = json.dumps(request_messages, default=str)
+        assert "compact-secret" not in serialized_request
+        assert "tool_metadata" not in serialized_request
+        assert "tool_error" not in serialized_request
+        assert "password=compact-secret" not in serialized_request
+        assert "***REDACTED***" in serialized_request
 
     def test_unavailable_summary_is_not_cached(
         self,
@@ -516,7 +569,7 @@ class TestSyncConversation:
 
         api_messages: list[ApiMessage] = [
             {"role": "system", "content": "new system"},
-            {"role": "user", "content": "[Earlier conversation summary]\n\nSummary here"},
+            {"role": "system", "content": "[Earlier conversation summary]\n\nSummary here"},
         ]
         _sync_conversation(conv, api_messages)
 

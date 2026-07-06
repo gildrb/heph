@@ -32,8 +32,10 @@ from harness.rag.chunker import (
     _is_docling_file,
     _is_text_file,
     _normalize_extracted_text,
+    _read_normalized_text_file,
     chunk_file,
 )
+from harness.rag.file_safety import regular_file_content_hash
 from harness.rag.index_state import (
     read_index_json_mapping as _read_json_mapping,
 )
@@ -49,6 +51,9 @@ _INDEX_FILE = "rag_index.json"
 _CHUNK_SIZE = 500
 _OVERLAP = 100
 _FILE_TIMEOUT_ENV = "HARNESS_INDEX_FILE_TIMEOUT_SECONDS"
+_DEFAULT_FILE_TIMEOUT_SECONDS = 120
+_MAX_MATERIAL_HASH_BYTES = 50 * 1024 * 1024
+_MATERIAL_OPEN_FAILED_REASON = "material exceeded size limit or could not be opened safely"
 
 # Persisted index format version - bump when layout changes.
 _INDEX_VERSION = 8
@@ -84,11 +89,12 @@ class _MaterialSourceMatch:
     content_hash: str
 
 
-def _file_hash(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
-    except OSError:
-        return None
+def _file_hash(path: Path, *, root: Path | None = None) -> str | None:
+    return regular_file_content_hash(path, root=root, max_bytes=_MAX_MATERIAL_HASH_BYTES)
+
+
+def _materials_root(armory_path: Path) -> Path:
+    return armory_path / MATERIALS_DIR
 
 
 def _unindexable_reason(path: Path) -> str:
@@ -102,15 +108,15 @@ def _unindexable_reason(path: Path) -> str:
     return "binary file; unsupported format"
 
 
-def _file_timeout_seconds() -> int:
+def _file_timeout_seconds(path: Path) -> int:
     raw = os.environ.get(_FILE_TIMEOUT_ENV, "").strip()
-    if not raw:
-        return 0
-    try:
-        seconds = int(raw)
-    except ValueError:
-        return 0
-    return max(seconds, 0)
+    if raw:
+        try:
+            seconds = int(raw)
+        except ValueError:
+            return 0
+        return max(seconds, 0)
+    return _DEFAULT_FILE_TIMEOUT_SECONDS if _is_docling_file(path) else 0
 
 
 def _chunk_file_with_timeout(
@@ -609,7 +615,7 @@ class ArmoryIndex:
         with timer:
             for file_path in self._iter_source_files():
                 rel = str(file_path.relative_to(self.armory_path))
-                content_hash = _file_hash(file_path)
+                content_hash = _file_hash(file_path, root=_materials_root(self.armory_path))
                 if content_hash is not None:
                     self._file_hashes[rel] = content_hash
                 previous_document = previous_documents.get(rel)
@@ -682,9 +688,27 @@ class ArmoryIndex:
     ) -> int:
         rel = str(file_path.relative_to(self.armory_path))
         _report_index_progress(progress, "reading", rel)
-        self._record_source_file_hash(rel, file_path, content_hash)
+        content_hash = _record_source_file_hash(
+            self._file_hashes,
+            rel=rel,
+            file_path=file_path,
+            armory_path=self.armory_path,
+            content_hash=content_hash,
+        )
+        if content_hash is None:
+            _record_unindexable_source(
+                self.unindexable_files,
+                file_path,
+                armory_path=self.armory_path,
+                rel=rel,
+                timed_out=False,
+                timeout_seconds=0,
+                progress=progress,
+                reason=_MATERIAL_OPEN_FAILED_REASON,
+            )
+            return 1
 
-        timeout_seconds = _file_timeout_seconds()
+        timeout_seconds = _file_timeout_seconds(file_path)
         doc, timed_out = _chunk_file_with_timeout(
             file_path,
             self.armory_path,
@@ -694,24 +718,16 @@ class ArmoryIndex:
         if doc is not None and doc.chunks:
             self._add_indexed_document(rel, doc, progress)
         else:
-            self._record_unindexable_source(
+            _record_unindexable_source(
+                self.unindexable_files,
                 file_path,
+                armory_path=self.armory_path,
                 rel=rel,
                 timed_out=timed_out,
                 timeout_seconds=timeout_seconds,
                 progress=progress,
             )
         return 1
-
-    def _record_source_file_hash(
-        self,
-        rel: str,
-        file_path: Path,
-        content_hash: str | None,
-    ) -> None:
-        content_hash = content_hash if content_hash is not None else _file_hash(file_path)
-        if content_hash is not None:
-            self._file_hashes[rel] = content_hash
 
     def _add_indexed_document(
         self,
@@ -721,25 +737,6 @@ class ArmoryIndex:
     ) -> None:
         self.documents.append(document)
         _report_index_progress(progress, "indexed", f"{rel} ({len(document.chunks)} chunks)")
-
-    def _record_unindexable_source(
-        self,
-        file_path: Path,
-        *,
-        rel: str,
-        timed_out: bool,
-        timeout_seconds: int,
-        progress: IndexProgress | None,
-    ) -> None:
-        if _is_text_file(file_path):
-            return
-        reason = _unindexable_index_reason(
-            file_path,
-            timed_out=timed_out,
-            timeout_seconds=timeout_seconds,
-        )
-        self.unindexable_files[rel] = reason
-        _report_index_progress(progress, "skipped", f"{rel}: {reason}")
 
     def save(self) -> Path:
         index_path = self.armory_path / ".harness" / _INDEX_FILE
@@ -896,7 +893,7 @@ class ArmoryIndex:
             yield file_path
 
     def _source_file_state(self, file_path: Path) -> _SourceFileState | None:
-        content_hash = _file_hash(file_path)
+        content_hash = _file_hash(file_path, root=_materials_root(self.armory_path))
         if content_hash is None:
             return None
         return _SourceFileState(
@@ -955,7 +952,7 @@ class ArmoryIndex:
         source_match = self._material_source_match(document)
         if source_match is None:
             return False
-        if _is_text_file(source_match.path):
+        if _is_text_file(source_match.path, root=_materials_root(self.armory_path)):
             return self._text_document_matches_source(
                 document,
                 source_match.path,
@@ -972,9 +969,9 @@ class ArmoryIndex:
         document: ChunkedDocument,
     ) -> _MaterialSourceMatch | None:
         resolved_path = self._resolved_document_source_path(document)
-        if resolved_path is None or not resolved_path.is_file():
+        if resolved_path is None:
             return None
-        material_hash = _file_hash(resolved_path)
+        material_hash = _file_hash(resolved_path, root=_materials_root(self.armory_path))
         if material_hash is None or not self._document_hash_matches_cache(document, material_hash):
             return None
         return _MaterialSourceMatch(path=resolved_path, content_hash=material_hash)
@@ -983,7 +980,9 @@ class ArmoryIndex:
         if not document.source:
             return None
         source_path = self.armory_path / document.source
-        return _resolved_path_within_materials(source_path, self.armory_path)
+        if _resolved_path_within_materials(source_path, self.armory_path) is None:
+            return None
+        return source_path
 
     def _document_hash_matches_cache(
         self,
@@ -1001,7 +1000,10 @@ class ArmoryIndex:
     ) -> bool:
         if trust_text_cache:
             return True
-        source_text = _read_normalized_source_text(resolved_path)
+        source_text = _read_normalized_source_text(
+            resolved_path,
+            root=_materials_root(self.armory_path),
+        )
         if source_text is None:
             return False
         if not _document_text_hash_matches(document, source_text):
@@ -1023,7 +1025,7 @@ class ArmoryIndex:
         file_hashes: dict[str, str] = {}
         for file_path in self._iter_source_files():
             rel = str(file_path.relative_to(self.armory_path))
-            content_hash = _file_hash(file_path)
+            content_hash = _file_hash(file_path, root=_materials_root(self.armory_path))
             if content_hash is None:
                 continue
             file_hashes[rel] = content_hash
@@ -1034,15 +1036,56 @@ class ArmoryIndex:
         self.unindexable_files = {}
         for file_path in self._iter_source_files():
             rel = str(file_path.relative_to(self.armory_path))
-            if rel not in indexed_sources and not _is_text_file(file_path):
+            if rel not in indexed_sources and not _is_text_file(
+                file_path,
+                root=_materials_root(self.armory_path),
+            ):
                 self.unindexable_files[rel] = _unindexable_reason(file_path)
 
 
-def _read_normalized_source_text(path: Path) -> str | None:
-    try:
-        return _normalize_extracted_text(path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, OSError):
-        return None
+def _record_source_file_hash(
+    file_hashes: dict[str, str],
+    *,
+    rel: str,
+    file_path: Path,
+    armory_path: Path,
+    content_hash: str | None,
+) -> str | None:
+    content_hash = (
+        content_hash
+        if content_hash is not None
+        else _file_hash(file_path, root=_materials_root(armory_path))
+    )
+    if content_hash is not None:
+        file_hashes[rel] = content_hash
+    return content_hash
+
+
+def _record_unindexable_source(
+    unindexable_files: dict[str, str],
+    file_path: Path,
+    *,
+    armory_path: Path,
+    rel: str,
+    timed_out: bool,
+    timeout_seconds: int,
+    progress: IndexProgress | None,
+    reason: str | None = None,
+) -> None:
+    if reason is None and _is_text_file(file_path, root=_materials_root(armory_path)):
+        return
+    if reason is None:
+        reason = _unindexable_index_reason(
+            file_path,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
+        )
+    unindexable_files[rel] = reason
+    _report_index_progress(progress, "skipped", f"{rel}: {reason}")
+
+
+def _read_normalized_source_text(path: Path, *, root: Path | None = None) -> str | None:
+    return _read_normalized_text_file(path, root=root)
 
 
 def _document_text_hash_matches(document: ChunkedDocument, source_text: str) -> bool:
@@ -1067,7 +1110,9 @@ def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
         if _resolved_path_within_materials(file_path, armory_path) is None:
             continue
         rel = str(file_path.relative_to(armory_path))
-        if not _is_text_file(file_path) and not _can_convert_binary_file(file_path):
+        if not _is_text_file(file_path, root=_materials_root(armory_path)) and not (
+            _can_convert_binary_file(file_path)
+        ):
             result[rel] = _unindexable_reason(file_path)
     return result
 

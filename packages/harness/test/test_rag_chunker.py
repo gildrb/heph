@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-import sys
+import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,20 @@ from harness.rag.chunker import (
     chunk_semantic,
     chunk_text,
 )
+
+
+def _docling_completed(
+    stdout: str = "",
+    *,
+    returncode: int = 0,
+    stderr: str = "",
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        args=["docling-worker"],
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 class TestChunkText:
@@ -103,6 +118,26 @@ class TestChunkFile:
 
         assert doc is None
 
+    def test_unknown_extension_probe_does_not_read_entire_file(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "notes.unknown"
+        src.write_text("# Notes\n\npublic material", encoding="utf-8")
+
+        def fail_read_bytes(_path: Path) -> bytes:
+            raise AssertionError("read_bytes should not be used for type probing")
+
+        monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+
+        doc = chunk_file(src, armory)
+
+        assert doc is not None
+        assert doc.chunks
+
     def test_skip_binary_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
@@ -178,6 +213,81 @@ class TestChunkFile:
 
         assert chunk_file(link, armory) is None
 
+    @pytest.mark.skipif(
+        not hasattr(os, "O_NOFOLLOW"),
+        reason="O_NOFOLLOW is required to reject symlink swaps after validation",
+    )
+    def test_rejects_symlink_swap_after_validation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        materials = armory / "materials"
+        materials.mkdir(parents=True)
+        src = materials / "notes.txt"
+        src.write_text("public material", encoding="utf-8")
+        outside = tmp_path / "outside-secret.txt"
+        outside.write_text("outside secret", encoding="utf-8")
+        original_resolve = rag_chunker._resolved_path_within_armory
+        swapped = False
+
+        def swap_after_validation(path: Path, root: Path) -> Path | None:
+            nonlocal swapped
+            resolved = original_resolve(path, root)
+            if resolved is not None and not swapped:
+                swapped = True
+                src.unlink()
+                src.symlink_to(outside)
+            return resolved
+
+        monkeypatch.setattr(
+            rag_chunker,
+            "_resolved_path_within_armory",
+            swap_after_validation,
+        )
+
+        assert chunk_file(src, armory) is None
+
+    @pytest.mark.skipif(
+        not hasattr(os, "O_NOFOLLOW"),
+        reason="O_NOFOLLOW is required to reject symlink swaps after validation",
+    )
+    def test_rejects_parent_directory_symlink_swap_after_validation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        materials = armory / "materials"
+        nested = materials / "nested"
+        nested.mkdir(parents=True)
+        src = nested / "notes.txt"
+        src.write_text("public material", encoding="utf-8")
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        (outside_dir / "notes.txt").write_text("outside secret", encoding="utf-8")
+        original_resolve = rag_chunker._resolved_path_within_armory
+        swapped = False
+
+        def swap_parent_after_validation(path: Path, root: Path) -> Path | None:
+            nonlocal swapped
+            resolved = original_resolve(path, root)
+            if resolved is not None and not swapped:
+                swapped = True
+                src.unlink()
+                nested.rmdir()
+                nested.symlink_to(outside_dir, target_is_directory=True)
+            return resolved
+
+        monkeypatch.setattr(
+            rag_chunker,
+            "_resolved_path_within_armory",
+            swap_parent_after_validation,
+        )
+
+        assert chunk_file(src, armory) is None
+
 
 class TestChunkMarkdown:
     def test_empty_input(self) -> None:
@@ -243,6 +353,24 @@ class TestChunkSemantic:
         text = "A. " * 200
         chunks = chunk_semantic(text, "fallback.txt", chunk_size=500)
         assert len(chunks) >= 1
+
+    def test_semantic_breakpoints_keep_original_source_offsets(self) -> None:
+        text = "First sentence.\n    Indented second sentence.\n\nFinal sentence."
+        sentence_spans = rag_chunker._split_sentence_spans(text)
+
+        chunks = rag_chunker._semantic_chunks_from_breakpoints(
+            sentence_spans,
+            [0, 2, 3],
+            source="notes.txt",
+            min_chunk=0,
+        )
+
+        assert chunks[0].text == "First sentence. Indented second sentence."
+        assert chunks[0].char_start == text.index("First")
+        assert chunks[0].char_end == text.index("sentence.", text.index("Indented")) + len(
+            "sentence."
+        )
+        assert chunks[1].char_start == text.index("Final")
 
 
 class TestChunkStrategy:
@@ -334,16 +462,9 @@ class TestDoclingIntegration:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
 
-        mock_result = MagicMock()
-        mock_result.document.export_to_markdown.return_value = (
-            "# Report\n\nSome content from the PDF.\n"
-        )
-        mock_converter = MagicMock()
-        mock_converter.convert.return_value = mock_result
-
         with patch(
-            "harness.rag.chunker._get_docling_converter",
-            return_value=mock_converter,
+            "harness.rag.chunker._run_docling_worker",
+            return_value=_docling_completed("# Report\n\nSome content from the PDF.\n"),
         ):
             md = _convert_to_markdown(pdf)
 
@@ -357,16 +478,11 @@ class TestDoclingIntegration:
         pdf = tmp_path / "math-benchmark.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
 
-        mock_result = MagicMock()
-        mock_result.document.export_to_markdown.return_value = (
-            "Administrative Header\nAdministrative header\n¨ Ubersicht"
-        )
-        mock_converter = MagicMock()
-        mock_converter.convert.return_value = mock_result
-
         with patch(
-            "harness.rag.chunker._get_docling_converter",
-            return_value=mock_converter,
+            "harness.rag.chunker._run_docling_worker",
+            return_value=_docling_completed(
+                "Administrative Header\nAdministrative header\n¨ Ubersicht"
+            ),
         ):
             md = _convert_to_markdown(pdf)
 
@@ -397,16 +513,28 @@ class TestDoclingIntegration:
         pdf = tmp_path / "bad.pdf"
         pdf.write_bytes(b"%PDF\x00corrupt")
 
-        mock_converter = MagicMock()
-        mock_converter.convert.side_effect = RuntimeError("conversion failed")
-
         with patch(
-            "harness.rag.chunker._get_docling_converter",
-            return_value=mock_converter,
+            "harness.rag.chunker._run_docling_worker",
+            return_value=_docling_completed(returncode=1, stderr="conversion failed"),
         ):
             md = _convert_to_markdown(pdf)
 
         assert md is None
+
+    def test_convert_to_markdown_timeout_returns_none(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "slow.pdf"
+        pdf.write_bytes(b"%PDF\x00slow")
+
+        def timeout(_path: Path) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired("docling", timeout=1)
+
+        monkeypatch.setattr("harness.rag.chunker._run_docling_worker", timeout)
+
+        assert _convert_to_markdown(pdf) is None
 
     def test_convert_pdf_to_text_uses_pdftotext_when_available(
         self,
@@ -656,13 +784,6 @@ class TestDoclingIntegration:
         pdf = tmp_path / "bad.pdf"
         pdf.write_bytes(b"%PDF\x00corrupt")
 
-        def _convert(_path: str) -> object:
-            print("third-party stdout noise")
-            print("third-party stderr traceback", file=sys.stderr)
-            raise RuntimeError("conversion failed")
-
-        mock_converter = MagicMock()
-        mock_converter.convert.side_effect = _convert
         warnings: list[tuple[str, object]] = []
         monkeypatch.setattr(
             "harness.rag.chunker._log.warning",
@@ -670,8 +791,11 @@ class TestDoclingIntegration:
         )
 
         with patch(
-            "harness.rag.chunker._get_docling_converter",
-            return_value=mock_converter,
+            "harness.rag.chunker._run_docling_worker",
+            return_value=_docling_completed(
+                returncode=1,
+                stderr="third-party stderr traceback",
+            ),
         ):
             md = _convert_to_markdown(pdf)
 
@@ -689,13 +813,6 @@ class TestDoclingIntegration:
         pdf = src / "report.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00binary content")
 
-        mock_result = MagicMock()
-        mock_result.document.export_to_markdown.return_value = (
-            "# Chapter 1\n\nContent from PDF.\n\n## Section\n\nMore details."
-        )
-        mock_converter = MagicMock()
-        mock_converter.convert.return_value = mock_result
-
         with (
             patch(
                 "harness.rag.chunker._is_docling_available",
@@ -710,8 +827,10 @@ class TestDoclingIntegration:
                 return_value=None,
             ),
             patch(
-                "harness.rag.chunker._get_docling_converter",
-                return_value=mock_converter,
+                "harness.rag.chunker._run_docling_worker",
+                return_value=_docling_completed(
+                    "# Chapter 1\n\nContent from PDF.\n\n## Section\n\nMore details."
+                ),
             ),
         ):
             doc = chunk_file(pdf, armory)
@@ -750,11 +869,6 @@ class TestDoclingIntegration:
         pdf = armory / "blank.pdf"
         pdf.write_bytes(b"%PDF\x00fake")
 
-        mock_result = MagicMock()
-        mock_result.document.export_to_markdown.return_value = "   \n  \n"
-        mock_converter = MagicMock()
-        mock_converter.convert.return_value = mock_result
-
         with (
             patch(
                 "harness.rag.chunker._is_docling_available",
@@ -769,10 +883,47 @@ class TestDoclingIntegration:
                 return_value=None,
             ),
             patch(
-                "harness.rag.chunker._get_docling_converter",
-                return_value=mock_converter,
+                "harness.rag.chunker._run_docling_worker",
+                return_value=_docling_completed("   \n  \n"),
             ),
         ):
             doc = chunk_file(pdf, armory)
 
         assert doc is None
+
+    def test_chunk_docling_file_rejects_oversized_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "report.docx"
+        src.write_bytes(b"x" * 8)
+        worker = MagicMock()
+
+        monkeypatch.setattr("harness.rag.chunker._MAX_DOCLING_SOURCE_BYTES", 4)
+        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr("harness.rag.chunker._run_docling_worker", worker)
+
+        assert chunk_file(src, armory) is None
+        worker.assert_not_called()
+
+    def test_chunk_docling_file_rejects_oversized_markdown_output(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "report.docx"
+        src.write_bytes(b"docx")
+
+        monkeypatch.setattr("harness.rag.chunker._MAX_DOCLING_MARKDOWN_CHARS", 4)
+        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr(
+            "harness.rag.chunker._run_docling_worker",
+            lambda _path: _docling_completed("x" * 8),
+        )
+
+        assert chunk_file(src, armory) is None

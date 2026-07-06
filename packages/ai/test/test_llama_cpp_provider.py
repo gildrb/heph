@@ -105,6 +105,20 @@ def test_llama_cpp_keyless_access_requires_loopback_endpoint() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:18080@attacker.example/v1",
+        "http://user@127.0.0.1:18080/v1",
+        "http://127.0.0.1:bad/v1",
+        "http://127.0.0.1:18080/v1?target=attacker",
+        "http://127.0.0.1.attacker.example:18080/v1",
+    ],
+)
+def test_llama_cpp_keyless_access_rejects_spoofed_loopback_urls(endpoint: str) -> None:
+    assert not provider_uses_keyless_access(LLAMA_CPP_PROVIDER_SLUG, endpoint)
+
+
 def test_build_client_rejects_external_llama_cpp_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

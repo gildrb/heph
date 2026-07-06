@@ -104,6 +104,41 @@ def test_cache_signing_key_uses_private_permissions(
     assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
 
+def test_file_hash_streams_without_read_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    material = tmp_path / "material.md"
+    material.write_bytes(b"streamed")
+
+    def fail_read_bytes(_path: Path) -> bytes:
+        raise AssertionError("read_bytes should not be used for material hashes")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+
+    assert rag_index._file_hash(material) == hashlib.sha256(b"streamed").hexdigest()[:16]
+
+
+def test_file_hash_rejects_oversized_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    material = tmp_path / "large.md"
+    material.write_bytes(b"12345")
+    monkeypatch.setattr(rag_index, "_MAX_MATERIAL_HASH_BYTES", 4)
+
+    assert rag_index._file_hash(material) is None
+
+
+def test_docling_materials_have_default_index_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HARNESS_INDEX_FILE_TIMEOUT_SECONDS", raising=False)
+
+    assert rag_index._file_timeout_seconds(Path("materials/report.pdf")) == 120
+    assert rag_index._file_timeout_seconds(Path("materials/notes.md")) == 0
+
+
 class TestArmoryIndexBuild:
     def test_build_finds_files(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
@@ -1216,6 +1251,108 @@ class TestArmoryIndexSkips:
         index.build()
 
         assert index.documents == []
+
+    @pytest.mark.skipif(
+        not hasattr(os, "O_NOFOLLOW"),
+        reason="O_NOFOLLOW is required to reject symlink swaps after validation",
+    )
+    def test_skips_material_swapped_to_symlink_after_validation(
+        self,
+        armory: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        target = armory / "materials" / "race.md"
+        target.write_text("# Race\n\npublic content\n", encoding="utf-8")
+        outside = tmp_path / "outside-secret.md"
+        outside.write_text("# Secret\n\noutside secret\n", encoding="utf-8")
+        original_resolve = rag_index._resolved_path_within_materials
+        swapped = False
+
+        def swap_after_validation(path: Path, armory_path: Path) -> Path | None:
+            nonlocal swapped
+            resolved = original_resolve(path, armory_path)
+            if resolved is not None and path == target and not swapped:
+                swapped = True
+                target.unlink()
+                target.symlink_to(outside)
+            return resolved
+
+        monkeypatch.setattr(
+            rag_index,
+            "_resolved_path_within_materials",
+            swap_after_validation,
+        )
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert "materials/race.md" not in {document.source for document in index.documents}
+        assert all("outside secret" not in chunk.text for chunk in index.all_chunks)
+
+    @pytest.mark.skipif(
+        not hasattr(os, "O_NOFOLLOW"),
+        reason="O_NOFOLLOW is required to reject symlink swaps after validation",
+    )
+    def test_skips_material_parent_swapped_to_symlink_after_validation(
+        self,
+        armory: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        nested = armory / "materials" / "nested"
+        nested.mkdir()
+        target = nested / "race.md"
+        target.write_text("# Race\n\npublic content\n", encoding="utf-8")
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        (outside_dir / "race.md").write_text("# Secret\n\noutside secret\n", encoding="utf-8")
+        original_resolve = rag_index._resolved_path_within_materials
+        swapped = False
+
+        def swap_parent_after_validation(path: Path, armory_path: Path) -> Path | None:
+            nonlocal swapped
+            resolved = original_resolve(path, armory_path)
+            if resolved is not None and path == target and not swapped:
+                swapped = True
+                target.unlink()
+                nested.rmdir()
+                nested.symlink_to(outside_dir, target_is_directory=True)
+            return resolved
+
+        monkeypatch.setattr(
+            rag_index,
+            "_resolved_path_within_materials",
+            swap_parent_after_validation,
+        )
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert "materials/nested/race.md" not in {document.source for document in index.documents}
+        assert all("outside secret" not in chunk.text for chunk in index.all_chunks)
+
+    def test_skips_oversized_unknown_material_before_chunking(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        target = armory / "materials" / "large.unknown"
+        target.write_bytes(b"x" * 8)
+
+        def fail_chunk_file(*_args: object, **_kwargs: object) -> ChunkedDocument | None:
+            raise AssertionError("oversized material should not be chunked")
+
+        monkeypatch.setattr(rag_index, "_MAX_MATERIAL_HASH_BYTES", 4)
+        monkeypatch.setattr(rag_index, "chunk_file", fail_chunk_file)
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert "materials/large.unknown" not in {document.source for document in index.documents}
+        assert index.unindexable_files["materials/large.unknown"] == (
+            "material exceeded size limit or could not be opened safely"
+        )
 
     def test_handles_empty_dirs(self, tmp_path: Path) -> None:
         arm = tmp_path / "empty-armory"

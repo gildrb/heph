@@ -22,26 +22,34 @@ retrieval can return heading context alongside matched subsections.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import importlib
 import importlib.util
-import io
+import os
 import re
+import resource
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol, cast
 
 from ai.logging import get_logger
 
+from harness.rag.docling_worker import EXIT_OUTPUT_LIMIT, EXIT_UNAVAILABLE
+from harness.rag.file_safety import (
+    open_file_exceeds_limit,
+    regular_file_content_hash,
+    regular_file_reader,
+    temporary_regular_file_copy,
+)
+from harness.rag.html_text import extract_html_text
 from harness.rag.vector import cosine_similarity, embedding_rows
 
 _log = get_logger("harness.rag.chunker")
@@ -123,7 +131,10 @@ _PDF_OCR_MAX_RENDERED_BYTES = 100 * 1024 * 1024
 _PDF_OCR_MAX_SOURCE_BYTES = 50 * 1024 * 1024
 _PDF_OCR_DPI = 200
 _MAX_INDEXABLE_TEXT_BYTES = 5 * 1024 * 1024
-_HASH_READ_BYTES = 1024 * 1024
+_MAX_DOCLING_SOURCE_BYTES = 50 * 1024 * 1024
+_MAX_DOCLING_MARKDOWN_CHARS = 5 * 1024 * 1024
+_DOCLING_CONVERSION_TIMEOUT_SECONDS = 120
+_DOCLING_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 _MISPLACED_DIAERESIS_RE = re.compile(r"¨\s*([AaOoUu])")
@@ -152,18 +163,6 @@ _COMMON_LATIN_OCR_REPAIRS = (
 )
 
 
-class _MarkdownExportProtocol(Protocol):
-    def export_to_markdown(self) -> str: ...
-
-
-class _DoclingResultProtocol(Protocol):
-    document: _MarkdownExportProtocol
-
-
-class _DoclingConverterProtocol(Protocol):
-    def convert(self, path: str) -> _DoclingResultProtocol: ...
-
-
 class _SentenceEncoderProtocol(Protocol):
     def encode(
         self,
@@ -178,8 +177,15 @@ class _SentenceTransformerFactory(Protocol):
     def __call__(self, model_name: str) -> _SentenceEncoderProtocol: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _SentenceSpan:
+    text: str
+    start: int
+    end: int
+
+
 _OPTIONAL_BACKEND_UNSET = object()
-_DocumentConverter: type[_DoclingConverterProtocol] | None | object = _OPTIONAL_BACKEND_UNSET
+_DocumentConverter: type[object] | None | object = _OPTIONAL_BACKEND_UNSET
 _SentenceTransformer: _SentenceTransformerFactory | None | object = _OPTIONAL_BACKEND_UNSET
 _SentenceTransformerModel: _SentenceEncoderProtocol | None | object = _OPTIONAL_BACKEND_UNSET
 _SEMANTIC_CHUNKING_MODEL = "all-MiniLM-L6-v2"
@@ -283,16 +289,16 @@ class _MarkdownSection:
         )
 
 
-def _is_text_file(path: Path) -> bool:
+def _is_text_file(path: Path, *, root: Path | None = None) -> bool:
     if path.suffix.lower() in _TEXT_EXTENSIONS:
         return True
     if path.suffix.lower() in _DOCLING_EXTENSIONS:
         return False
-    try:
-        sample = path.read_bytes()[:8192]
+    with regular_file_reader(path, root=root) as file:
+        if file is None or open_file_exceeds_limit(file, _MAX_INDEXABLE_TEXT_BYTES):
+            return False
+        sample = file.read(8192)
         return b"\x00" not in sample
-    except OSError:
-        return False
 
 
 def _is_docling_file(path: Path) -> bool:
@@ -303,93 +309,21 @@ def _is_pdf_file(path: Path) -> bool:
     return path.suffix.lower() == ".pdf"
 
 
-class _HTMLTextExtractor(HTMLParser):
-    _BLOCK_TAGS = frozenset(
-        {
-            "address",
-            "article",
-            "aside",
-            "blockquote",
-            "br",
-            "dd",
-            "div",
-            "dl",
-            "dt",
-            "figcaption",
-            "footer",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "header",
-            "li",
-            "main",
-            "nav",
-            "ol",
-            "p",
-            "pre",
-            "section",
-            "table",
-            "td",
-            "th",
-            "tr",
-            "ul",
-        }
-    )
-    _SKIPPED_TAGS = frozenset({"script", "style", "noscript", "template", "svg"})
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._parts: list[str] = []
-        self._skip_depth = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
-        normalized = tag.casefold()
-        if normalized in self._SKIPPED_TAGS:
-            self._skip_depth += 1
-            return
-        if normalized in self._BLOCK_TAGS:
-            self._parts.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        normalized = tag.casefold()
-        if normalized in self._SKIPPED_TAGS and self._skip_depth:
-            self._skip_depth -= 1
-            return
-        if normalized in self._BLOCK_TAGS:
-            self._parts.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth:
-            return
-        text = " ".join(data.split())
-        if text:
-            self._parts.append(text)
-            self._parts.append(" ")
-
-    def text(self) -> str:
-        lines = (" ".join(line.split()) for line in "".join(self._parts).splitlines())
-        return "\n".join(line for line in lines if line)
-
-
-def _read_indexable_text(path: Path) -> str:
-    if _file_exceeds_limit(path, _MAX_INDEXABLE_TEXT_BYTES):
-        _log_extraction_failure(
-            path,
-            "text file exceeded indexable size limit",
-            f"limit is {_MAX_INDEXABLE_TEXT_BYTES} byte(s)",
-        )
-        return ""
-    text = path.read_text(encoding="utf-8")
+def _read_indexable_text(path: Path, *, root: Path | None = None) -> str:
+    with regular_file_reader(path, root=root) as file:
+        if file is None:
+            return ""
+        if open_file_exceeds_limit(file, _MAX_INDEXABLE_TEXT_BYTES):
+            _log_extraction_failure(
+                path,
+                "text file exceeded indexable size limit",
+                f"limit is {_MAX_INDEXABLE_TEXT_BYTES} byte(s)",
+            )
+            return ""
+        text = file.read().decode("utf-8")
     if path.suffix.lower() not in {".html", ".htm"}:
         return text
-    extractor = _HTMLTextExtractor()
-    extractor.feed(text)
-    extractor.close()
-    return extractor.text()
+    return extract_html_text(text)
 
 
 def _is_pdftotext_available() -> bool:
@@ -440,51 +374,71 @@ def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
     return resolved_path
 
 
-_docling_converter: list[_DoclingConverterProtocol] = []
-
-
-def _docling_converter_class() -> type[_DoclingConverterProtocol] | None:
-    global _DocumentConverter  # noqa: PLW0603
-    if _DocumentConverter is _OPTIONAL_BACKEND_UNSET:
-        try:
-            module = importlib.import_module("docling.document_converter")
-            raw_converter = getattr(module, "DocumentConverter", None)
-        except ImportError:
-            raw_converter = None
-        _DocumentConverter = (
-            None
-            if raw_converter is None
-            else cast("type[_DoclingConverterProtocol]", raw_converter)
-        )
-    if _DocumentConverter is None:
-        return None
-    return cast("type[_DoclingConverterProtocol]", _DocumentConverter)
-
-
-def _get_docling_converter() -> _DoclingConverterProtocol | None:
-    converter_class = _docling_converter_class()
-    if converter_class is None:
-        return None
-    if not _docling_converter:
-        _docling_converter.append(converter_class())
-    return _docling_converter[0]
-
-
 def _convert_to_markdown(path: Path) -> str | None:
     try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            converter = _get_docling_converter()
-            if converter is None:
-                return None
-            result = converter.convert(str(path))
-            return _normalize_extracted_text(result.document.export_to_markdown())
-    except Exception as exc:
-        detail = str(exc).strip() or type(exc).__name__
+        completed = _run_docling_worker(path)
+    except subprocess.TimeoutExpired:
+        _log_extraction_failure(
+            path,
+            "docling conversion timed out",
+            f"limit is {_DOCLING_CONVERSION_TIMEOUT_SECONDS} second(s)",
+        )
+        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log_extraction_warning(path, "docling conversion failed", exc)
+        return None
+    if completed.returncode == EXIT_UNAVAILABLE:
+        return None
+    if (
+        completed.returncode == EXIT_OUTPUT_LIMIT
+        or len(completed.stdout) > _MAX_DOCLING_MARKDOWN_CHARS
+    ):
+        _log_extraction_failure(
+            path,
+            "docling conversion output exceeded size limit",
+            f"limit is {_MAX_DOCLING_MARKDOWN_CHARS} character(s)",
+        )
+        return None
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"exit code {completed.returncode}"
         _log.warning(
             "docling conversion failed",
             extra={"fields": {"path": str(path), "error": detail}},
         )
         return None
+    return _normalize_extracted_text(completed.stdout)
+
+
+def _run_docling_worker(path: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "harness.rag.docling_worker",
+            str(path),
+            str(_MAX_DOCLING_MARKDOWN_CHARS),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=_DOCLING_CONVERSION_TIMEOUT_SECONDS,
+        preexec_fn=_docling_preexec_fn(),
+    )
+
+
+def _docling_preexec_fn() -> Callable[[], None] | None:
+    return _apply_docling_memory_limit if os.name == "posix" else None
+
+
+def _apply_docling_memory_limit() -> None:
+    try:
+        hard = resource.getrlimit(resource.RLIMIT_AS)[1]
+        limit = _DOCLING_MEMORY_LIMIT_BYTES
+        if hard not in {resource.RLIM_INFINITY, -1}:
+            limit = min(limit, hard)
+        resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+    except Exception:
+        return
 
 
 def _convert_pdf_to_text(path: Path) -> str | None:
@@ -731,6 +685,13 @@ def _convert_binary_to_indexable_text(path: Path) -> str | None:
     if pdf_text is not None:
         return pdf_text
     if not _is_docling_available():
+        return None
+    if _file_exceeds_limit(path, _MAX_DOCLING_SOURCE_BYTES):
+        _log_extraction_failure(
+            path,
+            "docling source exceeded size limit",
+            f"limit is {_MAX_DOCLING_SOURCE_BYTES} byte(s)",
+        )
         return None
     return _nonempty_text(_convert_to_markdown(path))
 
@@ -1007,16 +968,19 @@ def _try_chunk_semantic(
     if model is None:
         return []
 
-    sentences = _split_sentences(text)
-    if len(sentences) <= 1:
+    sentence_spans = _split_sentence_spans(text)
+    if len(sentence_spans) <= 1:
         return [_single_text_chunk(text, source)]
 
-    emb_lists = _semantic_sentence_embeddings(model, sentences)
+    emb_lists = _semantic_sentence_embeddings(
+        model,
+        [sentence.text for sentence in sentence_spans],
+    )
     if emb_lists is None:
         return []
 
     return _semantic_chunks_from_breakpoints(
-        sentences,
+        sentence_spans,
         _semantic_breakpoints(emb_lists, similarity_threshold),
         source=source,
         min_chunk=min_chunk,
@@ -1051,35 +1015,34 @@ def _semantic_breakpoints(
 
 
 def _semantic_chunks_from_breakpoints(
-    sentences: list[str],
+    sentences: list[_SentenceSpan],
     breakpoints: list[int],
     *,
     source: str,
     min_chunk: int,
 ) -> list[Chunk]:
     chunks: list[Chunk] = []
-    char_pos = 0
     idx = 0
 
     for bp_idx in range(len(breakpoints) - 1):
         start_sent = breakpoints[bp_idx]
         end_sent = breakpoints[bp_idx + 1]
         chunk_sentences = sentences[start_sent:end_sent]
-        chunk_str = " ".join(chunk_sentences).strip()
+        chunk_str = " ".join(sentence.text for sentence in chunk_sentences).strip()
 
         if not chunk_str:
             continue
         if len(chunk_str) < min_chunk and chunks:
             prev = chunks[-1]
             merged = f"{prev.text} {chunk_str}"
+            char_end = chunk_sentences[-1].end
             chunks[-1] = Chunk(
                 text=merged,
                 source=source,
                 index=prev.index,
                 char_start=prev.char_start,
-                char_end=char_pos + len(chunk_str),
+                char_end=char_end,
             )
-            char_pos += len(chunk_str) + 1
             continue
 
         chunks.append(
@@ -1087,22 +1050,24 @@ def _semantic_chunks_from_breakpoints(
                 text=chunk_str,
                 source=source,
                 index=idx,
-                char_start=char_pos,
-                char_end=char_pos + len(chunk_str),
+                char_start=chunk_sentences[0].start,
+                char_end=chunk_sentences[-1].end,
             )
         )
         idx += 1
-        char_pos += len(chunk_str) + 1
 
     return chunks
 
 
 def _split_sentences(text: str) -> list[str]:
+    return [sentence.text for sentence in _split_sentence_spans(text)]
+
+
+def _split_sentence_spans(text: str) -> list[_SentenceSpan]:
     return [
-        sentence
-        for part in re.split(r"(?<=[.!?])\s+", text)
-        for sentence in (line.strip() for line in part.split("\n"))
-        if sentence
+        _SentenceSpan(text=match.group(0).strip(), start=match.start(), end=match.end())
+        for match in re.finditer(r"\S(?:.*?\S)?(?:(?<=[.!?])(?=\s|$)|$)", text)
+        if match.group(0).strip()
     ]
 
 
@@ -1132,10 +1097,16 @@ def chunk_file(
         return None
 
     rel = str(path.relative_to(armory_root))
-    if not _is_text_file(path):
-        return _chunk_binary_file(path, rel, chunk_size=chunk_size, overlap=overlap)
+    if not _is_text_file(path, root=armory_root):
+        return _chunk_binary_file(
+            path,
+            rel,
+            root=armory_root,
+            chunk_size=chunk_size,
+            overlap=overlap,
+        )
 
-    text = _read_normalized_text_file(path)
+    text = _read_normalized_text_file(path, root=armory_root)
     if text is None:
         return None
 
@@ -1153,24 +1124,40 @@ def _chunk_binary_file(
     path: Path,
     rel: str,
     *,
+    root: Path | None,
     chunk_size: int,
     overlap: int,
 ) -> ChunkedDocument | None:
     if not _can_convert_binary_file(path):
         return None
-    text = _nonempty_text(_convert_binary_to_indexable_text(path))
+    with temporary_regular_file_copy(
+        path,
+        root=root,
+        max_bytes=_MAX_DOCLING_SOURCE_BYTES,
+        on_limit_exceeded=lambda: _log_extraction_failure(
+            path,
+            "document exceeded conversion source size limit",
+            f"limit is {_MAX_DOCLING_SOURCE_BYTES} byte(s)",
+        ),
+    ) as snapshot_path:
+        if snapshot_path is None:
+            return None
+        text = _nonempty_text(_convert_binary_to_indexable_text(snapshot_path))
+        content_hash = regular_file_content_hash(snapshot_path)
     if text is None:
+        return None
+    if content_hash is None:
         return None
     return ChunkedDocument(
         source=rel,
         chunks=chunk_markdown(text, rel, chunk_size, overlap),
-        content_hash=_file_content_hash(path),
+        content_hash=content_hash,
     )
 
 
-def _read_normalized_text_file(path: Path) -> str | None:
+def _read_normalized_text_file(path: Path, *, root: Path | None = None) -> str | None:
     try:
-        text = _read_indexable_text(path)
+        text = _read_indexable_text(path, root=root)
     except (UnicodeDecodeError, OSError):
         return None
     text = _nonempty_text(text)
@@ -1181,11 +1168,3 @@ def _read_normalized_text_file(path: Path) -> str | None:
 
 def _text_content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
-def _file_content_hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(_HASH_READ_BYTES), b""):
-            digest.update(chunk)
-    return digest.hexdigest()[:16]

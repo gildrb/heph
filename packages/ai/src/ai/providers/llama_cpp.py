@@ -377,8 +377,22 @@ def llama_cpp_state_file() -> Path:
 
 
 def is_llama_cpp_endpoint(base_url: str) -> bool:
-    normalized = _normalize_endpoint(base_url)
-    return normalized.startswith("http://127.0.0.1:") and normalized.endswith("/v1")
+    try:
+        parsed = urllib.parse.urlparse(_normalize_endpoint(base_url))
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname == "127.0.0.1"
+        and parsed.username is None
+        and parsed.password is None
+        and port is not None
+        and parsed.path == "/v1"
+        and not parsed.params
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def search_gguf_models(query: str = "", *, limit: int = 20) -> list[LlamaCppCandidate]:
