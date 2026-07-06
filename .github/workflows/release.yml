@@ -75,39 +75,39 @@ jobs:
         run: uv sync --frozen --group dev
 
       - name: Ruff check
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Repo policy check
-        run: uv run python -m scripts.check_repo_policies
+        run: uv run --no-sync python -m scripts.check_repo_policies
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Ty
-        run: uv run ty check
+        run: uv run --no-sync ty check
 
       - name: Bandit
-        run: uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -c pyproject.toml
+        run: uv run --no-sync bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -c pyproject.toml
 
       - name: Vulture
-        run: uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py
+        run: uv run --no-sync vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py
 
       - name: Pylint duplicate-code
-        run: uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
+        run: uv run --no-sync pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
 
       - name: Pytest
-        run: uv run pytest
+        run: uv run --no-sync pytest
 
       - name: Build package
         env:
           HARNESS_POSTHOG_HOST: ${{ secrets.HARNESS_POSTHOG_HOST }}
           HARNESS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HARNESS_POSTHOG_PROJECT_TOKEN }}
           HARNESS_SENTRY_DSN: ${{ secrets.HARNESS_SENTRY_DSN }}
-        run: uv run python -m scripts.build_release_artifacts --release-version "${RELEASE_TAG}"
+        run: uv run --no-sync python -m scripts.build_release_artifacts --release-version "${RELEASE_TAG}"
 
       - name: Release state check
         run: |
-          uv run python -m scripts.check_release_state \
+          uv run --no-sync python -m scripts.check_release_state \
             --current-version-must-match-stable \
             --require-tag \
             --tag "${RELEASE_TAG}" \
@@ -126,7 +126,7 @@ jobs:
           uv export --frozen --no-dev --all-extras --format pylock.toml --output-file .artifacts/release/pylock.optional.toml > /dev/null
 
       - name: Release stress test
-        run: uv run python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version "${RELEASE_TAG}"
+        run: uv run --no-sync python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version "${RELEASE_TAG}"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
@@ -193,7 +193,7 @@ jobs:
       - name: Verify public PyPI install
         run: |
           RELEASE_VERSION="${RELEASE_TAG#v}"
-          uv run python -m scripts.check_public_install \
+          uv run --no-sync python -m scripts.check_public_install \
             --version "${RELEASE_VERSION}" \
             --expect-runtime-version "${RELEASE_TAG}"
 
