@@ -25,17 +25,18 @@ class _DoclingConverterClass(Protocol):
     def __call__(self) -> _DoclingConverter: ...
 
 
-try:
-    from docling.document_converter import DocumentConverter as _RawDocumentConverter
-except ImportError:
-    _DocumentConverter: _DoclingConverterClass | None = None
-else:
-    _DocumentConverter = cast("_DoclingConverterClass", _RawDocumentConverter)
-
 EXIT_ERROR = 1
 EXIT_UNAVAILABLE = 2
 EXIT_OUTPUT_LIMIT = 3
 EXIT_USAGE = 64
+
+
+def _document_converter_class() -> _DoclingConverterClass | None:
+    try:
+        from docling.document_converter import DocumentConverter
+    except ImportError:
+        return None
+    return cast("_DoclingConverterClass", DocumentConverter)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,11 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         output_limit = int(args[1])
     except ValueError:
         return EXIT_USAGE
-    if _DocumentConverter is None:
+    document_converter = _document_converter_class()
+    if document_converter is None:
         return EXIT_UNAVAILABLE
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            result = _DocumentConverter().convert(str(path))
+            result = document_converter().convert(str(path))
             markdown = result.document.export_to_markdown()
     except Exception as exc:
         sys.stderr.write(str(exc).strip() or type(exc).__name__)
