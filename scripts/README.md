@@ -32,6 +32,8 @@ runs do not belong here.
 - `build_release_artifacts.py` builds official release artifacts for the stable
   tag, verifies package inputs still match that tag, temporarily injects release
   channel/version metadata, and restores the tracked safe privacy stub.
+- `check_release_artifacts.py` performs fast wheel/sdist structure, metadata,
+  entry-point, package-data, and internal-dependency checks for push/PR CI.
 - `release_stress_test.py` validates built release artifacts in isolation,
   including `uv tool install`, pip install, cross-platform dependency resolution,
   CLI startup, and SDK JSON output.

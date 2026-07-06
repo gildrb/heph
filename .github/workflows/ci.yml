@@ -5,9 +5,24 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_release_stress:
+        description: "Run the full release install/resolution stress test"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HEPH_PACKAGE_SOURCES: packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
+  HEPH_TEST_SOURCES: packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test
 
 jobs:
   lint:
@@ -21,35 +36,41 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
+        run: uv sync --frozen --group dev
+      - name: Lint, docs, and repo policy gates
+        shell: bash
         run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| lint sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Ruff check
-        run: |
-          start=$(date +%s%N)
-          uv run ruff check .
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| lint ruff-check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Repo policy check
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_repo_policies
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| lint repo-policies | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Ruff format check
-        run: |
-          start=$(date +%s%N)
-          uv run ruff format --check .
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| lint ruff-format | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          run_check() {
+            label="$1"
+            shift
+            start=$(date +%s%N)
+            "$@"
+            rc=$?
+            end=$(date +%s%N)
+            ms=$(( (end - start) / 1000000 ))
+            echo "| lint ${label} | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$rc" -ne 0 ]; then
+              status="$rc"
+            fi
+          }
 
-  docs-sync:
+          run_check "ruff-check" uv run --no-sync ruff check .
+          run_check "repo-policies" uv run --no-sync python -m scripts.check_repo_policies
+          run_check "ruff-format" uv run --no-sync ruff format --check .
+          run_check "docs-sync" uv run --no-sync python -m scripts.sync_docs --check
+          run_check "tech-debt" uv run --no-sync python scripts/check_tech_debt.py --strict --report
+          run_check "dead-code" uv run --no-sync vulture $HEPH_PACKAGE_SOURCES $HEPH_TEST_SOURCES vulture-whitelist.py
+          run_check "duplicate-code" uv run --no-sync pylint --disable=all --enable=duplicate-code $HEPH_PACKAGE_SOURCES
+          for package in ai extensions heph harness interfaces; do
+            run_check "dependency-${package}" uv run --no-sync deptry "packages/${package}/src" --config "packages/${package}/pyproject.toml"
+          done
+          run_check "complexity" uv run --no-sync radon cc $HEPH_PACKAGE_SOURCES -a -nc --total-average
+          run_check "agents-md-validation" uv run --no-sync python scripts/validate_agents_md.py --strict
+          run_check "feature-flags" uv run --no-sync python scripts/check_feature_flags.py --strict
+          exit "$status"
+
+  typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -60,19 +81,132 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
+        run: uv sync --frozen --group dev
+      - name: Type and architecture gates
+        shell: bash
         run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| docs-sync sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Docs sync check
+          status=0
+          run_check() {
+            label="$1"
+            shift
+            start=$(date +%s%N)
+            "$@"
+            rc=$?
+            end=$(date +%s%N)
+            ms=$(( (end - start) / 1000000 ))
+            echo "| typecheck ${label} | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$rc" -ne 0 ]; then
+              status="$rc"
+            fi
+          }
+
+          run_check "ty" uv run --no-sync ty check
+          run_check "import-linter" uv run --no-sync lint-imports
+          exit "$status"
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      HEPH_ALLOW_LOCKFILE_CHANGE: ${{ vars.HEPH_ALLOW_LOCKFILE_CHANGE }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --frozen --group dev
+      - name: Security and supply-chain gates
+        shell: bash
         run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.sync_docs --check
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| docs-sync check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .artifacts
+          status=0
+          run_check() {
+            label="$1"
+            shift
+            start=$(date +%s%N)
+            "$@"
+            rc=$?
+            end=$(date +%s%N)
+            ms=$(( (end - start) / 1000000 ))
+            echo "| security ${label} | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$rc" -ne 0 ]; then
+              status="$rc"
+            fi
+          }
+
+          run_check "bandit" bash -c 'set -o pipefail; uv run --no-sync bandit -r $HEPH_PACKAGE_SOURCES -c pyproject.toml -f txt 2>&1 | tee .artifacts/security-findings.txt'
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            run_check "lockfile-review" uv run --no-sync python -m scripts.check_lockfile_change --git-diff "origin/${GITHUB_BASE_REF}...HEAD"
+          fi
+          run_check "lock-check" uv lock --check
+          run_check "dependency-pinning" uv run --no-sync python -m scripts.check_dependency_pinning
+          run_check "sdist-allowlist" uv run --no-sync python -m scripts.check_dependency_sdist_allowlist
+          run_check "no-build-install" bash -c 'uv sync --frozen --group dev --no-build --no-install-project --dry-run || uv run --no-sync python -m scripts.check_dependency_sdist_allowlist'
+          run_check "dependency-audit" uv run --no-sync python -m scripts.check_dependency_vulnerability_audit
+          exit "$status"
+      - name: Upload security findings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-pr-findings
+          path: .artifacts/security-findings.txt
+          if-no-files-found: ignore
+
+  security-pr-comment:
+    needs: security
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Download security findings
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: security-pr-findings
+          path: .artifacts
+      - name: Post security findings on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          FINDINGS=$(cat .artifacts/security-findings.txt 2>/dev/null || true)
+          MARKER="<!-- security-scan-report -->"
+          if [ -n "$FINDINGS" ]; then
+            {
+              echo "$MARKER"
+              echo "## Security Scan Findings"
+              echo ""
+              echo '```'
+              echo "$FINDINGS"
+              echo '```'
+            } > /tmp/security-comment.md
+          else
+            {
+              echo "$MARKER"
+              echo "## Security Scan: No findings"
+            } > /tmp/security-comment.md
+          fi
+
+          EXISTING=$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" 2>/dev/null | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${GH_REPO}/issues/comments/${EXISTING}" \
+              --method PATCH \
+              --field body="$(cat /tmp/security-comment.md)" \
+              --silent
+          else
+            gh pr comment "$PR_NUMBER" --body-file /tmp/security-comment.md
+          fi
 
   secret-scan:
     runs-on: ubuntu-latest
@@ -89,202 +223,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| typecheck sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Ty
-        run: |
-          start=$(date +%s%N)
-          uv run ty check
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| typecheck ty | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  security:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| security sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Bandit
-        run: |
-          start=$(date +%s%N)
-          uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -c pyproject.toml
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  dependency-supply-chain:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      HEPH_ALLOW_LOCKFILE_CHANGE: ${{ vars.HEPH_ALLOW_LOCKFILE_CHANGE }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Lockfile review gate
-        if: github.event_name == 'pull_request'
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_lockfile_change --git-diff "origin/${GITHUB_BASE_REF}...HEAD"
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain lockfile-review | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Lockfile freshness
-        run: |
-          start=$(date +%s%N)
-          uv lock --check
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain lock-check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Direct dependency pinning
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_dependency_pinning
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain pinning | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Source-only sdist allowlist
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_dependency_sdist_allowlist
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain sdist-allowlist | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: No-build install check
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev --no-build --no-install-project --dry-run \
-            || uv run python -m scripts.check_dependency_sdist_allowlist
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain no-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Dependency vulnerability audit
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_dependency_vulnerability_audit
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dependency-supply-chain uv-audit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  dead-code:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dead-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Vulture
-        run: |
-          start=$(date +%s%N)
-          uv run vulture packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src packages/ai/test packages/extensions/test packages/heph/test packages/harness/test packages/interfaces/test vulture-whitelist.py
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| dead-code vulture | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  duplicate-code:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| duplicate-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Pylint duplicate-code
-        run: |
-          start=$(date +%s%N)
-          uv run pylint --disable=all --enable=duplicate-code packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| duplicate-code pylint | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  architecture:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| architecture sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Import-linter
-        run: |
-          start=$(date +%s%N)
-          uv run lint-imports
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| architecture lint-imports | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
   test:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      FACTORY_DISABLE_KEYRING: "true"
+      HARNESS_DISABLE_LIVE_MODELS: "1"
+      CI: "true"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -294,17 +241,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| test sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+        run: uv sync --frozen --group dev
       - name: Pytest
         run: |
           mkdir -p .artifacts
           start=$(date +%s%N)
-          uv run pytest --junitxml=.artifacts/pytest-junit.xml
+          uv run --no-sync pytest --junitxml=.artifacts/pytest-junit.xml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
@@ -314,63 +256,16 @@ jobs:
         with:
           name: test-results
           path: .artifacts/pytest-junit.xml
-
-  unused-deps:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| unused-deps sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Deptry
-        run: |
-          start=$(date +%s%N)
-          uv run deptry packages/ai/src --config packages/ai/pyproject.toml
-          uv run deptry packages/extensions/src --config packages/extensions/pyproject.toml
-          uv run deptry packages/heph/src --config packages/heph/pyproject.toml
-          uv run deptry packages/harness/src --config packages/harness/pyproject.toml
-          uv run deptry packages/interfaces/src --config packages/interfaces/pyproject.toml
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| unused-deps deptry | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  complexity:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| complexity sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Radon complexity check
-        run: |
-          start=$(date +%s%N)
-          uv run radon cc packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -a -nc --total-average
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| complexity radon | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Record build and test metrics
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python scripts/record_metrics.py --junit-xml .artifacts/pytest-junit.xml
 
   build:
     runs-on: ubuntu-latest
+    env:
+      FULL_RELEASE_STRESS: ${{ github.event_name == 'workflow_dispatch' && inputs.full_release_stress == true }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -381,216 +276,29 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
+        run: uv sync --frozen --group dev
+      - name: Build and release artifact gates
+        shell: bash
         run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| build sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Build
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.build_release_artifacts --allow-dirty-build-inputs
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| build release-artifacts | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Release state check
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.check_release_state
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| build release-state | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Release stress test
-        run: |
-          start=$(date +%s%N)
-          uv run python -m scripts.release_stress_test
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| build release-stress | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          run_check() {
+            label="$1"
+            shift
+            start=$(date +%s%N)
+            "$@"
+            rc=$?
+            end=$(date +%s%N)
+            ms=$(( (end - start) / 1000000 ))
+            echo "| build ${label} | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$rc" -ne 0 ]; then
+              status="$rc"
+            fi
+          }
 
-  feature-flags:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| feature-flags sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Check feature flags
-        run: |
-          start=$(date +%s%N)
-          uv run python scripts/check_feature_flags.py --strict
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| feature-flags check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  security-pr-report:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: |
-          start=$(date +%s%N)
-          uv sync --frozen --group dev
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| security-pr-report sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-      - name: Bandit security scan
-        continue-on-error: true
-        id: bandit
-        run: |
-          mkdir -p .artifacts
-          start=$(date +%s%N)
-          FINDINGS=$(uv run bandit -r packages/ai/src packages/extensions/src packages/heph/src packages/harness/src packages/interfaces/src -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
-          echo "$FINDINGS" | tee .artifacts/security-findings.txt
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload security findings
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: security-pr-findings
-          path: .artifacts/security-findings.txt
-
-  security-pr-comment:
-    needs: security-pr-report
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
-      contents: read
-    steps:
-      - name: Download security findings
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: security-pr-findings
-          path: .artifacts
-
-      - name: Post security findings on PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          FINDINGS=$(cat .artifacts/security-findings.txt 2>/dev/null || true)
-          if [ -n "$FINDINGS" ]; then
-            {
-              echo "## Security Scan Findings"
-              echo ""
-              echo '```'
-              echo "$FINDINGS"
-              echo '```'
-            } > /tmp/security-comment.md
-            gh pr comment "$PR_NUMBER" --body-file /tmp/security-comment.md
-          else
-            gh pr comment "$PR_NUMBER" --body "## Security Scan: No findings"
+          run_check "release-artifacts" uv run --no-sync python -m scripts.build_release_artifacts --allow-dirty-build-inputs
+          run_check "release-state" uv run --no-sync python -m scripts.check_release_state
+          run_check "release-artifact-structure" uv run --no-sync python -m scripts.check_release_artifacts
+          if [ "$FULL_RELEASE_STRESS" = "true" ]; then
+            run_check "release-stress" uv run --no-sync python -m scripts.release_stress_test
           fi
-
-  tech-debt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: uv sync --frozen --group dev
-      - name: Check TODO/FIXME issue links
-        run: |
-          start=$(date +%s%N)
-          uv run python scripts/check_tech_debt.py --strict --report
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| tech-debt check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  agents-md-validation:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: uv sync --frozen --group dev
-      - name: Validate AGENTS.md commands
-        run: |
-          start=$(date +%s%N)
-          uv run python scripts/validate_agents_md.py --strict
-          end=$(date +%s%N)
-          ms=$(( (end - start) / 1000000 ))
-          echo "| agents-md-validation check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-
-  label-sync:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      issues: write
-      pull-requests: write
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: uv sync --frozen --group dev
-      - name: Sync labels
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: uv run python scripts/sync_labels.py
-
-  metrics:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: uv sync --frozen --group dev
-      - name: Download test results
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: test-results
-          path: .artifacts
-      - name: Record build and test metrics
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: uv run python scripts/record_metrics.py --junit-xml .artifacts/pytest-junit.xml
+          exit "$status"

@@ -20,13 +20,11 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - name: Sync dependencies
-        run: uv sync --frozen --group dev
 
       - name: Ruff lint check
         run: |
           mkdir -p review-artifacts
-          if uv run ruff check . > /tmp/ruff-output.txt 2>&1; then
+          if uvx --from ruff==0.15.8 ruff check . > /tmp/ruff-output.txt 2>&1; then
             : > review-artifacts/ruff-output.txt
           else
             cat /tmp/ruff-output.txt > review-artifacts/ruff-output.txt
@@ -34,7 +32,7 @@ jobs:
 
       - name: Ruff format check
         run: |
-          if uv run ruff format --check . > /tmp/format-output.txt 2>&1; then
+          if uvx --from ruff==0.15.8 ruff format --check . > /tmp/format-output.txt 2>&1; then
             : > review-artifacts/format-output.txt
           else
             cat /tmp/format-output.txt > review-artifacts/format-output.txt
