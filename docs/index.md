@@ -1,7 +1,7 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
 <p align="center">
-  <img alt="Heph" src="../assets/logo-auto.svg" width="240">
+  <img alt="Heph" src="../assets/logo-auto.svg" width="250">
 </p>
 
 <p align="center">

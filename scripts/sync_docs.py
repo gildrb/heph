@@ -39,7 +39,7 @@ README_LOGO_PATH: Final[Path] = ROOT / "assets" / "logo-auto.svg"
 README_LOGO_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/assets/logo-auto.svg"
 )
-README_LOGO_WIDTH: Final[int] = 240
+README_LOGO_WIDTH: Final[int] = 250
 README_SCREENSHOT_PATH: Final[Path] = ROOT / "assets" / "app-screenshot.png"
 README_SCREENSHOT_RAW_URL: Final[str] = (
     "https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png"
