@@ -1,6 +1,6 @@
 [project]
 name = "heph"
-version = "0.0.58"
+version = "0.0.59"
 description = "Local document agent for accurate, cited answers."
 readme = "README.md"
 license = "MIT"
@@ -20,10 +20,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "heph-ai==0.0.58",
-    "heph-extensions==0.0.58",
-    "heph-interfaces==0.0.58",
-    "harness==0.0.58",
+    "heph-ai==0.0.59",
+    "heph-extensions==0.0.59",
+    "heph-interfaces==0.0.59",
+    "harness==0.0.59",
 ]
 
 [project.urls]
