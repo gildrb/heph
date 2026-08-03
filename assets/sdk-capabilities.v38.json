@@ -1,9 +1,9 @@
 {
-    "version": 37,
+    "version": 38,
     "compatibility": {
         "stability": "public",
-        "min_client_capabilities_version": 37,
-        "current_capabilities_version": 37,
+        "min_client_capabilities_version": 38,
+        "current_capabilities_version": 38,
         "supported_jsonl_versions": [
             1
         ],
@@ -3092,40 +3092,6 @@
                 }
             }
         },
-        "sdk_privacy_settings": {
-            "fields": {
-                "analytics_enabled": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "analytics_available": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "analytics_env_override": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "crash_reports_enabled": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "crash_reports_available": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "crash_reports_env_override": {
-                    "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                }
-            }
-        },
         "sdk_app_settings": {
             "fields": {
                 "theme": {
@@ -3165,11 +3131,6 @@
                 },
                 "live_cost_visible": {
                     "type": "boolean",
-                    "required": true,
-                    "nullable": false
-                },
-                "privacy": {
-                    "type": "sdk_privacy_settings",
                     "required": true,
                     "nullable": false
                 },

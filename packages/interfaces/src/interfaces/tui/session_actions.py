@@ -18,7 +18,6 @@ from harness.chat.session import (
     save_session,
     session_has_messages,
 )
-from harness.diagnostics.events import capture as capture_analytics
 from harness.parameters.cli import load_config
 from harness.parameters.settings import load_app_settings
 
@@ -59,18 +58,9 @@ def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatS
         )
     except SessionError:
         return session
-    if armory_path is None:
-        capture_analytics("armory_detached", {"model": new_session.config.model})
-    else:
+    if armory_path is not None:
         remember_armory(armory_path)
         set_last_armory(armory_path)
-        capture_analytics(
-            "armory_attached",
-            {
-                "source_file_count": new_session.source_file_count,
-                "model": new_session.config.model,
-            },
-        )
     return apply_display_settings(new_session)
 
 

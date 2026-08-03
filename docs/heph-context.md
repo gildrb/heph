@@ -45,7 +45,7 @@ ARMORY/
 
 Product invariants: local-first, portable armories, swappable providers, citations
 verified against retrieved evidence, memory scoped to the armory unless explicitly
-shared, anonymous analytics and redacted crash reporting opt-in only.
+shared, no telemetry or hosted crash reporting, and local armory traces only.
 
 Docs map: `README.md` overview; `docs/cli-reference.md` full commands/env;
 `docs/architecture.md` internals; `CONTRIBUTING.md` contribution workflow.

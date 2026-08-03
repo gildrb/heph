@@ -9,7 +9,6 @@ from ai.providers.endpoints import provider_uses_keyless_access
 from ai.providers.model_choices import configured_model_choices
 from ai.runtime import ChatConfig
 from harness.chat.model_selection import switch_model
-from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
     STYLE_DIM,
     MenuOption,
@@ -56,7 +55,6 @@ class ModelsCommand(Command):
             print_error("Model unavailable.")
             return CommandResult()
         provider = ProviderConfig.load().providers[slug]
-        capture_analytics("model_changed", {"provider": slug, "to_model": model})
         print_success(f"Switched to {provider.display_name} / {model}")
         return CommandResult()
 

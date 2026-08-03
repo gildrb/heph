@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +18,6 @@ from packaging.utils import canonicalize_name
 from scripts.check_release_state import load_release_manifest, release_state_errors
 
 ROOT = Path(__file__).resolve().parent.parent
-RELEASE_CONFIG_PATH = ROOT / "packages" / "harness" / "src" / "harness" / "privacy" / "release.py"
 RELEASE_BUILD_ROOT = ROOT / ".artifacts" / "release-build"
 BUILD_INPUT_PATHS = (
     "packages",
@@ -69,19 +66,9 @@ RELEASE_SOURCE_IGNORE_PATTERNS = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ReleaseBuildConfig:
-    channel: str
-    version: str
-    posthog_host: str | None
-    posthog_project_token: str | None
-    sentry_dsn: str | None
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     manifest = load_release_manifest()
-    release_version = args.release_version or manifest.tag
     errors = release_state_errors(
         current_version_must_match_stable=True,
         require_tag=True,
@@ -96,30 +83,24 @@ def main(argv: list[str] | None = None) -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    config = release_build_config_from_env(
-        os.environ,
-        channel=args.channel,
-        release_version=release_version,
-    )
     dist = args.dist
     if args.clean:
         clean_dist(dist)
-    with patched_release_config(RELEASE_CONFIG_PATH, config):
-        project_dir = stage_release_project(args.build_root)
-        _run(
-            [
-                "uv",
-                "build",
-                "--build-constraints",
-                str(args.build_constraints),
-                "--require-hashes",
-                "--no-sources",
-                "--out-dir",
-                str(dist),
-                str(project_dir),
-            ],
-            cwd=ROOT,
-        )
+    project_dir = stage_release_project(args.build_root)
+    _run(
+        [
+            "uv",
+            "build",
+            "--build-constraints",
+            str(args.build_constraints),
+            "--require-hashes",
+            "--no-sources",
+            "--out-dir",
+            str(dist),
+            str(project_dir),
+        ],
+        cwd=ROOT,
+    )
     return 0
 
 
@@ -146,37 +127,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.set_defaults(clean=True)
     return parser
-
-
-def release_build_config_from_env(
-    env: Mapping[str, str],
-    *,
-    channel: str,
-    release_version: str,
-) -> ReleaseBuildConfig:
-    return ReleaseBuildConfig(
-        channel=channel,
-        version=release_version,
-        posthog_host=env.get("HARNESS_POSTHOG_HOST"),
-        posthog_project_token=env.get("HARNESS_POSTHOG_PROJECT_TOKEN"),
-        sentry_dsn=env.get("HARNESS_SENTRY_DSN"),
-    )
-
-
-def render_release_config(config: ReleaseBuildConfig) -> str:
-    lines = [
-        '"""Release-time privacy and diagnostics configuration."""',
-        "",
-        "from __future__ import annotations",
-        "",
-        f"POSTHOG_HOST: str | None = {_literal(config.posthog_host)}",
-        f"POSTHOG_PROJECT_TOKEN: str | None = {_literal(config.posthog_project_token)}",
-        f"SENTRY_DSN: str | None = {_literal(config.sentry_dsn)}",
-        f"RELEASE_CHANNEL: str | None = {_literal(config.channel)}",
-        f"RELEASE_VERSION: str | None = {_literal(config.version)}",
-        "",
-    ]
-    return "\n".join(lines)
 
 
 def stage_release_project(build_root: Path) -> Path:
@@ -371,28 +321,11 @@ def toml_string(value: str) -> str:
     return json.dumps(value)
 
 
-@contextmanager
-def patched_release_config(path: Path, config: ReleaseBuildConfig) -> Iterator[None]:
-    original = path.read_text(encoding="utf-8")
-    path.write_text(render_release_config(config), encoding="utf-8")
-    try:
-        yield
-    finally:
-        path.write_text(original, encoding="utf-8")
-
-
 def clean_dist(dist: Path) -> None:
     dist.mkdir(parents=True, exist_ok=True)
     for pattern in ("*.whl", "*.tar.gz"):
         for path in dist.glob(pattern):
             path.unlink()
-
-
-def _literal(value: str | None) -> str:
-    if value is None:
-        return "None"
-    stripped = value.strip()
-    return json.dumps(stripped) if stripped else "None"
 
 
 def release_build_input_errors(tag: str) -> list[str]:

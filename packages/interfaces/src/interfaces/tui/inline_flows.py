@@ -21,14 +21,6 @@ from harness.parameters.settings import (
     load_app_settings,
     save_setting,
 )
-from harness.privacy.consent import (
-    analytics_backend_available,
-    analytics_enabled,
-    analytics_env_override,
-    crash_reports_backend_available,
-    crash_reports_enabled,
-    crash_reports_env_override,
-)
 
 from interfaces.palette import TRANSPARENT
 from interfaces.terminal import current_palette, set_theme
@@ -366,8 +358,6 @@ class _InlineFlowHost(Protocol):
 
     def _filter_inline_menu_options(self, query: str) -> None: ...
 
-    def _privacy_settings_summary(self) -> str: ...
-
     def _activity_trace_summary(self) -> str: ...
 
     def _thinking_visibility_summary(self) -> str: ...
@@ -375,16 +365,6 @@ class _InlineFlowHost(Protocol):
     def _live_tokens_summary(self) -> str: ...
 
     def _live_cost_summary(self) -> str: ...
-
-    def _privacy_option_description(
-        self,
-        *,
-        enabled: bool,
-        available: bool,
-        overridden: bool,
-    ) -> str: ...
-
-    def _open_privacy_flow(self, selected_label: str | None = None) -> None: ...
 
     def _cycle_appearance_setting(self) -> None: ...
 
@@ -439,8 +419,6 @@ class _InlineFlowHost(Protocol):
 
     def _handle_login_choice(self, label: str) -> None: ...
 
-    def _handle_privacy_choice(self, label: str) -> None: ...
-
     def _handle_local_choice(self, label: str) -> None: ...
 
     def _refresh_tui_css(self) -> None: ...
@@ -470,7 +448,6 @@ class _InlineFlowHost(Protocol):
 
 def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None]]:
     return {
-        "Privacy & Diagnostics": host._open_privacy_flow,
         "Appearance": host._cycle_appearance_setting,
         "Activity trace": host._cycle_activity_trace_setting,
         "Model thinking": host._cycle_thinking_visibility_setting,
@@ -483,9 +460,7 @@ def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None
 
 
 def _settings_step_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
-    return {
-        "privacy": host._handle_privacy_choice,
-    }
+    return {}
 
 
 def _inline_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[str], None]]:
@@ -1059,7 +1034,6 @@ class TuiInlineFlowMixin(
             step="menu",
             title=f"Settings  current model source: {current}",
             options=[
-                ("Privacy & Diagnostics", self._privacy_settings_summary()),
                 ("Appearance", f"theme: {THEME_LABELS.get(settings.theme, settings.theme)}"),
                 ("Activity trace", self._activity_trace_summary()),
                 ("Model thinking", self._thinking_visibility_summary()),
@@ -1096,11 +1070,6 @@ class TuiInlineFlowMixin(
         if self._keymap.errors:
             self._replace_last_notice(f"Keymap config issue: {self._keymap.errors[0]}")
 
-    def _privacy_settings_summary(self: _InlineFlowHost) -> str:
-        analytics = "analytics on" if analytics_enabled() else "analytics off"
-        crashes = "crash reports on" if crash_reports_enabled() else "crash reports off"
-        return f"{analytics}, {crashes}"
-
     def _activity_trace_summary(self: _InlineFlowHost) -> str:
         activity_trace_mode = load_app_settings().activity_trace_mode
         return ACTIVITY_TRACE_LABELS.get(
@@ -1117,45 +1086,6 @@ class TuiInlineFlowMixin(
 
     def _live_cost_summary(self: _InlineFlowHost) -> str:
         return _visibility_state(load_app_settings().live_cost_visible)
-
-    def _privacy_option_description(
-        self: _InlineFlowHost,
-        *,
-        enabled: bool,
-        available: bool,
-        overridden: bool,
-    ) -> str:
-        status = "enabled" if enabled else "disabled"
-        availability = "available" if available else "inactive until configured"
-        suffix = "  env override" if overridden else ""
-        return f"{status}  {availability}{suffix}"
-
-    def _open_privacy_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
-        _open_settings_submenu(
-            self,
-            parent_label="Privacy & Diagnostics",
-            step="privacy",
-            title="Settings  Privacy & Diagnostics",
-            options=[
-                (
-                    "Usage analytics",
-                    self._privacy_option_description(
-                        enabled=analytics_enabled(),
-                        available=analytics_backend_available(),
-                        overridden=analytics_env_override(),
-                    ),
-                ),
-                (
-                    "Crash reports",
-                    self._privacy_option_description(
-                        enabled=crash_reports_enabled(),
-                        available=crash_reports_backend_available(),
-                        overridden=crash_reports_env_override(),
-                    ),
-                ),
-            ],
-            selected_label=selected_label,
-        )
 
     def _cycle_appearance_setting(self: _InlineFlowHost) -> None:
         theme = _next_cycle_value(load_app_settings().theme, THEME_PRESETS)
@@ -1332,18 +1262,6 @@ class TuiInlineFlowMixin(
     def _handle_keymap_menu_key(self: _InlineFlowHost, event: events.Key) -> bool:
         _ = event
         return False
-
-    def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
-        settings = load_app_settings()
-        if label == "Usage analytics":
-            save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
-            if analytics_env_override():
-                self._append_notice("Analytics preference saved; env override is active.")
-        elif label == "Crash reports":
-            save_setting("crash_reports_enabled", str(not settings.crash_reports_enabled).lower())
-            if crash_reports_env_override():
-                self._append_notice("Crash-report preference saved; env override is active.")
-        self._open_privacy_flow(selected_label=label)
 
     def _handle_appearance_choice(self: _InlineFlowHost, label: str) -> None:
         theme = label.strip().casefold()

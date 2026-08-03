@@ -4,7 +4,6 @@ import argparse
 import importlib
 import os
 import sys
-from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -827,7 +826,8 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 def main() -> None:
     _maybe_reexec_source_venv()
-    shutdown_analytics, shutdown_diagnostics = _init_diagnostics()
+    for message in _runtime_diagnostic_messages():
+        print(message, file=sys.stderr)
     _increment_session_count()
 
     _profile = "--profile" in sys.argv[1:]
@@ -850,18 +850,6 @@ def main() -> None:
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
-        shutdown_analytics()
-        shutdown_diagnostics()
-
-
-def _init_diagnostics() -> tuple[Callable[[], None], Callable[[], None]]:
-    analytics = importlib.import_module("harness.diagnostics.events")
-    diagnostics = importlib.import_module("harness.diagnostics.crashes")
-    analytics.init_analytics()
-    diagnostics.init_diagnostics()
-    for message in _runtime_diagnostic_messages():
-        print(message, file=sys.stderr)
-    return analytics.shutdown_analytics, diagnostics.shutdown_diagnostics
 
 
 def _increment_session_count() -> None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,8 +60,6 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
     print(f"Add source files to: {materials_path}")
     print(f"Then start working with your documents: heph {module_name}")
     print("Armories are stored locally in ~/.armories/")
-    analytics = importlib.import_module("harness.diagnostics.events")
-    analytics.capture("armory_created", {"mode": "cli"})
 
 
 def _cmd_armory_open(args: argparse.Namespace) -> None:

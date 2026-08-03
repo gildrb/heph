@@ -17,13 +17,6 @@ from ai.providers.keyring_store import GLOBAL_API_KEY_ENV
 from harness.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from harness.memory.extract import EXTRACTION_MODEL_ENV
 from harness.parameters import cli as parameters_cli
-from harness.privacy.consent import (
-    ANALYTICS_ENABLED_ENV,
-    CRASH_REPORTS_ENABLED_ENV,
-    POSTHOG_HOST_ENV,
-    POSTHOG_TOKEN_ENV,
-    SENTRY_DSN_ENV,
-)
 from harness.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from heph.cli.main import build_parser
 from heph.commands import get_registry
@@ -135,8 +128,7 @@ guidelines.
 
 ## Safety
 
-Analytics and crash reporting are opt-in from `/settings`. Source and Git installs do
-not enable hosted diagnostics by default.
+Heph does not collect telemetry or send crash reports.
 
 Model-generated terminal commands are not exposed as a default agent tool. Armory
 plugins should only be used in armories you trust.
@@ -178,35 +170,14 @@ and Evidence `ctrl+g`.
 [[ENV_VARS_TABLE]]
 """
 PRIVACY_DIAGNOSTICS_CONTRACT: Final[str] = (
-    "PostHog is used only for anonymous, opt-in usage/error visibility for the\n"
-    "maintainer. Sentry is used only for redacted, opt-in crash reporting. The\n"
-    "public repository ships `packages/harness/src/harness/privacy/release.py` as a safe "
-    "stub;\n"
-    "official release builds inject privacy and diagnostics backend values during CI, and "
-    "forks or custom\n"
-    "builds can provide `HARNESS_POSTHOG_PROJECT_TOKEN`,\n"
-    "`HARNESS_POSTHOG_HOST`, and `HARNESS_SENTRY_DSN`."
+    "Heph does not send telemetry, analytics, or crash reports. Local armory traces "
+    "remain on the machine."
 )
 ARCHITECTURE_PRIVACY_DIAGNOSTICS: Final[str] = """\
 ## Privacy & Diagnostics
 
-Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
-User-facing data, cache, prompt, and compute ownership terms live in
-`docs/trust.md` and `docs/privacy.md`.
-
-- `diagnostics.events` sends anonymous PostHog events only when a backend is
-  configured and the user explicitly opts in.
-- `diagnostics.crashes` sends redacted Sentry crash reports only when a
-  backend is configured and the user explicitly opts in.
-- `packages/harness/src/harness/privacy/release.py` is committed as a safe stub in the public
-  repository. Official release and edge workflows overwrite it in CI before
-  building artifacts.
-- Source, editable, and Git installs stay bare by default. Forks and custom
-  builds can wire their own endpoints with `HARNESS_POSTHOG_PROJECT_TOKEN`,
-  `HARNESS_POSTHOG_HOST`, and `HARNESS_SENTRY_DSN`.
-- Agents and contributors should preserve this split: diagnostics exist only for
-  opt-in maintainer visibility into usage/errors and is never a required product
-  dependency.
+Heph has no hosted diagnostics, analytics, or crash reporting. Local armory traces
+are retained in the armory and are never uploaded.
 """
 
 
@@ -257,7 +228,6 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HARNESS_PRIORITY_WEB_PREREQS": (
         "Enable optional web-backed prerequisite hints in priority reports."
     ),
-    "HARNESS_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
     "HARNESS_API_KEY": "Global API key override that applies to any provider.",
     "HARNESS_ARMORY_HOME": (
         "Default parent folder for named armories (`~/.armories` by default)."
@@ -265,7 +235,6 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HARNESS_TRUST_ARMORY_PLUGINS": (
         "Allow trusted armories to load `.harness/tools/*.py` plugins."
     ),
-    "HARNESS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
     "HARNESS_EMBED_MODEL": "Override the embedding model used by retrieval.",
     "HARNESS_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
     "HARNESS_LOG_FILE": "Append structured logs to a file when set.",
@@ -273,15 +242,10 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HARNESS_LOG_LEVEL": (
         "Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`)."
     ),
-    "HARNESS_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
-    "HARNESS_POSTHOG_PROJECT_TOKEN": (
-        "Supply a PostHog project token for a custom or forked build."
-    ),
     "HARNESS_RERANK_MODEL": "Override the reranker model when available.",
     "HARNESS_RTK_FALLBACK_ALLOWED": (
         "Set to `0` to fail closed when the optional RTK wrapper is unavailable."
     ),
-    "HARNESS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "HARNESS_TEMPERATURE": "Override the generation temperature for chat responses.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "DEEPSEEK_API_KEY": "API key for the DeepSeek API provider.",
@@ -536,11 +500,6 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
         {
             GLOBAL_API_KEY_ENV,
             *config_envs,
-            ANALYTICS_ENABLED_ENV,
-            CRASH_REPORTS_ENABLED_ENV,
-            POSTHOG_TOKEN_ENV,
-            POSTHOG_HOST_ENV,
-            SENTRY_DSN_ENV,
             LOG_LEVEL_ENV,
             LOG_FILE_ENV,
             LOG_FORMAT_ENV,

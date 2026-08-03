@@ -32,8 +32,6 @@ from harness.chat.turn_history import (
 )
 from harness.chat.turn_orchestrator import TurnOrchestrator
 from harness.chat.usage import SessionUsage
-from harness.diagnostics.crashes import set_session_context
-from harness.diagnostics.events import capture as capture_analytics
 from harness.diagnostics.traces import TraceWriter
 from harness.documents import RecallState
 from harness.materials import iter_material_files
@@ -315,13 +313,6 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
         extra={"fields": {"session_id": session.session_id, "model": config.model}},
     )
     session.trace.record_session_event("created", model=config.model, mode="plain")
-    set_session_context(
-        session_id=session.session_id,
-        armory="plain",
-        provider=config.provider_slug or "unknown",
-        model=config.model,
-    )
-    capture_analytics("session_created", {"mode": "plain", "model": config.model})
     return session
 
 
@@ -357,20 +348,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         },
     )
     session.trace.record_session_event("created", model=config.model)
-    set_session_context(
-        session_id=session.session_id,
-        armory="attached",
-        provider=config.provider_slug or "unknown",
-        model=config.model,
-    )
-    capture_analytics(
-        "session_created",
-        {
-            "mode": "armory",
-            "source_file_count": context.source_file_count,
-            "model": config.model,
-        },
-    )
     return session
 
 
@@ -413,19 +390,6 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         },
     )
     session.trace.record_session_event("resumed", title=title)
-    set_session_context(
-        session_id=session_id,
-        armory="attached",
-        provider=config.provider_slug or "unknown",
-        model=config.model,
-    )
-    capture_analytics(
-        "session_resumed",
-        {
-            "message_count": len(conversation.messages),
-            "model": config.model,
-        },
-    )
     return session
 
 
