@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,16 +16,24 @@ from harness.rag.chunker import (
     ChunkStrategy,
     _convert_pdf_to_text,
     _convert_pdf_with_ocr,
-    _convert_to_markdown,
-    _is_docling_available,
-    _is_docling_file,
+    _is_document_file,
     _is_text_file,
     _normalize_extracted_text,
     chunk_file,
     chunk_markdown,
-    chunk_semantic,
     chunk_text,
 )
+
+chunk_semantic = chunk_text
+_is_docling_file = _is_document_file
+
+
+def _is_docling_available() -> bool:
+    return False
+
+
+def _convert_to_markdown(_path: Path) -> None:
+    return None
 
 
 def _docling_completed(
@@ -337,6 +346,7 @@ class TestChunkMarkdown:
             assert c.heading_level == 1
 
 
+@pytest.mark.skip(reason="semantic chunking was removed; fixed-window chunking is tested below")
 class TestChunkSemantic:
     def test_empty_input(self) -> None:
         assert chunk_semantic("", "test.txt") == []
@@ -354,23 +364,11 @@ class TestChunkSemantic:
         chunks = chunk_semantic(text, "fallback.txt", chunk_size=500)
         assert len(chunks) >= 1
 
-    def test_semantic_breakpoints_keep_original_source_offsets(self) -> None:
-        text = "First sentence.\n    Indented second sentence.\n\nFinal sentence."
-        sentence_spans = rag_chunker._split_sentence_spans(text)
-
-        chunks = rag_chunker._semantic_chunks_from_breakpoints(
-            sentence_spans,
-            [0, 2, 3],
-            source="notes.txt",
-            min_chunk=0,
-        )
-
-        assert chunks[0].text == "First sentence. Indented second sentence."
-        assert chunks[0].char_start == text.index("First")
-        assert chunks[0].char_end == text.index("sentence.", text.index("Indented")) + len(
-            "sentence."
-        )
-        assert chunks[1].char_start == text.index("Final")
+    def test_semantic_strategy_is_fixed_window_compatibility_alias(self) -> None:
+        text = "First sentence. Second sentence. Third sentence."
+        chunks = chunk_text(text, "notes.txt", chunk_size=20, overlap=0)
+        assert chunks
+        assert "".join(chunk.text for chunk in chunks).replace(" ", "") == text.replace(" ", "")
 
 
 class TestChunkStrategy:
@@ -430,8 +428,9 @@ class TestChunkStrategy:
         assert len(doc.chunks) >= 1
 
 
+@pytest.mark.skip(reason="Docling conversion tests were ported to native extraction below")
 class TestDoclingIntegration:
-    """Tests for the Docling binary-document conversion path."""
+    """Removed Docling tests retained as an explicit migration marker."""
 
     def test_is_docling_file(self) -> None:
         assert _is_docling_file(Path("report.pdf"))
@@ -799,12 +798,97 @@ class TestDoclingIntegration:
         ):
             md = _convert_to_markdown(pdf)
 
-        captured = capsys.readouterr()
         assert md is None
-        assert captured.out == ""
-        assert captured.err == ""
-        assert warnings
 
+
+class TestNativeDocumentExtraction:
+    def _archive(self, path: Path, members: dict[str, str]) -> Path:
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+        return path
+
+    def test_docx_extracts_paragraphs_and_tables(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.docx",
+            {
+                "word/document.xml": (
+                    "<document xmlns='urn:word'><body>"
+                    "<p><t>Heading</t></p><p><t>Paragraph</t></p>"
+                    "<tbl><tr><tc><p><t>A</t></p></tc><tc><p><t>B</t></p></tc></tr></tbl>"
+                    "</body></document>"
+                )
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Heading" in text
+        assert "Paragraph" in text
+        assert "A\nB" in text
+
+    def test_pptx_preserves_slide_order(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.pptx",
+            {
+                "ppt/slides/slide1.xml": "<s><t>First slide</t></s>",
+                "ppt/slides/slide2.xml": "<s><t>Second slide</t></s>",
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert text.index("First slide") < text.index("Second slide")
+
+    def test_xlsx_handles_shared_and_inline_strings(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.xlsx",
+            {
+                "xl/sharedStrings.xml": "<sst><si><t>Shared</t></si></sst>",
+                "xl/worksheets/sheet1.xml": (
+                    "<worksheet><sheetData><row>"
+                    "<c t='s'><v>0</v></c><c t='inlineStr'><is><t>Inline</t></is></c>"
+                    "</row></sheetData></worksheet>"
+                ),
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Shared\tInline" in text
+
+    def test_odf_repeats_cells_and_nested_paragraphs(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.odt",
+            {
+                "content.xml": (
+                    "<doc xmlns:text='urn:text' xmlns:table='urn:table'>"
+                    "<text:p><text:span>Heading</text:span></text:p>"
+                    "<table:table><table:table-row><table:table-cell "
+                    "table:number-columns-repeated='2'><text:p>Cell</text:p>"
+                    "</table:table-cell></table:table-row></table:table>"
+                    "</doc>"
+                )
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Heading" in text
+        assert "Cell" in text
+
+    def test_archive_traversal_and_bomb_limits_skip_safely(self, tmp_path: Path) -> None:
+        traversal = tmp_path / "bad.docx"
+        with zipfile.ZipFile(traversal, "w") as archive:
+            archive.writestr("../escape.xml", "bad")
+        assert chunk_file(traversal, tmp_path) is None
+
+        oversized = tmp_path / "large.docx"
+        with zipfile.ZipFile(oversized, "w") as archive:
+            archive.writestr("word/document.xml", b"x" * (21 * 1024 * 1024))
+        assert chunk_file(oversized, tmp_path) is None
+
+    @pytest.mark.skip(reason="ported to native extraction tests")
     def test_chunk_docling_file_via_chunk_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
@@ -842,6 +926,7 @@ class TestDoclingIntegration:
         # Markdown heading chunking should have run
         assert any(c.heading for c in doc.chunks)
 
+    @pytest.mark.skip(reason="ported to explicit PDF backend tests")
     def test_chunk_file_skips_pdf_without_docling(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
@@ -863,6 +948,7 @@ class TestDoclingIntegration:
 
         assert doc is None
 
+    @pytest.mark.skip(reason="ported to explicit PDF backend tests")
     def test_chunk_docling_empty_conversion_returns_none(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
@@ -891,6 +977,7 @@ class TestDoclingIntegration:
 
         assert doc is None
 
+    @pytest.mark.skip(reason="ported to archive size-limit tests")
     def test_chunk_docling_file_rejects_oversized_source(
         self,
         tmp_path: Path,
@@ -909,6 +996,7 @@ class TestDoclingIntegration:
         assert chunk_file(src, armory) is None
         worker.assert_not_called()
 
+    @pytest.mark.skip(reason="Docling output limits no longer apply")
     def test_chunk_docling_file_rejects_oversized_markdown_output(
         self,
         tmp_path: Path,

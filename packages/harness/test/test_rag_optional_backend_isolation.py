@@ -40,16 +40,14 @@ if heavy:
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_capabilities_report_installable_optional_profiles() -> None:
+def test_capabilities_report_conditional_local_backends() -> None:
     capabilities = optional_backends.capabilities()
 
     assert [capability.name for capability in capabilities] == [
-        "search",
-        "embeddings",
+        "pdftotext",
         "documents",
+        "retrieval",
     ]
     assert all(capability.enables for capability in capabilities)
     assert all(capability.fallback for capability in capabilities)
-    assert all(
-        capability.install_command.startswith("pip install 'heph[") for capability in capabilities
-    )
+    assert not any("pip install" in capability.fallback for capability in capabilities)

@@ -33,17 +33,14 @@ Heph is designed with security and privacy in mind:
 ## Security Best Practices for Users
 
 1. **Review armory plugins**: Only use armory plugins from sources you trust
-2. **Use terminal escapes carefully**: The `!` command escape should only be used in armories you trust
-3. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
-4. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
+2. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
+3. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
 
 ## Dependency Security
 
-The default dependency profile is deliberately minimal. Heavy ML and document
-backends are opt-in extras because they add substantial native code, model
-assets, and transitive dependencies that increase supply-chain attack surface.
-Install only the capability groups you need, such as `heph[documents]` or
-`heph[embeddings]`.
+The default dependency profile is deliberately minimal: one install, with no
+optional extras, ML runtime, or model downloads. Retrieval is lexical and
+document extraction uses native XML parsing plus bundled PDFium.
 
 Pre-commit runs `gitleaks` and Bandit. Dependency changes require reviewed
 `pyproject.toml`, `uv.lock`, and source-only sdist allowlist changes.

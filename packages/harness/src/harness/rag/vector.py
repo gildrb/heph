@@ -44,22 +44,6 @@ def object_rows(values: object) -> list[list[object]]:
     return [cast("list[object]", row) for row in typed_values if isinstance(row, list)]
 
 
-def sklearn_scores(query_vector: object, matrix: object) -> list[float]:
-    transposed = getattr(matrix, "T", None)
-    matmul = getattr(query_vector, "__matmul__", None)
-    if transposed is None or not callable(matmul):
-        return []
-    raw_scores = matmul(transposed)
-    toarray = getattr(raw_scores, "toarray", None)
-    if not callable(toarray):
-        return []
-    flattened = toarray()
-    flatten = getattr(flattened, "flatten", None)
-    if callable(flatten):
-        flattened = flatten()
-    return float_list(flattened)
-
-
 def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))

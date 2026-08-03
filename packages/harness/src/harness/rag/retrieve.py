@@ -24,7 +24,7 @@ from typing import cast
 
 from ai.logging import get_logger
 
-from harness.rag import optional_backends
+from harness.rag import semantic as _semantic
 from harness.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
@@ -49,10 +49,16 @@ from harness.rag.retrieve_compound import (
     _merge_compound_query_results,
 )
 from harness.rag.scoring import tokenize
-from harness.rag.semantic import CrossEncoderReranker, EmbeddingRetriever
 from harness.rag.sparse import Bm25Retriever, DocumentBm25Retriever, TfidfRetriever
 
+
+def _is_sentence_transformers_available() -> bool:
+    return False
+
+
 _log = get_logger("harness.rag.retrieve")
+CrossEncoderReranker = _semantic.CrossEncoderReranker
+EmbeddingRetriever = _semantic.EmbeddingRetriever
 
 _MAX_QUERY_TOKENS = 160
 _QUERY_PREFIX_TOKENS = 40
@@ -102,10 +108,6 @@ _IDENTITY_CACHE_KEY = (
 )
 
 
-def _is_sentence_transformers_available() -> bool:
-    return optional_backends.sentence_transformers_available()
-
-
 def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
@@ -120,18 +122,16 @@ def _create_retriever(
     pseudo_feedback_docs: int = DEFAULT_PSEUDO_FEEDBACK_DOCS,
     pseudo_feedback_terms: int = DEFAULT_PSEUDO_FEEDBACK_TERMS,
     pseudo_feedback_weight: float = DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
-) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever | EmbeddingRetriever | HybridRetriever:
+) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever | HybridRetriever:
     sparse_retriever = _explicit_sparse_retriever(index, retrieval_mode)
     if sparse_retriever is not None:
         return sparse_retriever
-    if dense_retriever := _explicit_dense_retriever(
-        index,
-        retrieval_mode,
-        embed_model=embed_model,
-        embed_query_prefix=embed_query_prefix,
-        embed_document_prefix=embed_document_prefix,
-    ):
-        return dense_retriever
+    if retrieval_mode == RetrievalMode.DENSE:
+        raise RuntimeError(
+            "Dense retrieval is unavailable in the lean install; use BM25 or TF-IDF."
+        )
+    if retrieval_mode == RetrievalMode.HYBRID_RERANK:
+        raise RuntimeError("Reranking is unavailable in the lean install; use lexical retrieval.")
     if hybrid := _hybrid_retriever(
         index,
         retrieval_mode,
@@ -164,24 +164,6 @@ def _explicit_sparse_retriever(
     return None
 
 
-def _explicit_dense_retriever(
-    index: ArmoryIndex,
-    retrieval_mode: RetrievalMode,
-    *,
-    embed_model: str | None,
-    embed_query_prefix: str,
-    embed_document_prefix: str,
-) -> EmbeddingRetriever | None:
-    if retrieval_mode != RetrievalMode.DENSE or not _is_sentence_transformers_available():
-        return None
-    return EmbeddingRetriever(
-        index,
-        model_name=embed_model,
-        query_prefix=embed_query_prefix,
-        document_prefix=embed_document_prefix,
-    )
-
-
 def _hybrid_retriever(
     index: ArmoryIndex,
     retrieval_mode: RetrievalMode,
@@ -198,15 +180,14 @@ def _hybrid_retriever(
     pseudo_feedback_terms: int,
     pseudo_feedback_weight: float,
 ) -> HybridRetriever | None:
-    if not _is_sentence_transformers_available():
-        return None
-    reranker = _hybrid_reranker(retrieval_mode, rerank_model)
-    hybrid = HybridRetriever(
+    if retrieval_mode == RetrievalMode.HYBRID_RERANK:
+        raise RuntimeError("Reranking is unavailable in the lean install; use lexical retrieval.")
+    return HybridRetriever(
         index,
         embed_model=embed_model,
         embed_query_prefix=embed_query_prefix,
         embed_document_prefix=embed_document_prefix,
-        reranker=reranker,
+        reranker=None,
         candidate_multiplier=candidate_multiplier,
         sparse_weight=hybrid_sparse_weight,
         dense_weight=hybrid_dense_weight,
@@ -216,23 +197,15 @@ def _hybrid_retriever(
         pseudo_feedback_weight=pseudo_feedback_weight,
         query_transformer=query_transformer,
     )
-    if hybrid.has_embeddings or (
-        retrieval_mode == RetrievalMode.HYBRID_PRF and hybrid_dense_weight == 0.0
-    ):
-        return hybrid
-    return None
 
 
 def _hybrid_reranker(
     retrieval_mode: RetrievalMode,
     rerank_model: str | None,
 ) -> RerankerProtocol | None:
-    if retrieval_mode not in (RetrievalMode.AUTO, RetrievalMode.HYBRID_RERANK):
-        return None
-    try:
-        return CrossEncoderReranker(model_name=rerank_model)
-    except Exception:
-        return None
+    if retrieval_mode == RetrievalMode.HYBRID_RERANK:
+        raise RuntimeError("Reranking is unavailable in the lean install; use lexical retrieval.")
+    return None
 
 
 def _retriever_cache_key(

@@ -183,12 +183,11 @@ open a copied or synced armory and rebuild what it needs.
 
 ## Advanced Configuration
 
-### Retrieval Backends
+### Retrieval
 
-The default install is lean. It includes stdlib BM25 and TF-IDF fallbacks.
-Install `pip install 'heph[search]'` for accelerated BM25,
-`pip install 'heph[embeddings]'` for embeddings, semantic chunking, and
-reranking, or `pip install 'heph[documents]'` for Docling document extraction.
+The single default install uses lexical stdlib BM25 and TF-IDF retrieval. It
+does not install an ML runtime, download models, or provide dense retrieval or
+reranking.
 
 ### Profiling
 

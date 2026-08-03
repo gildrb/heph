@@ -120,7 +120,6 @@ def _cmd_health(args: argparse.Namespace) -> None:
         status = "available" if capability.available else "unavailable"
         print(f"- {capability.name}: {status} ({capability.enables})")
         if not capability.available:
-            print(f"  Install: {capability.install_command}")
             print(f"  Without it: {capability.fallback}")
 
     report = rag_health.scan_extraction_health(armory_path)

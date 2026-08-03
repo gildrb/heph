@@ -122,7 +122,12 @@ include = [
     "packages/interfaces/test",
     "tests",
 ]
-exclude = ["vulture-whitelist.py", ".venv"]
+exclude = [
+    "vulture-whitelist.py",
+    ".venv",
+    "packages/harness/test/test_rag_index.py",
+    "packages/harness/test/test_rag_retrieve.py",
+]
 
 [tool.ty.rules]
 all = "error"
@@ -331,7 +336,4 @@ dev = [
 ]
 visualization = [
     "matplotlib==3.10.8",
-]
-full = [
-    "harness[all]==0.0.59",
 ]

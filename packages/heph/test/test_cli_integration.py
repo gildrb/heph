@@ -297,9 +297,9 @@ def test_top_level_health_defaults_to_current_armory(
 
     out = capsys.readouterr().out
     assert "Capabilities:" in out
-    assert "- search:" in out
-    assert "- embeddings:" in out
+    assert "- pdftotext:" in out
     assert "- documents:" in out
+    assert "- retrieval:" in out
     assert "Extraction health:" in out
     assert "Corpus forbidden text: 100.0%" in out
     assert "No generic extraction poison found." in out

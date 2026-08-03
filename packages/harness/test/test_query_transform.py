@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from harness.rag.chunker import Chunk, ChunkedDocument
 from harness.rag.index import ArmoryIndex
 from harness.rag.query_transform import (
@@ -528,6 +529,7 @@ class TestHybridRetrieverWithTransformation:
             # Python-related chunks should rank highest
             assert results[0].chunk.source in ("a.md", "b.md")
 
+    @pytest.mark.skip(reason="dense embedding branch was removed")
     def test_multi_query_with_embeddings(self) -> None:
         """Full pipeline: multi-query + embeddings + RRF."""
         chunks = [
@@ -585,6 +587,7 @@ class TestHybridRetrieverWithTransformation:
             results = hybrid.retrieve("zzzzz", top_k=5)
             assert results == []
 
+    @pytest.mark.skip(reason="cross-encoder reranking was removed")
     def test_multi_query_with_reranker(self) -> None:
         """Multi-query + RRF + cross-encoder re-ranking."""
         chunks = [

@@ -56,8 +56,6 @@ def main() -> int:
                 "sync",
                 "--frozen",
                 "--no-dev",
-                "--no-group",
-                "full",
             ],
             env=env,
         )
@@ -87,7 +85,7 @@ def _check_distributions(python: Path) -> None:
             "Lean profile contains denied distributions: "
             + ", ".join(offending)
             + ". Inspect uv.lock dependency paths and move the responsible requirement "
-            "behind an optional extra."
+            "from the default dependency graph."
         )
     if len(names) > _MAX_DISTRIBUTIONS:
         raise RuntimeError(

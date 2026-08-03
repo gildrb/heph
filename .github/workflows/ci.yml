@@ -36,7 +36,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --frozen --group dev --group full
+        run: uv sync --frozen --group dev
       - name: Lint, docs, and repo policy gates
         shell: bash
         run: |
@@ -81,7 +81,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync lean dependencies
-        run: uv sync --frozen --group dev --no-group full
+        run: uv sync --frozen --group dev
       - name: Check lean profile
         run: uv run --no-sync python scripts/check_lean_profile.py
 
@@ -96,7 +96,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --frozen --group dev --group full
+        run: uv sync --frozen --group dev
       - name: Type and architecture gates
         shell: bash
         run: |
@@ -136,7 +136,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --frozen --group dev --group full
+        run: uv sync --frozen --group dev
       - name: Security and supply-chain gates
         shell: bash
         run: |
@@ -163,7 +163,7 @@ jobs:
           run_check "lock-check" uv lock --check
           run_check "dependency-pinning" uv run --no-sync python -m scripts.check_dependency_pinning
           run_check "sdist-allowlist" uv run --no-sync python -m scripts.check_dependency_sdist_allowlist
-          run_check "no-build-install" bash -c 'uv sync --frozen --group dev --group full --no-build --no-install-project --dry-run || uv run --no-sync python -m scripts.check_dependency_sdist_allowlist'
+          run_check "no-build-install" bash -c 'uv sync --frozen --group dev --no-build --no-install-project --dry-run || uv run --no-sync python -m scripts.check_dependency_sdist_allowlist'
           run_check "dependency-audit" uv run --no-sync python -m scripts.check_dependency_vulnerability_audit
           exit "$status"
       - name: Upload security findings
@@ -256,7 +256,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --frozen --group dev --group full
+        run: uv sync --frozen --group dev
       - name: Pytest
         run: |
           mkdir -p .artifacts
@@ -291,7 +291,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
-        run: uv sync --frozen --group dev --group full
+        run: uv sync --frozen --group dev
       - name: Build and release artifact gates
         shell: bash
         run: |

@@ -119,12 +119,6 @@ jobs:
           uv export --frozen --no-dev --format cyclonedx1.5 --output-file .artifacts/release/heph-runtime-sbom.cdx.json > /dev/null
           uv export --frozen --no-dev --format pylock.toml --output-file .artifacts/release/pylock.runtime.toml > /dev/null
 
-      - name: Generate optional dependency SBOM
-        run: |
-          mkdir -p .artifacts/release
-          uv export --frozen --no-dev --all-extras --format cyclonedx1.5 --output-file .artifacts/release/heph-optional-sbom.cdx.json > /dev/null
-          uv export --frozen --no-dev --all-extras --format pylock.toml --output-file .artifacts/release/pylock.optional.toml > /dev/null
-
       - name: Release stress test
         run: uv run --no-sync python -m scripts.release_stress_test --expect-runtime-channel pypi --expect-runtime-version "${RELEASE_TAG}"
 

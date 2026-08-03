@@ -10,13 +10,11 @@ import contextlib
 import hashlib
 import hmac
 import json
-import math
 import os
 import secrets
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from ai.logging import Timer, get_logger
 
@@ -28,11 +26,7 @@ from harness.rag.chunker import (
     ChunkedDocument,
     ChunkStrategy,
     _can_convert_binary_file,
-    _is_docling_available,
-    _is_docling_file,
-    _is_pdf_file,
-    _is_pdf_ocr_available,
-    _is_pdftotext_available,
+    _is_document_file,
     _is_text_file,
     _normalize_extracted_text,
     _read_normalized_text_file,
@@ -49,6 +43,11 @@ from harness.rag.index_timeout import chunk_file_with_timeout as _run_chunk_file
 from harness.rag.retrieval_types import RetrieverCacheKey
 
 _log = get_logger("harness.rag.index")
+
+
+def _is_docling_available() -> bool:
+    return False
+
 
 _INDEX_FILE = "rag_index.json"
 _CHUNK_SIZE = 500
@@ -101,7 +100,7 @@ def _materials_root(armory_path: Path) -> Path:
 
 
 def _unindexable_reason(path: Path) -> str:
-    if _is_docling_file(path):
+    if _is_document_file(path):
         if _can_convert_binary_file(path):
             return "document conversion failed (empty or corrupt document)"
         return (
@@ -119,7 +118,7 @@ def _file_timeout_seconds(path: Path) -> int:
         except ValueError:
             return 0
         return max(seconds, 0)
-    return _DEFAULT_FILE_TIMEOUT_SECONDS if _is_docling_file(path) else 0
+    return _DEFAULT_FILE_TIMEOUT_SECONDS if _is_document_file(path) else 0
 
 
 def _chunk_file_with_timeout(
@@ -279,38 +278,6 @@ def _normalized_text_contains(source_text: str, chunk_text: str) -> bool:
     return bool(compact_chunk) and compact_chunk in compact_source
 
 
-def _coerce_embedding_row(raw_row: object) -> list[float] | None:
-    if not isinstance(raw_row, list):
-        return None
-    typed_row: list[float] = []
-    for raw_value in cast("list[object]", raw_row):
-        value = _coerce_embedding_value(raw_value)
-        if value is None:
-            return None
-        typed_row.append(value)
-    return typed_row
-
-
-def _coerce_embedding_value(raw_value: object) -> float | None:
-    try:
-        value = float(raw_value) if isinstance(raw_value, int | float) else float(str(raw_value))
-    except (OverflowError, ValueError):
-        return None
-    return value if math.isfinite(value) else None
-
-
-def _coerce_embedding_rows(raw_embeddings: object) -> list[list[float]] | None:
-    if not isinstance(raw_embeddings, list):
-        return None
-    typed: list[list[float]] = []
-    for raw_row in cast("list[object]", raw_embeddings):
-        typed_row = _coerce_embedding_row(raw_row)
-        if typed_row is None:
-            return None
-        typed.append(typed_row)
-    return typed
-
-
 def _string_field(data: Mapping[str, object], key: str) -> str:
     value = data.get(key, "")
     return value if isinstance(value, str) else ""
@@ -459,82 +426,11 @@ class ArmoryIndex:
             hasher.update(str(len(doc.chunks)).encode())
         return hasher.hexdigest()[:16]
 
-    def _embedding_cache_path(self, model_name: str, cache_key: str | None = None) -> Path:
-        slug = model_name.replace("/", "_")
-        if cache_key is not None:
-            digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:16]
-            slug = f"{slug}_{digest}"
-        return self.armory_path / ".harness" / f"embeddings_{self.content_hash}_{slug}.json"
-
     def _retriever_state_path(self, retriever_type: str) -> Path:
         return (
             self.armory_path
             / ".harness"
             / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
-        )
-
-    def save_embeddings(
-        self,
-        embeddings: list[list[float]],
-        model_name: str,
-        *,
-        cache_key: str | None = None,
-    ) -> Path | None:
-        if not embeddings:
-            return None
-        embed_path = self._embedding_cache_path(model_name, cache_key)
-        data = {
-            "content_hash": self.content_hash,
-            "model_name": model_name,
-            "cache_key": cache_key or model_name,
-            "chunk_count": len(self.all_chunks),
-            "embeddings": embeddings,
-        }
-        _write_armory_index_json(self.armory_path, embed_path, data)
-        _log.debug(
-            "embeddings saved",
-            extra={"fields": {"path": str(embed_path), "chunks": len(embeddings)}},
-        )
-        return embed_path
-
-    def load_embeddings(
-        self,
-        model_name: str,
-        *,
-        cache_key: str | None = None,
-    ) -> list[list[float]] | None:
-        embed_path = self._embedding_cache_path(model_name, cache_key)
-        if not embed_path.is_file():
-            return None
-        data = _read_json_mapping(embed_path)
-        if data is None or not self._embedding_cache_matches(
-            data,
-            model_name=model_name,
-            cache_key=cache_key,
-        ):
-            return None
-        raw_embeddings = data.get("embeddings")
-        typed = _coerce_embedding_rows(raw_embeddings)
-        if typed is None:
-            return None
-        _log.debug(
-            "embeddings loaded from cache",
-            extra={"fields": {"path": str(embed_path), "chunks": len(typed)}},
-        )
-        return typed
-
-    def _embedding_cache_matches(
-        self,
-        data: Mapping[str, object],
-        *,
-        model_name: str,
-        cache_key: str | None,
-    ) -> bool:
-        return (
-            data.get("content_hash") == self.content_hash
-            and data.get("model_name") == model_name
-            and data.get("cache_key", model_name) == (cache_key or model_name)
-            and data.get("chunk_count") == len(self.all_chunks)
         )
 
     def save_retriever_state(self, retriever_type: str, state: dict[str, object]) -> Path | None:
@@ -591,7 +487,6 @@ class ArmoryIndex:
         with timer:
             for file_path in self._iter_source_files():
                 rebuilt += self._index_source_file(file_path, progress=progress)
-        _report_missing_document_backend(self.unindexable_files, progress)
         _log.info(
             "index built",
             extra={
@@ -637,7 +532,6 @@ class ArmoryIndex:
                     content_hash=content_hash,
                     progress=progress,
                 )
-        _report_missing_document_backend(self.unindexable_files, progress)
         _log.info(
             "index built incrementally",
             extra={
@@ -794,7 +688,13 @@ class ArmoryIndex:
         if not self._loaded_cache_is_usable(loaded, allow_stale=allow_stale):
             return False
         self._rebuild_unindexable_files()
+        self._remove_legacy_embedding_caches()
         return True
+
+    def _remove_legacy_embedding_caches(self) -> None:
+        for cache_path in (self.armory_path / ".harness").glob("embeddings_*.json"):
+            with contextlib.suppress(OSError):
+                cache_path.unlink()
 
     def _loaded_cache_is_usable(
         self,
@@ -928,7 +828,7 @@ class ArmoryIndex:
     ) -> bool:
         return (
             _can_convert_binary_file(source_state.path)
-            and _is_docling_file(source_state.path)
+            and _is_document_file(source_state.path)
             and source_state.rel not in indexed_sources
         )
 
@@ -1087,27 +987,6 @@ def _record_unindexable_source(
         )
     unindexable_files[rel] = reason
     _report_index_progress(progress, "skipped", f"{rel}: {reason}")
-
-
-def _report_missing_document_backend(
-    unindexable_files: Mapping[str, str],
-    progress: IndexProgress | None,
-) -> None:
-    if _is_docling_available():
-        return
-    if not any(
-        _is_docling_file(Path(path))
-        and (
-            not _is_pdf_file(Path(path))
-            or not (_is_pdftotext_available() or _is_pdf_ocr_available())
-        )
-        for path in unindexable_files
-    ):
-        return
-    message = "Document files were skipped; install with pip install 'heph[documents]'"
-    _log.warning(message)
-    if progress is not None:
-        progress("warning", message)
 
 
 def _read_normalized_source_text(path: Path, *, root: Path | None = None) -> str | None:
