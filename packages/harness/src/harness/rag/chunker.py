@@ -607,8 +607,15 @@ def _convert_pdf_with_pdfium(path: Path) -> str | None:
     if not _is_pdf_file(path):
         return None
     try:
-        document = pypdfium2.PdfDocument(str(path))
-        text = "\n".join(page.get_textpage().get_text_range() for page in document)
+        with pypdfium2.PdfDocument(str(path)) as document:
+            page_texts: list[str] = []
+            for page in document:
+                textpage = page.get_textpage()
+                try:
+                    page_texts.append(textpage.get_text_range())
+                finally:
+                    textpage.close()
+            text = "\n".join(page_texts)
     except (ImportError, OSError, RuntimeError, ValueError) as exc:
         _log_extraction_warning(path, "pypdfium2 extraction failed", exc)
         return None

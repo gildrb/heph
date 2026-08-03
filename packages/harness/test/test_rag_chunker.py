@@ -520,13 +520,18 @@ class TestNativeDocumentExtraction:
         assert "Heading" in text
         assert "Cell" in text
 
-    def test_archive_traversal_and_bomb_limits_skip_safely(self, tmp_path: Path) -> None:
+    def test_archive_traversal_and_bomb_limits_skip_safely(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         traversal = tmp_path / "bad.docx"
         with zipfile.ZipFile(traversal, "w") as archive:
             archive.writestr("../escape.xml", "bad")
         assert chunk_file(traversal, tmp_path) is None
 
+        monkeypatch.setattr(rag_chunker, "_MAX_ARCHIVE_MEMBER_BYTES", 20)
         oversized = tmp_path / "large.docx"
         with zipfile.ZipFile(oversized, "w") as archive:
-            archive.writestr("word/document.xml", b"x" * (21 * 1024 * 1024))
+            archive.writestr("word/document.xml", b"x" * 21)
         assert chunk_file(oversized, tmp_path) is None
