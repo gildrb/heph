@@ -7,12 +7,10 @@ Backends (selected automatically based on available dependencies):
 - ``EmbeddingRetriever`` - provider-backed dense vector similarity
 - ``HybridRetriever``    - reciprocal-rank fusion of sparse + embeddings
 
-Post-retrieval re-ranking:
-- ``CrossEncoderReranker`` - cross-encoder re-scoring for improved precision
+Post-retrieval re-ranking is unavailable in the lean install.
 
 The top-level ``retrieve()`` function auto-selects the best backend and
-applies re-ranking when available: hybrid retrieval → RRF fusion →
-cross-encoder re-ranking → top-k results.
+returns hybrid retrieval with RRF fusion or lexical top-k results.
 """
 
 from __future__ import annotations

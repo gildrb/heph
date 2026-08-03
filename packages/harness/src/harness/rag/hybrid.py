@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ai.logging import get_logger
 
+from harness.rag.config import MAX_DENSE_QUERY_VARIANTS
 from harness.rag.index import ArmoryIndex
 from harness.rag.query_transform import (
     ModeSpecificQueryTransformerProtocol,
     QueryTransformerProtocol,
 )
-from harness.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
+from harness.rag.retrieval_types import (
+    EmbeddingRetrieverProtocol,
+    RerankerProtocol,
+    RetrieverProtocol,
+    ScoredChunk,
+)
 from harness.rag.scoring import reciprocal_rank_fusion, tokenize
 from harness.rag.sparse import Bm25Retriever, TfidfRetriever
 
@@ -48,8 +53,8 @@ class HybridRetriever:
         self._chunks = index.all_chunks
         bm25 = Bm25Retriever(index)
         self._sparse: RetrieverProtocol = bm25 if bm25.available else TfidfRetriever(index)
-        self._embedding = getattr(index, "embedding_retriever", None)
-        self._embedding_error: str | None = getattr(index, "embedding_error", None)
+        self._embedding: EmbeddingRetrieverProtocol | None = index.embedding_retriever
+        self._embedding_error: str | None = index.embedding_error
         self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
         self._sparse_weight = max(0.0, sparse_weight)
@@ -135,11 +140,8 @@ class HybridRetriever:
         if self._embedding is None:
             return []
         try:
-            dense_queries = queries[:4]
-            retrieve_many = getattr(self._embedding, "retrieve_many", None)
-            if callable(retrieve_many):
-                return self._retrieve_batched_dense(retrieve_many, dense_queries, pool)
-            return self._retrieve_serial_dense(dense_queries, pool)
+            dense_queries = queries[:MAX_DENSE_QUERY_VARIANTS]
+            return self._retrieve_batched_dense(self._embedding, dense_queries, pool)
         except Exception as exc:
             self._embedding_error = (
                 f"Semantic retrieval unavailable; using lexical retrieval ({exc})."
@@ -150,23 +152,11 @@ class HybridRetriever:
 
     @staticmethod
     def _retrieve_batched_dense(
-        retrieve_many: Callable[..., list[list[ScoredChunk]]],
+        embedding: EmbeddingRetrieverProtocol,
         queries: list[str],
         pool: int,
     ) -> list[ScoredChunk]:
-        ranked = [result for result in retrieve_many(queries, top_k=pool) if result]
-        if not ranked:
-            return []
-        return ranked[0] if len(ranked) == 1 else reciprocal_rank_fusion(ranked)
-
-    def _retrieve_serial_dense(self, queries: list[str], pool: int) -> list[ScoredChunk]:
-        if self._embedding is None:
-            return []
-        ranked = [
-            results
-            for query in queries
-            if (results := self._embedding.retrieve(query, top_k=pool))
-        ]
+        ranked = [result for result in embedding.retrieve_many(queries, top_k=pool) if result]
         if not ranked:
             return []
         return ranked[0] if len(ranked) == 1 else reciprocal_rank_fusion(ranked)

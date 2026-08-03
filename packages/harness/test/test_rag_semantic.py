@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -11,6 +12,7 @@ from harness.rag.chunker import Chunk, ChunkedDocument
 from harness.rag.config import configured_embedding_model
 from harness.rag.hybrid import HybridRetriever
 from harness.rag.index import ArmoryIndex
+from harness.rag.retrieval_types import ScoredChunk
 from harness.rag.semantic import (
     EmbeddingUnavailableError,
     build_embedding_store,
@@ -182,7 +184,14 @@ def test_hybrid_retrieval_reports_provider_degradation() -> None:
     )
 
     class _BrokenRetriever:
-        def retrieve(self, query: str, top_k: int = 5) -> list[object]:
+        def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+            raise RuntimeError("endpoint rejected embeddings")
+
+        def retrieve_many(
+            self,
+            queries: Sequence[str],
+            top_k: int = 5,
+        ) -> list[list[ScoredChunk]]:
             raise RuntimeError("endpoint rejected embeddings")
 
     index.embedding_retriever = _BrokenRetriever()

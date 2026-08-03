@@ -41,7 +41,7 @@ from harness.rag.index_state import (
     write_armory_index_json as _write_armory_index_json,
 )
 from harness.rag.index_timeout import chunk_file_with_timeout as _run_chunk_file_with_timeout
-from harness.rag.retrieval_types import RetrieverCacheKey
+from harness.rag.retrieval_types import EmbeddingRetrieverProtocol, RetrieverCacheKey
 from harness.rag.semantic import EmbeddingUnavailableError, build_embedding_store
 
 if TYPE_CHECKING:
@@ -404,7 +404,7 @@ class ArmoryIndex:
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
         self._retriever: object | None = None  # cached default retriever instance
         self._retriever_cache: dict[RetrieverCacheKey, object] = {}
-        self.embedding_retriever: object | None = None
+        self.embedding_retriever: EmbeddingRetrieverProtocol | None = None
         self.embedding_error: str | None = None
         self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 

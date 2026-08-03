@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -57,6 +58,15 @@ class EvidenceReference:
 @runtime_checkable
 class RetrieverProtocol(Protocol):
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]: ...
+
+
+@runtime_checkable
+class EmbeddingRetrieverProtocol(RetrieverProtocol, Protocol):
+    def retrieve_many(
+        self,
+        queries: Sequence[str],
+        top_k: int = 5,
+    ) -> list[list[ScoredChunk]]: ...
 
 
 @runtime_checkable
