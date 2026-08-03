@@ -51,11 +51,6 @@ from harness.rag.retrieve_compound import (
 from harness.rag.scoring import tokenize
 from harness.rag.sparse import Bm25Retriever, DocumentBm25Retriever, TfidfRetriever
 
-
-def _is_sentence_transformers_available() -> bool:
-    return False
-
-
 _log = get_logger("harness.rag.retrieve")
 CrossEncoderReranker = _semantic.CrossEncoderReranker
 EmbeddingRetriever = _semantic.EmbeddingRetriever

@@ -283,18 +283,6 @@ def _is_document_file(path: Path) -> bool:
     return path.suffix.lower() in _DOCUMENT_EXTENSIONS
 
 
-def _is_docling_file(path: Path) -> bool:
-    return _is_document_file(path)
-
-
-def _is_docling_available() -> bool:
-    return True
-
-
-def _sentence_transformer_factory() -> None:
-    return None
-
-
 def _is_pdf_file(path: Path) -> bool:
     return path.suffix.lower() == ".pdf"
 

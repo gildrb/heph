@@ -45,10 +45,6 @@ from harness.rag.retrieval_types import RetrieverCacheKey
 _log = get_logger("harness.rag.index")
 
 
-def _is_docling_available() -> bool:
-    return False
-
-
 _INDEX_FILE = "rag_index.json"
 _CHUNK_SIZE = 500
 _OVERLAP = 100

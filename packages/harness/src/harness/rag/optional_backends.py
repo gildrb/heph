@@ -15,30 +15,6 @@ class BackendCapability:
     fallback: str
 
 
-def has_sklearn() -> bool:
-    return False
-
-
-def sklearn_tfidf_vectorizer() -> None:
-    return None
-
-
-def bm25_class() -> None:
-    return None
-
-
-def sentence_transformers_available() -> bool:
-    return False
-
-
-def sentence_transformer() -> None:
-    return None
-
-
-def cross_encoder() -> None:
-    return None
-
-
 def _module_available(name: str) -> bool:
     try:
         return importlib.util.find_spec(name) is not None

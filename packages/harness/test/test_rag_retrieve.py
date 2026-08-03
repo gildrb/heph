@@ -2,30 +2,21 @@
 
 from __future__ import annotations
 
-import re
 from importlib import import_module
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import harness.rag.sparse as sparse_module
 import pytest
 from harness.rag.chunker import Chunk, ChunkedDocument
 from harness.rag.index import ArmoryIndex
-from harness.rag.query_transform import TransformStrategy
 from harness.rag.retrieve import (
     Bm25Retriever,
-    CrossEncoderReranker,
     DocumentBm25Retriever,
-    EmbeddingRetriever,
-    HybridRetriever,
-    RerankerProtocol,
     RetrievalMode,
-    RetrieverProtocol,
     ScoredChunk,
     TfidfRetriever,
     _apply_negation_precision_penalty,
     _compound_query_variants,
-    _create_retriever,
     _expand_query_with_corpus_token_variants,
     _normalize_query_for_retrieval,
     retrieve,
@@ -323,35 +314,6 @@ def test_retrieve_promotes_each_compound_clause_head(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="dense and reranker protocols are unavailable in the lean install")
-class TestRetrieverProtocol:
-    def test_tfidf_satisfies_protocol(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello world")])
-        assert isinstance(TfidfRetriever(index), RetrieverProtocol)
-
-    def test_document_bm25_satisfies_protocol(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello world")])
-        assert isinstance(DocumentBm25Retriever(index), RetrieverProtocol)
-
-    def test_embedding_satisfies_protocol(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello world")])
-        assert isinstance(EmbeddingRetriever(index), RetrieverProtocol)
-
-    def test_hybrid_satisfies_protocol(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello world")])
-        assert isinstance(HybridRetriever(index), RetrieverProtocol)
-
-    def test_plain_object_does_not_satisfy(self) -> None:
-        assert not isinstance(object(), RetrieverProtocol)
-
-    def test_cross_encoder_reranker_satisfies_reranker_protocol(self) -> None:
-        reranker = CrossEncoderReranker()
-        assert isinstance(reranker, RerankerProtocol)
-
-    def test_plain_object_does_not_satisfy_reranker_protocol(self) -> None:
-        assert not isinstance(object(), RerankerProtocol)
-
-
 # ---------------------------------------------------------------------------
 # TF-IDF retriever (sklearn + stdlib fallback)
 # ---------------------------------------------------------------------------
@@ -453,90 +415,8 @@ class TestTfidfRetriever:
         assert len(results) > 0
         assert results[0].chunk.source == "materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf"
 
-    @pytest.mark.skip(reason="sklearn vectorizer was replaced by stdlib TF-IDF")
-    def test_sklearn_token_pattern_matches_words(self) -> None:
-        captured: dict[str, str] = {}
-
-        class FakeVectorizer:
-            def __init__(self, **kwargs: str) -> None:
-                captured["token_pattern"] = kwargs["token_pattern"]
-
-            def fit_transform(self, _texts: object) -> object:
-                return object()
-
-        chunks = [_make_chunk("Python programming language", "python.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        with (
-            patch("harness.rag.optional_backends.HAS_SKLEARN", True),
-            patch("harness.rag.optional_backends.SKLEARN_TFIDF_VECTORIZER", FakeVectorizer),
-        ):
-            TfidfRetriever(index)
-
-        assert re.findall(captured["token_pattern"], "Python programming") == [
-            "Python",
-            "programming",
-        ]
-
-    @pytest.mark.skip(reason="stdlib TF-IDF state loading is covered by the new state contract")
-    def test_idf_state_saved_and_reused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        chunks = [
-            _make_chunk("Python is a programming language.", "python.md", 0),
-            _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
-        ]
-        index = _make_index_with_chunks_at(tmp_path, chunks)
-        retrieve_module = import_module("harness.rag.optional_backends")
-        monkeypatch.setattr(retrieve_module, "HAS_SKLEARN", False)
-
-        TfidfRetriever(index)
-        state_path = tmp_path / ".harness" / f"retriever_{index.content_hash}_tfidf_v8.json"
-
-        assert state_path.is_file()
-        with patch.object(
-            TfidfRetriever,
-            "_build_idf",
-            side_effect=AssertionError("cached IDF state should be reused"),
-        ):
-            retriever = TfidfRetriever(index)
-
-        assert retriever.retrieve("python")
-
 
 class TestBm25Retriever:
-    @pytest.mark.skip(reason="bm25s backend was replaced by stdlib BM25")
-    def test_uses_bm25_backend_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        class FakeBm25:
-            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
-                assert show_progress is False
-                return None
-
-            def retrieve(
-                self,
-                _query_tokens: list[list[str]],
-                *,
-                k: int,
-                show_progress: bool,
-            ) -> tuple[object, object]:
-                assert k == 2
-                assert show_progress is False
-                return [[1, 0]], [[3.0, 1.0]]
-
-        chunks = [
-            _make_chunk("Python is a programming language.", "python.md", 0),
-            _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("harness.rag.optional_backends")
-        monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
-
-        retriever = Bm25Retriever(index)
-        results = retriever.retrieve("ownership", top_k=2)
-
-        assert retriever.available
-        assert [result.chunk.source for result in results] == ["rust.md", "python.md"]
-
     def test_empty_token_corpus_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class ExplodingBm25:
             def index(self, _corpus_tokens: list[list[str]], *, _show_progress: bool) -> object:
@@ -710,46 +590,6 @@ class TestDocumentBm25Retriever:
 
         assert retriever.retrieve("sentinel phrase")[0].chunk.source == "materials/doc.md"
 
-    @pytest.mark.skip(reason="bm25s cache was removed; document BM25 uses stdlib state")
-    def test_uses_bm25_backend_cache_without_tokenizing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        class FakeBm25:
-            @classmethod
-            def load(cls, _cache_dir: Path, *, load_corpus: bool, mmap: bool) -> FakeBm25:
-                assert load_corpus is False
-                assert mmap is True
-                return cls()
-
-            def retrieve(
-                self,
-                _query_tokens: list[list[str]],
-                *,
-                k: int,
-                show_progress: bool,
-            ) -> tuple[object, object]:
-                assert k == 1
-                assert show_progress is False
-                return [[0]], [[2.0]]
-
-        chunk = _make_chunk("alpha beta", "materials/doc.md", 0)
-        index = _make_index_with_chunks_at(tmp_path, [chunk])
-        cache_dir = tmp_path / ".harness" / f"retriever_{index.content_hash}_bm25s_document_v1"
-        cache_dir.mkdir(parents=True)
-        retrieve_module = import_module("harness.rag.optional_backends")
-        monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
-        originaltokenize = sparse_module.tokenize
-
-        def failtokenize(_text: str) -> list[str]:
-            raise AssertionError("backend cache should avoid rebuilding document tokens")
-
-        monkeypatch.setattr(sparse_module, "tokenize", failtokenize)
-        retriever = DocumentBm25Retriever(index)
-        monkeypatch.setattr(sparse_module, "tokenize", originaltokenize)
-
-        assert retriever.available
-        assert retriever.retrieve("alpha")[0].chunk.source == "materials/doc.md"
-
 
 # ---------------------------------------------------------------------------
 # Tokenizer
@@ -918,183 +758,6 @@ class TestReciprocalRankFusion:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="dense retrieval and embedding caches were removed")
-class TestEmbeddingRetriever:
-    def _make_retriever_with_mock(
-        self,
-        chunks: list[Chunk],
-        query_embedding: list[float],
-        chunk_embeddings: list[list[float]],
-    ) -> EmbeddingRetriever:
-        """Create an EmbeddingRetriever with a mocked sentence-transformers model."""
-        index = _make_index_with_chunks(chunks)
-        retriever = EmbeddingRetriever(index)
-
-        # Pre-set embeddings so _ensure_embeddings never calls the model
-        retriever._embeddings = chunk_embeddings
-
-        mock_model = MagicMock()
-        # encode([query], ...) must return something whose [0].tolist() gives a list[float]
-        mock_model.encode.return_value = _MockArray([query_embedding])
-
-        retriever._model = mock_model
-        return retriever
-
-    def test_empty_index(self) -> None:
-        index = ArmoryIndex(Path("/fake"))
-        retriever = EmbeddingRetriever(index)
-        retriever._model = MagicMock()
-        results = retriever.retrieve("anything")
-        assert results == []
-
-    def test_retrieve_by_similarity(self) -> None:
-        c_a = _make_chunk("Python programming", "a.md", 0)
-        c_b = _make_chunk("Cooking recipes", "b.md", 0)
-
-        # Chunk embeddings: a is close to query, b is far
-        retriever = self._make_retriever_with_mock(
-            chunks=[c_a, c_b],
-            query_embedding=[1.0, 0.0, 0.0],
-            chunk_embeddings=[[0.9, 0.1, 0.0], [0.0, 0.1, 0.9]],
-        )
-        results = retriever.retrieve("Python programming")
-        assert len(results) >= 1
-        # First result must be the Python chunk (highest similarity)
-        assert results[0].chunk.source == "a.md"
-        # Scores must be descending
-        scores = [r.score for r in results]
-        assert scores == sorted(scores, reverse=True)
-
-    def test_top_k_limit(self) -> None:
-        chunks = [_make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(5)]
-        embeddings = [[float(i == j) for j in range(5)] for i in range(5)]
-
-        retriever = self._make_retriever_with_mock(
-            chunks=chunks,
-            query_embedding=[0.5, 0.5, 0.5, 0.5, 0.5],
-            chunk_embeddings=embeddings,
-        )
-        results = retriever.retrieve("test", top_k=2)
-        assert len(results) == 2
-
-    def test_zero_similarity_excluded(self) -> None:
-        c_a = _make_chunk("orthogonal", "a.md", 0)
-
-        retriever = self._make_retriever_with_mock(
-            chunks=[c_a],
-            query_embedding=[1.0, 0.0],
-            chunk_embeddings=[[0.0, 1.0]],  # orthogonal → sim = 0
-        )
-        results = retriever.retrieve("test")
-        assert results == []
-
-    def test_model_name_default(self) -> None:
-        index = ArmoryIndex(Path("/fake"))
-        retriever = EmbeddingRetriever(index)
-        assert retriever._model_name == "all-MiniLM-L6-v2"
-
-    def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HARNESS_EMBED_MODEL", "custom-model-v2")
-        index = ArmoryIndex(Path("/fake"))
-        retriever = EmbeddingRetriever(index)
-        assert retriever._model_name == "custom-model-v2"
-
-    def test_model_name_from_constructor(self) -> None:
-        index = ArmoryIndex(Path("/fake"))
-        retriever = EmbeddingRetriever(index, model_name="my-model")
-        assert retriever._model_name == "my-model"
-
-    def test_query_prefix_applied_to_query_embedding(self) -> None:
-        c_a = _make_chunk("hello", "a.md", 0)
-        index = _make_index_with_chunks([c_a])
-        retriever = EmbeddingRetriever(index, query_prefix="query: ")
-
-        mock_model = MagicMock()
-        mock_model.encode.side_effect = [
-            _MockArray([[1.0, 0.0]]),
-            _MockArray([[1.0, 0.0]]),
-        ]
-        retriever._model = mock_model
-
-        retriever.retrieve("hello")
-
-        assert mock_model.encode.call_args_list[1].args[0] == ["query: hello"]
-
-    def test_document_prefix_applied_to_chunk_embeddings(self) -> None:
-        c_a = _make_chunk("hello", "a.md", 0)
-        index = _make_index_with_chunks([c_a])
-        retriever = EmbeddingRetriever(index, document_prefix="passage: ")
-
-        mock_model = MagicMock()
-        mock_model.encode.side_effect = [
-            _MockArray([[1.0, 0.0]]),
-            _MockArray([[1.0, 0.0]]),
-        ]
-        retriever._model = mock_model
-
-        retriever.retrieve("hello")
-
-        assert mock_model.encode.call_args_list[0].args[0] == ["passage: hello\na.md"]
-        assert mock_model.encode.call_args_list[1].args[0] == ["hello"]
-
-    def test_document_prefix_changes_embedding_cache_key(self) -> None:
-        c_a = _make_chunk("hello", "a.md", 0)
-        index = _make_index_with_chunks([c_a])
-        retriever = EmbeddingRetriever(
-            index,
-            model_name="fixture-embed-model",
-            document_prefix="passage: ",
-        )
-
-        mock_model = MagicMock()
-        mock_model.encode.return_value = _MockArray([[0.1, 0.2, 0.3]])
-        retriever._model = mock_model
-
-        expected_cache_key = "fixture-embed-model\ndocument_prefix=passage: "
-        with (
-            patch.object(index, "load_embeddings", return_value=None) as load_embeddings,
-            patch.object(index, "save_embeddings") as save_embeddings,
-        ):
-            retriever._ensure_embeddings()
-
-        assert load_embeddings.call_args.kwargs["cache_key"] == expected_cache_key
-        assert save_embeddings.call_args.kwargs["cache_key"] == expected_cache_key
-
-    def test_embedding_cache_separates_document_prefixes(self, tmp_path: Path) -> None:
-        c_a = _make_chunk("hello", "a.md", 0)
-        index = _make_index_with_chunks_at(tmp_path, [c_a])
-
-        default_path = index.save_embeddings([[1.0, 0.0]], "fixture-embed-model")
-        prefixed_path = index.save_embeddings(
-            [[0.0, 1.0]],
-            "fixture-embed-model",
-            cache_key="fixture-embed-model\ndocument_prefix=passage: ",
-        )
-
-        assert default_path is not None
-        assert prefixed_path is not None
-        assert default_path != prefixed_path
-        assert index.load_embeddings("fixture-embed-model") == [[1.0, 0.0]]
-        assert index.load_embeddings(
-            "fixture-embed-model",
-            cache_key="fixture-embed-model\ndocument_prefix=passage: ",
-        ) == [[0.0, 1.0]]
-
-    def test_embeddings_cached(self) -> None:
-        c_a = _make_chunk("hello", "a.md", 0)
-        index = _make_index_with_chunks([c_a])
-        retriever = EmbeddingRetriever(index)
-
-        mock_model = MagicMock()
-        mock_model.encode.return_value = _MockArray([[0.1, 0.2, 0.3]])
-        retriever._model = mock_model
-
-        # Call twice - encode should only be called once for chunks
-        retriever._ensure_embeddings()
-        retriever._ensure_embeddings()
-        assert mock_model.encode.call_count == 1
-
-
 class _MockArray:
     """Minimal mock that supports ``tolist()`` and indexing, simulating a numpy array.
 
@@ -1119,386 +782,9 @@ class _MockArray:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="dense hybrid fusion was removed; sparse retrieval is tested separately")
-class TestHybridRetriever:
-    def test_falls_back_to_tfidf_when_no_embeddings(self) -> None:
-        chunks = [
-            _make_chunk("Python programming language", "a.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(index)
-            assert hybrid._embedding is None
-            assert not hybrid.has_embeddings
-
-            results = hybrid.retrieve("python")
-            assert len(results) == 1
-            assert results[0].chunk.source == "a.md"
-
-    def test_has_embeddings_when_available(self) -> None:
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=True,
-        ):
-            hybrid = HybridRetriever(index)
-            # EmbeddingRetriever.__init__ doesn't load the model (lazy),
-            # so has_embeddings should be True
-            assert hybrid.has_embeddings
-
-    def test_embedding_init_failure_graceful(self) -> None:
-        """If EmbeddingRetriever raises during init, hybrid falls back."""
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                side_effect=ImportError("no torch"),
-            ),
-        ):
-            hybrid = HybridRetriever(index)
-            assert hybrid._embedding is None
-            assert not hybrid.has_embeddings
-
-    def test_tfidf_only_returns_results(self) -> None:
-        chunks = [
-            _make_chunk("Python is a programming language.", "py.md", 0),
-            _make_chunk("Rust is a systems language.", "rs.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(index)
-            results = hybrid.retrieve("python programming")
-            assert len(results) > 0
-            assert results[0].chunk.source == "py.md"
-
-    def test_hybrid_merges_both_retrievers(self) -> None:
-        """When embedding retriever returns results, hybrid merges via RRF."""
-        chunks = [
-            _make_chunk("Python programming", "a.md", 0),
-            _make_chunk("Rust systems", "b.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.95),
-            ScoredChunk(chunk=chunks[1], score=0.3),
-        ]
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index)
-            assert hybrid._embedding is mock_embed
-
-            results = hybrid.retrieve("python")
-            assert len(results) > 0
-            # a.md should rank highest (it's top in both TF-IDF and embeddings)
-            assert results[0].chunk.source == "a.md"
-
-    def test_mode_specific_transformer_routes_sparse_and_dense_queries(self) -> None:
-        chunks = [
-            _make_chunk("sparse match", "sparse.md", 0),
-            _make_chunk("dense match", "dense.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        class StubModeSpecificTransformer:
-            def transform(self, query: str) -> list[str]:
-                return [query]
-
-            def transform_sparse(self, _query: str) -> list[str]:
-                return ["keyword bag", "expanded keyword bag"]
-
-            def transform_dense(self, _query: str) -> list[str]:
-                return ["natural language description"]
-
-        hybrid = HybridRetriever(
-            index,
-            candidate_multiplier=3,
-            query_transformer=StubModeSpecificTransformer(),
-        )
-        sparse = MagicMock()
-        sparse.retrieve.side_effect = [
-            [ScoredChunk(chunk=chunks[0], score=1.0)],
-            [ScoredChunk(chunk=chunks[1], score=0.5)],
-        ]
-        dense = MagicMock()
-        dense.retrieve.return_value = [ScoredChunk(chunk=chunks[1], score=1.0)]
-        hybrid._sparse = sparse
-        hybrid._embedding = dense
-
-        results = hybrid.retrieve("original query", top_k=2)
-
-        assert [call.args for call in sparse.retrieve.call_args_list] == [
-            ("keyword bag", 6),
-            ("expanded keyword bag", 6),
-        ]
-        dense.retrieve.assert_called_once_with("natural language description", top_k=6)
-        assert {result.chunk.source for result in results} == {"sparse.md", "dense.md"}
-
-    def test_pseudo_feedback_adds_expanded_sparse_list(self) -> None:
-        chunks = [
-            _make_chunk("alpha rareterm citation clue", "seed.md", 0),
-            _make_chunk("rareterm answer", "target.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-        hybrid = HybridRetriever(index, pseudo_feedback=True)
-        hybrid._embedding = None
-
-        sparse = MagicMock()
-
-        def fake_sparse_retrieve(query: str, top_k: int = 5) -> list[ScoredChunk]:
-            del top_k
-            if "rareterm" in query and query != "alpha":
-                return [ScoredChunk(chunk=chunks[1], score=2.0)]
-            return [ScoredChunk(chunk=chunks[0], score=1.0)]
-
-        sparse.retrieve.side_effect = fake_sparse_retrieve
-        hybrid._sparse = sparse
-
-        results = hybrid.retrieve("alpha", top_k=2)
-
-        assert {result.chunk.source for result in results} == {"seed.md", "target.md"}
-        assert sparse.retrieve.call_count == 2
-        feedback_query = sparse.retrieve.call_args_list[1].args[0]
-        assert feedback_query.startswith("alpha ")
-        assert "rareterm" in feedback_query
-
-    def test_pseudo_feedback_prefers_distinctive_terms_over_repeated_boilerplate(
-        self,
-    ) -> None:
-        chunks = [
-            _make_chunk(
-                "alpha common common common raretarget raretarget",
-                "seed.md",
-                0,
-            ),
-            _make_chunk("common filler", "common-a.md", 0),
-            _make_chunk("common another", "common-b.md", 0),
-            _make_chunk("common third", "common-c.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-        hybrid = HybridRetriever(index, pseudo_feedback=True, pseudo_feedback_terms=1)
-
-        feedback_query = hybrid._feedback_query(
-            "alpha",
-            [ScoredChunk(chunk=chunks[0], score=1.0)],
-        )
-
-        assert feedback_query == "alpha raretarget"
-
-    def test_empty_results_from_both(self) -> None:
-        chunks = [_make_chunk("unrelated", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = []
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index)
-            # Query has zero TF-IDF overlap, embeddings also return nothing
-            results = hybrid.retrieve("zzzzzzzz quantum xyz")
-            assert results == []
-
-    def test_respects_top_k(self) -> None:
-        chunks = [_make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10) for i in range(10)
-        ]
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index)
-            results = hybrid.retrieve("doc", top_k=3)
-            assert len(results) <= 3
-
-
 # ---------------------------------------------------------------------------
 # Cross-encoder re-ranker (mocked - no real model download)
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.skip(reason="cross-encoder reranking was removed")
-class TestCrossEncoderReranker:
-    def _make_reranker_with_mock(
-        self,
-        predict_scores: list[float],
-    ) -> CrossEncoderReranker:
-        """Create a CrossEncoderReranker with a mocked CrossEncoder model."""
-        reranker = CrossEncoderReranker()
-        mock_model = MagicMock()
-        mock_model.predict.return_value = predict_scores
-        reranker._model = mock_model
-        return reranker
-
-    def test_empty_candidates(self) -> None:
-        reranker = self._make_reranker_with_mock([])
-        results = reranker.rerank("test", [])
-        assert results == []
-
-    def test_rerank_rescores_and_sorts(self) -> None:
-        """Cross-encoder scores replace original scores; results sorted desc."""
-        c_a = _make_chunk("Python programming language", "a.md", 0)
-        c_b = _make_chunk("Cooking recipes", "b.md", 0)
-        c_c = _make_chunk("Rust systems programming", "c.md", 0)
-
-        candidates = [
-            ScoredChunk(chunk=c_a, score=0.9),  # was top by TF-IDF
-            ScoredChunk(chunk=c_b, score=0.5),
-            ScoredChunk(chunk=c_c, score=0.3),
-        ]
-
-        # Cross-encoder says: c (Rust) is most relevant, then a, then b
-        reranker = self._make_reranker_with_mock([0.6, 0.1, 0.95])
-
-        results = reranker.rerank("systems programming language", candidates, top_k=3)
-        assert len(results) == 3
-        # New ordering: c (0.95) > a (0.6) > b (0.1)
-        assert results[0].chunk.source == "c.md"
-        assert results[0].score == pytest.approx(1.0)
-        assert results[1].chunk.source == "a.md"
-        assert results[2].chunk.source == "b.md"
-        assert results[0].score > results[1].score > results[2].score
-
-    def test_rerank_respects_top_k(self) -> None:
-        c_a = _make_chunk("doc a", "a.md", 0)
-        c_b = _make_chunk("doc b", "b.md", 0)
-        c_c = _make_chunk("doc c", "c.md", 0)
-        c_d = _make_chunk("doc d", "d.md", 0)
-
-        candidates = [
-            ScoredChunk(chunk=c_a, score=0.9),
-            ScoredChunk(chunk=c_b, score=0.7),
-            ScoredChunk(chunk=c_c, score=0.5),
-            ScoredChunk(chunk=c_d, score=0.3),
-        ]
-
-        reranker = self._make_reranker_with_mock([0.4, 0.8, 0.6, 0.2])
-        results = reranker.rerank("test", candidates, top_k=2)
-        assert len(results) == 2
-        assert results[0].chunk.source == "b.md"
-        assert results[1].chunk.source == "c.md"
-
-    def test_scores_are_normalized_cross_encoder_scores(self) -> None:
-        """Original retrieval scores are replaced by normalized cross-encoder scores."""
-        c_a = _make_chunk("hello", "a.md", 0)
-        candidates = [ScoredChunk(chunk=c_a, score=0.1)]
-
-        reranker = self._make_reranker_with_mock([0.99])
-        results = reranker.rerank("test", candidates, top_k=5)
-        assert results[0].score == pytest.approx(1.0)
-
-    def test_negative_model_scores_are_normalized_relative_to_best(self) -> None:
-        c_a = _make_chunk("most relevant", "a.md", 0)
-        c_b = _make_chunk("less relevant", "b.md", 0)
-        candidates = [
-            ScoredChunk(chunk=c_a, score=0.9),
-            ScoredChunk(chunk=c_b, score=0.8),
-        ]
-
-        reranker = self._make_reranker_with_mock([-8.0, -9.0])
-        results = reranker.rerank("test", candidates, top_k=2)
-
-        assert [result.chunk.source for result in results] == ["a.md", "b.md"]
-        assert results[0].score == pytest.approx(1.0)
-        assert 0.0 < results[1].score < results[0].score
-
-    def test_model_name_default(self) -> None:
-        reranker = CrossEncoderReranker()
-        assert reranker.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
-
-    def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HARNESS_RERANK_MODEL", "my-custom-reranker")
-        reranker = CrossEncoderReranker()
-        assert reranker.model_name == "my-custom-reranker"
-
-    def test_model_name_from_constructor(self) -> None:
-        reranker = CrossEncoderReranker(model_name="other-model")
-        assert reranker.model_name == "other-model"
-
-    def test_model_lazy_loaded(self) -> None:
-        """Model is not loaded at construction time."""
-        reranker = CrossEncoderReranker()
-        assert reranker._model is None
-
-    def test_model_cached_after_first_use(self) -> None:
-        reranker = CrossEncoderReranker()
-        mock_model = MagicMock()
-        mock_model.predict.return_value = [0.5]
-        reranker._model = mock_model
-
-        c_a = _make_chunk("hello", "a.md", 0)
-        candidates = [ScoredChunk(chunk=c_a, score=0.1)]
-
-        reranker.rerank("test", candidates)
-        reranker.rerank("test", candidates)
-        # predict called twice (once per rerank call), but model was set once
-        assert mock_model.predict.call_count == 2
-
-    def test_predict_receives_query_text_pairs(self) -> None:
-        """Cross-encoder receives (query, chunk_text) pairs."""
-        reranker = CrossEncoderReranker()
-        mock_model = MagicMock()
-        mock_model.predict.return_value = [0.5, 0.3]
-        reranker._model = mock_model
-
-        c_a = _make_chunk("Python code", "a.md", 0)
-        c_b = _make_chunk("Rust code", "b.md", 0)
-        candidates = [
-            ScoredChunk(chunk=c_a, score=0.9),
-            ScoredChunk(chunk=c_b, score=0.5),
-        ]
-
-        reranker.rerank("programming", candidates)
-        call_args = mock_model.predict.call_args[0][0]
-        assert call_args == [
-            ("programming", "Python code\na.md"),
-            ("programming", "Rust code\nb.md"),
-        ]
 
 
 # ---------------------------------------------------------------------------
@@ -1506,454 +792,14 @@ class TestCrossEncoderReranker:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="cross-encoder reranking was removed")
-class TestHybridRetrieverWithReranker:
-    def test_reranker_applied_after_rrf_fusion(self) -> None:
-        """Full pipeline: TF-IDF + embeddings → RRF → cross-encoder re-rank."""
-        chunks = [
-            _make_chunk("Python programming", "a.md", 0),
-            _make_chunk("Rust systems", "b.md", 0),
-            _make_chunk("Cooking recipes", "c.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        # Mock embedding retriever
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.9),
-            ScoredChunk(chunk=chunks[1], score=0.5),
-        ]
-
-        # Mock cross-encoder reranker - flip the order
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.side_effect = lambda _query, _candidates, top_k=5: [
-            ScoredChunk(chunk=chunks[1], score=0.99),
-            ScoredChunk(chunk=chunks[0], score=0.7),
-        ][:top_k]
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index, reranker=mock_reranker)
-            results = hybrid.retrieve("programming", top_k=3)
-
-            # Reranker was called with the fused candidates
-            mock_reranker.rerank.assert_called_once()
-            call_args = mock_reranker.rerank.call_args
-            assert call_args[0][0] == "programming"  # query
-            assert call_args[1]["top_k"] == 3
-
-            # Results reflect reranker's ordering
-            assert results[0].chunk.source == "b.md"
-            assert results[0].score == 0.99
-            assert results[1].chunk.source == "a.md"
-            assert results[1].score == 0.7
-
-    def test_reranker_not_called_when_no_results(self) -> None:
-        """If retrieval returns nothing, reranker is not invoked."""
-        chunks = [_make_chunk("unrelated", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(index, reranker=mock_reranker)
-            results = hybrid.retrieve("zzzzzzz quantum xyz")
-            assert results == []
-            mock_reranker.rerank.assert_not_called()
-
-    def test_tfidf_only_with_reranker(self) -> None:
-        """When no embeddings, TF-IDF over-fetches so reranker has a pool."""
-        chunks = [
-            _make_chunk("Python programming language", "a.md", 0),
-            _make_chunk("Python scripting automation", "b.md", 0),
-            _make_chunk("Cooking with Python beans", "c.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.return_value = [
-            ScoredChunk(chunk=chunks[1], score=0.95),
-            ScoredChunk(chunk=chunks[0], score=0.8),
-        ]
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(index, reranker=mock_reranker)
-            results = hybrid.retrieve("python scripting", top_k=2)
-
-            # Reranker was called with over-fetched pool
-            mock_reranker.rerank.assert_called_once()
-            call_args = mock_reranker.rerank.call_args
-            # The pool should have > top_k candidates
-            candidates_arg = call_args[0][1]
-            assert len(candidates_arg) > 2  # over-fetched
-            assert call_args[1]["top_k"] == 2
-
-            assert len(results) == 2
-            assert results[0].chunk.source == "b.md"
-
-    def test_tfidf_only_without_reranker_same_behavior(self) -> None:
-        """Without reranker, TF-IDF-only path behaves as before."""
-        chunks = [
-            _make_chunk("Python is a programming language.", "py.md", 0),
-            _make_chunk("Rust is a systems language.", "rs.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(index)
-            results = hybrid.retrieve("python programming")
-            assert len(results) > 0
-            assert results[0].chunk.source == "py.md"
-
-    def test_reranker_over_fetch_respects_top_k(self) -> None:
-        """Reranker receives full candidate pool but returns exactly top_k."""
-        chunks = [_make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10) for i in range(10)
-        ]
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(i) / 10) for i in range(3)
-        ]
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index, reranker=mock_reranker)
-            results = hybrid.retrieve("doc", top_k=3)
-            assert len(results) == 3
-
-
 # ---------------------------------------------------------------------------
 # Auto-selection factory
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason="dense/reranker construction was removed; explicit failure is tested below"
-)
-class TestCreateRetriever:
-    def test_returns_tfidf_when_no_embeddings(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            r = _create_retriever(index)
-            assert isinstance(r, Bm25Retriever | TfidfRetriever)
-
-    def test_returns_hybrid_when_embeddings_available(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=True,
-        ):
-            r = _create_retriever(index)
-            assert isinstance(r, HybridRetriever)
-            assert r.has_embeddings
-
-    def test_hybrid_prf_mode_enables_pseudo_feedback(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=True,
-        ):
-            r = _create_retriever(index, retrieval_mode=RetrievalMode.HYBRID_PRF)
-            assert isinstance(r, HybridRetriever)
-            assert r._pseudo_feedback is True
-
-    def test_hybrid_prf_can_run_sparse_only(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=True,
-        ):
-            r = _create_retriever(
-                index,
-                retrieval_mode=RetrievalMode.HYBRID_PRF,
-                hybrid_dense_weight=0.0,
-            )
-            assert isinstance(r, HybridRetriever)
-            assert r._pseudo_feedback is True
-            assert r.has_embeddings is False
-
-    def test_returns_document_bm25_for_document_mode(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello world", "doc.md", 0)])
-        retrieve_module = import_module("harness.rag.optional_backends")
-        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
-
-        r = _create_retriever(index, retrieval_mode=RetrievalMode.BM25_DOCUMENT)
-
-        assert isinstance(r, DocumentBm25Retriever)
-
-    def test_reranker_creation_failure_still_returns_hybrid(self) -> None:
-        """If CrossEncoderReranker fails, hybrid still works without it."""
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.retrieve.CrossEncoderReranker",
-                side_effect=ImportError("no cross-encoder"),
-            ),
-        ):
-            r = _create_retriever(index)
-            assert isinstance(r, HybridRetriever)
-            assert r.has_embeddings
-
-    def test_falls_back_to_tfidf_if_hybrid_init_fails(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                side_effect=ImportError("nope"),
-            ),
-        ):
-            r = _create_retriever(index)
-            assert isinstance(r, Bm25Retriever | TfidfRetriever)
-
-
 # ---------------------------------------------------------------------------
 # Convenience function
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.skip(reason="dense/reranker convenience paths were removed")
-class TestRetrieveConvenience:
-    def test_works_with_tfidf_fallback(self) -> None:
-        chunks = [
-            _make_chunk("Binary search runs in O(log n) time.", "algo.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve("binary search algorithm", index)
-            assert len(results) > 0
-            assert isinstance(results[0], ScoredChunk)
-
-    def test_works_with_hybrid(self) -> None:
-        chunks = [
-            _make_chunk("Binary search runs in O(log n) time.", "algo.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.95),
-        ]
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.99),
-        ]
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-            patch(
-                "harness.rag.retrieve.CrossEncoderReranker",
-                return_value=mock_reranker,
-            ),
-        ):
-            results = retrieve("binary search", index)
-            assert len(results) > 0
-
-    def test_hybrid_negative_rerank_scores_survive_min_score_filter(self) -> None:
-        chunks = [
-            _make_chunk("Binary search runs in O(log n) time.", "algo.md", 0),
-            _make_chunk("Cooking notes for soups.", "cook.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.95),
-            ScoredChunk(chunk=chunks[1], score=0.2),
-        ]
-        reranker = CrossEncoderReranker()
-        mock_model = MagicMock()
-        mock_model.predict.return_value = [-8.0, -9.0]
-        reranker._model = mock_model
-
-        with (
-            patch(
-                "harness.rag.optional_backends.sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.retrieve._is_sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.hybrid.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-            patch(
-                "harness.rag.retrieve.CrossEncoderReranker",
-                return_value=reranker,
-            ),
-        ):
-            results = retrieve("binary search", index, min_score=0.1)
-
-        assert results
-        assert results[0].chunk.source == "algo.md"
-        assert results[0].score == pytest.approx(1.0)
-
-    def test_overfetches_before_precision_adjustments(self) -> None:
-        chunks = [
-            _make_chunk("This is not the standard method.", "negative.md", 0),
-            _make_chunk("This is the standard method.", "positive.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        class _OrderedRetriever:
-            def __init__(self) -> None:
-                self.calls: list[int] = []
-
-            def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-                del query
-                self.calls.append(top_k)
-                return [
-                    ScoredChunk(chunk=chunks[0], score=0.9),
-                    ScoredChunk(chunk=chunks[1], score=0.8),
-                ][:top_k]
-
-        ordered_retriever = _OrderedRetriever()
-
-        def fake_create_retriever(*_args: object, **_kwargs: object) -> _OrderedRetriever:
-            return ordered_retriever
-
-        with patch(
-            "harness.rag.retrieve._create_retriever",
-            side_effect=fake_create_retriever,
-        ):
-            results = retrieve("Which method is standard?", index, top_k=1)
-
-        assert ordered_retriever.calls == [2]
-        assert [result.chunk.source for result in results] == ["positive.md"]
-
-    def test_caches_retrievers_per_transform_configuration(self) -> None:
-        index = _make_index_with_chunks([_make_chunk("Binary search runs in O(log n) time.")])
-        transformed_queries: list[list[str]] = []
-
-        class _StubTransformer:
-            def __init__(self, label: str) -> None:
-                self._label = label
-
-            def transform(self, query: str) -> list[str]:
-                return [f"{self._label}:{query}"]
-
-        class _StubRetriever:
-            def __init__(self, transformer: object | None) -> None:
-                self._transformer = transformer
-
-            def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-                del top_k
-                if self._transformer is None:
-                    transformed_queries.append([query])
-                else:
-                    transformer = self._transformer
-                    transformed_queries.append(transformer.transform(query))  # ty:ignore[unresolved-attribute]
-                return [ScoredChunk(chunk=index.all_chunks[0], score=1.0)]
-
-        def prompt_fn(prompt: str) -> str:
-            return prompt
-
-        def fake_create_retriever(
-            armory_index: ArmoryIndex,
-            embed_model: str | None = None,
-            embed_query_prefix: str = "",
-            embed_document_prefix: str = "",
-            rerank_model: str | None = None,
-            query_transformer: object | None = None,
-            retrieval_mode: object | None = None,
-            candidate_multiplier: int = 3,
-            hybrid_sparse_weight: float = 1.0,
-            hybrid_dense_weight: float = 1.0,
-            pseudo_feedback_docs: int = 3,
-            pseudo_feedback_terms: int = 6,
-            pseudo_feedback_weight: float = 0.2,
-        ) -> _StubRetriever:
-            del (
-                armory_index,
-                embed_model,
-                embed_query_prefix,
-                embed_document_prefix,
-                rerank_model,
-                retrieval_mode,
-                candidate_multiplier,
-                hybrid_sparse_weight,
-                hybrid_dense_weight,
-                pseudo_feedback_docs,
-                pseudo_feedback_terms,
-                pseudo_feedback_weight,
-            )
-            return _StubRetriever(query_transformer)
-
-        with (
-            patch(
-                "harness.rag.retrieve.create_transformer",
-                return_value=_StubTransformer("hyde"),
-            ),
-            patch(
-                "harness.rag.retrieve._create_retriever",
-                side_effect=fake_create_retriever,
-            ) as mock_create_retriever,
-        ):
-            retrieve("binary search", index)
-            retrieve(
-                "binary search",
-                index,
-                transform_strategy=TransformStrategy.HYDE,
-                prompt_fn=prompt_fn,
-            )
-
-        assert transformed_queries == [["binary search"], ["hyde:binary search"]]
-        assert mock_create_retriever.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1968,66 +814,46 @@ class TestMinScoreThreshold:
             _make_chunk("Cooking recipes for beginners.", "cook.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            # TF-IDF: "python" only matches the first chunk, second scores 0
-            all_results = retrieve("python", index, min_score=0.0)
-            assert len(all_results) == 1  # only py.md matches at all
-            # Now use a threshold that filters it
-            high_threshold = retrieve("python", index, min_score=1.0)
-            assert high_threshold == []
+        # TF-IDF: "python" only matches the first chunk, second scores 0
+        all_results = retrieve("python", index, min_score=0.0)
+        assert len(all_results) == 1  # only py.md matches at all
+        # Now use a threshold that filters it
+        high_threshold = retrieve("python", index, min_score=1.0)
+        assert high_threshold == []
 
     def test_all_below_threshold_returns_empty(self) -> None:
         chunks = [
             _make_chunk("Cooking recipes.", "cook.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            # "quantum" shares no tokens with "cooking" - scores will be ~0
-            results = retrieve("quantum physics", index, min_score=0.5)
-            assert results == []
+        # "quantum" shares no tokens with "cooking" - scores will be ~0
+        results = retrieve("quantum physics", index, min_score=0.5)
+        assert results == []
 
     def test_zero_threshold_is_no_op(self) -> None:
         chunks = [
             _make_chunk("Python programming.", "py.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve("python", index, min_score=0.0)
-            assert len(results) > 0
+        results = retrieve("python", index, min_score=0.0)
+        assert len(results) > 0
 
     def test_default_threshold_is_zero(self) -> None:
         chunks = [
             _make_chunk("Python programming.", "py.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            # Default min_score=0.0 - all results returned
-            results = retrieve("python", index)
-            assert len(results) > 0
+        # Default min_score=0.0 - all results returned
+        results = retrieve("python", index)
+        assert len(results) > 0
 
     def test_threshold_keeps_exact_match(self) -> None:
         chunks = [
             _make_chunk("Python programming language.", "py.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve("python programming", index, min_score=0.05)
-            assert len(results) > 0
+        results = retrieve("python programming", index, min_score=0.05)
+        assert len(results) > 0
 
     def test_source_path_match_can_rescue_material_named_query(self) -> None:
         chunks = [
@@ -2043,11 +869,7 @@ class TestMinScoreThreshold:
             ),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve("digital systems project how-to", index, min_score=0.1)
+        results = retrieve("digital systems project how-to", index, min_score=0.1)
 
         assert results
         assert results[0].chunk.source == "materials/mit-ocw-digital-systems-project-howto.pdf"
@@ -2066,16 +888,12 @@ class TestMinScoreThreshold:
             ),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve(
-                'Which material titled "2.5 Local Search | Introduction to Artificial '
-                'Intelligence" covers constraint satisfaction?',
-                index,
-                top_k=2,
-            )
+        results = retrieve(
+            'Which material titled "2.5 Local Search | Introduction to Artificial '
+            'Intelligence" covers constraint satisfaction?',
+            index,
+            top_k=2,
+        )
 
         assert results[0].chunk.source.endswith("csp/local-search.html")
 
@@ -2093,15 +911,11 @@ class TestMinScoreThreshold:
             ),
         ]
         index = _make_index_with_chunks(chunks)
-        with patch(
-            "harness.rag.optional_backends.sentence_transformers_available",
-            return_value=False,
-        ):
-            results = retrieve(
-                'Which material titled "CS231n Deep Learning for Computer Vision" '
-                'at source section "stanford-cs231n/neural-networks-1" covers computer vision?',
-                index,
-                top_k=2,
-            )
+        results = retrieve(
+            'Which material titled "CS231n Deep Learning for Computer Vision" '
+            'at source section "stanford-cs231n/neural-networks-1" covers computer vision?',
+            index,
+            top_k=2,
+        )
 
         assert results[0].chunk.source.endswith("neural-networks-1/index.html")
