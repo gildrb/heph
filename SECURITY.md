@@ -39,5 +39,11 @@ Heph is designed with security and privacy in mind:
 
 ## Dependency Security
 
+The default dependency profile is deliberately minimal. Heavy ML and document
+backends are opt-in extras because they add substantial native code, model
+assets, and transitive dependencies that increase supply-chain attack surface.
+Install only the capability groups you need, such as `heph[documents]` or
+`heph[embeddings]`.
+
 Pre-commit runs `gitleaks` and Bandit. Dependency changes require reviewed
 `pyproject.toml`, `uv.lock`, and source-only sdist allowlist changes.

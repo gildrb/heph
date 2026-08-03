@@ -77,12 +77,10 @@ def test_readme_logo_is_repo_owned_svg_asset() -> None:
     assert 'src="assets/logo-auto.svg"' in root_text
     assert f'width="{sync_docs.README_LOGO_WIDTH}"' in root_text
     root_hero = (
-        '<p align="center">\n'
-        "  A local document agent for accurate, cited answers from your files.\n"
-        "</p>"
+        '<p align="center">\n  Local agent for accurate, cited answers from your files\n</p>'
     )
     assert root_hero in root_text
-    hero_text = "A local document agent for accurate, cited answers from your files."
+    hero_text = "Local agent for accurate, cited answers from your files"
     assert root_text.index('src="assets/logo-auto.svg"') < root_text.index(hero_text)
     assert root_text.index(hero_text) < root_text.index('src="assets/app-screenshot.png')
     screenshot_cache_key = sync_docs._asset_cache_key(sync_docs.README_SCREENSHOT_PATH)

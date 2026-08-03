@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  A local document agent for accurate, cited answers from your files.
+  Local agent for accurate, cited answers from your files
 </p>
 
 <p align="center">
@@ -85,6 +85,22 @@ uv tool install heph@latest
 ```bash
 pip install heph
 ```
+
+The default install is intentionally lean. The following measurements are total
+Linux virtualenv sizes (including workspace packages), not deltas. OCR model
+downloads are not included.
+
+| Profile | Adds | Total installed Linux profile | Without it |
+| --- | --- | --- | --- |
+| default | Lean fallbacks | 41 distributions / 38.7 MiB | — |
+| `search` | Accelerated BM25 | 43 distributions / 93.8 MiB | stdlib BM25 |
+| `embeddings` | Embeddings, chunking, reranking | 87 distributions / 4.7 GiB | stdlib TF-IDF |
+| `documents` | Docling extraction | 142 distributions / 5.0 GiB | text and `pdftotext` PDFs |
+| `all` | All optional backends | 147 distributions / 5.1 GiB | lean fallbacks |
+
+Install an extra with, for example, `pip install 'heph[documents]'`. The
+`documents` profile also supports OCR and downloads OCR models on first use;
+those model files are not included in the size measurements.
 
 ### Updating
 

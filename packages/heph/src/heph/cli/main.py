@@ -102,6 +102,7 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
             "indexed": "Indexed",
             "skipped": "Skipped",
             "writing": "Writing",
+            "warning": "Warning",
         }
         print(f"{labels.get(action, action.title())}: {detail}")
 
@@ -111,7 +112,16 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 def _cmd_health(args: argparse.Namespace) -> None:
     rag_health = importlib.import_module("harness.rag.health")
+    optional_backends = importlib.import_module("harness.rag.optional_backends")
     armory_path = _validated_armory_path(args.path)
+
+    print("Capabilities:")
+    for capability in optional_backends.capabilities():
+        status = "available" if capability.available else "unavailable"
+        print(f"- {capability.name}: {status} ({capability.enables})")
+        if not capability.available:
+            print(f"  Install: {capability.install_command}")
+            print(f"  Without it: {capability.fallback}")
 
     report = rag_health.scan_extraction_health(armory_path)
     print(f"Extraction health: {report.documents} indexed document(s)")

@@ -1,9 +1,10 @@
-"""Optional dependency adapters for RAG retrieval backends."""
+"""Optional dependency adapters and capability reporting for RAG backends."""
 
 from __future__ import annotations
 
 import importlib
 import importlib.util
+from dataclasses import dataclass
 from typing import Protocol, cast
 
 
@@ -80,6 +81,49 @@ SKLEARN_TFIDF_VECTORIZER: SklearnVectorizerFactory | None | object = _UNSET
 CROSS_ENCODER: CrossEncoderFactory | None | object = _UNSET
 SENTENCE_TRANSFORMER: SentenceTransformerFactory | None | object = _UNSET
 BM25_CLASS: Bm25Factory | None | object = _UNSET
+
+
+@dataclass(frozen=True, slots=True)
+class BackendCapability:
+    name: str
+    available: bool
+    enables: str
+    fallback: str
+    install_command: str
+
+
+def capabilities() -> tuple[BackendCapability, ...]:
+    """Return the optional RAG capabilities and their current availability."""
+    return (
+        BackendCapability(
+            name="search",
+            available=_module_available("bm25s"),
+            enables="accelerated BM25 search",
+            fallback="stdlib BM25 remains available",
+            install_command="pip install 'heph[search]'",
+        ),
+        BackendCapability(
+            name="embeddings",
+            available=_module_available("sklearn") and _module_available("sentence_transformers"),
+            enables="dense embeddings, semantic chunking, and reranking",
+            fallback="stdlib TF-IDF and fixed-window chunking remain available",
+            install_command="pip install 'heph[embeddings]'",
+        ),
+        BackendCapability(
+            name="documents",
+            available=_module_available("docling"),
+            enables="Office and document extraction through Docling",
+            fallback="text files and PDFs with pdftotext remain available",
+            install_command="pip install 'heph[documents]'",
+        ),
+    )
+
+
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
 
 
 def sklearn_tfidf_vectorizer() -> SklearnVectorizerFactory | None:

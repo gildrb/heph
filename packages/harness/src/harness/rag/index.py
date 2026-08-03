@@ -28,8 +28,11 @@ from harness.rag.chunker import (
     ChunkedDocument,
     ChunkStrategy,
     _can_convert_binary_file,
-    _is_docling_available,  # noqa: F401 - compatibility monkeypatch surface
+    _is_docling_available,
     _is_docling_file,
+    _is_pdf_file,
+    _is_pdf_ocr_available,
+    _is_pdftotext_available,
     _is_text_file,
     _normalize_extracted_text,
     _read_normalized_text_file,
@@ -588,6 +591,7 @@ class ArmoryIndex:
         with timer:
             for file_path in self._iter_source_files():
                 rebuilt += self._index_source_file(file_path, progress=progress)
+        _report_missing_document_backend(self.unindexable_files, progress)
         _log.info(
             "index built",
             extra={
@@ -633,6 +637,7 @@ class ArmoryIndex:
                     content_hash=content_hash,
                     progress=progress,
                 )
+        _report_missing_document_backend(self.unindexable_files, progress)
         _log.info(
             "index built incrementally",
             extra={
@@ -1082,6 +1087,27 @@ def _record_unindexable_source(
         )
     unindexable_files[rel] = reason
     _report_index_progress(progress, "skipped", f"{rel}: {reason}")
+
+
+def _report_missing_document_backend(
+    unindexable_files: Mapping[str, str],
+    progress: IndexProgress | None,
+) -> None:
+    if _is_docling_available():
+        return
+    if not any(
+        _is_docling_file(Path(path))
+        and (
+            not _is_pdf_file(Path(path))
+            or not (_is_pdftotext_available() or _is_pdf_ocr_available())
+        )
+        for path in unindexable_files
+    ):
+        return
+    message = "Document files were skipped; install with pip install 'heph[documents]'"
+    _log.warning(message)
+    if progress is not None:
+        progress("warning", message)
 
 
 def _read_normalized_source_text(path: Path, *, root: Path | None = None) -> str | None:

@@ -196,7 +196,11 @@ def stage_release_project(build_root: Path) -> Path:
     shutil.copy2(ROOT / "LICENSE", project_dir / "LICENSE")
     shutil.copy2(ROOT / "packages" / "heph" / "README.md", project_dir / "README.md")
     (project_dir / "pyproject.toml").write_text(
-        render_release_project(project, release_dependencies()),
+        render_release_project(
+            project,
+            release_dependencies(),
+            release_optional_dependencies(),
+        ),
         encoding="utf-8",
     )
     return project_dir
@@ -205,6 +209,7 @@ def stage_release_project(build_root: Path) -> Path:
 def render_release_project(
     project: Mapping[str, object],
     dependencies: Sequence[str],
+    optional_dependencies: Mapping[str, Sequence[str]] | None = None,
 ) -> str:
     lines = [
         "[project]",
@@ -219,28 +224,39 @@ def render_release_project(
         render_string_array("classifiers", string_sequence_field(project, "classifiers")),
         render_string_array("dependencies", dependencies),
         "",
-        "[project.urls]",
-        render_string_table(table_field(project, "urls")),
-        "",
-        "[project.scripts]",
-        render_string_table(table_field(project, "scripts")),
-        "",
-        "[build-system]",
-        'requires = ["setuptools==81.0.0"]',
-        'build-backend = "setuptools.build_meta"',
-        "",
-        "[tool.setuptools]",
-        'package-dir = {"" = "src"}',
-        "include-package-data = true",
-        "",
-        "[tool.setuptools.packages.find]",
-        'where = ["src"]',
-        'include = ["ai*", "extensions*", "heph*", "harness*", "interfaces*"]',
-        "",
-        "[tool.setuptools.package-data]",
-        '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',
-        "",
     ]
+    if optional_dependencies:
+        lines.extend(["[project.optional-dependencies]"])
+        lines.extend(
+            render_string_array(name, requirements)
+            for name, requirements in optional_dependencies.items()
+        )
+        lines.append("")
+    lines.extend(
+        [
+            "[project.urls]",
+            render_string_table(table_field(project, "urls")),
+            "",
+            "[project.scripts]",
+            render_string_table(table_field(project, "scripts")),
+            "",
+            "[build-system]",
+            'requires = ["setuptools==83.0.0"]',
+            'build-backend = "setuptools.build_meta"',
+            "",
+            "[tool.setuptools]",
+            'package-dir = {"" = "src"}',
+            "include-package-data = true",
+            "",
+            "[tool.setuptools.packages.find]",
+            'where = ["src"]',
+            'include = ["ai*", "extensions*", "heph*", "harness*", "interfaces*"]',
+            "",
+            "[tool.setuptools.package-data]",
+            '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -281,6 +297,21 @@ def project_dependencies(pyproject: Path) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{pyproject} [project].dependencies must be a string array")
     return tuple(value)
+
+
+def release_optional_dependencies() -> Mapping[str, tuple[str, ...]]:
+    harness = load_project_table(ROOT / "packages" / "harness" / "pyproject.toml")
+    value = harness.get("optional-dependencies")
+    if not isinstance(value, dict):
+        return {}
+    extras: dict[str, tuple[str, ...]] = {}
+    for name, requirements in value.items():
+        if not isinstance(name, str) or not isinstance(requirements, list):
+            raise TypeError("harness optional dependencies must be string arrays")
+        if not all(isinstance(item, str) for item in requirements):
+            raise ValueError(f"harness extra {name!r} must contain string requirements")
+        extras[name] = tuple(requirements)
+    return extras
 
 
 def requirement_name(dependency: str, *, source: Path) -> str:

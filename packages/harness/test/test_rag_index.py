@@ -1513,6 +1513,24 @@ class TestArmoryIndexUnindexable:
         assert "materials/doc.pdf" in index.unindexable_files
         assert "conversion backend unavailable" in index.unindexable_files["materials/doc.pdf"]
 
+    def test_missing_document_backend_emits_one_actionable_warning(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("harness.rag.index._can_convert_binary_file", lambda _path: False)
+        monkeypatch.setattr("harness.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("harness.rag.index._is_pdftotext_available", lambda: False)
+        (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
+        events: list[tuple[str, str]] = []
+
+        ArmoryIndex(armory).build(progress=lambda action, detail: events.append((action, detail)))
+
+        warnings = [detail for action, detail in events if action == "warning"]
+        assert warnings == [
+            "Document files were skipped; install with pip install 'heph[documents]'"
+        ]
+
     def test_text_files_not_in_unindexable(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         index.build()

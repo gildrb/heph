@@ -26,6 +26,12 @@ dependencies = [
     "harness==0.0.59",
 ]
 
+[project.optional-dependencies]
+search = ["harness[search]==0.0.59"]
+embeddings = ["harness[embeddings]==0.0.59"]
+documents = ["harness[documents]==0.0.59"]
+all = ["harness[all]==0.0.59"]
+
 [project.urls]
 Homepage = "https://github.com/gildrb/heph"
 Repository = "https://github.com/gildrb/heph"

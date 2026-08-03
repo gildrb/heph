@@ -12,6 +12,7 @@ from scripts.build_release_artifacts import (
     patched_release_config,
     release_build_config_from_env,
     release_dependencies,
+    release_optional_dependencies,
     render_release_config,
     stage_release_project,
 )
@@ -90,12 +91,19 @@ def test_release_dependencies_collapse_internal_workspace_packages() -> None:
     dependencies = release_dependencies()
 
     assert "certifi==2026.2.25" in dependencies
-    assert "docling-slim[standard]==2.94.0" in dependencies
+    assert "docling-slim[standard]==2.94.0" not in dependencies
     assert all(not dependency.startswith("docling==") for dependency in dependencies)
     assert "rich==14.3.3" in dependencies
     assert dependencies.count("unicodeit==0.7.5") == 1
     assert all(not dependency.startswith("heph-") for dependency in dependencies)
     assert "harness==0.0.59" not in dependencies
+
+
+def test_release_project_preserves_optional_document_profiles() -> None:
+    extras = release_optional_dependencies()
+
+    assert set(extras) == {"search", "embeddings", "documents", "all"}
+    assert extras["documents"] == ("docling-slim[standard]==2.94.0",)
 
 
 def test_stage_release_project_builds_single_public_package(tmp_path) -> None:

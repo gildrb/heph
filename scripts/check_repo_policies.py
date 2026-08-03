@@ -338,8 +338,7 @@ PYTORCH_JIT_SCRIPT_TEST_ROOTS: Final[tuple[str, ...]] = (
     "tests/",
 )
 PYTORCH_JIT_SCRIPT_POLICY_MESSAGE: Final[str] = (
-    "direct `torch.jit.script` usage is forbidden while GHSA-rrmf-rvhw-rf47 is accepted; "
-    "use eager PyTorch APIs or re-review the vulnerability waiver"
+    "direct `torch.jit.script` usage is forbidden; use eager PyTorch APIs"
 )
 
 

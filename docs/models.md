@@ -9,6 +9,10 @@ receive the active question, system instructions, and selected retrieved chunks
 needed for the answer. Custom endpoints receive the same request shape at the
 endpoint you configure.
 
+Local llama.cpp does not require Python ML packages. Its verified server binary
+and model files are managed separately from the optional document and embedding
+extras.
+
 ## Supported Providers
 
 ### Pollinations AI

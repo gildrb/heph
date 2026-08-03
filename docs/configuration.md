@@ -185,8 +185,10 @@ open a copied or synced armory and rebuild what it needs.
 
 ### Retrieval Backends
 
-The standard install includes document extraction, BM25, TF-IDF, embedding
-retrieval, and reranking support.
+The default install is lean. It includes stdlib BM25 and TF-IDF fallbacks.
+Install `pip install 'heph[search]'` for accelerated BM25,
+`pip install 'heph[embeddings]'` for embeddings, semantic chunking, and
+reranking, or `pip install 'heph[documents]'` for Docling document extraction.
 
 ### Profiling
 

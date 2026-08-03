@@ -26,7 +26,9 @@ heph --version
 pip install heph
 ```
 
-The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files.
+The default install indexes Markdown, text, and code files. It can also extract
+text-layer PDFs when `pdftotext` is installed. Install
+`pip install 'heph[documents]'` for DOCX, PPTX, XLSX, and other Docling formats.
 
 ### Upgrade
 
