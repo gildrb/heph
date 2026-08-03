@@ -4,19 +4,28 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from ai.logging import get_logger
 
+from harness.rag.config import MAX_DENSE_QUERY_VARIANTS
 from harness.rag.index import ArmoryIndex
 from harness.rag.query_transform import (
     ModeSpecificQueryTransformerProtocol,
     QueryTransformerProtocol,
 )
-from harness.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
+from harness.rag.retrieval_types import (
+    EmbeddingRetrieverProtocol,
+    RerankerProtocol,
+    RetrieverProtocol,
+    ScoredChunk,
+)
 from harness.rag.scoring import reciprocal_rank_fusion, tokenize
 from harness.rag.sparse import Bm25Retriever, TfidfRetriever
 
 _log = get_logger("harness.rag.hybrid")
+if TYPE_CHECKING:
+    from ai.runtime import ChatConfig
 DEFAULT_PSEUDO_FEEDBACK_DOCS = 3
 DEFAULT_PSEUDO_FEEDBACK_TERMS = 6
 DEFAULT_PSEUDO_FEEDBACK_WEIGHT = 0.1
@@ -39,11 +48,14 @@ class HybridRetriever:
         pseudo_feedback_terms: int = DEFAULT_PSEUDO_FEEDBACK_TERMS,
         pseudo_feedback_weight: float = DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
         query_transformer: QueryTransformerProtocol | None = None,
+        embedding_config: ChatConfig | None = None,
     ) -> None:
         self._chunks = index.all_chunks
+        self._index = index
         bm25 = Bm25Retriever(index)
         self._sparse: RetrieverProtocol = bm25 if bm25.available else TfidfRetriever(index)
-        self._embedding = None
+        self._embedding: EmbeddingRetrieverProtocol | None = index.embedding_retriever
+        self._embedding_error: str | None = index.embedding_error
         self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
         self._sparse_weight = max(0.0, sparse_weight)
@@ -56,11 +68,15 @@ class HybridRetriever:
         self._feedback_tokens: dict[tuple[str, int], list[str]] = {}
         self._query_transformer = query_transformer
 
-        self._dense_weight = 0.0
+        self._dense_weight = self._dense_weight if self._embedding is not None else 0.0
 
     @property
     def has_embeddings(self) -> bool:
         return self._embedding is not None
+
+    @property
+    def embedding_warning(self) -> str | None:
+        return self._embedding_error
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         pool = top_k * self._candidate_multiplier
@@ -124,20 +140,28 @@ class HybridRetriever:
     def _retrieve_dense_query_set(self, queries: list[str], pool: int) -> list[ScoredChunk]:
         if self._embedding is None:
             return []
-        ranked: list[list[ScoredChunk]] = []
         try:
-            for query in queries:
-                results = self._embedding.retrieve(query, top_k=pool)
-                if results:
-                    ranked.append(results)
-        except Exception:
+            dense_queries = queries[:MAX_DENSE_QUERY_VARIANTS]
+            return self._retrieve_batched_dense(self._embedding, dense_queries, pool)
+        except Exception as exc:
+            self._embedding_error = (
+                f"Semantic retrieval unavailable; using lexical retrieval ({exc})."
+            )
+            self._index.embedding_error = self._embedding_error
+            _log.warning(self._embedding_error)
             self._embedding = None
             return []
+
+    @staticmethod
+    def _retrieve_batched_dense(
+        embedding: EmbeddingRetrieverProtocol,
+        queries: list[str],
+        pool: int,
+    ) -> list[ScoredChunk]:
+        ranked = [result for result in embedding.retrieve_many(queries, top_k=pool) if result]
         if not ranked:
             return []
-        if len(ranked) == 1:
-            return ranked[0]
-        return reciprocal_rank_fusion(ranked)
+        return ranked[0] if len(ranked) == 1 else reciprocal_rank_fusion(ranked)
 
     def _retrieve_query_set(self, queries: list[str], pool: int) -> list[ScoredChunk]:
         if len(queries) == 1:
@@ -168,7 +192,12 @@ class HybridRetriever:
             return []
         try:
             return self._embedding.retrieve(query, top_k=pool)
-        except Exception:
+        except Exception as exc:
+            self._embedding_error = (
+                f"Semantic retrieval unavailable; using lexical retrieval ({exc})."
+            )
+            self._index.embedding_error = self._embedding_error
+            _log.warning(self._embedding_error)
             self._embedding = None
             return []
 

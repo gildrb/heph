@@ -69,6 +69,7 @@ class ChatSession:
     last_turn_evidence: TurnEvidence | None = None
     last_plan_intent: str = ""
     last_turn_contract: TurnContract | None = None
+    retrieval_notice: str = ""
     turn_history: list[TurnSnapshot] = field(default_factory=list)
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)

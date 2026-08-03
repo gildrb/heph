@@ -12,6 +12,7 @@ from ai.runtime.conversation import Conversation, Message, to_chat_completion_me
 from ai.runtime.delta import CompletionDelta
 from ai.runtime.engine import (
     build_client,
+    build_embeddings_client,
     has_configured_access,
     missing_api_key_message,
     reset_provider_circuit_breaker,
@@ -58,6 +59,7 @@ __all__ = [
     "UsagePayload",
     "api_content_text",
     "build_client",
+    "build_embeddings_client",
     "has_configured_access",
     "is_keyless_endpoint",
     "is_network_error",

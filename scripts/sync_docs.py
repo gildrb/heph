@@ -17,6 +17,14 @@ from ai.providers.keyring_store import GLOBAL_API_KEY_ENV
 from harness.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from harness.memory.extract import EXTRACTION_MODEL_ENV
 from harness.parameters import cli as parameters_cli
+from harness.privacy.consent import (
+    ANALYTICS_ENABLED_ENV,
+    CRASH_REPORTS_ENABLED_ENV,
+    POSTHOG_HOST_ENV,
+    POSTHOG_TOKEN_ENV,
+    SENTRY_DSN_ENV,
+)
+from harness.rag.config import EMBED_MODEL_ENV
 from harness.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
 from heph.cli.main import build_parser
 from heph.commands import get_registry
@@ -241,6 +249,10 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HARNESS_LOG_FORMAT": "Choose `json` or `text` logging output.",
     "HARNESS_LOG_LEVEL": (
         "Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`)."
+    ),
+    "HARNESS_POSTHOG_HOST": "Supply a PostHog host for a custom or forked build.",
+    "HARNESS_POSTHOG_PROJECT_TOKEN": (
+        "Supply a PostHog project token for a custom or forked build."
     ),
     "HARNESS_RERANK_MODEL": "Override the reranker model when available.",
     "HARNESS_RTK_FALLBACK_ALLOWED": (
@@ -506,7 +518,6 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             EMBED_MODEL_ENV,
             EXTRACTION_MODEL_ENV,
             "HARNESS_PRIORITY_WEB_PREREQS",
-            RERANK_MODEL_ENV,
             "HARNESS_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,

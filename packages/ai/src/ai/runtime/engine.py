@@ -393,6 +393,19 @@ def build_client(config: ChatConfig) -> OpenAI:
     )
 
 
+def build_embeddings_client(config: ChatConfig) -> OpenAI:
+    """Build an OpenAI-compatible client for provider embeddings requests."""
+    from openai import OpenAI
+
+    if not config.base_url:
+        raise EngineError("No model source configured.", code=EngineErrorCode.MISSING_MODEL_SOURCE)
+    return OpenAI(
+        api_key=_api_key_for_config(config),
+        base_url=config.base_url,
+        timeout=_openai_compat_timeout_seconds(),
+    )
+
+
 def _positive_env_float(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
     if not raw:

@@ -63,6 +63,7 @@ from harness.rag import (
     retrieve,
 )
 from harness.rag.chunker import ChunkedDocument
+from harness.rag.config import configured_embedding_model
 from harness.rag.query_audit import (
     RetrievalAuditConfig,
     query_classification_payload,
@@ -273,8 +274,20 @@ def ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     if session.armory_path is None:
         return None
     if session.rag_index is None or session.rag_index.is_stale():
-        session.rag_index = load_or_build(session.armory_path)
+        session.rag_index = load_or_build(
+            session.armory_path,
+            embedding_config=session.config,
+            embed_model=configured_embedding_model(),
+            progress=lambda action, detail: _record_rag_progress(session, action, detail),
+        )
     return session.rag_index
+
+
+def _record_rag_progress(session: ChatSession, action: str, detail: str) -> None:
+    if action == "embedding_notice":
+        session.retrieval_notice = f"Semantic indexing: {detail}"
+    elif action == "embedding_warning":
+        session.retrieval_notice = f"Semantic retrieval unavailable: {detail}"
 
 
 def _enabled_scored_chunks(
@@ -308,6 +321,7 @@ def adaptive_rag_budget(session: ChatSession) -> int:
 
 
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
+    session.retrieval_notice = ""
     if session.armory_path is None:
         return None
     try:
@@ -318,6 +332,9 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
 
         with timer:
             result = _retrieve_query_scored_chunks(session, query, index)
+        warning = index.embedding_warning
+        if warning:
+            session.retrieval_notice = warning
         if not result.scored:
             _log_empty_query_retrieval(query, timer.ms)
             return None

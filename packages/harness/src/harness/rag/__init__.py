@@ -37,6 +37,7 @@ from harness.rag.query_transform import (
     transform_query,
 )
 from harness.rag.retrieval_types import (
+    EmbeddingRetrieverProtocol,
     EvidenceReference,
     RerankerProtocol,
     RetrieverProtocol,
@@ -69,6 +70,7 @@ __all__ = [
     "CrossEncoderReranker",
     "DocumentBm25Retriever",
     "EmbeddingRetriever",
+    "EmbeddingRetrieverProtocol",
     "EvidenceChunk",
     "EvidenceReference",
     "HyDETransformer",
