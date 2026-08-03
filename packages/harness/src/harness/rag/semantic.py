@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import heapq
 import json
 import math
 import operator
@@ -387,11 +388,16 @@ class EmbeddingRetriever:
         dimension: int,
     ) -> None:
         self._chunks = tuple(chunks)
-        self._vectors: dict[str, array[float]] = {
+        vectors_by_key = {
             key: vector
             for key, entry in entries.items()
             if (vector := _unpack_vector(entry.get("vector"))) is not None
         }
+        self._chunk_vectors: tuple[tuple[Chunk, array[float]], ...] = tuple(
+            (chunk, vectors_by_key[key])
+            for chunk in self._chunks
+            if (key := _chunk_key(chunk)) in vectors_by_key
+        )
         self._config = config
         self._model = model
         self._dimension = dimension
@@ -424,22 +430,14 @@ class EmbeddingRetriever:
         results: list[list[ScoredChunk]] = []
         for vector in vectors:
             scored = [
-                ScoredChunk(
-                    chunk=chunk,
-                    score=sum(
-                        operator.mul(a, b)
-                        for a, b in zip(
-                            vector,
-                            self._vectors[_chunk_key(chunk)],
-                            strict=True,
-                        )
-                    ),
+                (
+                    chunk,
+                    sum(map(operator.mul, vector, chunk_vector)),
                 )
-                for chunk in self._chunks
-                if _chunk_key(chunk) in self._vectors
+                for chunk, chunk_vector in self._chunk_vectors
             ]
-            scored.sort(key=lambda item: item.score, reverse=True)
-            results.append(scored[:top_k])
+            top_scored = heapq.nlargest(top_k, scored, key=lambda item: item[1])
+            results.append([ScoredChunk(chunk=chunk, score=score) for chunk, score in top_scored])
         return results
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
