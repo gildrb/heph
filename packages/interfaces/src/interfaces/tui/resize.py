@@ -438,6 +438,7 @@ class TuiResizeMixin:
         self._update_info_panel()
         self._reflow_transcript_entries()
         self.refresh(repaint=True, layout=True)
+        self._schedule_transcript_reflow()
         self._schedule_resize_refresh()
 
     def _finish_resize_refresh(self: _ResizeHost) -> None:
@@ -463,6 +464,7 @@ class TuiResizeMixin:
         self._reflow_transcript_entries()
         self._restore_focus_after_resize()
         self.refresh(repaint=True, layout=True)
+        self._schedule_transcript_reflow()
 
     def _schedule_resize_refresh(self: _ResizeHost) -> None:
         should_start_timer = self._resize_redraw.schedule_trailing_refresh(
