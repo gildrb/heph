@@ -18,7 +18,6 @@ from harness.chat.session import (
     session_has_messages,
 )
 from harness.chat.usage import load_usage_summaries
-from harness.diagnostics.events import capture as capture_analytics
 from harness.documents.schedule import load_recall_schedule
 from harness.documents.state import RecallFeedbackType
 from harness.vocab.parser import scan_armory
@@ -220,13 +219,6 @@ def _create_new_chat(session: ChatSession) -> ChatSession | None:
     except SessionError as exc:
         print_error(str(exc))
         return None
-    capture_analytics(
-        "session_new",
-        {
-            "mode": "armory" if new_session.armory_path is not None else "plain",
-            "model": new_session.config.model,
-        },
-    )
     print_success("New chat started.")
     return new_session
 
@@ -237,7 +229,6 @@ def _detach_armory(session: ChatSession) -> ChatSession | None:
         return None
     _autosave_before_new_chat(session)
     new_session = create_plain_session(session.config)
-    capture_analytics("armory_detached", {"model": new_session.config.model})
     print_success("Armory detached.")
     return new_session
 

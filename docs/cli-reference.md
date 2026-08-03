@@ -99,10 +99,8 @@ and Evidence `ctrl+g`.
 |---|---|
 | `CUSTOM_API_KEY` | API key for the custom provider entry. |
 | `DEEPSEEK_API_KEY` | API key for the DeepSeek API provider. |
-| `HARNESS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
 | `HARNESS_API_KEY` | Global API key override that applies to any provider. |
 | `HARNESS_BASE_URL` | Override the active API base URL. |
-| `HARNESS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
 | `HARNESS_EMBED_MODEL` | Override the embedding model used by retrieval. |
 | `HARNESS_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
 | `HARNESS_FEATURE_FLAGS` | Comma-separated feature flags. |
@@ -111,13 +109,10 @@ and Evidence `ctrl+g`.
 | `HARNESS_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `HARNESS_MAX_TOKENS` | Set the max output tokens per response. |
 | `HARNESS_MODEL` | Override the active model. |
-| `HARNESS_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
-| `HARNESS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
 | `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports. |
 | `HARNESS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
 | `HARNESS_RERANK_MODEL` | Override the reranker model when available. |
 | `HARNESS_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |
-| `HARNESS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
 | `HARNESS_TEMPERATURE` | Override the generation temperature for chat responses. |
 | `HARNESS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.harness/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |

@@ -957,14 +957,6 @@ def test_sdk_service_direct_introspection_methods_validate_results(
                 "thinking_visibility": "summary",
                 "live_tokens_visible": "yes",
                 "live_cost_visible": False,
-                "privacy": {
-                    "analytics_enabled": False,
-                    "analytics_available": False,
-                    "analytics_env_override": False,
-                    "crash_reports_enabled": False,
-                    "crash_reports_available": False,
-                    "crash_reports_env_override": False,
-                },
                 "choices": {
                     "themes": [],
                     "activity_trace_modes": [],
@@ -1401,28 +1393,22 @@ def test_sdk_app_settings_snapshot_and_update_are_structured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_file = _isolate_settings_store(tmp_path, monkeypatch)
-    monkeypatch.delenv("HARNESS_ANALYTICS_ENABLED", raising=False)
-    monkeypatch.delenv("HARNESS_CRASH_REPORTS_ENABLED", raising=False)
     settings_store.save_setting("theme", "light")
 
     settings = load_sdk_app_settings()
     payload = settings.to_dict()
     choices = _payload_mapping(payload["choices"])
     theme_choices = [_payload_mapping(choice) for choice in _payload_list(choices["themes"])]
-    privacy = _payload_mapping(payload["privacy"])
     mutable_keys = _payload_list(payload["mutable_keys"])
 
     assert isinstance(settings, SdkAppSettings)
     assert settings.theme == "light"
     assert settings.choices.themes[0] == SettingChoice("dark", "Dark")
     assert mutable_keys == list(SDK_MUTABLE_APP_SETTINGS)
-    assert "analytics_enabled" not in mutable_keys
     assert theme_choices == [
         {"value": "dark", "label": "Dark"},
         {"value": "light", "label": "Light"},
     ]
-    assert privacy["analytics_env_override"] is False
-    assert privacy["crash_reports_env_override"] is False
 
     default_armory = tmp_path / "default-armory"
     updated = update_sdk_app_settings(
@@ -1455,8 +1441,6 @@ def test_sdk_app_settings_update_rejects_unsupported_or_invalid_values(
     _isolate_settings_store(tmp_path, monkeypatch)
     settings_store.save_setting("theme", "light")
 
-    with pytest.raises(SdkSettingsError, match="Unsupported SDK app setting: analytics_enabled"):
-        update_sdk_app_settings({"analytics_enabled": True})
     with pytest.raises(SdkSettingsError, match="Invalid SDK app setting 'theme'"):
         update_sdk_app_settings({"theme": "solarized", "live_tokens_visible": True})
     with pytest.raises(SdkSettingsError, match="'live_tokens_visible' must be a boolean"):
@@ -1575,7 +1559,6 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     assert "model_choice_summary" in types
     assert "setting_choice" in types
     assert "sdk_settings_choices" in types
-    assert "sdk_privacy_settings" in types
     assert "sdk_app_settings" in types
     assert "index_summary" in types
     assert "extraction_health_summary" in types
@@ -2024,9 +2007,6 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     settings_choices_type_fields = _payload_mapping(
         _payload_mapping(types["sdk_settings_choices"])["fields"]
     )
-    privacy_type_fields = _payload_mapping(
-        _payload_mapping(types["sdk_privacy_settings"])["fields"]
-    )
     settings_type_fields = _payload_mapping(_payload_mapping(types["sdk_app_settings"])["fields"])
     provider_type_fields = _payload_mapping(_payload_mapping(types["provider_summary"])["fields"])
     model_type_fields = _payload_mapping(_payload_mapping(types["model_choice_summary"])["fields"])
@@ -2120,16 +2100,6 @@ def test_sdk_capabilities_describe_direct_and_jsonl_contracts() -> None:
     }
     assert _payload_mapping(settings_choices_type_fields["themes"]) == {
         "type": "array<setting_choice>",
-        "required": True,
-        "nullable": False,
-    }
-    assert _payload_mapping(privacy_type_fields["analytics_enabled"]) == {
-        "type": "boolean",
-        "required": True,
-        "nullable": False,
-    }
-    assert _payload_mapping(settings_type_fields["privacy"]) == {
-        "type": "sdk_privacy_settings",
         "required": True,
         "nullable": False,
     }
@@ -5106,9 +5076,6 @@ def test_service_settings_methods_return_and_apply_display_preferences(
     assert service.session.thinking_visibility == "all"
     assert service.session.live_tokens_visible is True
     assert service.session.live_cost_visible is True
-
-    with pytest.raises(HephSdkError, match="does not accept parameter: analytics_enabled"):
-        service.call("update_settings", {"analytics_enabled": True})
 
 
 def test_service_settings_apply_to_session_created_after_update(

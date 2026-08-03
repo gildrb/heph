@@ -8,7 +8,6 @@ from ai.providers import keyring_store, oauth
 from ai.providers.config import ProviderConfig
 from ai.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
 from harness.chat.provider_selection import activate_provider_for_session
-from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import (
     MenuOption,
     confirm,
@@ -72,7 +71,6 @@ class LoginCommand(Command):
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
             f"- switched to {p.resolved_model}"
         )
-        capture_analytics("oauth_login", {"provider": "openai-codex", "model": p.resolved_model})
         return CommandResult()
 
     @staticmethod
@@ -106,7 +104,6 @@ class LoginCommand(Command):
         print_success(
             f"Custom endpoint saved to {storage}; switched to {p.display_name} / {model}"
         )
-        capture_analytics("api_key_login", {"provider": "custom", "model": model})
         return CommandResult()
 
     @staticmethod
@@ -129,7 +126,6 @@ class LoginCommand(Command):
         print_success(
             f"API key saved to {storage}; switched to {p.display_name} / {p.resolved_model}"
         )
-        capture_analytics("api_key_login", {"provider": slug, "model": p.resolved_model})
         return CommandResult()
 
 
@@ -219,7 +215,6 @@ class LogoutCommand(Command):
             if confirm(f"Log out of {slug}?", default=True):
                 _clear_logout_target(slug, kind)
                 print_success(f"Logged out of {slug}.")
-                capture_analytics("logout", {"provider": slug, "kind": kind})
             else:
                 print_info("Cancelled.")
             return CommandResult()
@@ -237,10 +232,8 @@ class LogoutCommand(Command):
             for slug, kind, _description in credentials:
                 _clear_logout_target(slug, kind)
             print_success("Logged out of all stored providers.")
-            capture_analytics("logout", {"provider": "all", "kind": "all"})
         else:
             slug, kind, _description = credentials[selected]
             _clear_logout_target(slug, kind)
             print_success(f"Logged out of {slug}.")
-            capture_analytics("logout", {"provider": slug, "kind": kind})
         return CommandResult()

@@ -54,9 +54,7 @@ Prompt security depends on the compute mode you choose:
   selected retrieved chunks needed for the answer to that provider. It does not
   upload whole armories by default.
 
-Diagnostics are separate from model prompts. Anonymous analytics and redacted
-crash reports are opt-in and must not include document content or chat history.
-Session traces are local armory files.
+Provider requests are separate from local state. No telemetry, analytics, crash reports, or persistent install fingerprint is created or sent. Session traces remain local armory files.
 
 ## Ownership Model
 
@@ -134,35 +132,9 @@ Different providers have different data policies:
 
 Check your provider's privacy policy for details.
 
-## Opt-In Diagnostics
+## No Hosted Diagnostics
 
-### Analytics
-
-Anonymous usage analytics can be enabled in `/settings`:
-
-- Feature usage patterns
-- Performance metrics
-- Error rates
-
-**No document content or chat history is ever sent.**
-
-### Crash Reporting
-
-Anonymous crash reports can be enabled in `/settings`:
-
-- Stack traces
-- Error messages
-- System information
-
-**No personal data or document content is included.**
-
-### Source and Git Installs
-
-If you install Heph from source or via git:
-
-- Diagnostics are **disabled by default**
-- You must explicitly enable them in `/settings`
-- Official release builds may have different defaults
+Heph does not collect telemetry, send analytics, or submit crash reports. It does not create a persistent install fingerprint.
 
 ## API Key Storage
 
@@ -204,23 +176,16 @@ Heph never writes API keys to:
 
 ### Outbound Connections
 
-Heph makes network connections only to:
+When reachable from a session, Heph sends data only to:
 
-1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
-2. **Hugging Face and llama.cpp release downloads** - only when you use
-   `heph local` or `/local` to browse curated local models, install
-   them, or update local GGUF model support
-3. **Package managers** (uv, pip) - for updates/dependencies
-4. **Web pages requested through the `web_fetch` tool** - only when a model tool
-   call asks Heph to fetch a URL because armory material is insufficient
-5. **DuckDuckGo HTML search** - only when priority-report prerequisite hints are
-   explicitly enabled with `HARNESS_PRIORITY_WEB_PREREQS` or the
-   `priority_web_prereqs` feature flag
-6. **Optional diagnostics endpoints** - if you enable them
+1. **The configured model provider** for inference requests.
+2. **The llama.cpp binary download source** when installing the local runtime.
+3. **The GitHub Releases update check** used by `heph update`.
+4. **URLs requested through `web_tools.py`** when a session reaches that tool.
 
-Optional local document extraction and priority-PDF generation can invoke local
-system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your
-machine against local files; Heph does not add network calls for them.
+No other telemetry, analytics, crash-report, PostHog, or Sentry traffic occurs.
+Local armory traces remain under `.harness/traces/` and are never uploaded.
+
 
 ### Localhost-Only Servers
 
@@ -289,7 +254,7 @@ Heph is not HIPAA-compliant out of the box. For healthcare use:
 
 1. **Encrypt armories** at rest
 2. **Choose HIPAA-compliant** model providers
-3. **Disable diagnostics** completely
+3. **Use a local model** when prompt privacy is required
 4. **Consult legal counsel** for your specific use case
 
 ### Enterprise Considerations

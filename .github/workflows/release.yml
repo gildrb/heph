@@ -99,10 +99,6 @@ jobs:
         run: uv run --no-sync pytest
 
       - name: Build package
-        env:
-          HARNESS_POSTHOG_HOST: ${{ secrets.HARNESS_POSTHOG_HOST }}
-          HARNESS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HARNESS_POSTHOG_PROJECT_TOKEN }}
-          HARNESS_SENTRY_DSN: ${{ secrets.HARNESS_SENTRY_DSN }}
         run: uv run --no-sync python -m scripts.build_release_artifacts --release-version "${RELEASE_TAG}"
 
       - name: Release state check

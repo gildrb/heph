@@ -53,7 +53,6 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
     shortcut_keys = {shortcut.keys for shortcut in model.keyboard_shortcuts}
     assert {"ctrl+p", "ctrl+a", "ctrl+o"} <= shortcut_keys
     assert all(not _shortcut_uses_function_key(shortcut) for shortcut in shortcut_keys)
-    assert any(env.name == "HARNESS_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
 
 
 def test_repository_docs_are_synced() -> None:

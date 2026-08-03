@@ -68,6 +68,7 @@ jobs:
           run_check "complexity" uv run --no-sync radon cc $HEPH_PACKAGE_SOURCES -a -nc --total-average
           run_check "agents-md-validation" uv run --no-sync python scripts/validate_agents_md.py --strict
           run_check "feature-flags" uv run --no-sync python scripts/check_feature_flags.py --strict
+          run_check "no-hosted-telemetry" uv run --no-sync python -m scripts.check_no_hosted_telemetry
           exit "$status"
 
   lean-profile:

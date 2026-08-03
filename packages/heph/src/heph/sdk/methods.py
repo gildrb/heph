@@ -1279,17 +1279,6 @@ SDK_TYPE_SPECS = (
         ),
     ),
     SdkTypeSpec(
-        "sdk_privacy_settings",
-        (
-            SdkTypeFieldSpec("analytics_enabled", "boolean"),
-            SdkTypeFieldSpec("analytics_available", "boolean"),
-            SdkTypeFieldSpec("analytics_env_override", "boolean"),
-            SdkTypeFieldSpec("crash_reports_enabled", "boolean"),
-            SdkTypeFieldSpec("crash_reports_available", "boolean"),
-            SdkTypeFieldSpec("crash_reports_env_override", "boolean"),
-        ),
-    ),
-    SdkTypeSpec(
         "sdk_app_settings",
         (
             SdkTypeFieldSpec("theme", "string"),
@@ -1300,7 +1289,6 @@ SDK_TYPE_SPECS = (
             SdkTypeFieldSpec("thinking_visibility", "string"),
             SdkTypeFieldSpec("live_tokens_visible", "boolean"),
             SdkTypeFieldSpec("live_cost_visible", "boolean"),
-            SdkTypeFieldSpec("privacy", "sdk_privacy_settings"),
             SdkTypeFieldSpec("choices", "sdk_settings_choices"),
             SdkTypeFieldSpec("mutable_keys", "array<string>"),
         ),

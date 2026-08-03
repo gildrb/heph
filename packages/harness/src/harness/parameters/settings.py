@@ -60,11 +60,8 @@ THINKING_VISIBILITY_LABELS: Final[dict[str, str]] = {
 }
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
-        "analytics_enabled",
-        "crash_reports_enabled",
         "live_cost_visible",
         "live_tokens_visible",
-        "privacy_notice_seen",
     }
 )
 OBJECT_KEYS: Final[frozenset[str]] = frozenset({"tui_keymap"})
@@ -97,14 +94,11 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "thinking_visibility",
     "live_tokens_visible",
     "live_cost_visible",
-    "analytics_enabled",
-    "crash_reports_enabled",
 )
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
     "recent_armories",
     "last_armory_path",
-    "privacy_notice_seen",
     "session_count",
     "tui_keymap",
 )
@@ -146,9 +140,6 @@ class AppSettings:
     thinking_visibility: str = DEFAULT_THINKING_VISIBILITY
     live_tokens_visible: bool = False
     live_cost_visible: bool = False
-    analytics_enabled: bool = False
-    crash_reports_enabled: bool = False
-    privacy_notice_seen: bool = False
     session_count: int = 0
 
 
@@ -330,8 +321,5 @@ def load_app_settings() -> AppSettings:
         thinking_visibility=thinking_visibility,
         live_tokens_visible=_coerce_bool(raw.get("live_tokens_visible"), default=False),
         live_cost_visible=_coerce_bool(raw.get("live_cost_visible"), default=False),
-        analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
-        crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
-        privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),
         session_count=session_count,
     )

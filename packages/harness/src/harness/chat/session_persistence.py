@@ -10,7 +10,6 @@ from ai.logging import get_logger
 
 import harness.chat.storage as chat_storage
 from harness.chat.titles import derive_title as _derive_title
-from harness.diagnostics.events import capture as capture_analytics
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -56,14 +55,6 @@ def save_session(session: ChatSession) -> Path:
         },
     )
     session.dirty = False
-    capture_analytics(
-        "session_saved",
-        {
-            "message_count": len(session.conversation.messages),
-            "mode": "armory",
-            "model": session.config.model,
-        },
-    )
     _log.info(
         "session saved",
         extra={

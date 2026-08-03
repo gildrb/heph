@@ -1174,7 +1174,7 @@ def test_resize_reflows_active_inline_menu_without_duplicate_composer() -> None:
 
             screen_text = _composited_screen_text(app)
             assert screen_text.count("→") == 2
-            assert "→ Privacy & Diagnostics" in screen_text
+            assert "→ Appearance" in screen_text
             assert screen_text.count("Settings") <= 2
 
     asyncio.run(check_inline_resize())
@@ -4114,107 +4114,6 @@ def test_default_shortcut_opens_materials_inline() -> None:
     asyncio.run(check_materials_shortcut())
 
 
-def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    typed_app = cast("TextualApp[None]", app)
-
-    async def check_settings_menu() -> None:
-        async with typed_app.run_test(size=(120, 24)):
-            app._open_settings_flow()
-            labels = [label for label, _description in app._inline_flow.options]
-
-            assert app._inline_flow.name == "settings"
-            assert app._inline_flow.step == "menu"
-            assert "Privacy & Diagnostics" in labels
-            assert "Appearance" in labels
-            assert "Activity trace" in labels
-            assert "Model thinking" in labels
-            assert "Live tokens" in labels
-            assert "Live cost" in labels
-            assert "Vocabulary practice" in labels
-            assert "Login" in labels
-            assert "Logout" in labels
-
-    asyncio.run(check_settings_menu())
-
-
-def test_settings_inline_privacy_submenu_exposes_and_toggles_telemetry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    config_dir = tmp_path / "config"
-    config_file = config_dir / "config.json"
-    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    typed_app = cast("TextualApp[None]", app)
-
-    async def check_settings_submenus() -> None:
-        async with typed_app.run_test(size=(120, 24)):
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Privacy & Diagnostics")
-            privacy_labels = [label for label, _description in app._inline_flow.options]
-
-            assert app._inline_flow.step == "privacy"
-            assert "Usage analytics" in privacy_labels
-            assert "Crash reports" in privacy_labels
-            assert "Back" not in privacy_labels
-
-            app._submit_inline_flow("Usage analytics")
-
-            assert settings_store.load_app_settings().analytics_enabled is True
-            assert app._inline_flow.step == "privacy"
-
-    asyncio.run(check_settings_submenus())
-
-
-def test_settings_inline_escape_returns_from_privacy_submenu() -> None:
-    if tui.Input is None or tui.OptionList is None:
-        pytest.skip("Textual is not installed")
-
-    app = tui.HephTui(
-        _plain_session(),
-        tui._TuiRuntimeState(),
-        tui.current_palette(),
-    )
-    typed_app = cast("TextualApp[None]", app)
-
-    async def check_escape_back_navigation() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Privacy & Diagnostics")
-
-            await pilot.press("escape")
-
-            assert app._inline_flow.active is True
-            assert app._inline_flow.name == "settings"
-            assert app._inline_flow.step == "menu"
-            labels = [label for label, _description in app._inline_flow.options]
-            suggestions = app.query_one("#suggestions", tui.OptionList)
-            assert suggestions.highlighted == labels.index("Privacy & Diagnostics")
-
-            await pilot.press("escape")
-
-            assert app._inline_flow.active is False
-
-    asyncio.run(check_escape_back_navigation())
-
-
 def test_settings_inline_cycles_display_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4551,18 +4450,6 @@ def test_settings_inline_keeps_selected_row_after_changes(
                 suggestions = app.query_one("#suggestions", tui.OptionList)
                 assert [label for label, _description in before] == labels
                 assert suggestions.highlighted == labels.index(setting)
-
-            app._open_settings_flow()
-            app._submit_inline_flow("Privacy & Diagnostics")
-            before = list(app._inline_flow.options)
-
-            app._submit_inline_flow("Crash reports")
-
-            after = list(app._inline_flow.options)
-            labels = [label for label, _description in after]
-            suggestions = app.query_one("#suggestions", tui.OptionList)
-            assert [label for label, _description in before] == labels
-            assert suggestions.highlighted == labels.index("Crash reports")
 
     try:
         asyncio.run(check_stable_selection())

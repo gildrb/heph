@@ -7,8 +7,6 @@ from importlib import metadata, resources
 from pathlib import Path
 from typing import TypedDict, cast
 
-from harness.privacy import release as privacy_release
-
 
 class OfficialReleasePayload(TypedDict):
     package: str
@@ -122,7 +120,7 @@ def _metadata_version(package: str) -> str:
 
 
 def _release_config() -> object:
-    return privacy_release
+    return None
 
 
 def _release_config_value(release_config: object, name: str) -> str:

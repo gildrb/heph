@@ -99,3 +99,9 @@ repos:
         entry: python scripts/check_tech_debt.py --strict
         types: [python]
         pass_filenames: false
+      - id: check-no-hosted-telemetry
+        name: no hosted telemetry or install fingerprints
+        language: python
+        entry: python -m scripts.check_no_hosted_telemetry
+        types: [python]
+        pass_filenames: false

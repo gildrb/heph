@@ -20,14 +20,6 @@ from harness.parameters.settings import (
     normalize_setting_value,
     save_raw_settings,
 )
-from harness.privacy.consent import (
-    analytics_backend_available,
-    analytics_enabled,
-    analytics_env_override,
-    crash_reports_backend_available,
-    crash_reports_enabled,
-    crash_reports_env_override,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,37 +98,6 @@ class SettingsChoices:
 
 
 @dataclass(frozen=True, slots=True)
-class PrivacySettingsSummary:
-    analytics_enabled: bool
-    analytics_available: bool
-    analytics_env_override: bool
-    crash_reports_enabled: bool
-    crash_reports_available: bool
-    crash_reports_env_override: bool
-
-    @classmethod
-    def current(cls) -> PrivacySettingsSummary:
-        return cls(
-            analytics_enabled=analytics_enabled(),
-            analytics_available=analytics_backend_available(),
-            analytics_env_override=analytics_env_override(),
-            crash_reports_enabled=crash_reports_enabled(),
-            crash_reports_available=crash_reports_backend_available(),
-            crash_reports_env_override=crash_reports_env_override(),
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "analytics_enabled": self.analytics_enabled,
-            "analytics_available": self.analytics_available,
-            "analytics_env_override": self.analytics_env_override,
-            "crash_reports_enabled": self.crash_reports_enabled,
-            "crash_reports_available": self.crash_reports_available,
-            "crash_reports_env_override": self.crash_reports_env_override,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class SdkAppSettings:
     theme: str
     default_armory_path: str
@@ -146,7 +107,6 @@ class SdkAppSettings:
     thinking_visibility: str
     live_tokens_visible: bool
     live_cost_visible: bool
-    privacy: PrivacySettingsSummary
     choices: SettingsChoices
     mutable_keys: tuple[str, ...] = SDK_MUTABLE_APP_SETTINGS
 
@@ -161,7 +121,6 @@ class SdkAppSettings:
             thinking_visibility=settings.thinking_visibility,
             live_tokens_visible=settings.live_tokens_visible,
             live_cost_visible=settings.live_cost_visible,
-            privacy=PrivacySettingsSummary.current(),
             choices=SettingsChoices.current(),
         )
 
@@ -179,7 +138,6 @@ class SdkAppSettings:
             "thinking_visibility": self.thinking_visibility,
             "live_tokens_visible": self.live_tokens_visible,
             "live_cost_visible": self.live_cost_visible,
-            "privacy": self.privacy.to_dict(),
             "choices": self.choices.to_dict(),
             "mutable_keys": list(self.mutable_keys),
         }
@@ -246,7 +204,6 @@ __all__ = [
     "SDK_APP_SETTING_CONTRACTS",
     "SDK_APP_SETTING_VALUE_TYPES",
     "SDK_MUTABLE_APP_SETTINGS",
-    "PrivacySettingsSummary",
     "SdkAppSettingContract",
     "SdkAppSettings",
     "SdkSettingsError",

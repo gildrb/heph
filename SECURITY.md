@@ -25,7 +25,7 @@ I will acknowledge receipt within 48 hours and provide a timeline for addressing
 Heph is designed with security and privacy in mind:
 
 - **Local-first**: Your documents and chats stay on your machine
-- **No telemetry by default**: Analytics and crash reporting are opt-in only
+- **No hosted telemetry**: Heph does not send analytics or crash reports
 - **Scoped memory**: Each armory's memory is isolated from others
 - **No default terminal access**: Model-generated commands are not exposed as a default agent tool
 - **Secret protection**: API keys are stored in OS keyring or environment variables, never in config files
@@ -38,7 +38,7 @@ Heph is designed with security and privacy in mind:
    can run argv-style commands on that machine. Shell execution is disabled by
    default and does not provide a sandbox.
 3. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
-4. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
+4. **Review provider traffic**: Use a local model or a trusted provider for sensitive prompts
 
 ## Dependency Security
 
