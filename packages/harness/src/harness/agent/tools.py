@@ -4,9 +4,10 @@ Each tool has a JSON schema (for the OpenAI ``tools=`` param) and a
 handler function.  Handlers receive the workspace root for path sandboxing.
 
 **Registry protocol** - ``ToolRegistry`` is the single source of truth.
-A global ``default_registry`` is pre-loaded with all built-in tools.
-Armories can contribute extra tools by dropping ``*.py`` files into
-``.harness/tools/`` only after the armory has been explicitly trusted.
+The safe ``default_registry`` contains built-in tools without shell execution.
+Armory plugins are loaded from ``.harness/tools/`` only after the armory has
+been explicitly trusted, and the shell tool is registered per armory only
+when that armory is explicitly trusted for shell execution.
 Each plugin module must expose a top-level ``register(registry: ToolRegistry)
 -> None`` function that calls ``registry.register(...)`` for every tool it
 wants to add.
@@ -39,7 +40,11 @@ from harness.agent.file_tools import (
 )
 from harness.agent.material_tools import run_open_material, run_search_materials
 from harness.agent.path_safety import safe_path
-from harness.agent.shell_tools import BashResult, run_bash
+from harness.agent.shell_tools import (
+    ARMORY_SHELL_TRUST_ENV,
+    BashResult,
+    run_bash,
+)
 from harness.agent.tool_registry import ToolRegistry
 from harness.agent.tool_schema import (
     ToolHandlerResult,
@@ -52,6 +57,7 @@ from harness.agent.web_tools import run_web_fetch
 from harness.memory import MemoryEntry, MemoryStore, load_memory, save_memory
 
 __all__ = [
+    "ARMORY_SHELL_TRUST_ENV",
     "TOOL_SCHEMAS",
     "BashResult",
     "ToolRegistry",
@@ -59,6 +65,7 @@ __all__ = [
     "ToolSpec",
     "default_registry",
     "get_handler",
+    "register_shell_tool",
     "run_bash",
     "run_create_armory",
     "run_create_named_armory",
@@ -390,7 +397,6 @@ def get_handler(name: str):
 
 _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "compact": lambda **_kw: "[compact triggered]",
-    "bash": run_bash,
     "read_file": run_read_file,
     "write_file": lambda **kwargs: mutation_wrap(run_write_file, **kwargs),
     "edit_file": lambda **kwargs: mutation_wrap(run_edit_file, **kwargs),
@@ -412,6 +418,21 @@ _PROMPT_GUIDELINES: dict[str, tuple[str, ...]] = {
         "invalid blocks reject the whole call.",
     ),
 }
+
+_BASH_SPEC = ToolSpec(
+    schema=_tool(
+        "bash",
+        "Run one argv-style command on the trusted armory machine.",
+        {"command": _string("Command without shell operators or pipelines.")},
+        required=("command",),
+    ),
+    handler=run_bash,
+)
+
+
+def register_shell_tool(registry: ToolRegistry) -> None:
+    registry.register(_BASH_SPEC)
+
 
 default_registry = ToolRegistry()
 

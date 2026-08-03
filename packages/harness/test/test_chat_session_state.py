@@ -10,6 +10,7 @@ import pytest
 from ai.runtime import ChatConfig
 from harness.armory.storage import initialize
 from harness.chat.session import (
+    ARMORY_SHELL_TRUST_ENV,
     create_session,
     fork_session_at_turn,
     record_turn_snapshot,
@@ -513,6 +514,40 @@ def test_create_session_loads_armory_plugins_after_explicit_trust(
     handler = session.tool_registry.get_handler("probe")
     assert handler is not None
     assert handler() == "ok"
+
+
+def test_shell_tool_is_disabled_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(ARMORY_SHELL_TRUST_ENV, raising=False)
+    armory = _make_armory(tmp_path)
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    assert session.tool_registry.get_handler("bash") is None
+    assert "bash" not in session.tool_registry.tool_names
+    assert "\n- bash:" not in session.conversation.messages[0].content
+
+
+def test_shell_tool_requires_trusted_armory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+    monkeypatch.setenv(ARMORY_SHELL_TRUST_ENV, str(armory.resolve()))
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    assert session.tool_registry.get_handler("bash") is not None
+    assert "bash" in session.tool_registry.tool_names
+    assert "\n- bash:" in session.conversation.messages[0].content
 
 
 def test_global_truthy_env_does_not_trust_armory_plugins(

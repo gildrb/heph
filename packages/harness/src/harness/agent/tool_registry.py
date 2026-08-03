@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -106,8 +108,19 @@ class ToolRegistry:
 def _load_plugin_file(registry: ToolRegistry, py_file: Path, tools_dir: Path) -> bool:
     if py_file.name.startswith("_"):
         return False
+    if py_file.is_symlink():
+        print(f"warning: skipped symlinked tool plugin {py_file.name}", file=sys.stderr)
+        return False
     if not py_file.resolve().is_relative_to(tools_dir):
         return False
+    if os.name != "nt":
+        mode = py_file.stat().st_mode
+        if mode & (stat.S_IWGRP | stat.S_IWOTH):
+            print(
+                f"warning: skipped group/world-writable tool plugin {py_file.name}",
+                file=sys.stderr,
+            )
+            return False
     module_name = f"harness_armory_plugin_{py_file.stem}"
     try:
         return _register_plugin_module(registry, module_name, py_file)

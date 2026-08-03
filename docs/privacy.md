@@ -34,6 +34,15 @@ Run `heph trust` to print the current ownership contract and these paths. Run
 `heph local status` to print the active local llama.cpp cache, model cache,
 server, and installed-model state.
 
+### Agent shell execution
+
+The model-generated `bash` tool is disabled by default. To enable it for one
+armory, set `HARNESS_TRUST_ARMORY_SHELL` to that armory's path before starting
+the session. The tool accepts argv-style commands only; shell operators and
+pipelines are refused. When enabled, the agent can run commands on the local
+machine, so use the setting only for armories and materials you trust. Run
+`heph trust` to see whether it is enabled for the current armory.
+
 ### Are the prompts secure?
 
 Prompt security depends on the compute mode you choose:

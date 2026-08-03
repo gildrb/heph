@@ -14,8 +14,9 @@ from ai.logging import get_logger
 from ai.runtime import ChatConfig, Conversation, Message
 
 from harness.agent.prompt import build_system_prompt
+from harness.agent.shell_tools import ARMORY_SHELL_TRUST_ENV
 from harness.agent.steering import Steering
-from harness.agent.tools import ToolRegistry, default_registry
+from harness.agent.tools import ToolRegistry, default_registry, register_shell_tool
 from harness.armory.trust import armory_path_trusted
 from harness.chat import storage as chat_storage
 from harness.chat.message_delivery import send_user_message as _deliver_user_message
@@ -175,6 +176,12 @@ def refresh_armory_sources(session: ChatSession) -> None:
 
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     registry = default_registry.child()
+    if _armory_shell_trusted(armory_path):
+        register_shell_tool(registry)
+        _log.warning(
+            "shell tool enabled; agent can run commands on this machine",
+            extra={"fields": {"armory": str(armory_path), "env": ARMORY_SHELL_TRUST_ENV}},
+        )
     tools_dir = armory_path / ".harness" / "tools"
     if not _armory_plugins_trusted(armory_path):
         _warn_untrusted_armory_plugins(armory_path, tools_dir)
@@ -191,6 +198,10 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
 
 def _armory_plugins_trusted(armory_path: Path) -> bool:
     return armory_path_trusted(armory_path, ARMORY_PLUGINS_TRUST_ENV)
+
+
+def _armory_shell_trusted(armory_path: Path) -> bool:
+    return armory_path_trusted(armory_path, ARMORY_SHELL_TRUST_ENV)
 
 
 def _warn_untrusted_armory_plugins(armory_path: Path, tools_dir: Path) -> None:
@@ -244,10 +255,15 @@ replace_system_prompt = _replace_system_prompt
 def _system_prompt_for_session(session: ChatSession) -> str:
     if session.armory_path is None:
         return _build_plain_system_prompt()
-    return _armory_system_prompt(session.armory_path)
+    return _armory_system_prompt(session.armory_path, registry=session.tool_registry)
 
 
-def _armory_system_prompt(armory_path: Path, source_files: list[str] | None = None) -> str:
+def _armory_system_prompt(
+    armory_path: Path,
+    source_files: list[str] | None = None,
+    *,
+    registry: ToolRegistry | None = None,
+) -> str:
     material_files = (
         source_files if source_files is not None else _scan_source_files(armory_path)[1]
     )
@@ -258,6 +274,7 @@ def _armory_system_prompt(armory_path: Path, source_files: list[str] | None = No
         unindexable_files=unindexable or None,
         extraction_health_issues=_scan_extraction_health_issues(armory_path),
         memory_context=_memory_system_context(armory_path),
+        registry=registry,
     )
 
 
@@ -417,6 +434,7 @@ def _configure_session_armory_context(session: ChatSession, armory_path: Path) -
         memory=load_memory(armory_path),
         tool_registry=_load_armory_tools(armory_path),
     )
+    _replace_system_prompt(session)
 
 
 def _metadata_datetime(metadata: Mapping[str, object], key: str) -> datetime | None:

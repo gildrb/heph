@@ -88,8 +88,8 @@ class TestRunBash:
         assert "exit code" in result
 
     def test_stderr_included(self):
-        result = run_bash("echo error >&2")
-        assert "error" in result
+        result = run_bash("git nonexistent-command")
+        assert "--- stderr ---" in result
 
     def test_timeout(self):
         result = run_bash("sleep 60", timeout=1)
@@ -99,7 +99,7 @@ class TestRunBash:
         result = run_bash("echo fast", timeout=10)
         assert "fast" in result
 
-    def test_rtk_disabled_uses_original_shell(self):
+    def test_rtk_disabled_uses_argv(self):
         completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HARNESS_RTK": "0"}, clear=False),
@@ -109,8 +109,8 @@ class TestRunBash:
 
         assert result == "hello\n"
         run.assert_called_once()
-        assert run.call_args.args == ("echo hello",)
-        assert run.call_args.kwargs["shell"] is True
+        assert run.call_args.args == (["echo", "hello"],)
+        assert run.call_args.kwargs["shell"] is False
 
     def test_rtk_default_rewrites_simple_command_when_available(self):
         completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
@@ -141,7 +141,7 @@ class TestRunBash:
 
         assert run.call_args.args == (["/usr/local/bin/rtk", "--ultra-compact", "git", "status"],)
 
-    def test_rtk_missing_falls_back_to_original_shell(self):
+    def test_rtk_missing_runs_original_argv(self):
         completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
             patch.dict("os.environ", {"HARNESS_RTK": "1"}, clear=False),
@@ -152,25 +152,23 @@ class TestRunBash:
             result = run_bash("git status")
 
         assert result == "original\n"
-        assert run.call_args.args == ("git status",)
-        assert run.call_args.kwargs["shell"] is True
+        assert run.call_args.args == (["git", "status"],)
+        assert run.call_args.kwargs["shell"] is False
         warning.assert_called_once()
 
-    def test_rtk_missing_can_fail_closed(self):
+    def test_rtk_missing_does_not_use_shell_fallback(self):
+        completed = MagicMock(stdout="original\n", stderr="", returncode=0)
         with (
-            patch.dict(
-                "os.environ",
-                {"HARNESS_RTK": "1", "HARNESS_RTK_FALLBACK_ALLOWED": "0"},
-                clear=False,
-            ),
+            patch.dict("os.environ", {"HARNESS_RTK": "1"}, clear=False),
             patch("harness.agent.shell_tools.shutil.which", return_value=None),
             patch("harness.agent.shell_tools._log.warning") as warning,
-            patch("harness.agent.shell_tools.subprocess.run") as run,
+            patch("harness.agent.shell_tools.subprocess.run", return_value=completed) as run,
         ):
             result = run_bash("git status")
 
-        assert "rtk unavailable or command unsupported and shell fallback disabled" in result
-        run.assert_not_called()
+        assert result == "original\n"
+        assert run.call_args.args == (["git", "status"],)
+        assert run.call_args.kwargs["shell"] is False
         warning.assert_called_once()
 
     def test_rtk_execution_failure_falls_back_with_marker(self):
@@ -189,28 +187,27 @@ class TestRunBash:
         assert "[rtk unavailable: missing; used original command output]" in result
         assert "original" in result
         assert run.call_count == 2
-        assert run.call_args.args == ("git status",)
-        assert run.call_args.kwargs["shell"] is True
+        assert run.call_args.args == (["git", "status"],)
+        assert run.call_args.kwargs["shell"] is False
         warning.assert_called_once()
 
-    def test_rtk_execution_failure_can_fail_closed(self):
+    def test_rtk_execution_failure_runs_original_argv(self):
         with (
-            patch.dict(
-                "os.environ",
-                {"HARNESS_RTK": "1", "HARNESS_RTK_FALLBACK_ALLOWED": "0"},
-                clear=False,
-            ),
+            patch.dict("os.environ", {"HARNESS_RTK": "1"}, clear=False),
             patch("harness.agent.shell_tools.shutil.which", return_value="/usr/local/bin/rtk"),
             patch("harness.agent.shell_tools._log.warning") as warning,
             patch(
                 "harness.agent.shell_tools.subprocess.run",
-                side_effect=OSError("missing"),
+                side_effect=[
+                    OSError("missing"),
+                    MagicMock(stdout="original\n", stderr="", returncode=0),
+                ],
             ) as run,
         ):
             result = run_bash("git status")
 
-        assert "rtk unavailable and shell fallback disabled" in result
-        assert run.call_count == 1
+        assert "original" in result
+        assert run.call_count == 2
         warning.assert_called_once()
 
     def test_rtk_min_command_chars_skips_short_commands(self):
@@ -228,26 +225,35 @@ class TestRunBash:
 
         assert result == "short\n"
         which.assert_not_called()
-        assert run.call_args.args == ("ls",)
-        assert run.call_args.kwargs["shell"] is True
+        assert run.call_args.args == (["ls"],)
+        assert run.call_args.kwargs["shell"] is False
 
-    def test_rtk_skips_shell_metachar_commands(self):
-        completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
+    def test_rtk_refuses_shell_metachar_commands(self):
         with (
             patch.dict("os.environ", {"HARNESS_RTK": "1"}, clear=False),
             patch("harness.agent.shell_tools.shutil.which") as which,
-            patch("harness.agent.shell_tools.subprocess.run", return_value=completed) as run,
+            patch("harness.agent.shell_tools.subprocess.run") as run,
         ):
             result = run_bash("echo hello >&2")
 
-        assert result == "hello\n"
+        assert "command refused" in result
         which.assert_not_called()
-        assert run.call_args.args == ("echo hello >&2",)
-        assert run.call_args.kwargs["shell"] is True
+        run.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "command",
+        [('echo "unterminated',), ("rm -rf /",), ("python3 -c pass",)],
+    )
+    def test_refuses_unrepresentable_or_blocked_commands(self, command: tuple[str]) -> None:
+        with patch("harness.agent.shell_tools.subprocess.run") as run:
+            result = run_bash(command[0])
+
+        assert "command refused" in result
+        run.assert_not_called()
 
     def test_output_truncated(self):
         # Generate very large output
-        result = run_bash("python3 -c \"print('x' * 100000)\"")
+        result = run_bash("git status")
         assert len(result) <= 50_200  # _MAX_READ_CHARS + margin
 
 

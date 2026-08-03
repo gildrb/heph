@@ -129,6 +129,8 @@ def test_trust_command_reports_armory_state_path(
 
     out = capsys.readouterr().out
     assert f"Armory state: {armory.resolve() / '.harness'}" in out
+    assert "Shell execution" in out
+    assert "Disabled for this armory" in out
 
 
 def test_project_root_resolves_workspace_checkout() -> None:

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Local agent for accurate, cited answers from your files
+  A local document agent for accurate, cited answers from your files.
 </p>
 
 <p align="center">

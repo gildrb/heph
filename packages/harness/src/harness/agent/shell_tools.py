@@ -6,7 +6,7 @@ import os
 import re
 import shlex
 import shutil
-import subprocess  # nosec B404
+import subprocess
 import time
 from dataclasses import dataclass
 
@@ -19,7 +19,6 @@ _MAX_READ_CHARS = 50_000
 _RTK_TIMEOUT_BUFFER_SECONDS = 5
 _RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
 _RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
-_RTK_FALLBACK_ALLOWED_ENV = "HARNESS_RTK_FALLBACK_ALLOWED"
 _BLOCKED_BASH_PATTERNS = (
     r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*\s+|-r[a-zA-Z]*\s+-f[a-zA-Z]*\s+)",
     r"\brm\s+-rf\s+",
@@ -27,15 +26,12 @@ _BLOCKED_BASH_PATTERNS = (
     r"\bdd\s+",
     r"\bshutdown\b",
     r"\breboot\b",
-    r">/dev/sd",
     r"\bchmod\s+(777|666)\b",
-    r"\bcurl\b.*\|\s*(ba)?sh\b",
-    r"\bwget\b.*\|\s*(ba)?sh\b",
-    r"\bbase64\b.*\|\s*(ba)?sh\b",
     r"\bpython[23]?\s+-c\b",
     r"\bchmod\s+[0-7]*[0-7]{3}\s+/",
     r"\bchown\b.*\s+/",
 )
+ARMORY_SHELL_TRUST_ENV = "HARNESS_TRUST_ARMORY_SHELL"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,17 +47,13 @@ class BashResult:
 
 
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
-    # Block destructive and dangerous commands (LLM-generated).
-    # Note: this is a safety net, not a sandbox. Trivial bypasses exist
-    # via encoding, variable expansion, etc. Treat as best-effort.
-    if _blocked_bash_command(command):
-        return f"Error: command blocked for safety: {command}"
-
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     started_at = time.monotonic()
     try:
         result = _run_bash_command(command, actual_timeout)
         output = _bash_display(result, started_at=started_at)
+    except ValueError as exc:
+        output = f"Error: command refused: {exc}"
     except subprocess.TimeoutExpired:
         output = _bash_timeout_display(started_at)
     except Exception as exc:
@@ -94,25 +86,27 @@ def _bash_result_status(result: BashResult) -> str:
     return ""
 
 
-def _rtk_command_prefix(command: str) -> list[str] | None:
-    argv = _rtk_candidate_argv(command)
-    if argv is None:
+def _parse_command(command: str) -> list[str]:
+    if any(char in command for char in _RTK_SHELL_META_CHARS):
+        raise ValueError("command contains shell metacharacters; use argv-style commands")
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        raise ValueError(f"command could not be parsed safely: {exc}") from exc
+    if not argv:
+        raise ValueError("command is empty")
+    if _blocked_bash_argv(argv):
+        raise ValueError("command blocked for safety")
+    return argv
+
+
+def _rtk_command_prefix(argv: list[str], command: str) -> list[str] | None:
+    if not _rtk_can_wrap_command(command):
         return None
     rtk_path = shutil.which("rtk")
     if rtk_path is None:
         return None
     return [rtk_path, *_rtk_option_args(), *argv]
-
-
-def _rtk_candidate_argv(command: str) -> list[str] | None:
-    stripped = command.strip()
-    if not _rtk_can_wrap_command(stripped):
-        return None
-    try:
-        argv = shlex.split(stripped)
-    except ValueError:
-        return None
-    return argv or None
 
 
 def _rtk_can_wrap_command(stripped_command: str) -> bool:
@@ -143,27 +137,23 @@ def _rtk_enabled() -> bool:
     return rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
 
 
-def _rtk_fallback_allowed() -> bool:
-    fallback_setting = os.environ.get(_RTK_FALLBACK_ALLOWED_ENV)
-    return fallback_setting is None or fallback_setting.strip().lower() in _RTK_TRUTHY
-
-
-def _blocked_bash_command(command: str) -> bool:
+def _blocked_bash_argv(argv: list[str]) -> bool:
+    command = shlex.join(argv)
     return any(
         re.search(blocked_pattern, command, re.IGNORECASE)
         for blocked_pattern in _BLOCKED_BASH_PATTERNS
     )
 
 
-def _run_shell_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # nosec B602
-        command,
-        shell=True,
+def _run_argv_command(argv: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        shell=False,
         capture_output=True,
         text=True,
         timeout=timeout,
         check=False,
-    )  # nosec B602
+    )
 
 
 def _run_rtk_command(rtk_argv: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
@@ -178,33 +168,27 @@ def _run_rtk_command(rtk_argv: list[str], timeout: int) -> subprocess.CompletedP
 
 
 def _run_bash_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    argv = _parse_command(command)
     if not _rtk_enabled():
-        return _run_shell_command(command, timeout)
+        return _run_argv_command(argv, timeout)
 
-    rtk_argv = _rtk_command_prefix(command)
+    rtk_argv = _rtk_command_prefix(argv, command)
     if rtk_argv is None:
-        fallback_allowed = _rtk_fallback_allowed()
-        if _rtk_candidate_argv(command) is not None and shutil.which("rtk") is None:
+        if _rtk_can_wrap_command(command) and shutil.which("rtk") is None:
             _log.warning(
                 "rtk command wrapper unavailable",
-                extra={"fields": {"error": "rtk not found", "fallback_allowed": fallback_allowed}},
+                extra={"fields": {"error": "rtk not found"}},
             )
-        if not fallback_allowed:
-            message = "rtk unavailable or command unsupported and shell fallback disabled"
-            raise RuntimeError(message)
-        return _run_shell_command(command, timeout)
+        return _run_argv_command(argv, timeout)
 
     try:
         return _run_rtk_command(rtk_argv, timeout)
     except OSError as exc:
-        fallback_allowed = _rtk_fallback_allowed()
         _log.warning(
             "rtk command wrapper unavailable",
-            extra={"fields": {"error": str(exc), "fallback_allowed": fallback_allowed}},
+            extra={"fields": {"error": str(exc)}},
         )
-        if not fallback_allowed:
-            raise RuntimeError(f"rtk unavailable and shell fallback disabled: {exc}") from exc
-        fallback_result = _run_shell_command(command, timeout)
+        fallback_result = _run_argv_command(argv, timeout)
         fallback_result.stdout = (
             f"[rtk unavailable: {exc}; used original command output]\n"
             f"{fallback_result.stdout or ''}"
