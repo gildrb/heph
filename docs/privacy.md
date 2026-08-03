@@ -176,26 +176,14 @@ Heph never writes API keys to:
 
 ### Outbound Connections
 
-Heph makes network connections only to:
-
-1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference and, when
-   `HARNESS_EMBED_MODEL` is configured, embedding indexed material and queries
-   through the provider's OpenAI-compatible `/v1/embeddings` endpoint
-2. **Hugging Face and llama.cpp release downloads** - only when you use
-   `heph local` or `/local` to browse curated local models, install
-   them, or update local GGUF model support
-3. **Package managers** (uv, pip) - for updates/dependencies
-4. **Web pages requested through the `web_fetch` tool** - only when a model tool
-   call asks Heph to fetch a URL because armory material is insufficient
-5. **DuckDuckGo HTML search** - only when priority-report prerequisite hints are
-   explicitly enabled with `HARNESS_PRIORITY_WEB_PREREQS` or the
-   `priority_web_prereqs` feature flag
-6. **Optional diagnostics endpoints** - if you enable them
 Heph makes network connections only when the corresponding feature or command
 requires them:
 
 1. **The configured model provider** receives inference requests containing the
-   active question, system instructions, and selected retrieved chunks.
+   active question, system instructions, and selected retrieved chunks. When
+   `HARNESS_EMBED_MODEL` is configured, it also receives indexed material and
+   query text through the provider's OpenAI-compatible `/v1/embeddings`
+   endpoint.
 2. **Hugging Face model storage** is contacted when `heph local` or `/local`
    downloads a curated GGUF model.
 3. **The llama.cpp release source** is contacted when Heph downloads the local
