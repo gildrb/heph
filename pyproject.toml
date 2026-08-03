@@ -292,7 +292,7 @@ extend_exclude = [
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on docling/nltk/numpy/sklearn - optional document conversion or RAG backends.
 # DEP004 on bm25s - dynamic runtime RAG backend import.
-per_rule_ignores = { DEP002 = ["py-spy", "pathspec", "rapidfuzz", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["py-spy", "pathspec", "rapidfuzz", "matplotlib", "pypdfium2"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=ai --cov=extensions --cov=heph --cov=harness --cov=interfaces --cov-report=term-missing --cov-fail-under=46"

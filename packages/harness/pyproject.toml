@@ -33,3 +33,4 @@ heph-extensions = ["extensions"]
 
 [tool.deptry.per_rule_ignores]
 DEP001 = ["nltk", "pathspec", "rapidfuzz", "tiktoken"]
+DEP002 = ["pypdfium2"]

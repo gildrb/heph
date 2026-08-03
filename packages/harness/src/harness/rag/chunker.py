@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Protocol, cast
 from zipfile import BadZipFile, ZipFile, ZipInfo
 
-import pypdfium2
 from ai.logging import get_logger
 from defusedxml import ElementTree
 
@@ -27,6 +26,7 @@ from harness.rag.file_safety import (
     temporary_regular_file_copy,
 )
 from harness.rag.html_text import extract_html_text
+from harness.rag.pdfium import open_pdf_document
 
 _log = get_logger("harness.rag.chunker")
 
@@ -607,7 +607,7 @@ def _convert_pdf_with_pdfium(path: Path) -> str | None:
     if not _is_pdf_file(path):
         return None
     try:
-        with pypdfium2.PdfDocument(str(path)) as document:
+        with open_pdf_document(str(path)) as document:
             page_texts: list[str] = []
             for page in document:
                 textpage = page.get_textpage()
