@@ -1,4 +1,4 @@
-"""Tests for document conversion dependency policy."""
+"""Tests for document and RAG dependency policy."""
 
 from __future__ import annotations
 
@@ -12,13 +12,10 @@ def test_document_and_rag_backends_are_removed_from_harness_dependencies() -> No
 
     dependencies = pyproject["project"]["dependencies"]
     assert all(
-        not dependency.startswith(
-            ("bm25s", "docling-slim", "scikit-learn", "sentence-transformers")
-        )
+        not dependency.startswith(("bm25s", "scikit-learn", "sentence-transformers"))
         for dependency in dependencies
     )
     assert "optional-dependencies" not in pyproject["project"]
-    assert all(not dependency.startswith("docling==") for dependency in dependencies)
 
 
 def test_managed_dependency_groups_do_not_duplicate_shipped_backends() -> None:

@@ -202,11 +202,6 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
             "ai.runtime",
         }
     ),
-    "harness/rag/docling_worker.py": frozenset(
-        {
-            "docling.document_converter",
-        }
-    ),
 }
 PROMPT_RULE_SCAN_ROOTS: Final[tuple[str, ...]] = (
     "harness/agent/",

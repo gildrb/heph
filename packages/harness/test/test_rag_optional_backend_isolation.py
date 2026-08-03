@@ -1,4 +1,4 @@
-"""Test-suite defaults for optional RAG backend isolation."""
+"""Test-suite defaults for lean RAG backend isolation."""
 
 from __future__ import annotations
 
@@ -24,9 +24,7 @@ import harness.rag.chunker
 heavy = [
     name
     for name in sys.modules
-    if name == "docling"
-    or name.startswith("docling.")
-    or name == "transformers"
+    if name == "transformers"
     or name.startswith("transformers.")
     or name == "torch"
     or name.startswith("torch.")

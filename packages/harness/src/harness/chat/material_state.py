@@ -148,23 +148,11 @@ def _unindexable_material_reply(materials: str, reasons: list[str]) -> str:
             "installation. I cannot answer from outside knowledge. Update or reinstall "
             "Heph, then ask again or run `heph index <armory>` to verify indexing."
         )
-    if _all_reasons_contain(reason_text, "docling conversion failed"):
-        return (
-            f"I can see {materials}, but document conversion did not extract searchable "
-            "text from it. I cannot answer from outside knowledge. Re-export, replace, "
-            "or convert the document to text/Markdown, then ask again."
-        )
     if _all_reasons_contain(reason_text, "timed out"):
         return (
             f"I can see {materials}, but document conversion timed out before searchable "
             "text was indexed. I cannot answer from outside knowledge. Re-export or "
             "convert the material to text/Markdown, then ask again."
-        )
-    if _all_reasons_contain(reason_text, "docling"):
-        return (
-            f"I can see {materials}, but it is not searchable armory evidence yet. "
-            "I cannot answer from outside knowledge. Update Heph, then ask again "
-            "or run `heph index <armory>` to verify indexing."
         )
     return (
         f"I can see {materials}, but no searchable text was indexed from it. "

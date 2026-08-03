@@ -126,7 +126,7 @@ def test_file_hash_rejects_oversized_material(
     assert rag_index._file_hash(material) is None
 
 
-def test_docling_materials_have_default_index_timeout(
+def test_native_document_materials_have_default_index_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HARNESS_INDEX_FILE_TIMEOUT_SECONDS", raising=False)
@@ -332,7 +332,7 @@ class TestArmoryIndexStaleness:
         assert loaded.load()
         assert not loaded.is_stale()
 
-    def test_docling_file_without_backend_does_not_make_fresh_index_stale(
+    def test_unavailable_document_converter_does_not_make_fresh_index_stale(
         self,
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,

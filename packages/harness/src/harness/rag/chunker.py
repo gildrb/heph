@@ -101,7 +101,6 @@ _DOCUMENT_EXTENSIONS = frozenset(
         ".ods",
     }
 )
-_DOCLING_EXTENSIONS = _DOCUMENT_EXTENSIONS
 _UNSUPPORTED_DOCUMENT_EXTENSIONS = frozenset({".doc", ".ppt", ".xls", ".odp", ".rtf"})
 
 _DEFAULT_CHUNK_SIZE = 500
