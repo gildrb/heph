@@ -56,6 +56,10 @@ def _config() -> ChatConfig:
     return config
 
 
+def _sidecar_records(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
 def test_embedding_sidecar_batches_requests_and_uses_secure_permissions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -68,11 +72,11 @@ def test_embedding_sidecar_batches_requests_and_uses_secure_permissions(
 
     assert store is not None
     assert [len(call) for call in client.calls] == [64, 1]
-    sidecar = tmp_path / ".harness" / "rag_embeddings.json"
+    sidecar = tmp_path / ".harness" / "rag_embeddings.jsonl"
     assert sidecar.stat().st_mode & 0o777 == 0o600
-    payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert payload["complete"] is True
-    assert payload["covered_chunks"] == 65
+    records = _sidecar_records(sidecar)
+    assert records[-1]["complete"] is True
+    assert records[-1]["covered_chunks"] == 65
 
 
 def test_embedding_query_vectors_are_batched_and_cached(
@@ -93,6 +97,21 @@ def test_embedding_query_vectors_are_batched_and_cached(
     assert client.calls[0] == ["one", "two"]
 
 
+def test_embedding_query_cache_handles_more_than_cache_capacity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _EmbeddingClient()
+    monkeypatch.setattr("harness.rag.semantic.build_embeddings_client", lambda _config: client)
+    store = build_embedding_store(tmp_path, [_chunk(0)], _config(), "embed-model")
+    assert store is not None
+
+    results = store.retrieve_many([f"query-{index}" for index in range(40)], top_k=1)
+
+    assert len(results) == 40
+    assert len(client.calls[-1]) == 40
+
+
 def test_embedding_sidecar_records_partial_progress_after_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -104,10 +123,10 @@ def test_embedding_sidecar_records_partial_progress_after_failure(
     with pytest.raises(EmbeddingUnavailableError, match="Embedding request failed"):
         build_embedding_store(tmp_path, chunks, _config(), "embed-model")
 
-    sidecar = tmp_path / ".harness" / "rag_embeddings.json"
-    payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert payload["complete"] is False
-    assert payload["covered_chunks"] == 64
+    sidecar = tmp_path / ".harness" / "rag_embeddings.jsonl"
+    records = _sidecar_records(sidecar)
+    assert records[-1]["type"] == "checkpoint"
+    assert records[-1]["covered_chunks"] == 64
 
 
 def test_embedding_cache_identity_changes_with_provider_endpoint(
@@ -124,6 +143,23 @@ def test_embedding_cache_identity_changes_with_provider_endpoint(
     build_embedding_store(tmp_path, chunks, changed, "embed-model")
 
     assert len(client.calls) == 2
+
+
+def test_embedding_sidecar_reloads_dimension_and_reuses_vectors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _EmbeddingClient()
+    monkeypatch.setattr("harness.rag.semantic.build_embeddings_client", lambda _config: client)
+    chunks = [_chunk(0)]
+    build_embedding_store(tmp_path, chunks, _config(), "embed-model")
+    client.calls.clear()
+
+    store = build_embedding_store(tmp_path, chunks, _config(), "embed-model")
+
+    assert store is not None
+    assert client.calls == []
+    assert store.retrieve("reloaded", top_k=1)
 
 
 def test_configured_embedding_model_uses_explicit_environment_seam(
