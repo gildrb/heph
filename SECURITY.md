@@ -33,8 +33,12 @@ Heph is designed with security and privacy in mind:
 ## Security Best Practices for Users
 
 1. **Review armory plugins**: Only use armory plugins from sources you trust
-2. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
-3. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
+2. **Enable shell execution only for trusted armories**: Set
+   `HARNESS_TRUST_ARMORY_SHELL=/path/to/armory` only when you accept that the agent
+   can run argv-style commands on that machine. Shell execution is disabled by
+   default and does not provide a sandbox.
+3. **Keep dependencies updated**: Run `uv tool upgrade heph` regularly
+4. **Check diagnostics settings**: Review what analytics/crash reporting is enabled in `/settings`
 
 ## Dependency Security
 

@@ -85,8 +85,8 @@ class TestBash:
         assert "exit code" in result
 
     def test_stderr(self) -> None:
-        result = run_bash("echo error >&2")
-        assert "error" in result
+        result = run_bash("git nonexistent-command")
+        assert "--- stderr ---" in result
 
     def test_timeout(self) -> None:
         result = run_bash("sleep 60", timeout=1)

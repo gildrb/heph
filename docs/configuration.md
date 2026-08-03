@@ -28,6 +28,7 @@ and state, and what leaves the machine for the selected compute mode.
 |----------|---------|
 | `HARNESS_MAX_TOKENS` | Max output tokens per response |
 | `HARNESS_TEMPERATURE` | Model sampling temperature |
+| `HARNESS_TRUST_ARMORY_SHELL` | Explicit armory path allowed to expose the agent shell tool |
 | `HARNESS_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
 | `HARNESS_FEATURE_FLAGS` | Comma-separated feature flags |
 | `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports |

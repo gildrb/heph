@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from harness.agent import tool_execution as tool_execution_mod
 from harness.agent.dispatch import ToolCall, execute_tool_calls
 from harness.agent.tools import (
@@ -225,6 +227,30 @@ class TestPluginLoading:
         reg = ToolRegistry()
         loaded = reg.load_plugins(tools_dir)
         assert loaded == 0
+
+    def test_skip_symlinked_plugin(self, tmp_path: Path) -> None:
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        target = tmp_path / "plugin.py"
+        target.write_text("raise RuntimeError('should not execute')\n")
+        (tools_dir / "plugin.py").symlink_to(target)
+
+        assert ToolRegistry().load_plugins(tools_dir) == 0
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions are unavailable")
+    @pytest.mark.parametrize("mode", [(0o664,), (0o606,)])
+    def test_skip_group_or_world_writable_plugin(
+        self,
+        tmp_path: Path,
+        mode: tuple[int],
+    ) -> None:
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        plugin = tools_dir / "plugin.py"
+        plugin.write_text("raise RuntimeError('should not execute')\n")
+        plugin.chmod(mode[0])
+
+        assert ToolRegistry().load_plugins(tools_dir) == 0
 
     def test_armory_scoped_registry_with_plugins(self, tmp_path: Path) -> None:
         """Simulate per-armory tool loading via child registry."""
