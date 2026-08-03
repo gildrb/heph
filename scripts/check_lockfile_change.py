@@ -90,9 +90,23 @@ def _lockfile_requires_dependency_review(
 
 def _dependency_declarations_changed(git_diff: str) -> bool:
     base_ref = _git_diff_base_ref(git_diff)
-    before = _pyproject_dependency_payloads(_git_file_at_ref(base_ref, _PYPROJECT))
-    after = _pyproject_dependency_payloads(Path(_PYPROJECT).read_bytes())
-    return before != after
+    paths = _changed_dependency_manifests(git_diff)
+    return any(
+        _pyproject_dependency_payloads(_git_file_at_ref(base_ref, path))
+        != _pyproject_dependency_payloads(Path(path).read_bytes())
+        for path in paths
+        if Path(path).exists()
+    )
+
+
+def _changed_dependency_manifests(git_diff: str) -> tuple[str, ...]:
+    completed = subprocess.run(
+        ["git", "diff", "--name-only", git_diff, "--", "*pyproject.toml"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return tuple(path for path in completed.stdout.splitlines() if path)
 
 
 def _git_file_at_diff_base(git_diff: str, path: str) -> bytes:
