@@ -1565,7 +1565,7 @@ def test_jsonl_sdk_process_times_out_waiting_for_ready() -> None:
     transport = JsonlSdkProcess(
         command=(sys.executable, "-c", "import time; time.sleep(10)"),
         startup_timeout=0.01,
-        shutdown_timeout=0.01,
+        shutdown_timeout=0.1,
     )
 
     with pytest.raises(JsonlSdkProcessError, match="did not send ready"):
