@@ -202,7 +202,6 @@ No telemetry, analytics, crash-report, PostHog, or Sentry traffic occurs.
 Heph does not create a persistent install fingerprint. Local armory traces
 remain under `.harness/traces/` and are never uploaded.
 
-
 ### Localhost-Only Servers
 
 Heph does not:
