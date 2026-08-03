@@ -4,10 +4,10 @@ Backends (selected automatically based on available dependencies):
 - ``TfidfRetriever``     - pure-stdlib keyword scoring (always available)
 - ``Bm25Retriever``      - BM25 sparse chunk retrieval via bm25s when available
 - ``DocumentBm25Retriever`` - BM25 sparse document retrieval
-- ``EmbeddingRetriever`` - dense vector similarity via sentence-transformers
+- ``EmbeddingRetriever`` - provider-backed dense vector similarity
 - ``HybridRetriever``    - reciprocal-rank fusion of sparse + embeddings
 
-Post-retrieval re-ranking (optional, requires sentence-transformers):
+Post-retrieval re-ranking:
 - ``CrossEncoderReranker`` - cross-encoder re-scoring for improved precision
 
 The top-level ``retrieve()`` function auto-selects the best backend and
@@ -122,9 +122,27 @@ def _create_retriever(
     if sparse_retriever is not None:
         return sparse_retriever
     if retrieval_mode == RetrievalMode.DENSE:
-        raise RuntimeError(
-            "Dense retrieval is unavailable in the lean install; use BM25 or TF-IDF."
+        retriever = _hybrid_retriever(
+            index,
+            retrieval_mode,
+            embed_model=embed_model,
+            embed_query_prefix=embed_query_prefix,
+            embed_document_prefix=embed_document_prefix,
+            rerank_model=rerank_model,
+            query_transformer=query_transformer,
+            candidate_multiplier=candidate_multiplier,
+            hybrid_sparse_weight=0.0,
+            hybrid_dense_weight=1.0,
+            pseudo_feedback_docs=pseudo_feedback_docs,
+            pseudo_feedback_terms=pseudo_feedback_terms,
+            pseudo_feedback_weight=pseudo_feedback_weight,
         )
+        if retriever is None or not retriever.has_embeddings:
+            raise RuntimeError(
+                "Dense retrieval requires a configured embedding model and a working "
+                "provider embeddings endpoint."
+            )
+        return retriever
     if retrieval_mode == RetrievalMode.HYBRID_RERANK:
         raise RuntimeError("Reranking is unavailable in the lean install; use lexical retrieval.")
     if hybrid := _hybrid_retriever(

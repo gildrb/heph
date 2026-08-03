@@ -32,8 +32,7 @@ and state, and what leaves the machine for the selected compute mode.
 | `HARNESS_RAG_CONTEXT_BUDGET` | Token budget for retrieved context |
 | `HARNESS_FEATURE_FLAGS` | Comma-separated feature flags |
 | `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports |
-| `HARNESS_EMBED_MODEL` | Embedding model override |
-| `HARNESS_RERANK_MODEL` | Reranker model override |
+| `HARNESS_EMBED_MODEL` | Provider embedding model; unset disables semantic retrieval |
 | `HARNESS_EXTRACTION_MODEL` | Background memory extraction model override |
 
 ### Privacy and Diagnostics

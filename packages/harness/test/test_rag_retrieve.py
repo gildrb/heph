@@ -529,7 +529,7 @@ class TestBm25Retriever:
 
 class TestLeanRetrievalContract:
     def test_dense_mode_fails_clearly(self) -> None:
-        with pytest.raises(RuntimeError, match="Dense retrieval is unavailable"):
+        with pytest.raises(RuntimeError, match="Dense retrieval requires"):
             retrieve(
                 "query",
                 _make_index_with_chunks([_make_chunk("query")]),

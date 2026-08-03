@@ -206,7 +206,9 @@ Heph never writes API keys to:
 
 Heph makes network connections only to:
 
-1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference
+1. **Model providers** (OpenAI, OpenRouter, etc.) - for inference and, when
+   `HARNESS_EMBED_MODEL` is configured, embedding indexed material and queries
+   through the provider's OpenAI-compatible `/v1/embeddings` endpoint
 2. **Hugging Face and llama.cpp release downloads** - only when you use
    `heph local` or `/local` to browse curated local models, install
    them, or update local GGUF model support

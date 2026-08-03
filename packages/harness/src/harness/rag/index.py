@@ -15,6 +15,7 @@ import secrets
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ai.logging import Timer, get_logger
 
@@ -41,6 +42,10 @@ from harness.rag.index_state import (
 )
 from harness.rag.index_timeout import chunk_file_with_timeout as _run_chunk_file_with_timeout
 from harness.rag.retrieval_types import RetrieverCacheKey
+from harness.rag.semantic import EmbeddingUnavailableError, build_embedding_store
+
+if TYPE_CHECKING:
+    from ai.runtime import ChatConfig
 
 _log = get_logger("harness.rag.index")
 
@@ -399,6 +404,8 @@ class ArmoryIndex:
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
         self._retriever: object | None = None  # cached default retriever instance
         self._retriever_cache: dict[RetrieverCacheKey, object] = {}
+        self.embedding_retriever: object | None = None
+        self.embedding_error: str | None = None
         self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 
     @property
@@ -1024,6 +1031,8 @@ def build_index(
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
     progress: IndexProgress | None = None,
     previous: ArmoryIndex | None = None,
+    embedding_config: ChatConfig | None = None,
+    embed_model: str | None = None,
 ) -> ArmoryIndex:
     previous_loaded = previous is not None
     if previous is None:
@@ -1038,6 +1047,20 @@ def build_index(
     if progress is not None:
         progress("writing", str(index.armory_path / ".harness" / _INDEX_FILE))
     index.save()
+    if embedding_config is not None and embed_model:
+        try:
+            index.embedding_retriever = build_embedding_store(
+                armory_path,
+                index.all_chunks,
+                embedding_config,
+                embed_model,
+                progress=progress,
+            )
+        except EmbeddingUnavailableError as exc:
+            index.embedding_error = str(exc)
+            if progress is not None:
+                progress("embedding_warning", str(exc))
+            _log.warning("semantic indexing unavailable: %s", exc)
     _log.info(
         "index built and saved",
         extra={
@@ -1056,10 +1079,26 @@ def load_or_build(
     *,
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
     progress: IndexProgress | None = None,
+    embedding_config: ChatConfig | None = None,
+    embed_model: str | None = None,
 ) -> ArmoryIndex:
     index = ArmoryIndex(armory_path, strategy=strategy)
     loaded = index.load(allow_stale=True)
     if _can_use_loaded_index(index, loaded=loaded, strategy=strategy):
+        if embedding_config is not None and embed_model:
+            try:
+                index.embedding_retriever = build_embedding_store(
+                    armory_path,
+                    index.all_chunks,
+                    embedding_config,
+                    embed_model,
+                    progress=progress,
+                )
+            except EmbeddingUnavailableError as exc:
+                index.embedding_error = str(exc)
+                if progress is not None:
+                    progress("embedding_warning", str(exc))
+                _log.warning("semantic indexing unavailable: %s", exc)
         if progress is not None:
             index_path = armory_path / ".harness" / _INDEX_FILE
             progress("loaded", f"{index_path} ({index.chunk_count} chunks)")
@@ -1086,6 +1125,8 @@ def load_or_build(
         strategy=strategy,
         progress=progress,
         previous=index if loaded else None,
+        embedding_config=embedding_config,
+        embed_model=embed_model,
     )
 
 

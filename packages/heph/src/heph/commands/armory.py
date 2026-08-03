@@ -10,6 +10,8 @@ from harness.armory.storage import default_armory_home
 from harness.chat.session import ChatSession, refresh_armory_sources
 from harness.materials import MATERIALS_DIR, material_display_name
 from harness.materials.importing import import_material_files, resolve_import_source
+from harness.parameters.cli import load_config
+from harness.rag.config import configured_embedding_model
 from harness.rag.index import ArmoryIndex, build_index
 from interfaces.terminal import print_error, print_info, print_success
 
@@ -21,6 +23,8 @@ class _MaterialIndexRefreshStats:
     reused: int = 0
     rebuilt: int = 0
     skipped: int = 0
+    embedding_notice: str = ""
+    embedding_warning: str = ""
 
     def record(self, state: str, detail: str) -> None:
         if state == "indexed" and detail.endswith(", reused)"):
@@ -29,6 +33,10 @@ class _MaterialIndexRefreshStats:
             self.rebuilt += 1
         elif state == "skipped":
             self.skipped += 1
+        elif state == "embedding_notice":
+            self.embedding_notice = detail
+        elif state == "embedding_warning":
+            self.embedding_warning = detail
 
 
 class ImportCommand(Command):
@@ -127,7 +135,12 @@ def _handle_material_index_refresh(session: ChatSession) -> CommandResult:
         return CommandResult()
 
     stats = _MaterialIndexRefreshStats()
-    index = build_index(session.armory_path, progress=stats.record)
+    index = build_index(
+        session.armory_path,
+        progress=stats.record,
+        embedding_config=session.config if hasattr(session, "config") else load_config(),
+        embed_model=configured_embedding_model(),
+    )
     session.rag_index = index
     return CommandResult(output=_material_index_summary(index, stats))
 
@@ -147,6 +160,10 @@ def _material_index_summary(
         )
         suffix = "..." if len(index.unindexable_files) > 3 else ""
         line = f"{line}; skipped {skipped}{suffix}"
+    if stats.embedding_notice:
+        line = f"{line}; embeddings {stats.embedding_notice}"
+    if stats.embedding_warning:
+        line = f"{line}; embedding warning: {stats.embedding_warning}"
     return f"{line}."
 
 

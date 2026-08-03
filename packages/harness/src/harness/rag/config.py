@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import os
+
 EMBED_MODEL_ENV = "HARNESS_EMBED_MODEL"
 RERANK_MODEL_ENV = "HARNESS_RERANK_MODEL"
+MAX_DENSE_QUERY_VARIANTS = 4
+EMBEDDING_BATCH_SIZE = 64
 
-__all__ = ["EMBED_MODEL_ENV", "RERANK_MODEL_ENV"]
+__all__ = [
+    "EMBEDDING_BATCH_SIZE",
+    "EMBED_MODEL_ENV",
+    "MAX_DENSE_QUERY_VARIANTS",
+    "RERANK_MODEL_ENV",
+]
+
+
+def configured_embedding_model() -> str | None:
+    value = os.environ.get(EMBED_MODEL_ENV, "").strip()
+    return value or None

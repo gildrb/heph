@@ -94,6 +94,8 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 
 def _cmd_materials_index(args: argparse.Namespace) -> None:
     rag_index = importlib.import_module("harness.rag.index")
+    rag_config = importlib.import_module("harness.rag.config")
+    parameters = importlib.import_module("harness.parameters.cli")
     armory_path = _validated_armory_path(args.path)
 
     def progress(action: str, detail: str) -> None:
@@ -103,16 +105,28 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
             "skipped": "Skipped",
             "writing": "Writing",
             "warning": "Warning",
+            "embedding_notice": "Embeddings",
+            "embedding_warning": "Embedding warning",
+            "embedded": "Embedded",
         }
         print(f"{labels.get(action, action.title())}: {detail}")
 
-    index = rag_index.build_index(armory_path, progress=progress)
+    config = parameters.load_config(armory_path)
+    index = rag_index.build_index(
+        armory_path,
+        progress=progress,
+        embedding_config=config,
+        embed_model=rag_config.configured_embedding_model(),
+    )
     print(f"Indexed {len(index.documents)} documents ({index.chunk_count} chunks)")
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
     rag_health = importlib.import_module("harness.rag.health")
     optional_backends = importlib.import_module("harness.rag.optional_backends")
+    rag_config = importlib.import_module("harness.rag.config")
+    provider_config = importlib.import_module("ai.providers.config")
+    parameters = importlib.import_module("harness.parameters.cli")
     armory_path = _validated_armory_path(args.path)
 
     print("Capabilities:")
@@ -121,6 +135,15 @@ def _cmd_health(args: argparse.Namespace) -> None:
         print(f"- {capability.name}: {status} ({capability.enables})")
         if not capability.available:
             print(f"  Without it: {capability.fallback}")
+    config = parameters.load_config(armory_path)
+    embedding_model = rag_config.configured_embedding_model()
+    provider = provider_config.ProviderConfig.load().get_active()
+    if embedding_model and config.base_url:
+        print(f"- embeddings: configured ({config.base_url.rstrip('/')}, model={embedding_model})")
+    else:
+        print("- embeddings: unavailable (set HARNESS_EMBED_MODEL and configure a provider)")
+    if provider is not None and embedding_model:
+        print(f"  Embedding chunks would be sent to: {provider.endpoint.rstrip('/')}")
 
     report = rag_health.scan_extraction_health(armory_path)
     print(f"Extraction health: {report.documents} indexed document(s)")

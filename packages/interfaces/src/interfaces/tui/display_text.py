@@ -306,6 +306,10 @@ def _info_panel_evidence_lines(
             _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), detail),
         ]
     evidence = session.last_turn_evidence
+    if session.retrieval_notice:
+        return [
+            _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), session.retrieval_notice),
+        ]
     if evidence is None or not evidence.items:
         return [
             _info_panel_label_line(_INFO_PANEL_EVIDENCE.upper(), "none yet"),
