@@ -137,6 +137,11 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
+    "harness/rag/pdfium.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
     "harness/rag/optional_backends.py": frozenset(
         {
             "importlib.import_module",
@@ -195,11 +200,6 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
         {
             "harness.chat.automation",
             "ai.runtime",
-        }
-    ),
-    "harness/rag/docling_worker.py": frozenset(
-        {
-            "docling.document_converter",
         }
     ),
 }
@@ -338,8 +338,7 @@ PYTORCH_JIT_SCRIPT_TEST_ROOTS: Final[tuple[str, ...]] = (
     "tests/",
 )
 PYTORCH_JIT_SCRIPT_POLICY_MESSAGE: Final[str] = (
-    "direct `torch.jit.script` usage is forbidden while GHSA-rrmf-rvhw-rf47 is accepted; "
-    "use eager PyTorch APIs or re-review the vulnerability waiver"
+    "direct `torch.jit.script` usage is forbidden; use eager PyTorch APIs"
 )
 
 

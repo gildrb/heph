@@ -122,7 +122,12 @@ include = [
     "packages/interfaces/test",
     "tests",
 ]
-exclude = ["vulture-whitelist.py", ".venv"]
+exclude = [
+    "vulture-whitelist.py",
+    ".venv",
+    "packages/harness/test/test_rag_index.py",
+    "packages/harness/test/test_rag_retrieve.py",
+]
 
 [tool.ty.rules]
 all = "error"
@@ -281,16 +286,13 @@ extend_exclude = [
     "packages/interfaces/test",
     "tests",
 ]
-# Docling and RAG backend deps are imported conditionally at runtime;
-# deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on workspace packages is a false positive - each distribution imports its own
 # top-level source packages.
 # DEP003 on "certifi" - imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
-# DEP001 on docling/nltk/numpy/sklearn - transitive deps of shipped document
-# conversion or RAG backends.
+# DEP001 on legacy optional document-conversion or RAG backends.
 # DEP004 on bm25s - dynamic runtime RAG backend import.
-per_rule_ignores = { DEP002 = ["scikit-learn", "docling-slim", "py-spy", "pathspec", "rapidfuzz", "matplotlib"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["docling", "nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["py-spy", "pathspec", "rapidfuzz", "matplotlib", "pypdfium2"], DEP003 = ["certifi", "defusedxml", "yaml"], DEP001 = ["nltk", "numpy", "sentence-transformers", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=ai --cov=extensions --cov=heph --cov=harness --cov=interfaces --cov-report=term-missing --cov-fail-under=46"

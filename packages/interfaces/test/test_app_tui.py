@@ -1053,6 +1053,7 @@ def test_resize_invalidates_transient_surfaces_without_duplicate_composer(
             for width, height in ((90, 11), (132, 26), (80, 9), (140, 24)):
                 await pilot.resize_terminal(width, height)
                 await pilot.pause(0.03)
+            await pilot.pause(0.1)
 
             composers = list(app.query("#composer"))
             assert len(composers) == 1

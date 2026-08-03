@@ -2,43 +2,18 @@
 
 from __future__ import annotations
 
-import logging
 import os
-import subprocess
+import zipfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from harness.rag import chunker as rag_chunker
 from harness.rag.chunker import (
-    _DOCLING_EXTENSIONS,
     ChunkStrategy,
-    _convert_pdf_to_text,
-    _convert_pdf_with_ocr,
-    _convert_to_markdown,
-    _is_docling_available,
-    _is_docling_file,
-    _is_text_file,
-    _normalize_extracted_text,
     chunk_file,
     chunk_markdown,
-    chunk_semantic,
     chunk_text,
 )
-
-
-def _docling_completed(
-    stdout: str = "",
-    *,
-    returncode: int = 0,
-    stderr: str = "",
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["docling-worker"],
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-    )
 
 
 class TestChunkText:
@@ -337,42 +312,6 @@ class TestChunkMarkdown:
             assert c.heading_level == 1
 
 
-class TestChunkSemantic:
-    def test_empty_input(self) -> None:
-        assert chunk_semantic("", "test.txt") == []
-        assert chunk_semantic("   ", "test.txt") == []
-
-    def test_short_text_single_chunk(self) -> None:
-        # With or without sentence-transformers, a short text yields 1 chunk
-        chunks = chunk_semantic("Hello world.", "short.txt")
-        assert len(chunks) >= 1
-        assert chunks[0].source == "short.txt"
-
-    def test_falls_back_to_chunk_text_without_st(self) -> None:
-        # chunk_semantic always works (falls back to chunk_text)
-        text = "A. " * 200
-        chunks = chunk_semantic(text, "fallback.txt", chunk_size=500)
-        assert len(chunks) >= 1
-
-    def test_semantic_breakpoints_keep_original_source_offsets(self) -> None:
-        text = "First sentence.\n    Indented second sentence.\n\nFinal sentence."
-        sentence_spans = rag_chunker._split_sentence_spans(text)
-
-        chunks = rag_chunker._semantic_chunks_from_breakpoints(
-            sentence_spans,
-            [0, 2, 3],
-            source="notes.txt",
-            min_chunk=0,
-        )
-
-        assert chunks[0].text == "First sentence. Indented second sentence."
-        assert chunks[0].char_start == text.index("First")
-        assert chunks[0].char_end == text.index("sentence.", text.index("Indented")) + len(
-            "sentence."
-        )
-        assert chunks[1].char_start == text.index("Final")
-
-
 class TestChunkStrategy:
     def test_auto_uses_markdown_for_md(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
@@ -430,500 +369,169 @@ class TestChunkStrategy:
         assert len(doc.chunks) >= 1
 
 
-class TestDoclingIntegration:
-    """Tests for the Docling binary-document conversion path."""
+class TestNativeDocumentExtraction:
+    def _archive(self, path: Path, members: dict[str, str]) -> Path:
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+        return path
 
-    def test_is_docling_file(self) -> None:
-        assert _is_docling_file(Path("report.pdf"))
-        assert _is_docling_file(Path("slides.PPTX"))
-        assert _is_docling_file(Path("data.Xlsx"))
-        assert not _is_docling_file(Path("notes.txt"))
-        assert not _is_docling_file(Path("code.py"))
-        assert not _is_docling_file(Path("image.png"))
-
-    def test_known_document_extension_is_not_guessed_as_text(self, tmp_path: Path) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n")
-
-        assert not _is_text_file(pdf)
-
-    def test_docling_extensions_covered(self) -> None:
-        assert ".pdf" in _DOCLING_EXTENSIONS
-        assert ".docx" in _DOCLING_EXTENSIONS
-        assert ".pptx" in _DOCLING_EXTENSIONS
-        assert ".xlsx" in _DOCLING_EXTENSIONS
-        assert ".odt" in _DOCLING_EXTENSIONS
-
-    def test_is_docling_available_without_package(self) -> None:
-        with patch("harness.rag.chunker._DocumentConverter", None):
-            assert not _is_docling_available()
-
-    def test_convert_to_markdown_success(self, tmp_path: Path) -> None:
-        pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
-
-        with patch(
-            "harness.rag.chunker._run_docling_worker",
-            return_value=_docling_completed("# Report\n\nSome content from the PDF.\n"),
-        ):
-            md = _convert_to_markdown(pdf)
-
-        assert md is not None
-        assert "# Report" in md
-
-    def test_convert_to_markdown_repairs_misplaced_german_umlauts(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        pdf = tmp_path / "math-benchmark.pdf"
-        pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
-
-        with patch(
-            "harness.rag.chunker._run_docling_worker",
-            return_value=_docling_completed(
-                "Administrative Header\nAdministrative header\n¨ Ubersicht"
-            ),
-        ):
-            md = _convert_to_markdown(pdf)
-
-        assert md == "Administrative Header\nAdministrative header\nÜbersicht"
-
-    def test_normalize_extracted_text_repairs_misplaced_umlauts(self) -> None:
-        text = "f¨ ur beschr¨ ankt ¨ Ubung Administrative header"
-        assert _normalize_extracted_text(text) == ("für beschränkt Übung Administrative header")
-
-    def test_normalize_extracted_text_repairs_common_latin_ocr_words(self) -> None:
-        text = "Begriinden Sie Ihre Antwort. Die Begrundung ist wichtig fiir die Bewertung."
-        assert _normalize_extracted_text(text) == (
-            "Begründen Sie Ihre Antwort. Die Begründung ist wichtig für die Bewertung."
+    def test_docx_extracts_paragraphs_and_tables(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.docx",
+            {
+                "word/document.xml": (
+                    "<document xmlns='urn:word'><body>"
+                    "<p><t>Heading</t></p><p><t>Paragraph</t></p>"
+                    "<tbl><tr><tc><p><t>A</t></p></tc><tc><p><t>B</t></p></tc></tr></tbl>"
+                    "</body></document>"
+                )
+            },
         )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Heading" in text
+        assert "Paragraph" in text
+        assert "A\tB" in text
 
-    def test_normalize_extracted_text_removes_extraction_placeholders(self) -> None:
-        text = "Definition\nFormula-not-decoded.\nImage not decoded.\nNext fact"
-        assert _normalize_extracted_text(text) == "Definition\n\n\nNext fact"
-        assert _normalize_extracted_text("Formula-not-decoded. Image not decoded. OCR noise.") == (
-            "  OCR noise."
+    def test_docx_table_cells_are_tab_delimited(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "columns.docx",
+            {
+                "word/document.xml": (
+                    "<document xmlns='urn:word'><body><tbl>"
+                    "<tr><tc><p><t>Header1</t></p></tc>"
+                    "<tc><p><t>Header2</t></p></tc>"
+                    "<tc><p><t>Header3</t></p></tc></tr>"
+                    "<tr><tc><p><t>Value1</t></p></tc>"
+                    "<tc><p><t>Value2</t></p></tc>"
+                    "<tc><p><t>Value3</t></p></tc></tr>"
+                    "</tbl></body></document>"
+                )
+            },
         )
-        assert _normalize_extracted_text("Before <!-- formula-not-decoded --> after") == (
-            "Before  after"
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Header1\tHeader2\tHeader3" in text
+        assert "Header1Header2" not in text
+
+    def test_pptx_preserves_slide_order(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.pptx",
+            {
+                "ppt/slides/slide1.xml": "<s><t>First slide</t></s>",
+                "ppt/slides/slide2.xml": "<s><t>Second slide</t></s>",
+            },
         )
-        assert _normalize_extracted_text("Before <!-- image --> after") == "Before  after"
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert text.index("First slide") < text.index("Second slide")
 
-    def test_convert_to_markdown_failure_returns_none(self, tmp_path: Path) -> None:
-        pdf = tmp_path / "bad.pdf"
-        pdf.write_bytes(b"%PDF\x00corrupt")
-
-        with patch(
-            "harness.rag.chunker._run_docling_worker",
-            return_value=_docling_completed(returncode=1, stderr="conversion failed"),
-        ):
-            md = _convert_to_markdown(pdf)
-
-        assert md is None
-
-    def test_convert_to_markdown_timeout_returns_none(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "slow.pdf"
-        pdf.write_bytes(b"%PDF\x00slow")
-
-        def timeout(_path: Path) -> subprocess.CompletedProcess[str]:
-            raise subprocess.TimeoutExpired("docling", timeout=1)
-
-        monkeypatch.setattr("harness.rag.chunker._run_docling_worker", timeout)
-
-        assert _convert_to_markdown(pdf) is None
-
-    def test_convert_pdf_to_text_uses_pdftotext_when_available(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "plain.pdf"
-        pdf.write_bytes(b"%PDF\x00content")
-
-        completed = MagicMock()
-        completed.returncode = 0
-        completed.stdout = "Plain extracted text."
-        completed.stderr = ""
-        monkeypatch.setattr("harness.rag.chunker.shutil.which", lambda _name: "pdftotext")
-        run = MagicMock(return_value=completed)
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", run)
-
-        text = _convert_pdf_to_text(pdf)
-
-        assert text == "Plain extracted text."
-        assert run.call_args.args[0] == [
-            "pdftotext",
-            "-layout",
-            "-enc",
-            "UTF-8",
-            str(pdf),
-            "-",
-        ]
-
-    def test_convert_pdf_with_ocr_uses_local_tesseract(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF\x00image")
-        commands: list[list[str]] = []
-        caplog.set_level(logging.WARNING, logger="harness.rag.chunker")
-
-        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
-            commands.append(args)
-            completed = MagicMock()
-            completed.stderr = ""
-            if args[0] == "pdftoppm":
-                completed.returncode = 0 if args[4] == "1" else 1
-                if completed.returncode != 0:
-                    completed.stderr = "page out of range"
-                    return completed
-                Path(f"{args[-1]}-1.png").write_bytes(b"png")
-                completed.stdout = ""
-                return completed
-            completed.returncode = 0
-            completed.stdout = "OCR extracted theorem text."
-            return completed
-
-        def fake_which(name: str) -> str | None:
-            if name in {"pdftoppm", "tesseract"}:
-                return "/usr/bin/tool"
-            return None
-
-        monkeypatch.setattr("harness.rag.chunker.shutil.which", fake_which)
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", fake_run)
-
-        text = _convert_pdf_with_ocr(pdf)
-
-        assert text == "OCR extracted theorem text."
-        assert commands[0][:9] == [
-            "pdftoppm",
-            "-r",
-            str(rag_chunker._PDF_OCR_DPI),
-            "-f",
-            "1",
-            "-l",
-            "1",
-            "-png",
-            str(pdf),
-        ]
-        assert commands[1][0] == "pdftoppm"
-        assert commands[2][0] == "tesseract"
-        assert not [
-            record for record in caplog.records if record.message == "pdf OCR render failed"
-        ]
-
-    def test_convert_pdf_with_ocr_uses_pdfinfo_page_count(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF\x00image")
-        commands: list[list[str]] = []
-
-        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
-            commands.append(args)
-            completed = MagicMock()
-            completed.returncode = 0
-            completed.stderr = ""
-            if args[0] == "pdfinfo":
-                completed.stdout = "Pages: 1\n"
-                return completed
-            if args[0] == "pdftoppm":
-                assert args[4] == "1"
-                Path(f"{args[-1]}-1.png").write_bytes(b"png")
-                completed.stdout = ""
-                return completed
-            completed.stdout = "OCR extracted theorem text."
-            return completed
-
-        monkeypatch.setattr("harness.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", fake_run)
-
-        text = _convert_pdf_with_ocr(pdf)
-
-        assert text == "OCR extracted theorem text."
-        assert [command[0] for command in commands] == ["pdfinfo", "pdftoppm", "tesseract"]
-
-    def test_convert_pdf_with_ocr_skips_oversized_rendered_pages(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF\x00image")
-        commands: list[list[str]] = []
-
-        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
-            commands.append(args)
-            completed = MagicMock()
-            completed.returncode = 0
-            completed.stderr = ""
-            if args[0] == "pdftoppm":
-                Path(f"{args[-1]}-1.png").write_bytes(b"png")
-                completed.stdout = ""
-                return completed
-            raise AssertionError("oversized OCR render should not invoke tesseract")
-
-        monkeypatch.setattr("harness.rag.chunker._PDF_OCR_MAX_RENDERED_BYTES", 2)
-        monkeypatch.setattr(
-            "harness.rag.chunker.shutil.which",
-            lambda name: "/usr/bin/tool" if name in {"pdftoppm", "tesseract"} else None,
+    def test_pptx_preserves_runs_and_table_rows(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "formatted.pptx",
+            {
+                "ppt/slides/slide1.xml": (
+                    "<s><sp><txBody><p><r><t>Bold</t></r>"
+                    "<r><t> and </t></r><r><t>plain</t></r></p></txBody></sp>"
+                    "<graphic><tbl><tr><tc><txBody><p><r><t>A1</t></r></p>"
+                    "</txBody></tc><tc><txBody><p><r><t>B1</t></r></p>"
+                    "</txBody></tc></tr><tr><tc><txBody><p><r><t>A2</t></r>"
+                    "</p></txBody></tc><tc><txBody><p><r><t>B2</t></r></p>"
+                    "</txBody></tc></tr></tbl></graphic></s>"
+                )
+            },
         )
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", fake_run)
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Bold and plain" in text
+        assert "Bold\nand\nplain" not in text
+        assert "A1\tB1" in text
+        assert "A2\tB2" in text
 
-        assert _convert_pdf_with_ocr(pdf) is None
-        assert len(commands) == 1
-
-    def test_convert_pdf_with_ocr_skips_oversized_source(
+    def test_embedded_binary_member_is_not_decompressed(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF\x00image")
-        monkeypatch.setattr("harness.rag.chunker._PDF_OCR_MAX_SOURCE_BYTES", 2)
-        monkeypatch.setattr("harness.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
-        run = MagicMock()
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", run)
-
-        assert _convert_pdf_with_ocr(pdf) is None
-        run.assert_not_called()
-
-    def test_convert_pdf_with_ocr_honors_total_deadline(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "scan.pdf"
-        pdf.write_bytes(b"%PDF\x00image")
-        commands: list[list[str]] = []
-
-        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
-            commands.append(args)
-            completed = MagicMock()
-            completed.returncode = 0
-            completed.stderr = ""
-            if args[0] == "pdftoppm":
-                Path(f"{args[-1]}-1.png").write_bytes(b"png")
-                completed.stdout = ""
-                return completed
-            raise AssertionError("expired OCR budget should not invoke tesseract")
-
-        monkeypatch.setattr("harness.rag.chunker._PDF_OCR_TOTAL_TIMEOUT_SECONDS", 0)
-        monkeypatch.setattr(
-            "harness.rag.chunker.shutil.which",
-            lambda name: "/usr/bin/tool" if name in {"pdftoppm", "tesseract"} else None,
+        path = self._archive(
+            tmp_path / "with-image.docx",
+            {
+                "word/document.xml": "<document><body><p><t>Text</t></p></body></document>",
+                "word/media/image.bin": "binary payload",
+            },
         )
-        monkeypatch.setattr("harness.rag.chunker.subprocess.run", fake_run)
+        read_names: list[str] = []
+        original_read = zipfile.ZipFile.read
 
-        assert _convert_pdf_with_ocr(pdf) is None
-        assert commands == []
+        def read(
+            archive: zipfile.ZipFile,
+            member: str | zipfile.ZipInfo,
+            pwd: bytes | None = None,
+        ) -> bytes:
+            read_names.append(member.filename if isinstance(member, zipfile.ZipInfo) else member)
+            return original_read(archive, member, pwd)
 
-    def test_chunk_pdf_falls_back_to_pdftotext_when_docling_fails(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        pdf = armory / "lecture.pdf"
-        pdf.write_bytes(b"%PDF\x00content")
+        monkeypatch.setattr(zipfile.ZipFile, "read", read)
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        assert "Text" in "\n".join(chunk.text for chunk in document.chunks)
+        assert "word/document.xml" in read_names
+        assert "word/media/image.bin" not in read_names
 
-        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr("harness.rag.chunker._convert_to_markdown", lambda _path: None)
-        monkeypatch.setattr(
-            "harness.rag.chunker._convert_pdf_to_text",
-            lambda _path: "# Lecture\n\nPlain extracted fallback text.",
-        )
-
-        doc = chunk_file(pdf, armory)
-
-        assert doc is not None
-        assert doc.source == "lecture.pdf"
-        assert any("Plain extracted fallback text" in chunk.text for chunk in doc.chunks)
-
-    def test_chunk_pdf_prefers_pdftotext_before_docling(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        pdf = armory / "lecture.pdf"
-        pdf.write_bytes(b"%PDF\x00content")
-        docling = MagicMock(return_value="# Lecture\n\nSlow docling text.")
-
-        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr("harness.rag.chunker._convert_to_markdown", docling)
-        monkeypatch.setattr("harness.rag.chunker._convert_pdf_with_ocr", lambda _path: None)
-        monkeypatch.setattr(
-            "harness.rag.chunker._convert_pdf_to_text",
-            lambda _path: "# Lecture\n\nFast pdftotext text.",
-        )
-
-        doc = chunk_file(pdf, armory)
-
-        assert doc is not None
-        assert any("Fast pdftotext text" in chunk.text for chunk in doc.chunks)
-        docling.assert_not_called()
-
-    def test_convert_to_markdown_failure_suppresses_converter_output(
-        self,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        pdf = tmp_path / "bad.pdf"
-        pdf.write_bytes(b"%PDF\x00corrupt")
-
-        warnings: list[tuple[str, object]] = []
-        monkeypatch.setattr(
-            "harness.rag.chunker._log.warning",
-            lambda message, **kwargs: warnings.append((message, kwargs)),
-        )
-
-        with patch(
-            "harness.rag.chunker._run_docling_worker",
-            return_value=_docling_completed(
-                returncode=1,
-                stderr="third-party stderr traceback",
-            ),
-        ):
-            md = _convert_to_markdown(pdf)
-
-        captured = capsys.readouterr()
-        assert md is None
-        assert captured.out == ""
-        assert captured.err == ""
-        assert warnings
-
-    def test_chunk_docling_file_via_chunk_file(self, tmp_path: Path) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        src = armory / "materials"
-        src.mkdir()
-        pdf = src / "report.pdf"
-        pdf.write_bytes(b"%PDF-1.4\x00binary content")
-
-        with (
-            patch(
-                "harness.rag.chunker._is_docling_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.chunker._convert_pdf_to_text",
-                return_value=None,
-            ),
-            patch(
-                "harness.rag.chunker._convert_pdf_with_ocr",
-                return_value=None,
-            ),
-            patch(
-                "harness.rag.chunker._run_docling_worker",
-                return_value=_docling_completed(
-                    "# Chapter 1\n\nContent from PDF.\n\n## Section\n\nMore details."
+    def test_xlsx_handles_shared_and_inline_strings(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.xlsx",
+            {
+                "xl/sharedStrings.xml": "<sst><si><t>Shared</t></si></sst>",
+                "xl/worksheets/sheet1.xml": (
+                    "<worksheet><sheetData><row>"
+                    "<c t='s'><v>0</v></c><c t='inlineStr'><is><t>Inline</t></is></c>"
+                    "</row></sheetData></worksheet>"
                 ),
-            ),
-        ):
-            doc = chunk_file(pdf, armory)
-
-        assert doc is not None
-        assert doc.source == "materials/report.pdf"
-        assert len(doc.chunks) >= 1
-        assert doc.content_hash != ""
-        # Markdown heading chunking should have run
-        assert any(c.heading for c in doc.chunks)
-
-    def test_chunk_file_skips_pdf_without_docling(self, tmp_path: Path) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        pdf = armory / "doc.pdf"
-        pdf.write_bytes(b"%PDF-1.4\x00binary")
-
-        with (
-            patch(
-                "harness.rag.chunker._is_docling_available",
-                return_value=False,
-            ),
-            patch("harness.rag.chunker._is_pdftotext_available", return_value=False),
-            patch(
-                "harness.rag.chunker._is_pdf_ocr_available",
-                return_value=False,
-            ),
-        ):
-            doc = chunk_file(pdf, armory)
-
-        assert doc is None
-
-    def test_chunk_docling_empty_conversion_returns_none(self, tmp_path: Path) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        pdf = armory / "blank.pdf"
-        pdf.write_bytes(b"%PDF\x00fake")
-
-        with (
-            patch(
-                "harness.rag.chunker._is_docling_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.chunker._convert_pdf_to_text",
-                return_value=None,
-            ),
-            patch(
-                "harness.rag.chunker._convert_pdf_with_ocr",
-                return_value=None,
-            ),
-            patch(
-                "harness.rag.chunker._run_docling_worker",
-                return_value=_docling_completed("   \n  \n"),
-            ),
-        ):
-            doc = chunk_file(pdf, armory)
-
-        assert doc is None
-
-    def test_chunk_docling_file_rejects_oversized_source(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        src = armory / "report.docx"
-        src.write_bytes(b"x" * 8)
-        worker = MagicMock()
-
-        monkeypatch.setattr("harness.rag.chunker._MAX_DOCLING_SOURCE_BYTES", 4)
-        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr("harness.rag.chunker._run_docling_worker", worker)
-
-        assert chunk_file(src, armory) is None
-        worker.assert_not_called()
-
-    def test_chunk_docling_file_rejects_oversized_markdown_output(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        armory = tmp_path / "armory"
-        armory.mkdir()
-        src = armory / "report.docx"
-        src.write_bytes(b"docx")
-
-        monkeypatch.setattr("harness.rag.chunker._MAX_DOCLING_MARKDOWN_CHARS", 4)
-        monkeypatch.setattr("harness.rag.chunker._is_docling_available", lambda: True)
-        monkeypatch.setattr(
-            "harness.rag.chunker._run_docling_worker",
-            lambda _path: _docling_completed("x" * 8),
+            },
         )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Shared\tInline" in text
 
-        assert chunk_file(src, armory) is None
+    def test_odf_repeats_cells_and_nested_paragraphs(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "sample.odt",
+            {
+                "content.xml": (
+                    "<doc xmlns:text='urn:text' xmlns:table='urn:table'>"
+                    "<text:p><text:span>Heading</text:span></text:p>"
+                    "<table:table><table:table-row><table:table-cell "
+                    "table:number-columns-repeated='2'><text:p>Cell</text:p>"
+                    "</table:table-cell></table:table-row></table:table>"
+                    "</doc>"
+                )
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Heading" in text
+        assert "Cell" in text
+
+    def test_archive_traversal_and_bomb_limits_skip_safely(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        traversal = tmp_path / "bad.docx"
+        with zipfile.ZipFile(traversal, "w") as archive:
+            archive.writestr("../escape.xml", "bad")
+        assert chunk_file(traversal, tmp_path) is None
+
+        monkeypatch.setattr(rag_chunker, "_MAX_ARCHIVE_MEMBER_BYTES", 20)
+        oversized = tmp_path / "large.docx"
+        with zipfile.ZipFile(oversized, "w") as archive:
+            archive.writestr("word/document.xml", b"x" * 21)
+        assert chunk_file(oversized, tmp_path) is None

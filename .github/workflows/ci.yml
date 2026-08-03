@@ -70,6 +70,21 @@ jobs:
           run_check "feature-flags" uv run --no-sync python scripts/check_feature_flags.py --strict
           exit "$status"
 
+  lean-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync lean dependencies
+        run: uv sync --frozen --group dev
+      - name: Check lean profile
+        run: uv run --no-sync python scripts/check_lean_profile.py
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

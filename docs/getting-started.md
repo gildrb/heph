@@ -26,7 +26,9 @@ heph --version
 pip install heph
 ```
 
-The standard install indexes PDF, DOCX, PPTX, XLSX, Markdown, text, and code files.
+The single install indexes Markdown, text, and code files, extracts DOCX,
+PPTX, XLSX, ODT, and ODS natively, and extracts PDF text with `pdftotext` or
+bundled PDFium. Convert legacy formats to DOCX, PPTX, XLSX, PDF, or plain text.
 
 ### Upgrade
 

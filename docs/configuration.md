@@ -183,10 +183,11 @@ open a copied or synced armory and rebuild what it needs.
 
 ## Advanced Configuration
 
-### Retrieval Backends
+### Retrieval
 
-The standard install includes document extraction, BM25, TF-IDF, embedding
-retrieval, and reranking support.
+The single default install uses lexical stdlib BM25 and TF-IDF retrieval. It
+does not install an ML runtime, download models, or provide dense retrieval or
+reranking.
 
 ### Profiling
 

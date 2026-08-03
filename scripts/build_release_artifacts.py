@@ -196,7 +196,10 @@ def stage_release_project(build_root: Path) -> Path:
     shutil.copy2(ROOT / "LICENSE", project_dir / "LICENSE")
     shutil.copy2(ROOT / "packages" / "heph" / "README.md", project_dir / "README.md")
     (project_dir / "pyproject.toml").write_text(
-        render_release_project(project, release_dependencies()),
+        render_release_project(
+            project,
+            release_dependencies(),
+        ),
         encoding="utf-8",
     )
     return project_dir
@@ -219,28 +222,32 @@ def render_release_project(
         render_string_array("classifiers", string_sequence_field(project, "classifiers")),
         render_string_array("dependencies", dependencies),
         "",
-        "[project.urls]",
-        render_string_table(table_field(project, "urls")),
-        "",
-        "[project.scripts]",
-        render_string_table(table_field(project, "scripts")),
-        "",
-        "[build-system]",
-        'requires = ["setuptools==81.0.0"]',
-        'build-backend = "setuptools.build_meta"',
-        "",
-        "[tool.setuptools]",
-        'package-dir = {"" = "src"}',
-        "include-package-data = true",
-        "",
-        "[tool.setuptools.packages.find]",
-        'where = ["src"]',
-        'include = ["ai*", "extensions*", "heph*", "harness*", "interfaces*"]',
-        "",
-        "[tool.setuptools.package-data]",
-        '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',
-        "",
     ]
+    lines.extend(
+        [
+            "[project.urls]",
+            render_string_table(table_field(project, "urls")),
+            "",
+            "[project.scripts]",
+            render_string_table(table_field(project, "scripts")),
+            "",
+            "[build-system]",
+            'requires = ["setuptools==83.0.0"]',
+            'build-backend = "setuptools.build_meta"',
+            "",
+            "[tool.setuptools]",
+            'package-dir = {"" = "src"}',
+            "include-package-data = true",
+            "",
+            "[tool.setuptools.packages.find]",
+            'where = ["src"]',
+            'include = ["ai*", "extensions*", "heph*", "harness*", "interfaces*"]',
+            "",
+            "[tool.setuptools.package-data]",
+            '"*" = ["*.md", "*.toml", "*.jsonl", "py.typed"]',
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 

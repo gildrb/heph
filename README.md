@@ -86,6 +86,19 @@ uv tool install heph@latest
 pip install heph
 ```
 
+The default install is intentionally lean: one install, with no optional
+extras, ML runtime, or model downloads. The following measurements are total
+Linux virtualenv sizes (including workspace packages), not deltas.
+
+| Profile | Adds | Total installed Linux profile | Without it |
+| --- | --- | --- | --- |
+| default | Native extraction + lexical retrieval | 43 distributions / 46.3 MiB | — |
+
+Supported native document formats are `.docx`, `.pptx`, `.xlsx`, `.odt`, and
+`.ods`, with PDF text extraction through `pdftotext` or bundled PDFium.
+Convert `.doc`, `.ppt`, `.xls`, `.odp`, and `.rtf` to `.docx`, `.pptx`, `.xlsx`,
+PDF, or plain text before indexing.
+
 ### Updating
 
 ```bash

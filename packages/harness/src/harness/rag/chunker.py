@@ -1,48 +1,24 @@
-"""Text chunking for RAG indexing.
-
-Splits text files into chunks with metadata preservation.
-
-Chunking strategies (selectable via ``ChunkStrategy``):
-
-- **AUTO** (default): picks the best strategy per file - Markdown files get
-  structure-aware chunking, all other text files use semantic chunking when
-  ``sentence-transformers`` is available, falling back to fixed-window.
-- **MARKDOWN**: structure-aware - respects ``#`` headers, splits oversized
-  sections at paragraph boundaries.  Each chunk carries ``heading`` +
-  ``heading_level`` for hierarchical context.
-- **SEMANTIC**: splits into sentences, embeds each, then merges into chunks
-  at cosine-similarity breakpoints.  Falls back to fixed-window when
-  ``sentence-transformers`` is unavailable.
-- **TEXT**: fixed-window with paragraph → newline → sentence → hard-cut
-  boundary detection.
-
-Hierarchical metadata (``heading``, ``heading_level``) is preserved so
-retrieval can return heading context alongside matched subsections.
-"""
+"""Text chunking and native document extraction for RAG indexing."""
 
 from __future__ import annotations
 
 import hashlib
-import importlib
-import importlib.util
-import os
 import re
-import resource
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import unicodedata
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
+from zipfile import BadZipFile, ZipFile, ZipInfo
 
 from ai.logging import get_logger
+from defusedxml import ElementTree
 
-from harness.rag.docling_worker import EXIT_OUTPUT_LIMIT, EXIT_UNAVAILABLE
 from harness.rag.file_safety import (
     open_file_exceeds_limit,
     regular_file_content_hash,
@@ -50,9 +26,22 @@ from harness.rag.file_safety import (
     temporary_regular_file_copy,
 )
 from harness.rag.html_text import extract_html_text
-from harness.rag.vector import cosine_similarity, embedding_rows
+from harness.rag.pdfium import open_pdf_document
 
 _log = get_logger("harness.rag.chunker")
+
+
+class _XmlElement(Protocol):
+    tag: str
+    text: str | None
+    attrib: Mapping[str, str]
+
+    def __iter__(self) -> Iterator[_XmlElement]: ...
+
+    def iter(self) -> Iterator[_XmlElement]: ...
+
+    def itertext(self) -> Iterator[str]: ...
+
 
 _TEXT_EXTENSIONS = frozenset(
     {
@@ -102,21 +91,17 @@ _TEXT_EXTENSIONS = frozenset(
     }
 )
 
-_DOCLING_EXTENSIONS = frozenset(
+_DOCUMENT_EXTENSIONS = frozenset(
     {
         ".pdf",
         ".docx",
         ".pptx",
         ".xlsx",
-        ".doc",
-        ".ppt",
-        ".xls",
         ".odt",
         ".ods",
-        ".odp",
-        ".rtf",
     }
 )
+_UNSUPPORTED_DOCUMENT_EXTENSIONS = frozenset({".doc", ".ppt", ".xls", ".odp", ".rtf"})
 
 _DEFAULT_CHUNK_SIZE = 500
 _DEFAULT_OVERLAP = 100
@@ -131,10 +116,10 @@ _PDF_OCR_MAX_RENDERED_BYTES = 100 * 1024 * 1024
 _PDF_OCR_MAX_SOURCE_BYTES = 50 * 1024 * 1024
 _PDF_OCR_DPI = 200
 _MAX_INDEXABLE_TEXT_BYTES = 5 * 1024 * 1024
-_MAX_DOCLING_SOURCE_BYTES = 50 * 1024 * 1024
-_MAX_DOCLING_MARKDOWN_CHARS = 5 * 1024 * 1024
-_DOCLING_CONVERSION_TIMEOUT_SECONDS = 120
-_DOCLING_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024
+_MAX_DOCUMENT_SOURCE_BYTES = 50 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 2000
+_MAX_ARCHIVE_MEMBER_BYTES = 20 * 1024 * 1024
+_MAX_ARCHIVE_TOTAL_BYTES = 100 * 1024 * 1024
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 _MISPLACED_DIAERESIS_RE = re.compile(r"¨\s*([AaOoUu])")
@@ -163,38 +148,10 @@ _COMMON_LATIN_OCR_REPAIRS = (
 )
 
 
-class _SentenceEncoderProtocol(Protocol):
-    def encode(
-        self,
-        sentences: list[str],
-        *,
-        convert_to_numpy: bool,
-        show_progress_bar: bool,
-    ) -> object: ...
-
-
-class _SentenceTransformerFactory(Protocol):
-    def __call__(self, model_name: str) -> _SentenceEncoderProtocol: ...
-
-
-@dataclass(frozen=True, slots=True)
-class _SentenceSpan:
-    text: str
-    start: int
-    end: int
-
-
-_OPTIONAL_BACKEND_UNSET = object()
-_DocumentConverter: type[object] | None | object = _OPTIONAL_BACKEND_UNSET
-_SentenceTransformer: _SentenceTransformerFactory | None | object = _OPTIONAL_BACKEND_UNSET
-_SentenceTransformerModel: _SentenceEncoderProtocol | None | object = _OPTIONAL_BACKEND_UNSET
-_SEMANTIC_CHUNKING_MODEL = "all-MiniLM-L6-v2"
-
-
 class ChunkStrategy(Enum):
-    AUTO = "auto"  # markdown → chunk_markdown, else → semantic → text fallback
+    AUTO = "auto"  # markdown → chunk_markdown, else → fixed-window text
     MARKDOWN = "markdown"  # always use chunk_markdown
-    SEMANTIC = "semantic"  # always use chunk_semantic (falls back to text internally)
+    SEMANTIC = "semantic"  # compatibility alias for fixed-window text
     TEXT = "text"  # always use chunk_text
 
 
@@ -292,7 +249,7 @@ class _MarkdownSection:
 def _is_text_file(path: Path, *, root: Path | None = None) -> bool:
     if path.suffix.lower() in _TEXT_EXTENSIONS:
         return True
-    if path.suffix.lower() in _DOCLING_EXTENSIONS:
+    if path.suffix.lower() in _DOCUMENT_EXTENSIONS:
         return False
     with regular_file_reader(path, root=root) as file:
         if file is None or open_file_exceeds_limit(file, _MAX_INDEXABLE_TEXT_BYTES):
@@ -301,8 +258,8 @@ def _is_text_file(path: Path, *, root: Path | None = None) -> bool:
         return b"\x00" not in sample
 
 
-def _is_docling_file(path: Path) -> bool:
-    return path.suffix.lower() in _DOCLING_EXTENSIONS
+def _is_document_file(path: Path) -> bool:
+    return path.suffix.lower() in _DOCUMENT_EXTENSIONS
 
 
 def _is_pdf_file(path: Path) -> bool:
@@ -335,22 +292,7 @@ def _is_pdf_ocr_available() -> bool:
 
 
 def _can_convert_binary_file(path: Path) -> bool:
-    if not _is_docling_file(path):
-        return False
-    if _is_pdf_file(path) and (_is_pdftotext_available() or _is_pdf_ocr_available()):
-        return True
-    return _is_docling_available()
-
-
-def _is_docling_available() -> bool:
-    if _DocumentConverter is None:
-        return False
-    if _DocumentConverter is not _OPTIONAL_BACKEND_UNSET:
-        return True
-    try:
-        return importlib.util.find_spec("docling") is not None
-    except (ImportError, AttributeError, ValueError):
-        return False
+    return _is_document_file(path)
 
 
 def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
@@ -374,71 +316,275 @@ def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
     return resolved_path
 
 
-def _convert_to_markdown(path: Path) -> str | None:
+class _ArchiveMembers(Mapping[str, bytes]):
+    def __init__(self, path: Path, infos: dict[str, ZipInfo]) -> None:
+        self._path = path
+        self._infos = infos
+
+    def __getitem__(self, name: str) -> bytes:
+        info = self._infos.get(name)
+        if info is None:
+            raise KeyError(name)
+        with ZipFile(self._path) as archive:
+            return archive.read(info)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._infos)
+
+    def __len__(self) -> int:
+        return len(self._infos)
+
+
+def _archive_members(path: Path) -> _ArchiveMembers | None:
     try:
-        completed = _run_docling_worker(path)
-    except subprocess.TimeoutExpired:
-        _log_extraction_failure(
-            path,
-            "docling conversion timed out",
-            f"limit is {_DOCLING_CONVERSION_TIMEOUT_SECONDS} second(s)",
-        )
+        with ZipFile(path) as archive:
+            infos = archive.infolist()
+            if len(infos) > _MAX_ARCHIVE_MEMBERS:
+                raise ValueError("archive contains too many members")
+            members: dict[str, ZipInfo] = {}
+            total = 0
+            for info in infos:
+                name = Path(info.filename)
+                if name.is_absolute() or ".." in name.parts:
+                    raise ValueError("archive contains a traversal path")
+                if info.file_size > _MAX_ARCHIVE_MEMBER_BYTES:
+                    raise ValueError("archive member exceeds size limit")
+                total += info.file_size
+                if total > _MAX_ARCHIVE_TOTAL_BYTES:
+                    raise ValueError("archive exceeds expanded size limit")
+                members[info.filename] = info
+            return _ArchiveMembers(path, members)
+    except (BadZipFile, OSError, ValueError) as exc:
+        _log_extraction_failure(path, "document archive rejected", str(exc))
         return None
-    except (OSError, subprocess.SubprocessError) as exc:
-        _log_extraction_warning(path, "docling conversion failed", exc)
-        return None
-    if completed.returncode == EXIT_UNAVAILABLE:
-        return None
-    if (
-        completed.returncode == EXIT_OUTPUT_LIMIT
-        or len(completed.stdout) > _MAX_DOCLING_MARKDOWN_CHARS
-    ):
-        _log_extraction_failure(
-            path,
-            "docling conversion output exceeded size limit",
-            f"limit is {_MAX_DOCLING_MARKDOWN_CHARS} character(s)",
-        )
-        return None
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or f"exit code {completed.returncode}"
-        _log.warning(
-            "docling conversion failed",
-            extra={"fields": {"path": str(path), "error": detail}},
-        )
-        return None
-    return _normalize_extracted_text(completed.stdout)
 
 
-def _run_docling_worker(path: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "harness.rag.docling_worker",
-            str(path),
-            str(_MAX_DOCLING_MARKDOWN_CHARS),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=_DOCLING_CONVERSION_TIMEOUT_SECONDS,
-        preexec_fn=_docling_preexec_fn(),
+def _xml_member(members: Mapping[str, bytes], name: str) -> _XmlElement | None:
+    raw = members.get(name)
+    if raw is None:
+        return None
+    try:
+        return cast("_XmlElement", ElementTree.fromstring(raw))
+    except (ElementTree.ParseError, ValueError) as exc:
+        raise ValueError(f"invalid XML member {name}: {exc}") from exc
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_text(element: object) -> str:
+    return "".join(str(text) for text in cast("_XmlElement", element).itertext())
+
+
+def _extract_docx(path: Path, members: Mapping[str, bytes]) -> str:
+    root = _xml_member(members, "word/document.xml")
+    if root is None:
+        raise ValueError("DOCX document.xml is missing")
+
+    def inline_text(element: _XmlElement) -> str:
+        parts: list[str] = []
+        for child in element.iter():
+            name = _local_name(child.tag)
+            if name == "t" and child.text:
+                parts.append(child.text)
+            elif name == "tab":
+                parts.append("\t")
+        return "".join(parts)
+
+    def walk(element: _XmlElement) -> Iterator[str]:
+        name = _local_name(element.tag)
+        if name == "tbl":
+            for row in element:
+                if _local_name(row.tag) != "tr":
+                    continue
+                cells = [inline_text(cell) for cell in row if _local_name(cell.tag) == "tc"]
+                if cells:
+                    yield "\t".join(cells)
+            return
+        if name == "p":
+            text = inline_text(element)
+            if text:
+                yield text
+            return
+        for child in element:
+            yield from walk(child)
+
+    return "\n".join(walk(root))
+
+
+def _pptx_paragraph_text(paragraph: _XmlElement) -> str:
+    return "".join(child.text or "" for child in paragraph.iter() if _local_name(child.tag) == "t")
+
+
+def _pptx_table_row_text(row: _XmlElement) -> str:
+    cells = [
+        "\n".join(
+            _pptx_paragraph_text(paragraph)
+            for paragraph in cell.iter()
+            if _local_name(paragraph.tag) == "p"
+        )
+        for cell in row
+        if _local_name(cell.tag) == "tc"
+    ]
+    return "\t".join(cells)
+
+
+def _pptx_slide_lines(element: _XmlElement) -> Iterator[str]:
+    name = _local_name(element.tag)
+    if name == "tr":
+        text = _pptx_table_row_text(element)
+        if text:
+            yield text
+        return
+    if name == "tc":
+        return
+    if name == "p":
+        text = _pptx_paragraph_text(element)
+        if text:
+            yield text
+        return
+    for child in element:
+        yield from _pptx_slide_lines(child)
+
+
+def _pptx_slide_names(members: Mapping[str, bytes]) -> list[str]:
+    return sorted(
+        (
+            name
+            for name in members
+            if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+        ),
+        key=lambda name: int(Path(name).stem.removeprefix("slide")),
     )
 
 
-def _docling_preexec_fn() -> Callable[[], None] | None:
-    return _apply_docling_memory_limit if os.name == "posix" else None
+def _pptx_slide_text(root: _XmlElement) -> str:
+    lines = list(_pptx_slide_lines(root))
+    if not lines:
+        direct_text = "".join(
+            element.text or "" for element in root.iter() if _local_name(element.tag) == "t"
+        )
+        if direct_text:
+            lines.append(direct_text)
+    return "\n".join(lines)
 
 
-def _apply_docling_memory_limit() -> None:
+def _extract_pptx(path: Path, members: Mapping[str, bytes]) -> str:
+    slides: list[str] = []
+    for name in _pptx_slide_names(members):
+        root = _xml_member(members, name)
+        if root is not None:
+            slides.append(_pptx_slide_text(root))
+    return "\n\n".join(slides)
+
+
+def _extract_xlsx(path: Path, members: Mapping[str, bytes]) -> str:
+    shared = _xlsx_shared_strings(members)
+    sheet_names = sorted(
+        (
+            name
+            for name in members
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        ),
+        key=lambda name: int(Path(name).stem.removeprefix("sheet")),
+    )
+    sheets: list[str] = []
+    for name in sheet_names:
+        root = _xml_member(members, name)
+        if root is None:
+            continue
+        sheets.append("\n".join(_xlsx_rows(root, shared)))
+    return "\n\n".join(sheets)
+
+
+def _xlsx_shared_strings(members: Mapping[str, bytes]) -> list[str]:
+    root = _xml_member(members, "xl/sharedStrings.xml")
+    if root is None:
+        return []
+    return [_xml_text(element) for element in root.iter() if _local_name(element.tag) == "si"]
+
+
+def _xlsx_rows(root: object, shared: list[str]) -> list[str]:
+    root = cast("_XmlElement", root)
+    rows: list[str] = []
+    for row in (element for element in root.iter() if _local_name(element.tag) == "row"):
+        values = [_xlsx_cell_value(cell, shared) for cell in row if _local_name(cell.tag) == "c"]
+        if values:
+            rows.append("\t".join(values))
+    return rows
+
+
+def _xlsx_cell_value(cell: object, shared: list[str]) -> str:
+    cell = cast("_XmlElement", cell)
+    kind = cell.attrib.get("t", "")
+    if kind == "inlineStr":
+        return _xml_text(cell)
+    value_element = next((element for element in cell if _local_name(element.tag) == "v"), None)
+    value = value_element.text if value_element is not None else ""
+    if kind == "s" and value:
+        return shared[int(value)]
+    return value or ""
+
+
+def _extract_odf(path: Path, members: Mapping[str, bytes]) -> str:
+    root = _xml_member(members, "content.xml")
+    if root is None:
+        raise ValueError("ODF content.xml is missing")
+    lines: list[str] = []
+    table_repeat = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}number-columns-repeated"
+
+    def visit(element: object, *, in_table: bool = False) -> None:
+        element = cast("_XmlElement", element)
+        name = _local_name(element.tag)
+        if name == "table-row":
+            values: list[str] = []
+            for cell in element:
+                if _local_name(cell.tag) != "table-cell":
+                    continue
+                text = " ".join(_xml_text(cell).split())
+                repeat = int(cell.attrib.get(table_repeat, "1"))
+                values.extend([text] * min(repeat, _MAX_ARCHIVE_MEMBERS))
+            if values:
+                lines.append("\t".join(values))
+            return
+        if name in {"p", "h"} and not in_table:
+            text = " ".join(_xml_text(element).split())
+            if text:
+                lines.append(text)
+            return
+        for child in element:
+            visit(child, in_table=in_table or name == "table-cell")
+
+    visit(root)
+    return "\n".join(lines)
+
+
+def _convert_native_document(path: Path) -> str | None:
+    if _file_exceeds_limit(path, _MAX_DOCUMENT_SOURCE_BYTES):
+        _log_extraction_failure(
+            path,
+            "document exceeded conversion source size limit",
+            f"limit is {_MAX_DOCUMENT_SOURCE_BYTES} byte(s)",
+        )
+        return None
+    members = _archive_members(path)
+    if members is None:
+        return None
     try:
-        hard = resource.getrlimit(resource.RLIMIT_AS)[1]
-        limit = _DOCLING_MEMORY_LIMIT_BYTES
-        if hard not in {resource.RLIM_INFINITY, -1}:
-            limit = min(limit, hard)
-        resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
-    except Exception:
-        return
+        suffix = path.suffix.lower()
+        if suffix == ".docx":
+            text = _extract_docx(path, members)
+        elif suffix == ".pptx":
+            text = _extract_pptx(path, members)
+        elif suffix == ".xlsx":
+            text = _extract_xlsx(path, members)
+        else:
+            text = _extract_odf(path, members)
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        _log_extraction_failure(path, "document extraction failed", str(exc))
+        return None
+    return _normalize_extracted_text(text)
 
 
 def _convert_pdf_to_text(path: Path) -> str | None:
@@ -454,6 +600,26 @@ def _convert_pdf_to_text(path: Path) -> str | None:
         return None
     text = _normalize_extracted_text(completed.stdout)
     return text if text.strip() else None
+
+
+def _convert_pdf_with_pdfium(path: Path) -> str | None:
+    if not _is_pdf_file(path):
+        return None
+    try:
+        with open_pdf_document(str(path)) as document:
+            page_texts: list[str] = []
+            for page in document:
+                textpage = page.get_textpage()
+                try:
+                    page_texts.append(textpage.get_text_range())
+                finally:
+                    textpage.close()
+            text = "\n".join(page_texts)
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        _log_extraction_warning(path, "pypdfium2 extraction failed", exc)
+        return None
+    normalized = _normalize_extracted_text(text)
+    return normalized if normalized.strip() else None
 
 
 def _convert_pdf_with_ocr(path: Path) -> str | None:
@@ -678,22 +844,25 @@ def _file_exceeds_limit(path: Path, limit: int) -> bool:
 
 def _convert_binary_to_indexable_text(path: Path) -> str | None:
     pdf_text = (
-        _first_nonempty_conversion(path, _convert_pdf_to_text, _convert_pdf_with_ocr)
+        _first_nonempty_conversion(
+            path,
+            _convert_pdf_to_text,
+            _convert_pdf_with_pdfium,
+            _convert_pdf_with_ocr,
+        )
         if _is_pdf_file(path)
         else None
     )
     if pdf_text is not None:
         return pdf_text
-    if not _is_docling_available():
-        return None
-    if _file_exceeds_limit(path, _MAX_DOCLING_SOURCE_BYTES):
+    if path.suffix.lower() in _UNSUPPORTED_DOCUMENT_EXTENSIONS:
         _log_extraction_failure(
             path,
-            "docling source exceeded size limit",
-            f"limit is {_MAX_DOCLING_SOURCE_BYTES} byte(s)",
+            "unsupported document format",
+            "convert to .docx, .pptx, .xlsx, PDF, or plain text",
         )
         return None
-    return _nonempty_text(_convert_to_markdown(path))
+    return _nonempty_text(_convert_native_document(path))
 
 
 def _first_nonempty_conversion(
@@ -906,36 +1075,6 @@ def _text_chunk_stalled(*, pos: int, end: int, overlap: int) -> bool:
     return end - pos <= overlap
 
 
-def _sentence_transformer_factory() -> _SentenceTransformerFactory | None:
-    global _SentenceTransformer  # noqa: PLW0603
-    if _SentenceTransformer is _OPTIONAL_BACKEND_UNSET:
-        try:
-            module = importlib.import_module("sentence_transformers")
-            raw_transformer = getattr(module, "SentenceTransformer", None)
-        except ImportError:
-            raw_transformer = None
-        _SentenceTransformer = (
-            None
-            if raw_transformer is None
-            else cast("_SentenceTransformerFactory", raw_transformer)
-        )
-    if _SentenceTransformer is None:
-        return None
-    return cast("_SentenceTransformerFactory", _SentenceTransformer)
-
-
-def _sentence_transformer_model() -> _SentenceEncoderProtocol | None:
-    global _SentenceTransformerModel  # noqa: PLW0603
-    if _SentenceTransformerModel is _OPTIONAL_BACKEND_UNSET:
-        transformer_factory = _sentence_transformer_factory()
-        _SentenceTransformerModel = (
-            None if transformer_factory is None else transformer_factory(_SEMANTIC_CHUNKING_MODEL)
-        )
-    if _SentenceTransformerModel is None:
-        return None
-    return cast("_SentenceEncoderProtocol", _SentenceTransformerModel)
-
-
 def chunk_semantic(
     text: str,
     source: str,
@@ -945,130 +1084,9 @@ def chunk_semantic(
     similarity_threshold: float = 0.5,
     min_chunk: int = 100,
 ) -> list[Chunk]:
-    if not text or not text.strip():
-        return []
-
-    chunks = _try_chunk_semantic(
-        text,
-        source,
-        similarity_threshold=similarity_threshold,
-        min_chunk=min_chunk,
-    )
-    return chunks or chunk_text(text, source, chunk_size, overlap)
-
-
-def _try_chunk_semantic(
-    text: str,
-    source: str,
-    *,
-    similarity_threshold: float,
-    min_chunk: int,
-) -> list[Chunk]:
-    model = _sentence_transformer_model()
-    if model is None:
-        return []
-
-    sentence_spans = _split_sentence_spans(text)
-    if len(sentence_spans) <= 1:
-        return [_single_text_chunk(text, source)]
-
-    emb_lists = _semantic_sentence_embeddings(
-        model,
-        [sentence.text for sentence in sentence_spans],
-    )
-    if emb_lists is None:
-        return []
-
-    return _semantic_chunks_from_breakpoints(
-        sentence_spans,
-        _semantic_breakpoints(emb_lists, similarity_threshold),
-        source=source,
-        min_chunk=min_chunk,
-    )
-
-
-def _single_text_chunk(text: str, source: str) -> Chunk:
-    return Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))
-
-
-def _semantic_sentence_embeddings(
-    model: _SentenceEncoderProtocol,
-    sentences: list[str],
-) -> list[list[float]] | None:
-    emb_lists = embedding_rows(
-        model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
-    )
-    return emb_lists if len(emb_lists) == len(sentences) else None
-
-
-def _semantic_breakpoints(
-    emb_lists: list[list[float]],
-    similarity_threshold: float,
-) -> list[int]:
-    breakpoints = [0]
-    for index in range(1, len(emb_lists)):
-        sim = cosine_similarity(emb_lists[index - 1], emb_lists[index])
-        if sim < similarity_threshold:
-            breakpoints.append(index)
-    breakpoints.append(len(emb_lists))
-    return breakpoints
-
-
-def _semantic_chunks_from_breakpoints(
-    sentences: list[_SentenceSpan],
-    breakpoints: list[int],
-    *,
-    source: str,
-    min_chunk: int,
-) -> list[Chunk]:
-    chunks: list[Chunk] = []
-    idx = 0
-
-    for bp_idx in range(len(breakpoints) - 1):
-        start_sent = breakpoints[bp_idx]
-        end_sent = breakpoints[bp_idx + 1]
-        chunk_sentences = sentences[start_sent:end_sent]
-        chunk_str = " ".join(sentence.text for sentence in chunk_sentences).strip()
-
-        if not chunk_str:
-            continue
-        if len(chunk_str) < min_chunk and chunks:
-            prev = chunks[-1]
-            merged = f"{prev.text} {chunk_str}"
-            char_end = chunk_sentences[-1].end
-            chunks[-1] = Chunk(
-                text=merged,
-                source=source,
-                index=prev.index,
-                char_start=prev.char_start,
-                char_end=char_end,
-            )
-            continue
-
-        chunks.append(
-            Chunk(
-                text=chunk_str,
-                source=source,
-                index=idx,
-                char_start=chunk_sentences[0].start,
-                char_end=chunk_sentences[-1].end,
-            )
-        )
-        idx += 1
-
-    return chunks
-
-
-def _split_sentences(text: str) -> list[str]:
-    return [sentence.text for sentence in _split_sentence_spans(text)]
-
-
-def _split_sentence_spans(text: str) -> list[_SentenceSpan]:
-    return [
-        _SentenceSpan(text=match.group(0).strip(), start=match.start(), end=match.end())
-        for match in re.finditer(r"\S(?:.*?\S)?(?:(?<=[.!?])(?=\s|$)|$)", text)
-        if match.group(0).strip()
-    ]
+    """Compatibility entry point using the lexical fixed-window chunker."""
+    del similarity_threshold, min_chunk
+    return chunk_text(text, source, chunk_size, overlap)
 
 
 def _resolve_strategy(
@@ -1077,11 +1095,11 @@ def _resolve_strategy(
     if strategy == ChunkStrategy.AUTO:
         if path.suffix.lower() in (".md", ".mdown", ".markdown"):
             return chunk_markdown
-        return chunk_semantic
+        return chunk_text
     if strategy == ChunkStrategy.MARKDOWN:
         return chunk_markdown
     if strategy == ChunkStrategy.SEMANTIC:
-        return chunk_semantic
+        return chunk_text
     return chunk_text
 
 
@@ -1133,11 +1151,11 @@ def _chunk_binary_file(
     with temporary_regular_file_copy(
         path,
         root=root,
-        max_bytes=_MAX_DOCLING_SOURCE_BYTES,
+        max_bytes=_MAX_DOCUMENT_SOURCE_BYTES,
         on_limit_exceeded=lambda: _log_extraction_failure(
             path,
             "document exceeded conversion source size limit",
-            f"limit is {_MAX_DOCLING_SOURCE_BYTES} byte(s)",
+            f"limit is {_MAX_DOCUMENT_SOURCE_BYTES} byte(s)",
         ),
     ) as snapshot_path:
         if snapshot_path is None:

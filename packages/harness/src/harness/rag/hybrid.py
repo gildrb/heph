@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import math
-import sys
 from collections import Counter
-from collections.abc import Callable
-from typing import cast
 
 from ai.logging import get_logger
 
-from harness.rag import optional_backends
 from harness.rag.index import ArmoryIndex
 from harness.rag.query_transform import (
     ModeSpecificQueryTransformerProtocol,
@@ -18,30 +14,12 @@ from harness.rag.query_transform import (
 )
 from harness.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
 from harness.rag.scoring import reciprocal_rank_fusion, tokenize
-from harness.rag.semantic import EmbeddingRetriever
 from harness.rag.sparse import Bm25Retriever, TfidfRetriever
 
-_DEFAULT_EMBEDDING_RETRIEVER = EmbeddingRetriever
 _log = get_logger("harness.rag.hybrid")
 DEFAULT_PSEUDO_FEEDBACK_DOCS = 3
 DEFAULT_PSEUDO_FEEDBACK_TERMS = 6
 DEFAULT_PSEUDO_FEEDBACK_WEIGHT = 0.1
-
-
-def _sentence_transformers_available() -> bool:
-    retrieve_module = sys.modules.get("harness.rag.retrieve")
-    helper = getattr(retrieve_module, "_is_sentence_transformers_available", None)
-    if callable(helper):
-        return bool(helper())
-    return optional_backends.sentence_transformers_available()
-
-
-def _embedding_retriever_factory() -> Callable[..., EmbeddingRetriever]:
-    retrieve_module = sys.modules.get("harness.rag.retrieve")
-    factory = getattr(retrieve_module, "EmbeddingRetriever", None)
-    if callable(factory) and factory is not _DEFAULT_EMBEDDING_RETRIEVER:
-        return cast("Callable[..., EmbeddingRetriever]", factory)
-    return EmbeddingRetriever
 
 
 class HybridRetriever:
@@ -65,7 +43,7 @@ class HybridRetriever:
         self._chunks = index.all_chunks
         bm25 = Bm25Retriever(index)
         self._sparse: RetrieverProtocol = bm25 if bm25.available else TfidfRetriever(index)
-        self._embedding: EmbeddingRetriever | None = None
+        self._embedding = None
         self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
         self._sparse_weight = max(0.0, sparse_weight)
@@ -78,17 +56,7 @@ class HybridRetriever:
         self._feedback_tokens: dict[tuple[str, int], list[str]] = {}
         self._query_transformer = query_transformer
 
-        if self._dense_weight > 0.0 and _sentence_transformers_available():
-            try:
-                factory = _embedding_retriever_factory()
-                self._embedding = factory(
-                    index,
-                    model_name=embed_model,
-                    query_prefix=embed_query_prefix,
-                    document_prefix=embed_document_prefix,
-                )
-            except Exception:
-                self._embedding = None
+        self._dense_weight = 0.0
 
     @property
     def has_embeddings(self) -> bool:

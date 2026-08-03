@@ -12,8 +12,6 @@ from harness.rag.vector import (
     cosine_similarity,
     embedding_rows,
     float_list,
-    object_rows,
-    sklearn_scores,
 )
 
 __all__ = [
@@ -22,9 +20,7 @@ __all__ = [
     "float_list",
     "normalize_positive_rank_scores",
     "normalize_relative_rank_scores",
-    "object_rows",
     "reciprocal_rank_fusion",
-    "sklearn_scores",
     "tokenize",
 ]
 

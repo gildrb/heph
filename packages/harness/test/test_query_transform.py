@@ -21,10 +21,7 @@ from harness.rag.query_transform import (
     transform_query,
 )
 from harness.rag.retrieve import (
-    CrossEncoderReranker,
-    EmbeddingRetriever,
     HybridRetriever,
-    ScoredChunk,
     retrieve,
 )
 
@@ -491,7 +488,7 @@ class TestHybridRetrieverWithTransformation:
         mock_transformer.transform.return_value = ["python programming"]
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
@@ -517,7 +514,7 @@ class TestHybridRetrieverWithTransformation:
         ]
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
@@ -527,44 +524,6 @@ class TestHybridRetrieverWithTransformation:
             assert len(results) > 0
             # Python-related chunks should rank highest
             assert results[0].chunk.source in ("a.md", "b.md")
-
-    def test_multi_query_with_embeddings(self) -> None:
-        """Full pipeline: multi-query + embeddings + RRF."""
-        chunks = [
-            _make_chunk("Python programming", "a.md", 0),
-            _make_chunk("Rust systems", "b.md", 0),
-            _make_chunk("Cooking recipes", "c.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.95),
-            ScoredChunk(chunk=chunks[1], score=0.5),
-        ]
-
-        mock_transformer = MagicMock()
-        mock_transformer.transform.return_value = [
-            "python programming",
-            "how to code in python",
-        ]
-
-        with (
-            patch(
-                "harness.rag.retrieve._is_sentence_transformers_available",
-                return_value=True,
-            ),
-            patch(
-                "harness.rag.retrieve.EmbeddingRetriever",
-                return_value=mock_embed,
-            ),
-        ):
-            hybrid = HybridRetriever(index, query_transformer=mock_transformer)
-            results = hybrid.retrieve("python", top_k=2)
-
-            # Both queries should have been sent to embedding retriever
-            assert mock_embed.retrieve.call_count >= 2
-            assert len(results) > 0
 
     def test_multi_query_all_empty_results(self) -> None:
         """When all transformed queries return nothing, result is empty."""
@@ -578,46 +537,12 @@ class TestHybridRetrieverWithTransformation:
         ]
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
             results = hybrid.retrieve("zzzzz", top_k=5)
             assert results == []
-
-    def test_multi_query_with_reranker(self) -> None:
-        """Multi-query + RRF + cross-encoder re-ranking."""
-        chunks = [
-            _make_chunk("Python programming", "a.md", 0),
-            _make_chunk("Rust systems", "b.md", 0),
-        ]
-        index = _make_index_with_chunks(chunks)
-
-        mock_transformer = MagicMock()
-        mock_transformer.transform.return_value = [
-            "python",
-            "programming language",
-        ]
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.99),
-        ]
-
-        with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=False,
-        ):
-            hybrid = HybridRetriever(
-                index,
-                reranker=mock_reranker,
-                query_transformer=mock_transformer,
-            )
-            results = hybrid.retrieve("python", top_k=1)
-
-            mock_reranker.rerank.assert_called_once()
-            assert len(results) == 1
-            assert results[0].chunk.source == "a.md"
 
     def test_hyde_integration(self) -> None:
         """HyDE: LLM generates hypothetical doc, retriever uses it."""
@@ -642,7 +567,7 @@ class TestHybridRetrieverWithTransformation:
         hyde = HyDETransformer(prompt_fn=mock_fn)
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=hyde)
@@ -663,7 +588,7 @@ class TestHybridRetrieverWithTransformation:
         expander = QueryExpander(use_wordnet=False)
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, query_transformer=expander)
@@ -682,7 +607,7 @@ class TestHybridRetrieverWithTransformation:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             # No query_transformer argument - backward compatible
@@ -705,7 +630,7 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             results = retrieve("python", index)
@@ -719,7 +644,7 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             results = retrieve(
@@ -750,7 +675,7 @@ class TestRetrieveWithTransformation:
         )
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             results = retrieve(
@@ -778,7 +703,7 @@ class TestRetrieveWithTransformation:
         )
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             results = retrieve(
@@ -795,7 +720,7 @@ class TestRetrieveWithTransformation:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "harness.rag.retrieve._is_sentence_transformers_available",
+            "harness.rag.retrieve._log",
             return_value=False,
         ):
             results = retrieve(

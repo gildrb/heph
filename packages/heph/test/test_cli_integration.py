@@ -157,7 +157,7 @@ def test_source_runtime_reexecs_repo_venv(
 
     monkeypatch.setattr(cli_main_module, "_project_root", lambda: root)
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
-    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module, "_document_conversion_available", lambda: False)
     monkeypatch.setattr(cli_main_module.sys, "executable", "/Library/Python/bin/python3")
     monkeypatch.setattr(cli_main_module.sys, "argv", ["heph", "update"])
     monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
@@ -179,28 +179,28 @@ def test_source_runtime_warning_when_repo_venv_missing(
     root = tmp_path / "Heph"
     monkeypatch.setattr(cli_main_module, "_project_root", lambda: root)
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
-    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module, "_document_conversion_available", lambda: False)
     monkeypatch.setattr(cli_main_module.sys, "executable", "/Library/Python/bin/python3")
 
     messages = cli_main_module._runtime_diagnostic_messages()
 
-    assert "missing document conversion support" in messages[0]
+    assert "missing native document extraction support" in messages[0]
     assert any("/Library/Python/bin/python3" in message for message in messages)
 
 
-def test_runtime_warning_when_installed_docling_is_missing(
+def test_runtime_warning_when_installed_native_extraction_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(cli_main_module, "_project_root", lambda: tmp_path)
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: False)
-    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module, "_document_conversion_available", lambda: False)
     monkeypatch.setattr(cli_main_module.sys, "executable", "/opt/heph/bin/python")
 
     messages = cli_main_module._runtime_diagnostic_messages()
 
-    assert "missing document conversion support" in messages[0]
-    assert any("bundled Docling conversion stack" in message for message in messages)
+    assert "missing native document extraction support" in messages[0]
+    assert any("uv tool install --force heph@latest" in message for message in messages)
 
 
 def test_source_runtime_reexec_can_be_disabled(
@@ -214,7 +214,27 @@ def test_source_runtime_reexec_can_be_disabled(
 
     monkeypatch.setenv("HARNESS_NO_VENV_REEXEC", "1")
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
-    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module, "_document_conversion_available", lambda: False)
+    monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
+
+    cli_main_module._maybe_reexec_source_venv()
+
+    assert not called
+
+
+def test_source_runtime_does_not_reexec_with_native_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_execve(_path: str, _argv: list[str], _env: dict[str, str]) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.delenv("HARNESS_NO_VENV_REEXEC", raising=False)
+    monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
+    monkeypatch.setattr(cli_main_module, "_document_conversion_available", lambda: True)
+    monkeypatch.setattr(cli_main_module.sys, "executable", "/opt/uv/python")
     monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
 
     cli_main_module._maybe_reexec_source_venv()
@@ -296,6 +316,10 @@ def test_top_level_health_defaults_to_current_armory(
     run_argv(parser, ["health"])
 
     out = capsys.readouterr().out
+    assert "Capabilities:" in out
+    assert "- pdftotext:" in out
+    assert "- documents:" in out
+    assert "- retrieval:" in out
     assert "Extraction health:" in out
     assert "Corpus forbidden text: 100.0%" in out
     assert "No generic extraction poison found." in out

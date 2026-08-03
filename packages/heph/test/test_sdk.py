@@ -5005,7 +5005,6 @@ def test_service_streams_build_index_with_file_timeout(
         return None
 
     monkeypatch.setenv("HARNESS_INDEX_FILE_TIMEOUT_SECONDS", "1")
-    monkeypatch.setattr("harness.rag.index._is_docling_available", lambda: True)
     monkeypatch.setattr("harness.rag.index.chunk_file", slow_chunk_file)
 
     events = list(service.stream("build_index"))

@@ -90,8 +90,6 @@ def test_release_dependencies_collapse_internal_workspace_packages() -> None:
     dependencies = release_dependencies()
 
     assert "certifi==2026.2.25" in dependencies
-    assert "docling-slim[standard]==2.94.0" in dependencies
-    assert all(not dependency.startswith("docling==") for dependency in dependencies)
     assert "rich==14.3.3" in dependencies
     assert dependencies.count("unicodeit==0.7.5") == 1
     assert all(not dependency.startswith("heph-") for dependency in dependencies)

@@ -5,7 +5,7 @@
 # Heph
 
 <p align="center">
-  A local document agent for accurate, cited answers from your files.
+  Local agent for accurate, cited answers from your files
 </p>
 
 Heph is built around normal folders. An armory keeps your documents in

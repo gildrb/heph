@@ -102,6 +102,7 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
             "indexed": "Indexed",
             "skipped": "Skipped",
             "writing": "Writing",
+            "warning": "Warning",
         }
         print(f"{labels.get(action, action.title())}: {detail}")
 
@@ -111,7 +112,15 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 def _cmd_health(args: argparse.Namespace) -> None:
     rag_health = importlib.import_module("harness.rag.health")
+    optional_backends = importlib.import_module("harness.rag.optional_backends")
     armory_path = _validated_armory_path(args.path)
+
+    print("Capabilities:")
+    for capability in optional_backends.capabilities():
+        status = "available" if capability.available else "unavailable"
+        print(f"- {capability.name}: {status} ({capability.enables})")
+        if not capability.available:
+            print(f"  Without it: {capability.fallback}")
 
     report = rag_health.scan_extraction_health(armory_path)
     print(f"Extraction health: {report.documents} indexed document(s)")
@@ -230,23 +239,25 @@ def _is_source_checkout(root: Path) -> bool:
     )
 
 
-def _docling_available() -> bool:
+def _document_conversion_available() -> bool:
     importlib_util = importlib.import_module("importlib.util")
-    return importlib_util.find_spec("docling") is not None
+    return all(
+        importlib_util.find_spec(module_name) is not None
+        for module_name in ("defusedxml", "pypdfium2")
+    )
 
 
 def _runtime_diagnostic_messages() -> list[str]:
     root = _project_root()
-    if _docling_available():
+    if _document_conversion_available():
         return []
 
     executable = Path(sys.executable).resolve()
     if not _is_source_checkout(root):
         return [
-            "warning: this `heph` executable is missing document conversion support.",
+            "warning: this `heph` executable is missing native document extraction support.",
             f"  active Python: {executable}",
-            "  repair this install with `uv tool install --force heph@latest` so the bundled "
-            "Docling conversion stack is restored.",
+            "  repair this install with `uv tool install --force heph@latest`.",
         ]
 
     expected_venv = root / ".venv"
@@ -255,7 +266,7 @@ def _runtime_diagnostic_messages() -> list[str]:
 
     return [
         "warning: this `heph` executable is importing the source checkout but is missing "
-        "document conversion support.",
+        "native document extraction support.",
         f"  active Python: {executable}",
         f"  source checkout: {root}",
         "  run from the checkout with `uv run heph`, or update this executable with "
@@ -267,7 +278,7 @@ def _maybe_reexec_source_venv() -> None:
     if os.environ.get("HARNESS_NO_VENV_REEXEC") == "1":
         return
     root = _project_root()
-    if not _is_source_checkout(root) or _docling_available():
+    if not _is_source_checkout(root) or _document_conversion_available():
         return
     executable = Path(sys.executable).resolve()
     expected_venv = root / ".venv"
