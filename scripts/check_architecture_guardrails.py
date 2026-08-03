@@ -18,9 +18,7 @@ FUNCTION_LINE_THRESHOLD = 80
 COMPLEXITY_THRESHOLD = 11
 SUPPORT_FACADE_MODULES = {"_types", "version"}
 
-MODULE_LINE_BASELINE = {
-    "rag/index.py": 1_223,
-}
+MODULE_LINE_BASELINE: dict[str, int] = {}
 
 CLASS_LINE_BASELINE = {
     "rag/index.py:ArmoryIndex": 628,
