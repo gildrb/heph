@@ -176,15 +176,31 @@ Heph never writes API keys to:
 
 ### Outbound Connections
 
-When reachable from a session, Heph sends data only to:
+Heph makes network connections only when the corresponding feature or command
+requires them:
 
-1. **The configured model provider** for inference requests.
-2. **The llama.cpp binary download source** when installing the local runtime.
-3. **The GitHub Releases update check** used by `heph update`.
-4. **URLs requested through `web_tools.py`** when a session reaches that tool.
+1. **The configured model provider** receives inference requests containing the
+   active question, system instructions, and selected retrieved chunks.
+2. **Hugging Face model storage** is contacted when `heph local` or `/local`
+   downloads a curated GGUF model.
+3. **The llama.cpp release source** is contacted when Heph downloads the local
+   runtime binary.
+4. **Package indexes** are contacted when you explicitly install or update Heph
+   with `uv` or `pip`.
+5. **The GitHub Releases API** is contacted by the `heph update` version check.
+6. **The URL supplied to the `web_fetch` tool** is fetched when a model tool
+   call requests a reachable page because armory material is insufficient.
+7. **DuckDuckGo HTML search** is contacted when priority-report prerequisite
+   hints are enabled with `HARNESS_PRIORITY_WEB_PREREQS=1` or the
+   `priority_web_prereqs` feature flag.
 
-No other telemetry, analytics, crash-report, PostHog, or Sentry traffic occurs.
-Local armory traces remain under `.harness/traces/` and are never uploaded.
+Optional local document extraction and priority-PDF generation can invoke local
+system tools such as PDF/OCR utilities or LaTeX engines. These tools run on
+your machine against local files; Heph does not add network calls for them.
+
+No telemetry, analytics, crash-report, PostHog, or Sentry traffic occurs.
+Heph does not create a persistent install fingerprint. Local armory traces
+remain under `.harness/traces/` and are never uploaded.
 
 
 ### Localhost-Only Servers

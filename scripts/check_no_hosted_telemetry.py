@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
-        "post" + "hog",
-        "sen" + "try",
-        "tele" + "metry",
+        "posthog",
+        "sentry",
+        "telemetry",
         "crash_reports",
         "install_id",
         "harness_analytics",
@@ -24,6 +24,7 @@ _SCAN_ROOTS = (
         for package in ("ai", "extensions", "heph", "harness", "interfaces")
     ),
     ROOT / "scripts" / "build_release_artifacts.py",
+    ROOT / ".github" / "workflows",
 )
 
 
@@ -46,6 +47,10 @@ def main() -> int:
     for path in _paths():
         text = path.read_text(encoding="utf-8")
         for line_number, line in enumerate(text.splitlines(), 1):
+            if path == ROOT / ".github" / "workflows" / "ci.yml" and (
+                "scripts.check_no_hosted_telemetry" in line
+            ):
+                continue
             if any(pattern.search(line) for pattern in _FORBIDDEN):
                 violations.append(f"{path.relative_to(ROOT)}:{line_number}: {line.strip()}")
     if violations:
