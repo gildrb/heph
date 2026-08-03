@@ -332,8 +332,7 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
 
         with timer:
             result = _retrieve_query_scored_chunks(session, query, index)
-        retriever = index._retriever
-        warning = getattr(retriever, "embedding_warning", None)
+        warning = index.embedding_warning
         if warning:
             session.retrieval_notice = warning
         if not result.scored:

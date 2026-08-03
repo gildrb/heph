@@ -24,7 +24,7 @@ from harness.privacy.consent import (
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
-from harness.rag.config import EMBED_MODEL_ENV, RERANK_MODEL_ENV
+from harness.rag.config import EMBED_MODEL_ENV
 from heph.cli.main import build_parser
 from heph.commands import get_registry
 from interfaces.tui.keybinds import keybind_keys_text, tui_keybinds
@@ -277,7 +277,6 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HARNESS_POSTHOG_PROJECT_TOKEN": (
         "Supply a PostHog project token for a custom or forked build."
     ),
-    "HARNESS_RERANK_MODEL": "Override the reranker model when available.",
     "HARNESS_RTK_FALLBACK_ALLOWED": (
         "Set to `0` to fail closed when the optional RTK wrapper is unavailable."
     ),
@@ -547,7 +546,6 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             EMBED_MODEL_ENV,
             EXTRACTION_MODEL_ENV,
             "HARNESS_PRIORITY_WEB_PREREQS",
-            RERANK_MODEL_ENV,
             "HARNESS_RTK_FALLBACK_ALLOWED",
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,

@@ -115,7 +115,6 @@ and Evidence `ctrl+g`.
 | `HARNESS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
 | `HARNESS_PRIORITY_WEB_PREREQS` | Enable optional web-backed prerequisite hints in priority reports. |
 | `HARNESS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
-| `HARNESS_RERANK_MODEL` | Override the reranker model when available. |
 | `HARNESS_RTK_FALLBACK_ALLOWED` | Set to `0` to fail closed when the optional RTK wrapper is unavailable. |
 | `HARNESS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
 | `HARNESS_TEMPERATURE` | Override the generation temperature for chat responses. |

@@ -409,6 +409,10 @@ class ArmoryIndex:
         self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 
     @property
+    def embedding_warning(self) -> str | None:
+        return self.embedding_error
+
+    @property
     def all_chunks(self) -> list[Chunk]:
         chunks: list[Chunk] = []
         for doc in self.documents:

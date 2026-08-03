@@ -125,7 +125,6 @@ def _cmd_health(args: argparse.Namespace) -> None:
     rag_health = importlib.import_module("harness.rag.health")
     optional_backends = importlib.import_module("harness.rag.optional_backends")
     rag_config = importlib.import_module("harness.rag.config")
-    provider_config = importlib.import_module("ai.providers.config")
     parameters = importlib.import_module("harness.parameters.cli")
     armory_path = _validated_armory_path(args.path)
 
@@ -137,13 +136,10 @@ def _cmd_health(args: argparse.Namespace) -> None:
             print(f"  Without it: {capability.fallback}")
     config = parameters.load_config(armory_path)
     embedding_model = rag_config.configured_embedding_model()
-    provider = provider_config.ProviderConfig.load().get_active()
     if embedding_model and config.base_url:
         print(f"- embeddings: configured ({config.base_url.rstrip('/')}, model={embedding_model})")
     else:
         print("- embeddings: unavailable (set HARNESS_EMBED_MODEL and configure a provider)")
-    if provider is not None and embedding_model:
-        print(f"  Embedding chunks would be sent to: {provider.endpoint.rstrip('/')}")
 
     report = rag_health.scan_extraction_health(armory_path)
     print(f"Extraction health: {report.documents} indexed document(s)")

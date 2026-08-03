@@ -51,6 +51,7 @@ class HybridRetriever:
         embedding_config: ChatConfig | None = None,
     ) -> None:
         self._chunks = index.all_chunks
+        self._index = index
         bm25 = Bm25Retriever(index)
         self._sparse: RetrieverProtocol = bm25 if bm25.available else TfidfRetriever(index)
         self._embedding: EmbeddingRetrieverProtocol | None = index.embedding_retriever
@@ -146,6 +147,7 @@ class HybridRetriever:
             self._embedding_error = (
                 f"Semantic retrieval unavailable; using lexical retrieval ({exc})."
             )
+            self._index.embedding_error = self._embedding_error
             _log.warning(self._embedding_error)
             self._embedding = None
             return []
@@ -194,6 +196,7 @@ class HybridRetriever:
             self._embedding_error = (
                 f"Semantic retrieval unavailable; using lexical retrieval ({exc})."
             )
+            self._index.embedding_error = self._embedding_error
             _log.warning(self._embedding_error)
             self._embedding = None
             return []
