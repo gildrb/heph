@@ -393,7 +393,29 @@ class TestNativeDocumentExtraction:
         text = "\n".join(chunk.text for chunk in document.chunks)
         assert "Heading" in text
         assert "Paragraph" in text
-        assert "A\nB" in text
+        assert "A\tB" in text
+
+    def test_docx_table_cells_are_tab_delimited(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "columns.docx",
+            {
+                "word/document.xml": (
+                    "<document xmlns='urn:word'><body><tbl>"
+                    "<tr><tc><p><t>Header1</t></p></tc>"
+                    "<tc><p><t>Header2</t></p></tc>"
+                    "<tc><p><t>Header3</t></p></tc></tr>"
+                    "<tr><tc><p><t>Value1</t></p></tc>"
+                    "<tc><p><t>Value2</t></p></tc>"
+                    "<tc><p><t>Value3</t></p></tc></tr>"
+                    "</tbl></body></document>"
+                )
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Header1\tHeader2\tHeader3" in text
+        assert "Header1Header2" not in text
 
     def test_pptx_preserves_slide_order(self, tmp_path: Path) -> None:
         path = self._archive(
@@ -407,6 +429,59 @@ class TestNativeDocumentExtraction:
         assert document is not None
         text = "\n".join(chunk.text for chunk in document.chunks)
         assert text.index("First slide") < text.index("Second slide")
+
+    def test_pptx_preserves_runs_and_table_rows(self, tmp_path: Path) -> None:
+        path = self._archive(
+            tmp_path / "formatted.pptx",
+            {
+                "ppt/slides/slide1.xml": (
+                    "<s><sp><txBody><p><r><t>Bold</t></r>"
+                    "<r><t> and </t></r><r><t>plain</t></r></p></txBody></sp>"
+                    "<graphic><tbl><tr><tc><txBody><p><r><t>A1</t></r></p>"
+                    "</txBody></tc><tc><txBody><p><r><t>B1</t></r></p>"
+                    "</txBody></tc></tr><tr><tc><txBody><p><r><t>A2</t></r>"
+                    "</p></txBody></tc><tc><txBody><p><r><t>B2</t></r></p>"
+                    "</txBody></tc></tr></tbl></graphic></s>"
+                )
+            },
+        )
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        text = "\n".join(chunk.text for chunk in document.chunks)
+        assert "Bold and plain" in text
+        assert "Bold\nand\nplain" not in text
+        assert "A1\tB1" in text
+        assert "A2\tB2" in text
+
+    def test_embedded_binary_member_is_not_decompressed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        path = self._archive(
+            tmp_path / "with-image.docx",
+            {
+                "word/document.xml": "<document><body><p><t>Text</t></p></body></document>",
+                "word/media/image.bin": "binary payload",
+            },
+        )
+        read_names: list[str] = []
+        original_read = zipfile.ZipFile.read
+
+        def read(
+            archive: zipfile.ZipFile,
+            member: str | zipfile.ZipInfo,
+            pwd: bytes | None = None,
+        ) -> bytes:
+            read_names.append(member.filename if isinstance(member, zipfile.ZipInfo) else member)
+            return original_read(archive, member, pwd)
+
+        monkeypatch.setattr(zipfile.ZipFile, "read", read)
+        document = chunk_file(path, tmp_path)
+        assert document is not None
+        assert "Text" in "\n".join(chunk.text for chunk in document.chunks)
+        assert "word/document.xml" in read_names
+        assert "word/media/image.bin" not in read_names
 
     def test_xlsx_handles_shared_and_inline_strings(self, tmp_path: Path) -> None:
         path = self._archive(

@@ -1,24 +1,4 @@
-"""Text chunking for RAG indexing.
-
-Splits text files into chunks with metadata preservation.
-
-Chunking strategies (selectable via ``ChunkStrategy``):
-
-- **AUTO** (default): picks the best strategy per file - Markdown files get
-  structure-aware chunking, all other text files use semantic chunking when
-  ``sentence-transformers`` is available, falling back to fixed-window.
-- **MARKDOWN**: structure-aware - respects ``#`` headers, splits oversized
-  sections at paragraph boundaries.  Each chunk carries ``heading`` +
-  ``heading_level`` for hierarchical context.
-- **SEMANTIC**: splits into sentences, embeds each, then merges into chunks
-  at cosine-similarity breakpoints.  Falls back to fixed-window when
-  ``sentence-transformers`` is unavailable.
-- **TEXT**: fixed-window with paragraph → newline → sentence → hard-cut
-  boundary detection.
-
-Hierarchical metadata (``heading``, ``heading_level``) is preserved so
-retrieval can return heading context alongside matched subsections.
-"""
+"""Text chunking and native document extraction for RAG indexing."""
 
 from __future__ import annotations
 
@@ -34,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile, ZipFile, ZipInfo
 
 import pypdfium2
 from ai.logging import get_logger
@@ -337,13 +317,32 @@ def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
     return resolved_path
 
 
-def _archive_members(path: Path) -> dict[str, bytes] | None:
+class _ArchiveMembers(Mapping[str, bytes]):
+    def __init__(self, path: Path, infos: dict[str, ZipInfo]) -> None:
+        self._path = path
+        self._infos = infos
+
+    def __getitem__(self, name: str) -> bytes:
+        info = self._infos.get(name)
+        if info is None:
+            raise KeyError(name)
+        with ZipFile(self._path) as archive:
+            return archive.read(info)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._infos)
+
+    def __len__(self) -> int:
+        return len(self._infos)
+
+
+def _archive_members(path: Path) -> _ArchiveMembers | None:
     try:
         with ZipFile(path) as archive:
             infos = archive.infolist()
             if len(infos) > _MAX_ARCHIVE_MEMBERS:
                 raise ValueError("archive contains too many members")
-            members: dict[str, bytes] = {}
+            members: dict[str, ZipInfo] = {}
             total = 0
             for info in infos:
                 name = Path(info.filename)
@@ -354,14 +353,14 @@ def _archive_members(path: Path) -> dict[str, bytes] | None:
                 total += info.file_size
                 if total > _MAX_ARCHIVE_TOTAL_BYTES:
                     raise ValueError("archive exceeds expanded size limit")
-                members[info.filename] = archive.read(info)
-            return members
+                members[info.filename] = info
+            return _ArchiveMembers(path, members)
     except (BadZipFile, OSError, ValueError) as exc:
         _log_extraction_failure(path, "document archive rejected", str(exc))
         return None
 
 
-def _xml_member(members: dict[str, bytes], name: str) -> _XmlElement | None:
+def _xml_member(members: Mapping[str, bytes], name: str) -> _XmlElement | None:
     raw = members.get(name)
     if raw is None:
         return None
@@ -379,24 +378,79 @@ def _xml_text(element: object) -> str:
     return "".join(str(text) for text in cast("_XmlElement", element).itertext())
 
 
-def _extract_docx(path: Path, members: dict[str, bytes]) -> str:
+def _extract_docx(path: Path, members: Mapping[str, bytes]) -> str:
     root = _xml_member(members, "word/document.xml")
     if root is None:
         raise ValueError("DOCX document.xml is missing")
-    lines: list[str] = []
-    for element in root.iter():
+
+    def inline_text(element: _XmlElement) -> str:
+        parts: list[str] = []
+        for child in element.iter():
+            name = _local_name(child.tag)
+            if name == "t" and child.text:
+                parts.append(child.text)
+            elif name == "tab":
+                parts.append("\t")
+        return "".join(parts)
+
+    def walk(element: _XmlElement) -> Iterator[str]:
         name = _local_name(element.tag)
-        if name == "t" and element.text:
-            lines.append(element.text)
-        elif name == "tab":
-            lines.append("\t")
-        elif name in {"p", "tr"}:
-            lines.append("\n")
-    return "".join(lines)
+        if name == "tbl":
+            for row in element:
+                if _local_name(row.tag) != "tr":
+                    continue
+                cells = [inline_text(cell) for cell in row if _local_name(cell.tag) == "tc"]
+                if cells:
+                    yield "\t".join(cells)
+            return
+        if name == "p":
+            text = inline_text(element)
+            if text:
+                yield text
+            return
+        for child in element:
+            yield from walk(child)
+
+    return "\n".join(walk(root))
 
 
-def _extract_pptx(path: Path, members: dict[str, bytes]) -> str:
-    slide_names = sorted(
+def _pptx_paragraph_text(paragraph: _XmlElement) -> str:
+    return "".join(child.text or "" for child in paragraph.iter() if _local_name(child.tag) == "t")
+
+
+def _pptx_table_row_text(row: _XmlElement) -> str:
+    cells = [
+        "\n".join(
+            _pptx_paragraph_text(paragraph)
+            for paragraph in cell.iter()
+            if _local_name(paragraph.tag) == "p"
+        )
+        for cell in row
+        if _local_name(cell.tag) == "tc"
+    ]
+    return "\t".join(cells)
+
+
+def _pptx_slide_lines(element: _XmlElement) -> Iterator[str]:
+    name = _local_name(element.tag)
+    if name == "tr":
+        text = _pptx_table_row_text(element)
+        if text:
+            yield text
+        return
+    if name == "tc":
+        return
+    if name == "p":
+        text = _pptx_paragraph_text(element)
+        if text:
+            yield text
+        return
+    for child in element:
+        yield from _pptx_slide_lines(child)
+
+
+def _pptx_slide_names(members: Mapping[str, bytes]) -> list[str]:
+    return sorted(
         (
             name
             for name in members
@@ -404,20 +458,29 @@ def _extract_pptx(path: Path, members: dict[str, bytes]) -> str:
         ),
         key=lambda name: int(Path(name).stem.removeprefix("slide")),
     )
-    slides: list[str] = []
-    for name in slide_names:
-        root = _xml_member(members, name)
-        if root is None:
-            continue
-        slides.append(
-            "\n".join(
-                element.text or "" for element in root.iter() if _local_name(element.tag) == "t"
-            )
+
+
+def _pptx_slide_text(root: _XmlElement) -> str:
+    lines = list(_pptx_slide_lines(root))
+    if not lines:
+        direct_text = "".join(
+            element.text or "" for element in root.iter() if _local_name(element.tag) == "t"
         )
+        if direct_text:
+            lines.append(direct_text)
+    return "\n".join(lines)
+
+
+def _extract_pptx(path: Path, members: Mapping[str, bytes]) -> str:
+    slides: list[str] = []
+    for name in _pptx_slide_names(members):
+        root = _xml_member(members, name)
+        if root is not None:
+            slides.append(_pptx_slide_text(root))
     return "\n\n".join(slides)
 
 
-def _extract_xlsx(path: Path, members: dict[str, bytes]) -> str:
+def _extract_xlsx(path: Path, members: Mapping[str, bytes]) -> str:
     shared = _xlsx_shared_strings(members)
     sheet_names = sorted(
         (
@@ -436,7 +499,7 @@ def _extract_xlsx(path: Path, members: dict[str, bytes]) -> str:
     return "\n\n".join(sheets)
 
 
-def _xlsx_shared_strings(members: dict[str, bytes]) -> list[str]:
+def _xlsx_shared_strings(members: Mapping[str, bytes]) -> list[str]:
     root = _xml_member(members, "xl/sharedStrings.xml")
     if root is None:
         return []
@@ -465,7 +528,7 @@ def _xlsx_cell_value(cell: object, shared: list[str]) -> str:
     return value or ""
 
 
-def _extract_odf(path: Path, members: dict[str, bytes]) -> str:
+def _extract_odf(path: Path, members: Mapping[str, bytes]) -> str:
     root = _xml_member(members, "content.xml")
     if root is None:
         raise ValueError("ODF content.xml is missing")
