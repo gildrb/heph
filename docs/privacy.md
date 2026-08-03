@@ -54,9 +54,7 @@ Prompt security depends on the compute mode you choose:
   selected retrieved chunks needed for the answer to that provider. It does not
   upload whole armories by default.
 
-Diagnostics are separate from model prompts. Anonymous analytics and redacted
-crash reports are opt-in and must not include document content or chat history.
-Session traces are local armory files.
+Provider requests are separate from local state. No telemetry, analytics, crash reports, or persistent install fingerprint is created or sent. Session traces remain local armory files.
 
 ## Ownership Model
 
@@ -134,35 +132,9 @@ Different providers have different data policies:
 
 Check your provider's privacy policy for details.
 
-## Opt-In Diagnostics
+## No Hosted Diagnostics
 
-### Analytics
-
-Anonymous usage analytics can be enabled in `/settings`:
-
-- Feature usage patterns
-- Performance metrics
-- Error rates
-
-**No document content or chat history is ever sent.**
-
-### Crash Reporting
-
-Anonymous crash reports can be enabled in `/settings`:
-
-- Stack traces
-- Error messages
-- System information
-
-**No personal data or document content is included.**
-
-### Source and Git Installs
-
-If you install Heph from source or via git:
-
-- Diagnostics are **disabled by default**
-- You must explicitly enable them in `/settings`
-- Official release builds may have different defaults
+Heph does not collect telemetry, send analytics, or submit crash reports. It does not create a persistent install fingerprint.
 
 ## API Key Storage
 
@@ -219,10 +191,31 @@ Heph makes network connections only to:
    explicitly enabled with `HARNESS_PRIORITY_WEB_PREREQS` or the
    `priority_web_prereqs` feature flag
 6. **Optional diagnostics endpoints** - if you enable them
+Heph makes network connections only when the corresponding feature or command
+requires them:
+
+1. **The configured model provider** receives inference requests containing the
+   active question, system instructions, and selected retrieved chunks.
+2. **Hugging Face model storage** is contacted when `heph local` or `/local`
+   downloads a curated GGUF model.
+3. **The llama.cpp release source** is contacted when Heph downloads the local
+   runtime binary.
+4. **Package indexes** are contacted when you explicitly install or update Heph
+   with `uv` or `pip`.
+5. **The GitHub Releases API** is contacted by the `heph update` version check.
+6. **The URL supplied to the `web_fetch` tool** is fetched when a model tool
+   call requests a reachable page because armory material is insufficient.
+7. **DuckDuckGo HTML search** is contacted when priority-report prerequisite
+   hints are enabled with `HARNESS_PRIORITY_WEB_PREREQS=1` or the
+   `priority_web_prereqs` feature flag.
 
 Optional local document extraction and priority-PDF generation can invoke local
-system tools such as PDF/OCR utilities or LaTeX engines. These tools run on your
-machine against local files; Heph does not add network calls for them.
+system tools such as PDF/OCR utilities or LaTeX engines. These tools run on
+your machine against local files; Heph does not add network calls for them.
+
+No telemetry, analytics, crash-report, PostHog, or Sentry traffic occurs.
+Heph does not create a persistent install fingerprint. Local armory traces
+remain under `.harness/traces/` and are never uploaded.
 
 ### Localhost-Only Servers
 
@@ -291,7 +284,7 @@ Heph is not HIPAA-compliant out of the box. For healthcare use:
 
 1. **Encrypt armories** at rest
 2. **Choose HIPAA-compliant** model providers
-3. **Disable diagnostics** completely
+3. **Use a local model** when prompt privacy is required
 4. **Consult legal counsel** for your specific use case
 
 ### Enterprise Considerations

@@ -18,7 +18,6 @@ from ai.runtime import (
 )
 
 from harness.parameters import settings as settings_store
-from harness.privacy import consent as privacy_consent
 
 
 def _load_user_overrides() -> dict[str, str]:
@@ -132,13 +131,9 @@ _CONFIG_KEY_TO_ENV = {
     "thinking_visibility": "",
     "live_tokens_visible": "",
     "live_cost_visible": "",
-    "analytics_enabled": "HARNESS_ANALYTICS_ENABLED",
-    "crash_reports_enabled": "HARNESS_CRASH_REPORTS_ENABLED",
 }
 
 _BOOL_KEYS = {
-    "analytics_enabled",
-    "crash_reports_enabled",
     "live_tokens_visible",
     "live_cost_visible",
 }
@@ -155,8 +150,6 @@ _SETTING_DESCRIPTIONS = {
     "thinking_visibility": "Model thinking visibility: off, minimal, or all",
     "live_tokens_visible": "Show token estimates in the TUI status bar",
     "live_cost_visible": "Show cost estimates in the TUI status bar",
-    "analytics_enabled": "Anonymous usage analytics opt-in",
-    "crash_reports_enabled": "Redacted crash reporting opt-in",
 }
 
 
@@ -172,30 +165,7 @@ def _effective_setting_value(key: str) -> str:
     }.get(key)
     if app_value is not None:
         return app_value
-    if key == "analytics_enabled":
-        return _privacy_setting_value(
-            enabled=privacy_consent.analytics_enabled(),
-            env_override=privacy_consent.analytics_env_override(),
-            backend_available=privacy_consent.analytics_backend_available(),
-        )
-    if key == "crash_reports_enabled":
-        return _privacy_setting_value(
-            enabled=privacy_consent.crash_reports_enabled(),
-            env_override=privacy_consent.crash_reports_env_override(),
-            backend_available=privacy_consent.crash_reports_backend_available(),
-        )
     return "(not set)"
-
-
-def _privacy_setting_value(
-    *,
-    enabled: bool,
-    env_override: bool,
-    backend_available: bool,
-) -> str:
-    suffix = " (env override)" if env_override else ""
-    availability = "available" if backend_available else "unavailable"
-    return f"{str(enabled).lower()}{suffix} [{availability}]"
 
 
 def _cmd_config_show(_args: argparse.Namespace) -> None:
@@ -214,8 +184,6 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  thinking_visibility: {_effective_setting_value('thinking_visibility')}")
     print(f"  live_tokens_visible: {_effective_setting_value('live_tokens_visible')}")
     print(f"  live_cost_visible: {_effective_setting_value('live_cost_visible')}")
-    print(f"  analytics_enabled: {_effective_setting_value('analytics_enabled')}")
-    print(f"  crash_reports_enabled: {_effective_setting_value('crash_reports_enabled')}")
 
 
 def _cmd_config_list(_args: argparse.Namespace) -> None:

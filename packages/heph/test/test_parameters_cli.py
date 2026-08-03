@@ -36,8 +36,6 @@ def test_config_show_uses_registered_handler(
             "thinking_visibility": "off",
             "live_tokens_visible": "false",
             "live_cost_visible": "false",
-            "analytics_enabled": "false [unavailable]",
-            "crash_reports_enabled": "false [unavailable]",
         }[key],
     )
 
@@ -54,7 +52,6 @@ def test_config_show_uses_registered_handler(
     assert "thinking_visibility: off" in out
     assert "live_tokens_visible: false" in out
     assert "live_cost_visible: false" in out
-    assert "analytics_enabled: false [unavailable]" in out
 
 
 def test_local_status_uses_registered_handler(
@@ -333,8 +330,6 @@ def test_config_show_displays_feature_flags(
             "thinking_visibility": "off",
             "live_tokens_visible": "false",
             "live_cost_visible": "false",
-            "analytics_enabled": "false [unavailable]",
-            "crash_reports_enabled": "false [unavailable]",
         }[key],
     )
 
@@ -367,8 +362,6 @@ def test_config_show_displays_no_feature_flags(
             "thinking_visibility": "off",
             "live_tokens_visible": "false",
             "live_cost_visible": "false",
-            "analytics_enabled": "false [unavailable]",
-            "crash_reports_enabled": "false [unavailable]",
         }[key],
     )
 
@@ -376,17 +369,6 @@ def test_config_show_displays_no_feature_flags(
 
     out = capsys.readouterr().out
     assert "feature_flags: (none)" in out
-
-
-def test_config_set_bool_setting_persists_boolean(
-    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run_argv(build_parser(), ["config", "set", "analytics_enabled", "true"])
-
-    out = capsys.readouterr().out
-    assert "Set analytics_enabled = true" in out
-    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
-    assert saved["analytics_enabled"] is True
 
 
 def test_config_set_live_usage_visibility_persists_boolean(
@@ -429,7 +411,6 @@ def test_config_list_includes_persistent_preferences(
     assert "theme: TUI theme preset" in out
     assert "thinking_visibility: Model thinking visibility: off, minimal, or all" in out
     assert "live_tokens_visible: Show token estimates in the TUI status bar" in out
-    assert "analytics_enabled: Anonymous usage analytics opt-in" in out
 
 
 def test_config_unset_removes_persisted_setting(

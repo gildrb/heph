@@ -97,6 +97,31 @@ def test_load_app_settings_ignores_removed_interface_mode(
     assert settings.load_raw_settings() == {}
 
 
+def test_load_app_settings_ignores_removed_privacy_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(
+        json.dumps(
+            {
+                "analytics_enabled": True,
+                "crash_reports_enabled": True,
+                "privacy_notice_seen": True,
+                "theme": "light",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    assert settings.load_raw_settings() == {"theme": "light"}
+    assert settings.load_app_settings().theme == "light"
+
+
 def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_dir = tmp_path / "config"
     config_file = config_dir / "config.json"

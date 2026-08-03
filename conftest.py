@@ -21,25 +21,25 @@ import ai.providers.oauth as _oauth_mod
 import ai.runtime.engine as _engine_mod
 import ai.runtime.resilience as _res_mod
 import harness.chat.turn_finalization as _turn_finalization_mod
-import harness.diagnostics.crashes as _obs_mod
 import harness.parameters.settings as _settings_mod
-import harness.privacy.consent as _privacy_mod
 import harness.rag.chunker as _rag_chunker_mod
 import harness.rag.optional_backends as _rag_optional_mod
 import heph.commands as _commands_mod
 import interfaces.tui.command_access as _tui_command_access
+
+# Cache noop diagnostics objects to avoid recreating per test
+from ai.diagnostics import NoopInstrument, NoopMeter, NoopTracer
 from ai.runtime import ApiMessage, ChatConfig
 from harness.agent.tools import ToolHandlerResult, ToolSpec
 from harness.armory.storage import initialize
 from harness.chat.session import create_session
 from interfaces.terminal import set_theme
 
-# Cache noop diagnostics objects to avoid recreating per test
-_NOOP_TRACER = _obs_mod._NoopTracer()
-_NOOP_METER = _obs_mod._NoopMeter()
-_NOOP_HISTOGRAM = _obs_mod._NoopHistogram()
-_NOOP_COUNTER = _obs_mod._NoopCounter()
-_NOOP_GAUGE = _obs_mod._NoopGauge()
+_NOOP_TRACER = NoopTracer()
+_NOOP_METER = NoopMeter()
+_NOOP_HISTOGRAM = NoopInstrument()
+_NOOP_COUNTER = NoopInstrument()
+_NOOP_GAUGE = NoopInstrument()
 
 
 def _reset_diagnostics_module_objects() -> None:
@@ -90,7 +90,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
     _pin_optional_rag_backends_off()
-    _obs_mod.reset_state()
     _tui_command_access.set_command_registry_fn(_commands_mod.get_registry)
     set_theme("dark")
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
@@ -99,11 +98,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     monkeypatch.setattr(_provider_config_mod, "_PROVIDERS_FILE", providers_file)
     monkeypatch.setattr(_oauth_mod, "_AUTH_DIR", auth_dir)
     monkeypatch.setattr(_oauth_mod, "_AUTH_FILE", auth_file)
-    monkeypatch.setattr(
-        _privacy_mod,
-        "_INSTALL_ID_PATH",
-        config_dir / "install_id.json",
-    )
     monkeypatch.setenv("HARNESS_DISABLE_LIVE_MODELS", "1")
     root = logging.getLogger("harness")
     root.handlers.clear()
@@ -119,7 +113,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
     _pin_optional_rag_backends_off()
-    _obs_mod.reset_state()
     _tui_command_access.set_command_registry_fn(_commands_mod.get_registry)
     set_theme("dark")
     root.handlers.clear()

@@ -134,8 +134,7 @@ guidelines.
 
 ## Safety
 
-Analytics and crash reporting are opt-in from `/settings`. Source and Git installs do
-not enable hosted diagnostics by default.
+Heph does not collect telemetry or send crash reports.
 
 Model-generated terminal commands are not exposed as a default agent tool. Armory
 plugins should only be used in armories you trust.

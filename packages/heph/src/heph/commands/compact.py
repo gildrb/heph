@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from harness.chat.compaction import compact_session
 from harness.chat.session import session_has_messages
-from harness.diagnostics.events import capture as capture_analytics
 from interfaces.terminal import STYLE_DIM, print_info, print_success, styled
 
 from heph.commands._base import Command, CommandResult, ensure_session
@@ -25,12 +24,4 @@ class CompactCommand(Command):
         compact_session(s)
 
         print_success("Compacted.")
-        capture_analytics(
-            "conversation_compacted",
-            {
-                "model": s.config.model,
-                "message_count": sum(1 for m in s.conversation.messages if m.role != "system"),
-                "summary_length": 0,  # summary is internal to do_compact
-            },
-        )
         return CommandResult()

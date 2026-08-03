@@ -59,15 +59,15 @@ jobs:
           run_check "repo-policies" uv run --no-sync python -m scripts.check_repo_policies
           run_check "ruff-format" uv run --no-sync ruff format --check .
           run_check "docs-sync" uv run --no-sync python -m scripts.sync_docs --check
-          run_check "tech-debt" uv run --no-sync python scripts/check_tech_debt.py --strict --report
-          run_check "dead-code" uv run --no-sync vulture $HEPH_PACKAGE_SOURCES $HEPH_TEST_SOURCES vulture-whitelist.py
-          run_check "duplicate-code" uv run --no-sync pylint --disable=all --enable=duplicate-code $HEPH_PACKAGE_SOURCES
           for package in ai extensions heph harness interfaces; do
             run_check "dependency-${package}" uv run --no-sync deptry "packages/${package}/src" --config "packages/${package}/pyproject.toml"
           done
-          run_check "complexity" uv run --no-sync radon cc $HEPH_PACKAGE_SOURCES -a -nc --total-average
+          for hook in check-architecture-guardrails vulture pylint-duplicate-code radon-complexity check-tech-debt; do
+            run_check "pre-commit-${hook}" uv run --no-sync pre-commit run "$hook" --all-files
+          done
           run_check "agents-md-validation" uv run --no-sync python scripts/validate_agents_md.py --strict
           run_check "feature-flags" uv run --no-sync python scripts/check_feature_flags.py --strict
+          run_check "no-hosted-telemetry" uv run --no-sync python -m scripts.check_no_hosted_telemetry
           exit "$status"
 
   lean-profile:

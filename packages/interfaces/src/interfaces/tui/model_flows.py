@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar
 from ai.providers.config import ProviderConfig
 from ai.providers.model_choices import configured_model_choices
 from harness.chat.model_selection import switch_model
-from harness.diagnostics.events import capture as capture_analytics
 
 from interfaces.tui.display_text import menu_label_value
 from interfaces.tui.flow_state import InlineFlow
@@ -143,14 +142,9 @@ class TuiModelFlowMixin:
             self._close_inline_flow("Model not found.")
             return
         slug, _model, _display_name, _is_free = matching
-        old_model = self.session.config.model
         if not switch_model(self.session, slug, _model):
             self._close_inline_flow("Model unavailable.")
             return
-        capture_analytics(
-            "model_changed",
-            {"provider": slug, "from_model": old_model, "to_model": _model},
-        )
         self._close_inline_flow(f"model: {_model}")
         self._refresh_status()
         self._update_info_panel()

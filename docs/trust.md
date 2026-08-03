@@ -39,14 +39,12 @@ Prompt security depends on the compute mode:
   selected retrieved chunks needed for the answer to that provider. It does not
   upload whole armories by default.
 
-Diagnostics are separate from model prompts. Anonymous analytics and redacted
-crash reports are opt-in and must not include document content or chat history.
-Session traces are local armory files.
+No hosted diagnostics, analytics, or crash reports are sent. Session traces are local
+armory files and are never uploaded.
 
 ## What Can Users Own?
 
-- **Mode**: local armory workflow by default, explicit provider and diagnostics
-  choices, and optional local model execution.
+- **Mode**: local armory workflow by default, explicit provider choices, and optional local model execution.
 - **Application layer**: open-source CLI, TUI, and SDK process that can be run,
   inspected, forked, or embedded without a Heph-hosted armory service.
 - **Compute**: swappable provider layer. Use local llama.cpp, your own

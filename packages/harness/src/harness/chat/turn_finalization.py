@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ai.diagnostics import get_meter, get_tracer
 from ai.logging import Timer, get_logger
 from ai.runtime.conversation import Message
 
@@ -68,7 +69,6 @@ from harness.chat.turn_predicates import (
     _visible_turn_evidence,
 )
 from harness.chat.usage import save_usage
-from harness.diagnostics.crashes import get_meter, get_tracer
 from harness.documents.prompt_plans import DocumentTurnPlan
 from harness.documents.state import DocumentAction, RecallState
 from harness.memory.workflow import schedule_memory_extraction

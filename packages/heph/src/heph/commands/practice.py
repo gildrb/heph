@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.chat.session import ChatSession
-from harness.diagnostics.events import capture as capture_analytics
 from harness.documents import (
     RecallFeedbackType,
     RecallPhase,
@@ -103,17 +102,7 @@ class VocabCommand(Command):
             return self._reset(s)
 
         # Default: start drill.
-        result = run_drill(s.armory_path, TerminalDrillUi())
-        if result and result.cards_reviewed > 0:
-            capture_analytics(
-                "vocab_drill",
-                {
-                    "cards_reviewed": result.cards_reviewed,
-                    "hard": result.hard_count,
-                    "good": result.good_count,
-                    "easy": result.easy_count,
-                },
-            )
+        run_drill(s.armory_path, TerminalDrillUi())
         return CommandResult()
 
     @staticmethod

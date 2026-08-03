@@ -37,20 +37,12 @@ and state, and what leaves the machine for the selected compute mode.
 
 ### Privacy and Diagnostics
 
-| Variable | Purpose |
-|----------|---------|
-| `HARNESS_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `HARNESS_LOG_FILE` | Path to log file |
-| `HARNESS_LOG_FORMAT` | Log format (`text` or `json`) |
-| `HARNESS_ANALYTICS_ENABLED` | Override saved analytics opt-in (`true`/`false`) |
-| `HARNESS_CRASH_REPORTS_ENABLED` | Override saved crash-report opt-in (`true`/`false`) |
+Heph has no hosted diagnostics, analytics, crash reporting, or telemetry settings.
 
 ## TUI Settings
 
 Access settings via the `/settings` command in Heph:
 
-- **Privacy and diagnostics**: anonymous analytics and redacted crash reports,
-  both opt-in
 - **Appearance**: saved TUI theme preference; press Enter to cycle themes
 - **Activity trace**: local session trace visibility; defaults to minimal tool
   calls
@@ -65,7 +57,7 @@ Access settings via the `/settings` command in Heph:
   modes
 - **Login / Logout**: provider authentication flow
 
-Source and Git installs do not enable hosted diagnostics by default.
+All supported settings are local; provider requests are the only model-related external traffic.
 
 ## User Configuration
 

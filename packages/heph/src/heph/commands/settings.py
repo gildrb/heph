@@ -15,10 +15,6 @@ from harness.parameters.settings import (
     VOCAB_STRICTNESS_LABELS,
     load_app_settings,
 )
-from harness.privacy.consent import (
-    analytics_enabled,
-    crash_reports_enabled,
-)
 
 from heph.commands._base import Command, CommandResult, ensure_session
 
@@ -43,8 +39,6 @@ class SettingsCommand(Command):
             settings.thinking_visibility,
         )
         default_armory = settings.default_armory_path or "none"
-        analytics = "enabled" if analytics_enabled() else "disabled"
-        crash_reports = "enabled" if crash_reports_enabled() else "disabled"
         live_tokens = "shown" if settings.live_tokens_visible else "hidden"
         live_cost = "shown" if settings.live_cost_visible else "hidden"
         print(
@@ -53,7 +47,6 @@ class SettingsCommand(Command):
             f"Model thinking: {thinking}; "
             f"Live tokens: {live_tokens}; Live cost: {live_cost}; "
             f"Vocabulary practice: {vocab}; Default armory: {default_armory}; "
-            f"Usage analytics: {analytics}; Crash reports: {crash_reports}; "
             f"Provider: {provider}."
         )
         return CommandResult()
