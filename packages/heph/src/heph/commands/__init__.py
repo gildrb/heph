@@ -24,11 +24,6 @@ from heph.commands.help import ExitCommand, HelpCommand
 from heph.commands.local import LocalCommand
 from heph.commands.memory import MemoryCommand
 from heph.commands.model import ModelsCommand
-from heph.commands.practice import (
-    ExamCommand,
-    PriorityCommand,
-    VocabCommand,
-)
 from heph.commands.session import (
     ArmoryCommand,
     DetachCommand,
@@ -74,8 +69,8 @@ def get_registry() -> CommandRegistry:
                 HelpCommand,
                 ExitCommand,
                 LoginCommand,
-                LocalCommand,
                 LogoutCommand,
+                LocalCommand,
                 StatusCommand,
                 NewCommand,
                 DetachCommand,
@@ -83,8 +78,6 @@ def get_registry() -> CommandRegistry:
                 CompactCommand,
                 EvidenceCommand,
                 CostCommand,
-                PriorityCommand,
-                ExamCommand,
                 ExportCommand,
                 ImportCommand,
                 MemoryCommand,
@@ -95,7 +88,6 @@ def get_registry() -> CommandRegistry:
                 TrustCommand,
                 TurnCommand,
                 IndexCommand,
-                VocabCommand,
             )
         )
     return _registry
@@ -117,19 +109,17 @@ __all__ = [
     "CostCommand",
     "DetachCommand",
     "EvidenceCommand",
-    "ExamCommand",
     "ExitCommand",
     "ExportCommand",
     "HelpCommand",
     "ImportCommand",
     "IndexCommand",
-    "LocalCommand",
     "LoginCommand",
     "LogoutCommand",
+    "LocalCommand",
     "MemoryCommand",
     "ModelsCommand",
     "NewCommand",
-    "PriorityCommand",
     "ProviderConfig",
     "SessionsCommand",
     "SettingsCommand",
@@ -137,7 +127,6 @@ __all__ = [
     "StatusCommand",
     "TrustCommand",
     "TurnCommand",
-    "VocabCommand",
     # Re-exported helpers (for test monkeypatching)
     "confirm",
     "get_registry",

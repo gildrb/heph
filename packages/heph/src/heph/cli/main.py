@@ -158,50 +158,6 @@ def _cmd_chat_ask(args: argparse.Namespace) -> None:
     chat_cli._cmd_chat_ask(args)
 
 
-def _cmd_sdk_serve(args: argparse.Namespace) -> None:
-    if args.no_session and args.session_id is not None:
-        print("error: --session-id cannot be used with --no-session", file=sys.stderr)
-        raise SystemExit(2)
-    if args.create_armory and args.armory_path is None:
-        print("error: --create-armory requires --armory", file=sys.stderr)
-        raise SystemExit(2)
-    sdk_factory = importlib.import_module("heph.sdk.factory")
-    sdk_stdio = importlib.import_module("heph.sdk.stdio")
-    options = sdk_factory.HephSdkOptions(
-        armory_path=args.armory_path,
-        create_armory=args.create_armory,
-        session_id=args.session_id,
-        start_session=not args.no_session,
-        base_url=args.base_url,
-        model=args.model,
-        max_tokens=args.max_tokens,
-        rag_context_budget=args.rag_context_budget,
-        reasoning_level=args.reasoning_level,
-        thinking_visibility=args.thinking_visibility,
-        temperature=args.temperature,
-    )
-    sdk_stdio.serve_stdio(options)
-
-
-def _cmd_sdk_capabilities(args: argparse.Namespace) -> None:
-    json = importlib.import_module("json")
-    sdk_capabilities = importlib.import_module("heph.sdk.capabilities")
-    payload = sdk_capabilities.get_sdk_capabilities().to_dict()
-    indent = 2 if args.pretty else None
-    separators = None if args.pretty else (",", ":")
-    _write_stdout(json.dumps(payload, ensure_ascii=False, indent=indent, separators=separators))
-
-
-def _cmd_release_status(args: argparse.Namespace) -> None:
-    release_state = importlib.import_module("heph.release_state")
-    if args.json:
-        json = importlib.import_module("json")
-        payload = release_state.current_release_state()
-        _write_stdout(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-        return
-    _write_stdout(release_state.format_current_release_state())
-
-
 def _cmd_trust(args: argparse.Namespace) -> None:
     trust = importlib.import_module("heph.trust")
     armory_path = _validated_armory_path(args.path) if args.path else None
@@ -311,201 +267,6 @@ def _maybe_reexec_source_venv() -> None:
     os.execve(str(venv_heph), [str(venv_heph), *sys.argv[1:]], env)
 
 
-def _cmd_update(args: argparse.Namespace) -> None:
-    self_update = importlib.import_module("heph.self_update")
-    root = _project_root()
-    context = self_update.UpdateContext(
-        executable=Path(sys.executable).resolve(),
-        package_module=Path(__file__).resolve(),
-        project_root=root,
-        source_checkout=_is_source_checkout(root),
-        python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
-    )
-    plan = self_update.choose_update_plan(context)
-    _write_stdout(self_update.format_update_plan(plan, dry_run=args.dry_run))
-    if args.dry_run or not plan.runnable:
-        return
-    try:
-        self_update.run_update_plan(plan)
-    except self_update.UpdateFailedError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(exc.returncode) from exc
-    _write_stdout("Update complete. Restart Heph and run `heph --version` to confirm.")
-
-
-def _cmd_local(args: argparse.Namespace) -> None:
-    command = args.local_command
-    if command == "search":
-        _cmd_local_search(args)
-        return
-    if command == "install":
-        _cmd_local_install(args)
-        return
-    if command == "status":
-        _cmd_local_status()
-        return
-    if command == "revalidate":
-        _cmd_local_revalidate(args)
-        return
-    if command == "stop":
-        _cmd_local_stop()
-
-
-def _cmd_local_search(args: argparse.Namespace) -> None:
-    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
-    query = " ".join(args.query).strip()
-    candidates = llama_cpp.search_gguf_models(query, limit=args.limit)
-    if not candidates:
-        print("No curated local models matched that search.")
-        return
-    for index, candidate in enumerate(candidates, start=1):
-        details = _local_candidate_details(candidate)
-        target = _local_candidate_install_target(candidate)
-        if target:
-            details = f"install {target}; {details}" if details else f"install {target}"
-        suffix = f"  {details}" if details else ""
-        print(f"{index}. {candidate.label}{suffix}")
-
-
-def _cmd_local_install(args: argparse.Namespace) -> None:
-    if not args.target:
-        print(
-            "error: local install requires a Hugging Face repo or local .gguf path",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    local_llm = importlib.import_module("heph.local_llm")
-    candidate = None
-    if not _local_target_is_file(args.target):
-        candidate = local_llm.find_hf_candidate(args.target)
-        if candidate is None:
-            print("error: no curated local model matched that target", file=sys.stderr)
-            raise SystemExit(1)
-    if not args.yes and not _confirm_cli_local_load(args.target, candidate):
-        print("Cancelled.")
-        return
-    try:
-        result = local_llm.install_local_target(args.target, model_id=args.model_id or "")
-    except Exception as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-    if not result.capability.passed:
-        reason = result.capability.reason or "model did not return a valid tool call"
-        print(
-            f"Installed but not activated because the tool-call probe failed: {reason}",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    local_llm.activate_local_record(result.record)
-    print(f"Activated local model: {result.record.model_id}")
-
-
-def _cmd_local_status() -> None:
-    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
-    print("Local llama.cpp")
-    print(f"  cache: {llama_cpp.llama_cpp_cache_dir()}")
-    print(f"  models: {llama_cpp.llama_cpp_model_cache_dir()}")
-    server = llama_cpp.current_server_state()
-    if server is None:
-        print("  server: stopped")
-    else:
-        print(f"  server: running on {server.endpoint}")
-        print(f"  active model: {server.model_id}")
-    records = llama_cpp.installed_records()
-    if not records:
-        print("  installed: none")
-        return
-    print("  installed:")
-    for record in records:
-        status = "tool-capable" if record.tool_capable else "not selectable"
-        candidate = llama_cpp.catalog_candidate_for_model_id(record.model_id)
-        label = candidate.label if candidate is not None else record.model_id
-        resource = _local_candidate_details(candidate) if candidate is not None else ""
-        details = [status, f"MODEL {record.model_id}"]
-        if resource:
-            details.append(resource)
-        print(f"  - {label} ({'; '.join(details)})")
-
-
-def _cmd_local_revalidate(args: argparse.Namespace) -> None:
-    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
-    local_llm = importlib.import_module("heph.local_llm")
-    capability = llama_cpp.revalidate_model(args.model_id)
-    record = llama_cpp.model_record(args.model_id)
-    if record is None:
-        print(f"error: {capability.reason or 'model is not installed'}", file=sys.stderr)
-        raise SystemExit(1)
-    if not capability.passed:
-        reason = capability.reason or "model did not return a valid tool call"
-        print(f"error: tool-call probe failed: {reason}", file=sys.stderr)
-        raise SystemExit(1)
-    local_llm.activate_local_record(record)
-    print(f"Revalidated and activated local model: {args.model_id}")
-
-
-def _cmd_local_stop() -> None:
-    llama_cpp = importlib.import_module("ai.providers.llama_cpp")
-    if llama_cpp.stop_llama_server():
-        print("Stopped llama.cpp.")
-        return
-    print("No managed llama.cpp server was running.")
-
-
-def _local_candidate_details(candidate: object) -> str:
-    details: list[str] = []
-    quant = getattr(candidate, "quant", "")
-    if isinstance(quant, str) and quant:
-        details.append(quant)
-    size_bytes = getattr(candidate, "size_bytes", 0)
-    if isinstance(size_bytes, int):
-        size = _format_local_size(size_bytes)
-        if size:
-            details.append(f"{size} download")
-    recommended_ram_gb = getattr(candidate, "recommended_ram_gb", 0)
-    if isinstance(recommended_ram_gb, int) and recommended_ram_gb:
-        details.append(f"needs {recommended_ram_gb} GB RAM")
-    return ", ".join(details)
-
-
-def _local_candidate_install_target(candidate: object) -> str:
-    hf_ref = getattr(candidate, "hf_ref", "")
-    if isinstance(hf_ref, str) and hf_ref:
-        return hf_ref
-    repo_id = getattr(candidate, "repo_id", "")
-    return repo_id if isinstance(repo_id, str) else ""
-
-
-def _local_target_is_file(target: str) -> bool:
-    path = Path(target).expanduser()
-    return path.is_file() or target.lower().endswith(".gguf")
-
-
-def _confirm_cli_local_load(target: str, candidate: object | None) -> bool:
-    terminal = importlib.import_module("interfaces.terminal")
-    if candidate is not None:
-        label = getattr(candidate, "label", target)
-        details = _local_candidate_details(candidate)
-        return bool(terminal.confirm(f"Load {label}? {details}.", default=False))
-
-    path = Path(target).expanduser()
-    size = _format_local_size(path.stat().st_size) if path.is_file() else "unknown size"
-    return bool(
-        terminal.confirm(
-            f"Load local GGUF {path.name}? {size} download; RAM depends on the file.",
-            default=False,
-        )
-    )
-
-
-def _format_local_size(size_bytes: int) -> str:
-    if size_bytes <= 0:
-        return ""
-    size_gb = size_bytes / 1024**3
-    if size_gb < 0.05:
-        return "<0.1 GB"
-    return f"{size_gb:.1f} GB"
-
-
 def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
     if not rows:
         return []
@@ -548,7 +309,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         *_format_rows(options),
         "",
         "Tip: name armories after your materials, then open them with `heph course-notes`.",
-        "Inside Heph, type /help for commands like /status, /models, /exam, and /priority.",
+        "Inside Heph, type /help for commands like /status, /models, /evidence, and /armory.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -597,16 +358,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {_package_version()}",
     )
-    parser.add_argument(
-        "--profile",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--profile-memory",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
     subparsers = parser.add_subparsers(
         dest="command",
         metavar="command",
@@ -650,142 +401,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     health.set_defaults(handler=_cmd_health)
 
-    update = subparsers.add_parser(
-        "update",
-        help="Update the active released Heph install.",
-    )
-    update.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show the installer command without running it.",
-    )
-    update.set_defaults(handler=_cmd_update)
-
-    local = subparsers.add_parser(
-        "local",
-        help="Manage private local llama.cpp models.",
-    )
-    local_sub = local.add_subparsers(dest="local_command", required=True)
-    local_search = local_sub.add_parser(
-        "search",
-        help="Browse curated GGUF models.",
-    )
-    local_search.add_argument(
-        "query",
-        nargs="*",
-        help="Catalog terms or a Hugging Face owner/repo.",
-    )
-    local_search.add_argument("--limit", type=int, default=20, help="Maximum results to show.")
-    local_search.set_defaults(handler=_cmd_local)
-
-    local_install = local_sub.add_parser(
-        "install",
-        help="Install a curated GGUF model or local .gguf path.",
-    )
-    local_install.add_argument(
-        "target",
-        nargs="?",
-        help="Curated Hugging Face repo[:quant] or .gguf path.",
-    )
-    local_install.add_argument(
-        "--model-id",
-        default="",
-        help="Model id alias for a local .gguf path.",
-    )
-    local_install.add_argument(
-        "--yes",
-        action="store_true",
-        help="Skip the local model load confirmation.",
-    )
-    local_install.set_defaults(handler=_cmd_local)
-
-    local_status = local_sub.add_parser("status", help="Show local llama.cpp status.")
-    local_status.set_defaults(handler=_cmd_local)
-
-    local_revalidate = local_sub.add_parser(
-        "revalidate",
-        help="Run the tool-call probe for an installed local model.",
-    )
-    local_revalidate.add_argument("model_id", help="Installed local model id.")
-    local_revalidate.set_defaults(handler=_cmd_local)
-
-    local_stop = local_sub.add_parser("stop", help="Stop the managed llama.cpp server.")
-    local_stop.set_defaults(handler=_cmd_local)
-
-    sdk = subparsers.add_parser(
-        "sdk",
-        help="Run SDK services for native clients.",
-    )
-    sdk_sub = sdk.add_subparsers(dest="sdk_command", required=True)
-    sdk_serve = sdk_sub.add_parser(
-        "serve",
-        help="Run the SDK JSONL stdio service.",
-    )
-    sdk_serve.add_argument(
-        "--armory",
-        dest="armory_path",
-        help="Armory path to open before serving. Defaults to plain chat.",
-    )
-    sdk_serve.add_argument(
-        "--create-armory",
-        action="store_true",
-        help="Create --armory before serving.",
-    )
-    sdk_serve.add_argument(
-        "--session-id",
-        help="Resume a saved session before serving.",
-    )
-    sdk_serve.add_argument(
-        "--no-session",
-        action="store_true",
-        help="Start without an active session.",
-    )
-    sdk_serve.add_argument("--base-url", help="Override the provider API base URL.")
-    sdk_serve.add_argument("--model", help="Override the active model.")
-    sdk_serve.add_argument("--max-tokens", type=int, help="Override max output tokens.")
-    sdk_serve.add_argument(
-        "--rag-context-budget",
-        type=int,
-        help="Override the retrieval context token budget.",
-    )
-    sdk_serve.add_argument("--reasoning-level", help="Override the reasoning level.")
-    sdk_serve.add_argument(
-        "--thinking-visibility",
-        help="Override model thinking visibility.",
-    )
-    sdk_serve.add_argument("--temperature", type=float, help="Override generation temperature.")
-    sdk_serve.set_defaults(handler=_cmd_sdk_serve)
-
-    sdk_capabilities = sdk_sub.add_parser(
-        "capabilities",
-        help="Print the SDK capability contract as JSON.",
-    )
-    sdk_capabilities.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print the capability JSON.",
-    )
-    sdk_capabilities.set_defaults(handler=_cmd_sdk_capabilities)
-
-    release = subparsers.add_parser(
-        "release",
-        help="Show installed release state.",
-    )
-    release_sub = release.add_subparsers(dest="release_command", required=True)
-    release_status = release_sub.add_parser(
-        "status",
-        help="Show installed package, official stable, and release channel state.",
-    )
-    release_status.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit release state as JSON.",
-    )
-    release_status.set_defaults(handler=_cmd_release_status)
-
     trust = subparsers.add_parser(
         "trust",
-        help="Show data, cache, prompt, and compute ownership.",
+        help="Show local data and shell trust.",
     )
     trust.add_argument(
         "path",
@@ -847,36 +465,7 @@ def main() -> None:
     _maybe_reexec_source_venv()
     for message in _runtime_diagnostic_messages():
         print(message, file=sys.stderr)
-    _increment_session_count()
-
-    _profile = "--profile" in sys.argv[1:]
-    _profile_memory = "--profile-memory" in sys.argv[1:]
-    _prof = None
-    if _profile:
-        _cprofile = importlib.import_module("cProfile")
-        _prof = _cprofile.Profile()
-        _prof.enable()
-
-    if _profile_memory:
-        tracemalloc = importlib.import_module("tracemalloc")
-        tracemalloc.start()
-
-    try:
-        _run_main_argv(sys.argv[1:])
-    finally:
-        if _profile_memory:
-            _report_memory_profile()
-        if _profile and _prof is not None:
-            _prof.disable()
-            _report_profile(_prof)
-
-
-def _increment_session_count() -> None:
-    settings_mod = importlib.import_module("harness.parameters.settings")
-    settings = settings_mod.load_raw_settings()
-    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
-    settings["session_count"] = count
-    settings_mod.save_raw_settings(settings)
+    _run_main_argv(sys.argv[1:])
 
 
 def _run_main_argv(raw_argv: list[str]) -> None:
@@ -891,32 +480,3 @@ def _known_parser_commands(parser: argparse.ArgumentParser) -> set[str]:
         if isinstance(action, argparse._SubParsersAction):
             return set(action.choices.keys())
     return set()
-
-
-def _report_memory_profile() -> None:
-    tracemalloc = importlib.import_module("tracemalloc")
-    snapshot = tracemalloc.take_snapshot()
-    tracemalloc.stop()
-    top = snapshot.statistics("lineno")[:20]
-    sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
-    for stat in top:
-        sys.stderr.write(f"  {stat}\n")
-    sys.stderr.write("\n")
-
-
-def _report_profile(prof: object) -> None:
-    """Save cProfile results and print summary."""
-    datetime_mod = importlib.import_module("datetime")
-    pathlib = importlib.import_module("pathlib")
-    pstats = importlib.import_module("pstats")
-
-    ts = datetime_mod.datetime.now(datetime_mod.UTC).strftime("%Y%m%dT%H%M%SZ")
-    profile_dir = pathlib.Path.home() / ".cache" / "harness" / "profiles"
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    profile_path = profile_dir / f"{ts}.prof"
-    prof.dump_stats(str(profile_path))  # ty:ignore[unresolved-attribute]
-
-    sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
-    stats = pstats.Stats(prof, stream=sys.stderr)  # ty:ignore[invalid-argument-type]
-    stats.strip_dirs().sort_stats("cumulative").print_stats(20)
-    sys.stderr.write("\n")

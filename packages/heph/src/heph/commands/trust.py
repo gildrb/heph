@@ -8,7 +8,7 @@ from heph.trust import format_trust_report
 
 class TrustCommand(Command):
     name = "trust"
-    description = "Show data, cache, prompt, and compute ownership"
+    description = "Show local data and shell trust"
 
     def handle(self, session: object, args: str) -> CommandResult:
         del args

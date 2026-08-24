@@ -58,12 +58,8 @@ def _plan_needs_source_only_answer(plan: DocumentTurnPlan) -> bool:
 
 
 def _missing_evidence_hint(plan: DocumentTurnPlan, *, source_only: bool) -> str:
-    if plan.action is DocumentAction.PRIORITY:
-        return "recurring topics, exam weighting, or prerequisite evidence"
     if source_only:
         return "source span that directly answers the source-only question"
-    if plan.action is DocumentAction.ASSESS:
-        return "rubric, mark scheme, or source span for grounded assessment"
     return "source span that supports the requested response"
 
 
@@ -480,11 +476,11 @@ def _should_ask_clarifying_query(
     plan: DocumentTurnPlan,
     assessment: EvidenceAssessment,
 ) -> bool:
-    if plan.action not in {DocumentAction.PRESENT, DocumentAction.PRIORITY}:
+    if plan.action is not DocumentAction.PRESENT:
         return False
     if not _needs_clarifying_query(plan.retrieval_query or ""):
         return False
-    return plan.action is not DocumentAction.PRESENT or bool(assessment.supporting_refs)
+    return bool(assessment.supporting_refs)
 
 
 def _needs_clarifying_query(query: str) -> bool:

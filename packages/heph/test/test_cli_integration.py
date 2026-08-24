@@ -10,7 +10,6 @@ from unittest.mock import patch
 import harness.rag.health as rag_health
 import heph
 import pytest
-from ai.providers.llama_cpp import LlamaCppCandidate, LlamaCppModelRecord
 from ai.runtime import ChatConfig
 from harness.agent.dispatch import iter_agent_events
 from harness.armory.search import remember_armory
@@ -49,9 +48,8 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "armory" in help_text
     assert "index" in help_text
     assert "health" in help_text
-    assert "update" in help_text
-    assert "sdk" in help_text
-    assert "release" in help_text
+    assert "sdk" not in help_text
+    assert "release" not in help_text
     assert "trust" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
@@ -74,31 +72,8 @@ def test_cli_version_uses_public_package_version(
     assert f"heph {heph.__version__}" in capsys.readouterr().out
 
 
-def test_update_command_is_not_treated_as_armory(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-
-    run_argv(parser, ["update"])
-
-    out = capsys.readouterr().out
-    assert "Heph update" in out
-    assert "source checkout" in out
-    assert "uv tool install --force" in out
-    assert "heph@latest" in out
 
 
-def test_release_status_command_reports_json(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-
-    run_argv(parser, ["release", "status", "--json"])
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["package_version"] == heph.__version__
-    assert payload["official"]["tag"] == "v0.0.59"
-    assert payload["runtime"]["channel"] in {"source", "edge", "pypi"}
 
 
 def test_trust_command_reports_ownership_contract(
@@ -110,11 +85,8 @@ def test_trust_command_reports_ownership_contract(
 
     out = capsys.readouterr().out
     assert "Heph trust contract" in out
-    assert "Who owns the data?" in out
-    assert "Where is the cache?" in out
-    assert "Are the prompts secure?" in out
-    assert "Local llama.cpp cache:" in out
-    assert "Compute: swappable provider layer" in out
+    assert "Data and chat state stay in the armory" in out
+    assert "Shell: disabled" in out
 
 
 def test_trust_command_reports_armory_state_path(
@@ -128,9 +100,8 @@ def test_trust_command_reports_armory_state_path(
     run_argv(parser, ["trust", str(armory)])
 
     out = capsys.readouterr().out
-    assert f"Armory state: {armory.resolve() / '.harness'}" in out
-    assert "Shell execution" in out
-    assert "Disabled for this armory" in out
+    assert f"State: {armory.resolve() / '.harness'}" in out
+    assert "Shell: disabled" in out
 
 
 def test_project_root_resolves_workspace_checkout() -> None:
@@ -260,8 +231,6 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
     assert "tracemalloc" not in help_text
     assert "Inside Heph, type /help" in help_text
     assert "/models" in help_text
-    assert "/exam" in help_text
-    assert "/priority" in help_text
     assert "/model," not in help_text
     assert "/study" not in help_text
     assert "positional arguments:" not in help_text
@@ -415,58 +384,8 @@ def test_tui_command_launches_tui_without_path() -> None:
     assert called
 
 
-def test_local_search_prints_installable_hf_ref(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-    candidate = LlamaCppCandidate(
-        repo_id="Qwen/Qwen3-4B-GGUF",
-        filename="Qwen3-4B-Q4_K_M.gguf",
-        quant="Q4_K_M",
-        downloads=100,
-        likes=20,
-        size_bytes=2_497_280_256,
-        display_name="Qwen3 4B",
-        recommended_ram_gb=8,
-        summary="official Qwen release",
-    )
-
-    def fake_search(query: str, *, limit: int) -> list[LlamaCppCandidate]:
-        assert query == "qwen"
-        assert limit == 1
-        return [candidate]
-
-    monkeypatch.setattr("ai.providers.llama_cpp.search_gguf_models", fake_search)
-
-    run_argv(parser, ["local", "search", "--limit", "1", "qwen"])
-
-    out = capsys.readouterr().out
-    assert "Qwen3 4B" in out
-    assert "install Qwen/Qwen3-4B-GGUF:Q4_K_M" in out
 
 
-def test_local_status_prints_revalidatable_model_id(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-    record = LlamaCppModelRecord(
-        model_id="llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M",
-        repo_id="Qwen/Qwen3-4B-GGUF",
-        quant="Q4_K_M",
-        tool_capable=True,
-        endpoint="http://127.0.0.1:18123/v1",
-    )
-
-    monkeypatch.setattr("ai.providers.llama_cpp.current_server_state", lambda: None)
-    monkeypatch.setattr("ai.providers.llama_cpp.installed_records", lambda: [record])
-
-    run_argv(parser, ["local", "status"])
-
-    out = capsys.readouterr().out
-    assert "Qwen3 4B" in out
-    assert "MODEL llama-cpp/Qwen/Qwen3-4B-GGUF:Q4_K_M" in out
 
 
 def test_tui_command_with_path_launches_tui_with_path(
@@ -797,10 +716,10 @@ def test_inject_default_subcommand_bare_path() -> None:
 def test_inject_default_subcommand_flags_before_path() -> None:
     """Flags before the path are skipped, 'interfaces.tui' injected before the path."""
     result = _inject_default_subcommand(
-        ["--profile", "/tmp/armory"],
+        ["--help", "/tmp/armory"],
         {"armory", "tui", "materials"},
     )
-    assert result == ["--profile", "tui", "/tmp/armory"]
+    assert result == ["--help", "tui", "/tmp/armory"]
 
 
 def test_inject_default_subcommand_known_command_unchanged() -> None:
@@ -833,26 +752,6 @@ def test_inject_default_subcommand_relative_path() -> None:
 # --- End-to-end path argument tests ---
 
 
-def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`heph --profile /path` should inject tui and pass path through."""
-    captured_path: Path | None = None
-
-    def fake_tui(path: Path | None) -> None:
-        nonlocal captured_path
-        captured_path = path
-
-    monkeypatch.setattr(cli_sys, "argv", ["heph", "--profile", str(tmp_path)])
-
-    # Stub profiling to avoid actual cProfile/pstats work
-    def _noop_report(_prof: object) -> None:
-        pass
-
-    monkeypatch.setitem(cli_main.__globals__, "_report_profile", _noop_report)
-
-    with patch("interfaces.tui.run_tui_for_path", fake_tui):
-        cli_main()
-
-    assert captured_path == tmp_path
 
 
 def test_bare_path_with_nonexistent_path(monkeypatch: pytest.MonkeyPatch) -> None:

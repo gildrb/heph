@@ -64,7 +64,7 @@ _ACTIVITY_NOTICE_CODES = frozenset(
 _MATERIAL_PROGRESS_LABELS = {
     "index_ready": "material index ready",
     "sample_overview": "sampling materials",
-    "open_stored_evidence": "opening recall evidence",
+    "open_stored_evidence": "opening stored material evidence",
     "search_index": "searching materials",
     "read_excerpt": "reading evidence",
     "search_result": "search complete",
@@ -452,7 +452,6 @@ def _offline_notice_text(provider_name: str) -> str:
     return (
         f"Can't reach {provider_name}. "
         "You're offline - but you can still:\n"
-        "  · Review vocabulary with /vocabulary\n"
         "  · Browse materials with /materials\n"
         "  · Export the chat with /export\n"
         "  · Check /status for session progress\n"

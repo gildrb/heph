@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -17,11 +16,9 @@ from harness.chat.document_reply import (
     _deterministic_document_reply,
     _empty_document_reply,
 )
-from harness.chat.document_signals import _recall_practice_context
 from harness.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
-    NoticeEvent,
     TurnCompleteEvent,
 )
 from harness.chat.evidence import (
@@ -88,20 +85,17 @@ from harness.chat.turn_planning import (
     _turn_contract_can_seed_followup,
     _turn_contract_with_prior_replay_state,
 )
-from harness.chat.turn_predicates import _stored_turn_evidence
 from harness.chat.turn_query import _semantic_query_specificity
 from harness.documents import (
     DocumentAction,
     DocumentTurnPlan,
     RecallFeedbackType,
     RecallPhase,
-    RecallRating,
     RecallState,
     material_overview_plan,
     material_topic_presentation_plan,
     plan_turn,
 )
-from harness.documents.schedule import load_recall_schedule
 from harness.rag import ArmoryIndex, Chunk, EvidenceChunk, ScoredChunk, TurnEvidence
 from harness.rag.chunker import ChunkedDocument
 
@@ -348,34 +342,8 @@ def test_transform_prior_repair_does_not_append_evidence_inventory() -> None:
     assert repaired == "Short version: identify the claim, then cite the supporting phrase."
 
 
-def test_calibration_repair_adds_minimal_evidence_citation() -> None:
-    plan = _plan(action=DocumentAction.CALIBRATE)
-    evidence = _turn_evidence(_evidence(content="The product rule uses both factors."))
-
-    repaired, _passes = _run_bounded_internal_repairs(
-        plan,
-        "What is the product rule idea? Answer from memory.",
-        evidence,
-        user_input="review me",
-        config=ChatConfig(),
-    )
-
-    assert repaired == "What is the product rule idea? Answer from memory. [E1]"
 
 
-def test_assessment_repair_adds_required_evidence_citation() -> None:
-    plan = _plan(action=DocumentAction.ASSESS)
-    evidence = _turn_evidence(_evidence(content="A supporting rubric point."))
-
-    repaired, _passes = _run_bounded_internal_repairs(
-        plan,
-        "PARTIAL: Name the missing source-backed point.",
-        evidence,
-        user_input="assess",
-        config=ChatConfig(),
-    )
-
-    assert repaired == "PARTIAL: Name the missing source-backed point. [E1]"
 
 
 def test_source_qa_assessment_requires_direct_support_for_resolved_query() -> None:
@@ -1041,7 +1009,6 @@ def test_retrieval_filters_repeated_short_duplicate_chunks() -> None:
 @pytest.mark.parametrize(
     ("payload", "prior_intent", "expected"),
     [
-        ({"intent": "topic drill", "confidence": 0.9}, "", "topic_drill"),
         ({"intent": "source_qa", "confidence": "75%"}, "", "source_qa"),
         ({"intent": "unsupported", "confidence": 1.0}, "", ""),
         ({"intent": "chat", "confidence": 0.2}, "topic_presentation", "topic_presentation"),
@@ -1281,23 +1248,6 @@ def test_resolved_user_intent_preserves_prior_answer_transform_mode() -> None:
     assert resolution.retrieval_query == ""
 
 
-def test_material_followup_does_not_enter_practice_scaffold_intent() -> None:
-    resolution = _stabilized_followup_intent_resolution(
-        TurnIntentResolution(
-            intent="scaffold_request",
-            canonical_request="Make a two-step checklist from the evidence.",
-            answer_format=ANSWER_FORMAT_LIST,
-            retrieval_strategy=RETRIEVAL_STRATEGY_NONE,
-            confidence=0.94,
-        ),
-        user_input="Can you make a two-step learning checklist from the evidence?",
-        prior_intent="source_qa",
-    )
-
-    assert resolution.intent == "source_qa"
-    assert resolution.is_followup is True
-    assert resolution.prior_answer_reference is True
-    assert resolution.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
 
 
 def test_low_confidence_followup_reuses_prior_answer_instead_of_literal_search() -> None:
@@ -1442,56 +1392,6 @@ def test_model_json_payload_parses_streamed_json_fragment() -> None:
     assert payload == {"intent": "chat", "confidence": 0.91}
 
 
-def test_armory_orchestrator_passes_classifier_intent_to_plan_turn_and_applies_result() -> None:
-    session = _session()
-    session.config.base_url = "https://local.test/v1"
-    session.config.model = "classifier"
-    session.last_plan_intent = "topic_presentation"
-    orchestrator = TurnOrchestrator(session)
-    evidence = _turn_evidence(_evidence())
-
-    with (
-        patch(
-            "harness.chat.intent_resolution._resolved_user_intent",
-            return_value=TurnIntentResolution(intent="topic_presentation"),
-        ) as classify,
-        patch.object(
-            TurnOrchestrator,
-            "_resolve_timed_turn_plan",
-            return_value=ResolvedTurnPlan(
-                document_plan=plan_turn(
-                    RecallState(), "Explain compactness", intent="topic_presentation"
-                ),
-                turn_evidence=evidence,
-                evidence_assessment=assess_turn_evidence(
-                    plan_turn(RecallState(), "Explain compactness", intent="topic_presentation"),
-                    evidence,
-                ),
-            ),
-        ) as resolve,
-        patch(
-            "harness.chat.turn_execution.iter_agent_events",
-            return_value=iter(
-                [
-                    AssistantDeltaEvent("Answer [E1]"),
-                    TurnCompleteEvent("Answer [E1]", 0, 1.0, "stop", 100),
-                ]
-            ),
-        ),
-        patch("harness.chat.turn_finalization.verify_response", return_value=""),
-        patch("harness.chat.turn_finalization.schedule_memory_extraction"),
-        patch("harness.chat.turn_finalization.save_usage"),
-    ):
-        events = list(orchestrator.iter_events("Explain compactness"))
-
-    assert classify.call_args.kwargs["prior_intent"] == "topic_presentation"
-    resolved_plan = resolve.call_args.args[0]
-    assert resolved_plan.action is DocumentAction.PRESENT
-    assert resolved_plan.retrieval_query == "Explain compactness"
-    assert session.recall_state.phase is RecallPhase.WAITING_FOR_READY
-    assert session.last_plan_intent == "topic_presentation"
-    assert any(isinstance(event, TurnCompleteEvent) for event in events)
-    assert session.conversation.messages[-1].content.startswith("Check [E1]")
 
 
 def test_armory_orchestrator_uses_mocked_model_payload_for_classifier_integration() -> None:
@@ -1748,64 +1648,6 @@ def test_followup_literal_retrieval_query_expands_prior_evidence() -> None:
     assert session.last_turn_contract.evidence_refs == ("notes.md#chunk=0",)
 
 
-def test_followup_semantic_retrieval_query_expands_prior_evidence() -> None:
-    session = _session()
-    session.config.base_url = "https://local.test/v1"
-    session.config.model = "classifier"
-    session.last_turn_contract = TurnContract(
-        original_user_input="Quiz me on the retrieval practice source.",
-        resolved_intent="ready_for_recall",
-        canonical_request="Ask a recall prompt about feedback and spacing.",
-        retrieval_query="feedback and spacing in recall practice",
-        evidence_refs=("study-methods.md#chunk=0",),
-    )
-    orchestrator = TurnOrchestrator(session)
-    evidence = _turn_evidence(_evidence(source="study-methods.md"))
-
-    def resolve(plan: DocumentTurnPlan) -> ResolvedTurnPlan:
-        return ResolvedTurnPlan(
-            document_plan=plan,
-            turn_evidence=evidence,
-            evidence_assessment=assess_turn_evidence(plan, evidence),
-        )
-
-    with (
-        patch(
-            "harness.chat.intent_resolution._resolved_user_intent",
-            return_value=TurnIntentResolution(
-                intent="priority_request",
-                canonical_request=(
-                    "Tell me what to revisit before continuing with the current recall prompt."
-                ),
-                is_followup=True,
-                followup_target="the current recall prompt about feedback and spacing",
-                retrieval_query="feedback and spacing in recall practice",
-            ),
-        ),
-        patch.object(
-            TurnOrchestrator,
-            "_resolve_timed_turn_plan",
-            side_effect=resolve,
-        ) as resolved,
-        patch(
-            "harness.chat.turn_execution.iter_agent_events",
-            return_value=iter(
-                [
-                    AssistantDeltaEvent("Review feedback and spacing [E1]"),
-                    TurnCompleteEvent("Review feedback and spacing [E1]", 0, 1.0, "stop", 100),
-                ]
-            ),
-        ),
-        patch("harness.chat.turn_finalization.verify_response", return_value=""),
-        patch("harness.chat.turn_finalization.schedule_memory_extraction"),
-        patch("harness.chat.turn_finalization.save_usage"),
-    ):
-        list(orchestrator.iter_events("What should I revisit before continuing?"))
-
-    plan = resolved.call_args.args[0]
-    assert plan.retrieval_strategy == RETRIEVAL_STRATEGY_EXPAND_PRIOR
-    assert plan.retrieval_query == "feedback and spacing in recall practice"
-    assert plan.evidence_refs == ("study-methods.md#chunk=0",)
 
 
 def test_followup_expands_broad_prior_overview_instead_of_reusing_it() -> None:
@@ -2473,18 +2315,6 @@ def test_specific_present_turn_with_overview_strategy_uses_query_evidence() -> N
     assert evidence is query_evidence
 
 
-def test_followup_broad_planning_intent_continues_prior_material_intent() -> None:
-    resolution = _stabilized_followup_intent_resolution(
-        TurnIntentResolution(
-            intent="priority_request",
-            canonical_request="Explain why the prior cited point matters.",
-            is_followup=True,
-        ),
-        prior_intent="source_qa",
-    )
-
-    assert resolution.intent == "source_qa"
-    assert resolution.canonical_request == "Explain why the prior cited point matters."
 
 
 def test_reasoning_followup_continues_prior_material_intent() -> None:
@@ -3331,30 +3161,6 @@ def test_source_qa_expanded_prior_rejects_direct_user_query_with_missing_terms()
     )
 
 
-def test_priority_contract_does_not_reuse_stale_prior_evidence() -> None:
-    plan = _plan(action=DocumentAction.PRIORITY, retrieval_query="priority evidence query")
-    contract = TurnContract(
-        original_user_input="What should I review first?",
-        resolved_intent="priority_request",
-        canonical_request="Choose the next source-backed review target.",
-        is_followup=True,
-        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
-        retrieval_strategy=RETRIEVAL_STRATEGY_REUSE_PRIOR,
-    )
-
-    updated_plan, updated_contract = _apply_turn_contract_to_plan(
-        plan,
-        contract,
-        prior_contract=TurnContract(
-            original_user_input="prior request",
-            evidence_refs=("stale.md#chunk=0",),
-        ),
-    )
-
-    assert updated_plan.retrieval_strategy == "retrieve"
-    assert updated_plan.retrieval_query == "priority evidence query"
-    assert updated_plan.evidence_refs == ()
-    assert updated_contract.evidence_refs == ()
 
 
 def test_prior_answer_reference_without_prior_refs_does_not_retrieve_new_evidence() -> None:
@@ -3564,39 +3370,6 @@ def test_deterministic_missing_index_reply_still_applies_classified_plan() -> No
     assert session.recall_state.last_feedback_type is RecallFeedbackType.NONE
 
 
-def test_recall_practice_context_reads_schedule_learner_state(tmp_path: Path) -> None:
-    session = _session()
-    session.armory_path = tmp_path
-    store = load_recall_schedule(tmp_path)
-    store.record_review(
-        "Define compactness",
-        concept="compactness",
-        retrieval_query="compactness",
-        source_refs=["notes.md#chunk=0"],
-        rating=RecallRating.HARD,
-        elapsed_seconds=90,
-        confidence=0.9,
-        hint_level_needed=2,
-        intervention="contrastive_question",
-        exam_importance=0.8,
-        now=datetime.now(UTC) - timedelta(days=2),
-    )
-    for _ in range(2):
-        store.record_policy_outcome(
-            "contrastive_question",
-            success=True,
-            mastery_delta=0.1,
-            confidence_delta=0.1,
-            time_cost_seconds=60,
-        )
-    store.save()
-
-    due_reviews, memory_state = _recall_practice_context(session)
-
-    assert due_reviews[0].item == "Define compactness"
-    assert memory_state.weak_topics == ("compactness",)
-    assert memory_state.misconceptions == ("compactness",)
-    assert memory_state.successful_interventions == ("contrastive_question",)
 
 
 def test_evidence_notice_and_metadata_expose_retrieval_details() -> None:
@@ -3621,32 +3394,8 @@ def test_evidence_notice_and_metadata_expose_retrieval_details() -> None:
     assert assessment["sufficient"] is True
 
 
-def test_evidence_notice_summarizes_overview_sources_and_hides_calibration() -> None:
-    overview = ResolvedTurnPlan(
-        document_plan=material_overview_plan("overview"),
-        turn_evidence=_turn_evidence(
-            _evidence(source="a.md"), _evidence("E2", "b.md", 0), sampled=2, total=5
-        ),
-    )
-    calibration = ResolvedTurnPlan(
-        document_plan=_plan(action=DocumentAction.CALIBRATE),
-        turn_evidence=_turn_evidence(_evidence()),
-    )
-
-    assert "from 2 of 5 indexed sources" in _evidence_notice(overview)
-    assert _evidence_notice(calibration) == ""
-    assert _evidence_notice_metadata(calibration) == {}
 
 
-def test_calibration_evidence_is_stored_without_visible_notice() -> None:
-    evidence = _turn_evidence(_evidence(content="The source-backed recall fact."))
-    resolved = ResolvedTurnPlan(
-        document_plan=_plan(action=DocumentAction.CALIBRATE),
-        turn_evidence=evidence,
-    )
-
-    assert _stored_turn_evidence(resolved) is evidence
-    assert _evidence_notice(resolved) == ""
 
 
 def test_missing_indexed_material_reply_reports_index_states() -> None:
@@ -4569,7 +4318,7 @@ def test_overview_fallback_uses_substantive_content_not_heading_inventory() -> N
 
 
 def test_localize_deterministic_reply_rejects_added_citations_and_preserves_original() -> None:
-    config = ChatConfig(base_url="https://local.test/v1", model="localizer")
+    config = ChatConfig(base_url="https://local.test/v1", model="localizer", feature_flags=frozenset({"reply_localization"}))
 
     with patch(
         "harness.chat.reply_text.stream_completion",
@@ -4868,63 +4617,8 @@ def test_source_grounded_agent_request_keeps_compact_prior_context() -> None:
     assert request.conversation.messages[-1].content == "What does the source say?"
 
 
-def test_material_review_agent_request_keeps_compact_prior_context() -> None:
-    session = _session()
-    session.conversation.add("user", "previous question")
-    session.conversation.add("assistant", "Previous answer with stale citation [E1].")
-    contract = TurnContract(
-        original_user_input="Make a learning checklist from the evidence.",
-        resolved_intent="topic_presentation",
-        canonical_request="Create a checklist from the current retrieved evidence.",
-        is_followup=True,
-        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
-        evidence_refs=("materials/current.md#chunk=0",),
-    )
-
-    request = _document_agent_request(
-        _plan(action=DocumentAction.REVIEW),
-        RecallState(),
-        "Make a learning checklist from the evidence.",
-        session,
-        contract,
-    )
-
-    assert [message.role for message in request.conversation.messages] == [
-        "user",
-        "assistant",
-        "user",
-    ]
-    assert "stale citation" in request.conversation.messages[1].content
-    assert "prior E" not in request.conversation.messages[1].content
-    assert request.conversation.messages[-1].content == (
-        "Make a learning checklist from the evidence."
-    )
 
 
-def test_calibration_agent_request_isolates_stale_topic_history() -> None:
-    session = _session()
-    session.conversation.add("user", "old quiz")
-    session.conversation.add("assistant", "What does an older unrelated rule require? [E1]")
-    contract = TurnContract(
-        original_user_input="Quiz me with one source-backed recall prompt.",
-        resolved_intent="topic_drill",
-        canonical_request="Ask one source-backed recall prompt.",
-        is_followup=True,
-        evidence_refs=("materials/current.md#chunk=0",),
-    )
-
-    request = _document_agent_request(
-        _plan(action=DocumentAction.CALIBRATE),
-        RecallState(),
-        "Quiz me with one source-backed recall prompt.",
-        session,
-        contract,
-    )
-
-    assert [message.role for message in request.conversation.messages] == ["user"]
-    assert (
-        request.conversation.messages[0].content == "Quiz me with one source-backed recall prompt."
-    )
 
 
 def test_prior_answer_transform_keeps_prior_answer_context() -> None:
@@ -5208,7 +4902,6 @@ def test_source_grounded_turns_buffer_until_postprocessed() -> None:
     assert _should_buffer_document_output(_plan(action=DocumentAction.PRESENT))
     assert _should_buffer_document_output(_plan(action=DocumentAction.SOURCE_QA))
     assert _should_buffer_document_output(_plan(action=DocumentAction.CHAT))
-    assert not _should_buffer_document_output(_plan(action=DocumentAction.WAIT_READY_REMINDER))
 
 
 def test_retrieved_chat_turn_requires_citations() -> None:
@@ -6051,45 +5744,6 @@ def test_direct_prior_reasoning_with_single_citation_keeps_model_answer_path() -
     assert reply is None
 
 
-def test_iter_armory_turn_events_emits_material_operations_for_stored_refs() -> None:
-    session = _session()
-    session.recall_state = RecallState(
-        phase=RecallPhase.RECALL,
-        current_item="compactness",
-        retrieval_query="compactness",
-        expected_source_refs=["notes.md#chunk=0"],
-    )
-    session.rag_index = _index(_document())
-    orchestrator = TurnOrchestrator(session)
-    resolved = ResolvedTurnPlan(
-        document_plan=plan_turn(session.recall_state, "review", intent="material_review"),
-        turn_evidence=_turn_evidence(_evidence()),
-    )
-
-    with (
-        patch(
-            "harness.chat.intent_resolution._classified_user_intent",
-            return_value="material_review",
-        ),
-        patch.object(TurnOrchestrator, "_resolve_timed_turn_plan", return_value=resolved),
-        patch(
-            "harness.chat.turn_execution.iter_agent_events",
-            return_value=iter(
-                [
-                    AssistantDeltaEvent("Review [E1]"),
-                    TurnCompleteEvent("Review [E1]", 0, 1.0, "stop", 100),
-                ]
-            ),
-        ),
-        patch("harness.chat.turn_finalization.verify_response", return_value=""),
-        patch("harness.chat.turn_finalization.schedule_memory_extraction"),
-        patch("harness.chat.turn_finalization.save_usage"),
-    ):
-        events = list(orchestrator.iter_events("review"))
-
-    operations = [event.operation for event in events if isinstance(event, MaterialOperationEvent)]
-    assert "open_stored_evidence" in operations
-    assert any(isinstance(event, NoticeEvent) and event.code == "evidence" for event in events)
 
 
 def test_iter_armory_turn_events_samples_corpus_for_initial_material_overview() -> None:
@@ -6447,39 +6101,6 @@ def test_unreplayable_first_turn_uses_current_canonical_query() -> None:
     assert reset_contract.retrieval_query == reset_plan.retrieval_query
 
 
-def test_priority_followup_with_prior_reference_reuses_prior_evidence() -> None:
-    plan = _plan(
-        action=DocumentAction.PRIORITY,
-        retrieval_query="global priority retrieval",
-        retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
-    )
-    contract = TurnContract(
-        original_user_input="Which prior citation is strongest?",
-        resolved_intent="priority_request",
-        canonical_request="Which prior citation is strongest?",
-        is_followup=True,
-        answer_mode=ANSWER_MODE_REASON_FROM_PRIOR,
-        retrieval_strategy=RETRIEVAL_STRATEGY_RETRIEVE,
-        retrieval_query="global priority retrieval",
-        prior_answer_reference=True,
-    )
-
-    updated_plan, updated_contract = _apply_turn_contract_to_plan(
-        plan,
-        contract,
-        prior_contract=TurnContract(
-            original_user_input="Restate the source-backed claim.",
-            resolved_intent="source_qa",
-            canonical_request="Restate the source-backed claim.",
-            evidence_refs=("materials/source-1.md#chunk=0",),
-        ),
-    )
-
-    assert updated_plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR
-    assert updated_plan.retrieval_query is None
-    assert updated_plan.evidence_refs == ("materials/source-1.md#chunk=0",)
-    assert updated_contract.retrieval_query == ""
-    assert updated_contract.evidence_refs == updated_plan.evidence_refs
 
 
 def test_reused_prior_evidence_ignores_literal_followup_direct_evidence_flag() -> None:

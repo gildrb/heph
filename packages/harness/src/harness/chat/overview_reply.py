@@ -50,7 +50,7 @@ from harness.chat.overview_validation import (
 from harness.chat.reply_text import (
     _citation_tail_keep_end,
     _strip_tool_call_markup,
-    _strip_unsolicited_practice_followup,
+    _strip_uncited_tail_after_last_citation,
 )
 from harness.chat.turn_contract import (
     TurnContract,
@@ -148,7 +148,7 @@ def _compact_overview_citation_inventory(
         compacted = _compact_overview_citation_groups(base)
         if not compacted:
             continue
-        compacted = _strip_unsolicited_practice_followup(compacted)
+        compacted = _strip_uncited_tail_after_last_citation(compacted)
         compacted = re.sub(r"[ \t]+", " ", compacted).strip()
         for candidate in _overview_compaction_candidates(compacted):
             if _valid_overview_model_reply(
@@ -743,7 +743,7 @@ def _deduped_overview_model_fallback_candidates(candidates: Sequence[str]) -> tu
 
 
 def _clean_overview_model_fallback_candidate(candidate: str) -> str:
-    cleaned = _strip_unsolicited_practice_followup(candidate)
+    cleaned = _strip_uncited_tail_after_last_citation(candidate)
     return re.sub(r"[ \t]+", " ", cleaned).strip()
 
 

@@ -76,12 +76,6 @@ def _plan_requires_citations(plan: DocumentTurnPlan | None) -> bool:
     return plan.action in {
         DocumentAction.PRESENT,
         DocumentAction.SOURCE_QA,
-        DocumentAction.PRIORITY,
-        DocumentAction.REVIEW,
-        DocumentAction.CALIBRATE,
-        DocumentAction.ASSESS,
-        DocumentAction.HINT,
-        DocumentAction.SIMPLIFY,
     }
 
 

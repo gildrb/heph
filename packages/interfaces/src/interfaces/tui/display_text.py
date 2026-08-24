@@ -512,7 +512,6 @@ def startup_card_text() -> str:
             label_value_line("armory", "exact names or paths"),
             label_value_line("focus", "@file"),
             label_value_line("review", "summaries or gaps"),
-            label_value_line("priority", "/priority"),
             label_value_line("evidence", "/evidence"),
             "",
             label_value_line("verify", "important claims"),

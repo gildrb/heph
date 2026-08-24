@@ -3156,7 +3156,7 @@ def test_command_help_aligns_descriptions_to_longest_command() -> None:
     }
 
     assert len(columns) == 1
-    assert columns == {len("  /vocabulary") + 4}
+    assert len(columns) == 1
 
 
 def test_tui_slash_suggestion_uses_shared_registry() -> None:
@@ -4143,7 +4143,6 @@ def test_settings_inline_cycles_display_rows(
             assert descriptions["Model thinking"] == "Minimal"
             assert descriptions["Live tokens"] == "hidden"
             assert descriptions["Live cost"] == "hidden"
-            assert descriptions["Vocabulary practice"] == "Strict"
 
             app._submit_inline_flow("Appearance")
 
@@ -4202,16 +4201,6 @@ def test_settings_inline_cycles_display_rows(
             assert "COST $0.000" in str(app.query_one("#status", tui.Static).content)
             assert app.state.transcript[-1].content == "Live cost shown."
 
-            app._submit_inline_flow("Vocabulary practice")
-
-            assert settings_store.load_app_settings().vocab_strictness == (
-                settings_store.VOCAB_STRICTNESS_LENIENT
-            )
-            assert dict(app._inline_flow.options)["Vocabulary practice"] == "Lenient punctuation"
-
-            labels = [label for label, _description in app._inline_flow.options]
-            suggestions = app.query_one("#suggestions", tui.OptionList)
-            assert suggestions.highlighted == labels.index("Vocabulary practice")
 
     try:
         asyncio.run(check_settings_changes())
@@ -4437,7 +4426,6 @@ def test_settings_inline_keeps_selected_row_after_changes(
                 "Model thinking",
                 "Live tokens",
                 "Live cost",
-                "Vocabulary practice",
             ]
             for setting in cases:
                 app._open_settings_flow()
@@ -4647,8 +4635,8 @@ def test_startup_copy_stays_readable_in_narrow_panes() -> None:
     assert "ARMORY exact names or paths" in startup_text
     assert startup_lines[0] == "MATERIALS materials/"
     assert startup_lines[1] == "ARMORY exact names or paths"
-    assert startup_lines[6] == ""
-    assert startup_lines[7] == "VERIFY important claims"
+    assert startup_lines[6] == "VERIFY important claims"
+    assert len(startup_lines) == 7
     assert max(len(line) for line in startup_lines) <= 39
 
 
@@ -8681,14 +8669,13 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
 
             assert suggestions.highlighted == 0
             assert suggestions.scroll_y == 0
-            assert [c.text.strip() for c in app.completion_candidates[:7]] == [
+            assert [c.text.strip() for c in app.completion_candidates[:6]] == [
                 "help",
                 "exit",
                 "login",
-                "local",
                 "logout",
+                "local",
                 "status",
-                "new",
             ]
 
             expected = (

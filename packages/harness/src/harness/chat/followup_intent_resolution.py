@@ -24,7 +24,6 @@ _CONTINUABLE_MATERIAL_INTENTS = frozenset(
         "source_qa",
         "source_only_policy",
         "topic_presentation",
-        "topic_drill",
     }
 )
 _PRIOR_REFERENCE_SHORT_TOKEN_LIMIT = 4
@@ -62,21 +61,9 @@ def _stabilized_followup_intent_resolution(
     )
     if stabilized is not None:
         return stabilized
-    stabilized = _continuable_document_request_resolution(
-        resolution,
-        prior_intent=prior_intent,
-    )
-    if stabilized is not None:
-        return stabilized
     stabilized = _transform_prior_followup_resolution(
         resolution,
         user_input=user_input,
-        prior_intent=prior_intent,
-    )
-    if stabilized is not None:
-        return stabilized
-    stabilized = _continuable_priority_followup_resolution(
-        resolution,
         prior_intent=prior_intent,
     )
     if stabilized is not None:
@@ -193,27 +180,6 @@ def _source_followup_prior_answer_resolution(
     )
 
 
-def _continuable_document_request_resolution(
-    resolution: TurnIntentResolution,
-    *,
-    prior_intent: str,
-) -> TurnIntentResolution | None:
-    if prior_intent not in _CONTINUABLE_MATERIAL_INTENTS:
-        return None
-    if resolution.intent not in {"scaffold_request", "hint_request", "material_review"}:
-        return None
-    retrieval_strategy = (
-        resolution.retrieval_strategy
-        if resolution.retrieval_strategy != RETRIEVAL_STRATEGY_NONE
-        else RETRIEVAL_STRATEGY_REUSE_PRIOR
-    )
-    return replace(
-        resolution,
-        intent=prior_intent,
-        is_followup=True,
-        prior_answer_reference=True,
-        retrieval_strategy=retrieval_strategy,
-    )
 
 
 def _transform_prior_followup_resolution(
@@ -246,20 +212,6 @@ def _transform_prior_followup_resolution(
         is_followup=True,
         prior_answer_reference=True,
     )
-
-
-def _continuable_priority_followup_resolution(
-    resolution: TurnIntentResolution,
-    *,
-    prior_intent: str,
-) -> TurnIntentResolution | None:
-    if (
-        not resolution.is_followup
-        or prior_intent not in _CONTINUABLE_MATERIAL_INTENTS
-        or resolution.intent not in {"priority_request", "driven_recall_calibration"}
-    ):
-        return None
-    return replace(resolution, intent=prior_intent)
 
 
 def _transform_resolution_points_at_prior_answer(

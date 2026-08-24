@@ -22,10 +22,7 @@ if TYPE_CHECKING:
     from harness.chat.session import ChatSession
 
 
-from harness.chat.prior_answer import (
-    _isolated_recall_conversation,
-    _prior_answer_context_excerpt,
-)
+from harness.chat.prior_answer import _prior_answer_context_excerpt
 from harness.chat.reply_repair import _should_buffer_document_output, _user_visible_reply
 from harness.chat.turn_outputs import (
     _DocumentAgentBuffer,
@@ -82,14 +79,6 @@ def _document_agent_conversation(
     session: ChatSession,
     contract: TurnContract | None,
 ) -> Conversation:
-    isolated = _isolated_recall_conversation(
-        plan,
-        original_recall_state,
-        user_input,
-        contract,
-    )
-    if isolated is not None:
-        return isolated
     if _should_use_material_answer_conversation_window(plan, contract):
         return _material_answer_conversation_window(session.conversation, user_input)
     return session.conversation

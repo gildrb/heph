@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from ai.providers import llama_cpp
 from ai.runtime import ChatConfig
 from harness.parameters import cli as params_cli
 from harness.parameters import settings as settings_store
@@ -54,22 +52,6 @@ def test_config_show_uses_registered_handler(
     assert "live_cost_visible: false" in out
 
 
-def test_local_status_uses_registered_handler(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cache_dir = tmp_path / "llama-cache"
-    monkeypatch.setattr(llama_cpp, "_CACHE_DIR", cache_dir)
-    monkeypatch.setattr(llama_cpp, "_MODEL_CACHE_DIR", cache_dir / "models")
-    monkeypatch.setattr(llama_cpp, "_STATE_FILE", tmp_path / "llama-state.json")
-
-    run_argv(build_parser(), ["local", "status"])
-
-    out = capsys.readouterr().out
-    assert "Local llama.cpp" in out
-    assert "server: stopped" in out
-    assert "installed: none" in out
 
 
 def test_config_set_persists_override(

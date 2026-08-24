@@ -38,7 +38,6 @@ _BASE_GUIDELINES = (
     "Use general reasoning to explain evidence, never as pretend file evidence.",
     "Verify exact file/source details, numbers, formulas, dates, labels, units, and wording.",
     "If asked what `[E1]` means, quote that evidence and name its source.",
-    "During recall, follow injected recall instructions and keep the answer hidden.",
     "Armory: portable workspace with `.harness/armory.toml`.",
     "User files go in `materials/`; app state stays in `.harness/`.",
     "Use `create_armory` or `validate_armory` for armory setup/repair.",

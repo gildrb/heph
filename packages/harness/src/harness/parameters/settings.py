@@ -41,17 +41,6 @@ ACTIVITY_TRACE_LABELS: Final[dict[str, str]] = {
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
 }
-VOCAB_STRICTNESS_STRICT: Final[str] = "strict"
-VOCAB_STRICTNESS_LENIENT: Final[str] = "lenient"
-VOCAB_STRICTNESS_MODES: Final[tuple[str, ...]] = (
-    VOCAB_STRICTNESS_STRICT,
-    VOCAB_STRICTNESS_LENIENT,
-)
-VOCAB_STRICTNESS_LABELS: Final[dict[str, str]] = {
-    VOCAB_STRICTNESS_STRICT: "Strict",
-    VOCAB_STRICTNESS_LENIENT: "Lenient punctuation",
-}
-DEFAULT_VOCAB_STRICTNESS: Final[str] = VOCAB_STRICTNESS_STRICT
 DEFAULT_THINKING_VISIBILITY: Final[str] = THINKING_VISIBILITY_MINIMAL
 THINKING_VISIBILITY_LABELS: Final[dict[str, str]] = {
     THINKING_VISIBILITY_OFF: "Hidden",
@@ -74,11 +63,10 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "default_armory_path",
         "last_armory_path",
         "activity_trace_mode",
-        "vocab_strictness",
         "thinking_visibility",
     }
 )
-INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
+INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget"})
 FLOAT_KEYS: Final[frozenset[str]] = frozenset({"temperature"})
 PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "base_url",
@@ -90,7 +78,6 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "theme",
     "default_armory_path",
     "activity_trace_mode",
-    "vocab_strictness",
     "thinking_visibility",
     "live_tokens_visible",
     "live_cost_visible",
@@ -99,7 +86,6 @@ INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
     "recent_armories",
     "last_armory_path",
-    "session_count",
     "tui_keymap",
 )
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
@@ -136,11 +122,9 @@ class AppSettings:
     default_armory_path: str = ""
     last_armory_path: str = ""
     activity_trace_mode: str = DEFAULT_ACTIVITY_TRACE_MODE
-    vocab_strictness: str = DEFAULT_VOCAB_STRICTNESS
     thinking_visibility: str = DEFAULT_THINKING_VISIBILITY
     live_tokens_visible: bool = False
     live_cost_visible: bool = False
-    session_count: int = 0
 
 
 def parse_toml_simple(path: Path) -> dict[str, str]:
@@ -229,9 +213,6 @@ def _setting_normalizers() -> dict[str, SettingNormalizer]:
         "activity_trace_mode": lambda value: _normalize_choice(
             "activity_trace_mode", value, ACTIVITY_TRACE_MODES
         ),
-        "vocab_strictness": lambda value: _normalize_choice(
-            "vocab_strictness", value, VOCAB_STRICTNESS_MODES
-        ),
         "thinking_visibility": lambda value: _normalize_choice(
             "thinking_visibility", value, THINKING_VISIBILITY_MODES
         ),
@@ -297,29 +278,17 @@ def load_app_settings() -> AppSettings:
     )
     if activity_trace_mode not in ACTIVITY_TRACE_MODES:
         activity_trace_mode = DEFAULT_ACTIVITY_TRACE_MODE
-    vocab_strictness = str(raw.get("vocab_strictness", DEFAULT_VOCAB_STRICTNESS)).strip().lower()
-    if vocab_strictness not in VOCAB_STRICTNESS_MODES:
-        vocab_strictness = DEFAULT_VOCAB_STRICTNESS
     thinking_visibility = (
         str(raw.get("thinking_visibility", DEFAULT_THINKING_VISIBILITY)).strip().lower()
     )
     if thinking_visibility not in THINKING_VISIBILITY_MODES:
         thinking_visibility = DEFAULT_THINKING_VISIBILITY
-    raw_session_count = raw.get("session_count")
-    session_count = 0
-    if isinstance(raw_session_count, bool | int | float):
-        session_count = int(raw_session_count)
-    elif isinstance(raw_session_count, str):
-        with contextlib.suppress(ValueError):
-            session_count = int(raw_session_count.strip())
     return AppSettings(
         theme=theme,
         default_armory_path=default_armory,
         last_armory_path=last_armory,
         activity_trace_mode=activity_trace_mode,
-        vocab_strictness=vocab_strictness,
         thinking_visibility=thinking_visibility,
         live_tokens_visible=_coerce_bool(raw.get("live_tokens_visible"), default=False),
         live_cost_visible=_coerce_bool(raw.get("live_cost_visible"), default=False),
-        session_count=session_count,
     )

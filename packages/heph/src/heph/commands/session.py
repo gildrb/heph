@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ai.providers.endpoints import provider_uses_keyless_access
@@ -18,10 +17,6 @@ from harness.chat.session import (
     session_has_messages,
 )
 from harness.chat.usage import load_usage_summaries
-from harness.documents.schedule import load_recall_schedule
-from harness.documents.state import RecallFeedbackType
-from harness.vocab.parser import scan_armory
-from harness.vocab.state import VocabCardState, load_schedule, save_schedule
 from interfaces.terminal import STYLE_DIM, print_error, print_info, print_success, styled
 
 from heph.commands._base import (
@@ -29,7 +24,6 @@ from heph.commands._base import (
     CommandResult,
     ensure_session,
     format_duration,
-    pct,
 )
 
 
@@ -66,8 +60,6 @@ def _session_status(session: ChatSession) -> str:
     ]
     if session.armory_path is not None:
         lines.extend(_armory_stats(session.armory_path))
-        lines.extend(_vocab_stats(session.armory_path))
-        lines.extend(_recall_stats(session))
     return "\n".join(lines)
 
 
@@ -82,100 +74,6 @@ def _armory_stats(armory_path: Path) -> list[str]:
         f"  Tokens:     {sum(int(item['total_tokens']) for item in usage_summaries)}",
         f"  Cost:       ${sum(float(item['cost_usd']) for item in usage_summaries):.4f}",
     ]
-
-
-def _vocab_stats(armory_path: Path) -> list[str]:
-    deck = scan_armory(armory_path)
-    store = load_schedule(armory_path)
-    store.sync_with_deck(deck)
-    save_schedule(store)
-    stats = store.stats()
-    if stats["total"] == 0:
-        return ["", "Vocabulary:", "  No vocabulary cards yet. Add Q&A pairs to your materials."]
-    return _reviewed_vocab_stats(store.card_list, stats)
-
-
-def _reviewed_vocab_stats(cards: list[VocabCardState], stats: dict[str, int]) -> list[str]:
-    reviewed = [card for card in cards if not card.is_new]
-    lines = [
-        "",
-        "Vocabulary:",
-        f"  Total cards:  {stats['total']}",
-        f"  New:          {stats['new']}",
-        f"  Due now:      {stats['due']}",
-        f"  Mastered:     {stats['mastered']} ({pct(stats['mastered'], stats['total'])})",
-    ]
-    if reviewed:
-        avg_easiness = sum(card.easiness for card in reviewed) / len(reviewed)
-        lines.append(f"  Avg easiness: {avg_easiness:.2f}")
-    lines.extend(_vocab_due_lines(cards))
-    return lines
-
-
-def _vocab_due_lines(cards: list[VocabCardState]) -> list[str]:
-    now = datetime.now(UTC)
-    due_tomorrow = _due_vocab_count(cards, now + timedelta(days=1))
-    due_this_week = _due_vocab_count(cards, now + timedelta(days=7))
-    return [f"  Due tomorrow: {due_tomorrow}", f"  Due this week: {due_this_week}"]
-
-
-def _due_vocab_count(cards: list[VocabCardState], deadline: datetime) -> int:
-    return sum(
-        1 for card in cards if card.next_review is not None and card.next_review <= deadline
-    )
-
-
-def _recall_stats(session: ChatSession) -> list[str]:
-    recall = session.recall_state
-    if recall.last_feedback_type == RecallFeedbackType.NONE:
-        return []
-    lines = [
-        "",
-        "Recall state:",
-        f"  Phase:     {recall.phase.value}",
-        *_recall_optional_lines(session),
-        f"  Feedback:  {recall.last_feedback_type.value}",
-    ]
-    lines.extend(_recall_schedule_lines(session))
-    return lines
-
-
-def _recall_optional_lines(session: ChatSession) -> list[str]:
-    recall = session.recall_state
-    lines: list[str] = []
-    if recall.time_budget_minutes is not None:
-        lines.append(f"  Budget:    {recall.time_budget_minutes}m")
-    if recall.current_item:
-        lines.append(f"  Item:      {recall.current_item[:60]}")
-    if recall.attempt_count > 0:
-        lines.append(f"  Attempts:  {recall.attempt_count}")
-    if recall.hint_level > 0:
-        lines.append(f"  Hint lvl:  {recall.hint_level}")
-    if recall.last_recall_seconds is not None:
-        lines.append(f"  Recall:    {format_duration(recall.last_recall_seconds)}")
-    if recall.last_recall_rating.value != "none":
-        lines.append(f"  Effort:    {recall.last_recall_rating.value}")
-    return lines
-
-
-def _recall_schedule_lines(session: ChatSession) -> list[str]:
-    if session.armory_path is None:
-        return []
-    store = load_recall_schedule(session.armory_path)
-    if not store.item_list:
-        return []
-    now = datetime.now(UTC)
-    due = sum(
-        1 for item in store.item_list if item.next_review is not None and item.next_review <= now
-    )
-    lines = [f"  Scheduled: {len(store.item_list)} item(s), {due} due"]
-    if store.policy_stats:
-        best_move, stats = max(
-            store.policy_stats.items(),
-            key=lambda item: (item[1].success_rate, item[1].avg_mastery_delta),
-        )
-        lines.append(f"  Best move: {best_move} ({stats.success_rate:.0%} success)")
-    return lines
 
 
 def _session_armory_label(session: ChatSession) -> str:

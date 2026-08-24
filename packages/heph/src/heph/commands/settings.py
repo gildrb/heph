@@ -12,7 +12,6 @@ from harness.parameters.settings import (
     ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_TOOL_CALLS,
     THINKING_VISIBILITY_LABELS,
-    VOCAB_STRICTNESS_LABELS,
     load_app_settings,
 )
 
@@ -33,7 +32,6 @@ class SettingsCommand(Command):
             settings.activity_trace_mode,
             ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS],
         )
-        vocab = VOCAB_STRICTNESS_LABELS.get(settings.vocab_strictness, settings.vocab_strictness)
         thinking = THINKING_VISIBILITY_LABELS.get(
             settings.thinking_visibility,
             settings.thinking_visibility,
@@ -46,7 +44,7 @@ class SettingsCommand(Command):
             f"Theme: {settings.theme}; Activity trace: {activity}; "
             f"Model thinking: {thinking}; "
             f"Live tokens: {live_tokens}; Live cost: {live_cost}; "
-            f"Vocabulary practice: {vocab}; Default armory: {default_armory}; "
+            f"Default armory: {default_armory}; "
             f"Provider: {provider}."
         )
         return CommandResult()

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from ai.runtime.config import ChatConfig
 from ai.runtime.conversation import Conversation
 from ai.runtime.errors import EngineError
-from extensions.contracts import heph_product_routing_context
+from harness.chat.product_context import routing_context as heph_product_routing_context
 
 import harness.chat.intent as _chat_intent
 from harness.chat.turn_contract import (

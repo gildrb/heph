@@ -24,7 +24,7 @@ def _needs_evidence_assessment_prompt(prompt: str, resolved: ResolvedTurnPlan) -
     assessment = resolved.evidence_assessment
     if not prompt or plan is None or assessment is None:
         return False
-    return plan.action not in {DocumentAction.CHAT, DocumentAction.CALIBRATE} and not (
+    return plan.action is not DocumentAction.CHAT and not (
         assessment.sufficient
     )
 

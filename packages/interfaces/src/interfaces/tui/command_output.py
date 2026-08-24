@@ -14,7 +14,6 @@ _COMMAND_ACTIVITY_PREFIXES = (
     "model synthesis ",
     "parsed ",
     "pdf compile ",
-    "priority report verified ",
     "ran ",
     "ranked ",
     "read ",

@@ -15,6 +15,7 @@ from harness.chat.events import GuardrailEvent, NoticeEvent, TurnEvent
 from harness.chat.evidence import ResolvedTurnPlan
 from harness.chat.model_selection import ensure_session_model_ready
 from harness.chat.turn_event_helpers import _final_reply_events
+from harness.chat.session_persistence import save_dirty_session_if_needed
 from harness.documents.state import RecallState
 from harness.safety.contracts import (
     GUARDRAIL_ACTION_WARN,
@@ -46,6 +47,7 @@ class _TurnLifecycleHost(Protocol):
     last_reply: str
     last_internal_passes: int
     _last_reply_citation_required: bool | None
+    turn_status: str
 
     def _prepare_turn(self, user_input: str) -> _PreparedTurn: ...
 
@@ -155,6 +157,7 @@ class TurnLifecycleMixin:
     def _prepare_turn(self: _TurnLifecycleHost, user_input: str) -> _PreparedTurn:
         self.last_reply = ""
         self.last_internal_passes = 1
+        self.turn_status = "running"
         self._last_reply_citation_required = None
         self._reset_attempt_overrides()
         decision = check_user_input(
@@ -176,6 +179,8 @@ class TurnLifecycleMixin:
 
     def _record_user_turn(self: _TurnLifecycleHost, user_input: str) -> None:
         self.session.conversation.add("user", user_input)
+        self.session.dirty = True
+        save_dirty_session_if_needed(self.session)
         self.session.trace.record_user_message(user_input)
         _log.info(
             "user message",
@@ -205,6 +210,8 @@ class TurnLifecycleMixin:
                     user_input,
                     abort=abort,
                 )
+            if self.turn_status != "success":
+                return
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
             if notice:
                 yield from self._emit_verification_notice(notice)

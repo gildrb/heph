@@ -12,18 +12,6 @@ MODEL_NORMALIZED_INTENTS = (
     "source_qa",
     "source_only_policy",
     "topic_presentation",
-    "topic_drill",
-    "ready_for_recall",
-    "recall_clarification",
-    "recall_answer_attempt",
-    "reveal_request",
-    "hint_request",
-    "skip_request",
-    "scaffold_request",
-    "material_review",
-    "priority_request",
-    "driven_recall_calibration",
-    "wait",
     "heph_action",
     "heph_help",
     "chat",
@@ -79,8 +67,6 @@ state it. Do not convert direct answerability into a broad corpus overview.
 Set is_followup=false unless the current request explicitly depends on a prior answer, citation,
 source, listed item, table row, or continuing instruction. A fresh question about the materials is
 not a follow-up merely because previous turns exist.
-Use topic_drill only when the current user request asks Heph to quiz, drill, practice, or ask a
-recall question; never carry drill mode from the previous assistant question by inertia.
 Pure rewrites of a displayed prior answer use transform_prior_answer and reuse prior evidence.
 Requests that change the prior answer's length, language, format, or presentation without asking
 for a new source fact are transform_prior_answer turns, not source lookups.

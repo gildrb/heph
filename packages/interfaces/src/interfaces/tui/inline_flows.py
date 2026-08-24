@@ -16,8 +16,6 @@ from harness.parameters.settings import (
     THINKING_VISIBILITY_LABELS,
     THINKING_VISIBILITY_MINIMAL,
     THINKING_VISIBILITY_OFF,
-    VOCAB_STRICTNESS_LABELS,
-    VOCAB_STRICTNESS_MODES,
     load_app_settings,
     save_setting,
 )
@@ -376,8 +374,6 @@ class _InlineFlowHost(Protocol):
 
     def _cycle_live_cost_setting(self) -> None: ...
 
-    def _cycle_vocabulary_setting(self) -> None: ...
-
     def _submit_live_tokens_command(self, value: str) -> None: ...
 
     def _submit_live_cost_command(self, value: str) -> None: ...
@@ -453,7 +449,6 @@ def _settings_menu_actions(host: _InlineFlowHost) -> dict[str, Callable[[], None
         "Model thinking": host._cycle_thinking_visibility_setting,
         "Live tokens": host._cycle_live_tokens_setting,
         "Live cost": host._cycle_live_cost_setting,
-        "Vocabulary practice": host._cycle_vocabulary_setting,
         "Login": host._open_login_flow,
         "Logout": host._open_logout_flow,
     }
@@ -1039,13 +1034,6 @@ class TuiInlineFlowMixin(
                 ("Model thinking", self._thinking_visibility_summary()),
                 ("Live tokens", self._live_tokens_summary()),
                 ("Live cost", self._live_cost_summary()),
-                (
-                    "Vocabulary practice",
-                    VOCAB_STRICTNESS_LABELS.get(
-                        settings.vocab_strictness,
-                        settings.vocab_strictness,
-                    ),
-                ),
                 ("Login", f"model source: {current}"),
                 ("Logout", "clear stored credentials"),
             ],
@@ -1116,13 +1104,6 @@ class TuiInlineFlowMixin(
             self,
             not load_app_settings().live_cost_visible,
         )
-
-    def _cycle_vocabulary_setting(self: _InlineFlowHost) -> None:
-        strictness = _next_cycle_value(
-            load_app_settings().vocab_strictness,
-            VOCAB_STRICTNESS_MODES,
-        )
-        _apply_vocabulary_setting(self, strictness)
 
     def _submit_live_tokens_command(self: _InlineFlowHost, value: str) -> None:
         is_valid, visible = _live_tokens_command_visibility(value)
@@ -1761,12 +1742,6 @@ def _apply_live_cost_setting(host: _InlineFlowHost, visible: bool) -> None:
     host._refresh_status()
     host._replace_last_notice(f"Live cost {_visibility_state(visible)}.")
     host._open_settings_flow(selected_label="Live cost")
-
-
-def _apply_vocabulary_setting(host: _InlineFlowHost, strictness: str) -> None:
-    save_setting("vocab_strictness", strictness)
-    host._replace_last_notice(f"Vocabulary practice: {VOCAB_STRICTNESS_LABELS[strictness]}.")
-    host._open_settings_flow(selected_label="Vocabulary practice")
 
 
 def _visibility_state(visible: bool) -> str:

@@ -41,19 +41,28 @@ def send_user_message(
     writer: Callable[[str], None] | None = None,
 ) -> str:
     """Run one user turn and mirror rendered events to a writer."""
-    session.mark_activity()
-    runner = runner_factory(session)
-    write = _session_writer(writer)
-    _write_rendered_turn_events(
-        runner.iter_events(user_input, abort=abort),
-        reply_prefix=reply_prefix,
-        write=write,
-    )
-    if runner.last_reply:
-        write("\n")
-    session.mark_activity()
-    save_dirty_session_if_needed(session)
-    return runner.last_reply
+    if not session._turn_lock.acquire(blocking=False):
+        from harness.chat.session import SessionBusyError
+
+        raise SessionBusyError("a turn is already running for this session")
+    try:
+        session.mark_activity()
+        runner = runner_factory(session)
+        write = _session_writer(writer)
+        _write_rendered_turn_events(
+            runner.iter_events(user_input, abort=abort),
+            reply_prefix=reply_prefix,
+            write=write,
+        )
+        if runner.last_reply:
+            write("\n")
+        session.mark_activity()
+        save_dirty_session_if_needed(session)
+        return runner.last_reply
+    finally:
+        if abort is not None:
+            abort.set()
+        session._turn_lock.release()
 
 
 def _write_rendered_turn_events(

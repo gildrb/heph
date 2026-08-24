@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 
 from harness._types import is_object_list, is_string_mapping
@@ -16,17 +16,8 @@ class RecallPhase(StrEnum):
 
 class DocumentAction(StrEnum):
     CHAT = "chat"
-    CALIBRATE = "calibrate"
-    PRIORITY = "priority"
     SOURCE_QA = "source_qa"
     PRESENT = "present"
-    WAIT_READY_REMINDER = "wait_ready_reminder"
-    PROMPT_RECALL = "prompt_recall"
-    ASSESS = "assess"
-    REFUSE_REVEAL = "refuse_reveal"
-    HINT = "hint"
-    SIMPLIFY = "simplify"
-    REVIEW = "review"
 
 
 class RecallFeedbackType(StrEnum):
@@ -67,35 +58,9 @@ class RecallState:
     hint_level: int = 0
     session_goal: str = ""
     time_budget_minutes: int | None = None
-    practice_session_type: str = ""
-    practice_started_at: datetime | None = None
-    practice_turns: int = 0
-    practice_stop_reason: str = ""
 
     def clone(self) -> RecallState:
         return RecallState.from_dict(self.to_dict())
-
-    def clear_practice_session(self) -> None:
-        self.session_goal = ""
-        self.time_budget_minutes = None
-        self.practice_session_type = ""
-        self.practice_started_at = None
-        self.practice_turns = 0
-        self.practice_stop_reason = ""
-
-    def start_practice_session(
-        self,
-        *,
-        session_type: str,
-        session_goal: str,
-        time_budget_minutes: int | None,
-    ) -> None:
-        self.session_goal = session_goal
-        self.time_budget_minutes = time_budget_minutes
-        self.practice_session_type = session_type
-        self.practice_started_at = datetime.now(UTC)
-        self.practice_turns = 0
-        self.practice_stop_reason = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -114,14 +79,6 @@ class RecallState:
             "hint_level": self.hint_level,
             "session_goal": self.session_goal,
             "time_budget_minutes": self.time_budget_minutes,
-            "practice_session_type": self.practice_session_type,
-            "practice_started_at": (
-                self.practice_started_at.isoformat()
-                if self.practice_started_at is not None
-                else ""
-            ),
-            "practice_turns": self.practice_turns,
-            "practice_stop_reason": self.practice_stop_reason,
         }
 
     @classmethod
@@ -150,19 +107,6 @@ class RecallState:
             hint_level=min(5, _parse_nonnegative_int(data.get("hint_level")) or 0),
             session_goal=_parse_string(data.get("session_goal")),
             time_budget_minutes=_parse_nonnegative_int(data.get("time_budget_minutes")) or None,
-            practice_session_type=_parse_string(
-                data.get("practice_session_type"),
-            ),
-            practice_started_at=_parse_datetime(
-                data.get("practice_started_at"),
-            ),
-            practice_turns=_parse_nonnegative_int(
-                data.get("practice_turns"),
-            )
-            or 0,
-            practice_stop_reason=_parse_string(
-                data.get("practice_stop_reason"),
-            ),
         )
 
 

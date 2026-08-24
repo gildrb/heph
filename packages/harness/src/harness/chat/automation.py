@@ -14,7 +14,7 @@ from harness.chat.events import (
     TurnEvent,
 )
 from harness.chat.orchestrator import TurnOrchestrator
-from harness.chat.session import ChatSession
+from harness.chat.session import ChatSession, SessionBusyError
 
 
 def iter_chat_events(
@@ -23,10 +23,17 @@ def iter_chat_events(
     *,
     abort: threading.Event | None = None,
 ) -> Iterator[TurnEvent]:
-    session.mark_activity()
-    orchestrator = TurnOrchestrator(session)
-    yield from orchestrator.iter_events(prompt, abort=abort)
-    session.mark_activity()
+    if not session._turn_lock.acquire(blocking=False):
+        raise SessionBusyError("a turn is already running for this session")
+    try:
+        session.mark_activity()
+        orchestrator = TurnOrchestrator(session)
+        yield from orchestrator.iter_events(prompt, abort=abort)
+        session.mark_activity()
+    finally:
+        if abort is not None:
+            abort.set()
+        session._turn_lock.release()
 
 
 def event_to_json_object(event: TurnEvent) -> dict[str, object]:

@@ -8,7 +8,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Protocol
 
 import harness.chat.intent_resolution as _intent_resolution
-from harness.chat.document_signals import _recall_practice_context
 from harness.chat.events import NoticeEvent, TurnEvent
 from harness.chat.evidence import ResolvedTurnPlan
 from harness.chat.evidence import ensure_rag_index as _ensure_rag_index
@@ -24,7 +23,6 @@ from harness.chat.turn_planning import (
     _turn_contract_with_prior_replay_state,
 )
 from harness.documents.controller import plan_turn
-from harness.documents.policy import MemoryState, ReviewItem
 from harness.documents.prompt_plans import DocumentTurnPlan
 from harness.documents.state import RecallState
 
@@ -71,13 +69,10 @@ class ArmoryTurnMixin:
         *,
         abort: threading.Event | None,
     ) -> Generator[TurnEvent, None, ResolvedTurnPlan]:
-        due_reviews, memory_state = _recall_practice_context(self.session)
         prior_contract = _prior_contract_for_followup_seed(self.session)
         default_plan = _default_turn_plan(
             original_recall_state,
             user_input,
-            due_reviews=due_reviews,
-            memory_state=memory_state,
         )
         document_plan, turn_contract = _document_plan_and_contract(
             self.session,
@@ -85,8 +80,6 @@ class ArmoryTurnMixin:
             user_input,
             default_plan=default_plan,
             prior_contract=prior_contract,
-            due_reviews=due_reviews,
-            memory_state=memory_state,
         )
         if notice := _reading_notice(document_plan):
             yield NoticeEvent(notice, code="reading")
@@ -115,16 +108,11 @@ class ArmoryTurnMixin:
 def _default_turn_plan(
     original_recall_state: RecallState,
     user_input: str,
-    *,
-    due_reviews: tuple[ReviewItem, ...],
-    memory_state: MemoryState | None,
 ) -> DocumentTurnPlan:
     return plan_turn(
         original_recall_state,
         user_input,
         intent="",
-        due_reviews=due_reviews,
-        memory_state=memory_state,
     )
 
 
@@ -135,8 +123,6 @@ def _document_plan_and_contract(
     *,
     default_plan: DocumentTurnPlan,
     prior_contract: TurnContract | None,
-    due_reviews: tuple[ReviewItem, ...],
-    memory_state: MemoryState | None,
 ) -> tuple[DocumentTurnPlan, TurnContract]:
     intent_resolution = _armory_intent_resolution(
         session,
@@ -148,8 +134,6 @@ def _document_plan_and_contract(
         original_recall_state,
         user_input,
         intent=intent_resolution.intent,
-        due_reviews=due_reviews,
-        memory_state=memory_state,
     )
     turn_contract = turn_contract_from_resolution(user_input, intent_resolution)
     document_plan, turn_contract = _apply_turn_contract_to_plan(

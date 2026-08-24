@@ -16,12 +16,7 @@ from harness.attempts.actions import AttemptAction
 from harness.attempts.observation import AttemptObservation, build_attempt_observation
 from harness.attempts.policy import StaticAttemptPolicy
 from harness.chat.document_reply import _source_qa_abstain_reply, _validation_guard_abstain_reply
-from harness.chat.document_signals import (
-    _learner_assessment_trace,
-    _pedagogy_validation_trace,
-    _trace_task,
-    _trace_turn_retrieval_query,
-)
+from harness.chat.document_signals import _trace_task, _trace_turn_retrieval_query
 from harness.chat.events import MaterialOperationEvent
 from harness.chat.evidence import (
     ResolvedTurnPlan,
@@ -70,7 +65,7 @@ from harness.chat.turn_predicates import (
 )
 from harness.chat.usage import save_usage
 from harness.documents.prompt_plans import DocumentTurnPlan
-from harness.documents.state import DocumentAction, RecallState
+from harness.documents.state import RecallState
 from harness.memory.workflow import schedule_memory_extraction
 from harness.rag.context import TurnEvidence
 
@@ -252,11 +247,6 @@ class TurnFinalizationMixin:
         resolved: ResolvedTurnPlan,
         visible_evidence: TurnEvidence | None,
     ) -> str:
-        if (
-            resolved.document_plan is not None
-            and resolved.document_plan.action is DocumentAction.CALIBRATE
-        ):
-            return ""
         if resolved.turn_contract is not None and not resolved.turn_contract.citation_required:
             return ""
         return verify_response(self.last_reply, visible_evidence)
@@ -416,14 +406,6 @@ class TurnFinalizationMixin:
             evidence_coverage=_evidence_trace_coverage(visible_evidence),
             evidence_items=_evidence_trace_items(visible_evidence),
             evidence_assessment=_evidence_assessment_trace(resolved.evidence_assessment),
-            pedagogy_validation=_pedagogy_validation_trace(
-                resolved.document_plan,
-                self.last_reply,
-            ),
-            learner_assessment=_learner_assessment_trace(
-                resolved.document_plan,
-                session.recall_state,
-            ),
             internal_passes=self.last_internal_passes,
             internal_pass_max=_MAX_INTERNAL_PASSES,
             verification_notice=notice,
@@ -435,7 +417,7 @@ class TurnFinalizationMixin:
         visible_evidence: TurnEvidence | None,
     ) -> None:
         session = self.session
-        if session.config.is_feature_enabled("disable_memory_extraction"):
+        if not session.config.is_feature_enabled("memory_extraction"):
             return
         schedule_memory_extraction(
             config=session.config,

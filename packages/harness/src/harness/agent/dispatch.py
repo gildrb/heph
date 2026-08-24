@@ -77,6 +77,18 @@ __all__ = [
 ]
 
 
+def _persist_incomplete_model_text(
+    conversation: Conversation,
+    api_messages: list[ApiMessage],
+    text: str,
+) -> None:
+    if not text:
+        return
+    message: ApiMessage = {"role": "assistant", "content": text}
+    api_messages.append(message)
+    conversation.add_api_message(message)
+
+
 def _tool_call_events(
     collected_tool_calls: list[ToolCall],
     api_messages: list[ApiMessage],
@@ -84,8 +96,13 @@ def _tool_call_events(
     tool_call_counts: dict[str, int],
 ) -> Iterator[TurnEvent]:
     for tool_call in collected_tool_calls:
-        name = tool_call["function"]["name"]
-        arguments = parse_tool_arguments(tool_call["function"]["arguments"])
+        function = tool_call.get("function", {})
+        name = function.get("name", "") if isinstance(function, dict) else ""
+        raw_arguments = function.get("arguments", "") if isinstance(function, dict) else ""
+        try:
+            arguments = parse_tool_arguments(raw_arguments)
+        except (TypeError, ValueError):
+            arguments = {}
         fingerprint = tool_call_fingerprint(name, arguments)
         tool_call_counts[fingerprint] = tool_call_counts.get(fingerprint, 0) + 1
         repeat_count = tool_call_counts[fingerprint]
@@ -113,7 +130,8 @@ def _tool_result_events(
     api_messages: list[ApiMessage],
 ) -> Iterator[TurnEvent]:
     for tool_call, tool_result in zip(collected_tool_calls, tool_results, strict=False):
-        name = tool_call["function"]["name"]
+        function = tool_call.get("function", {})
+        name = function.get("name", "") if isinstance(function, dict) else ""
         content = api_content_text(tool_result["content"])
         yield ToolResultEvent(
             call_id=tool_result.get("tool_call_id", ""),
@@ -131,17 +149,22 @@ def _tool_result_events(
 
 
 def _api_tool_calls(collected_tool_calls: list[ToolCall]) -> list[ToolCallDelta]:
-    return [
-        {
-            "id": tool_call["id"],
-            "type": "function",
-            "function": {
-                "name": tool_call["function"]["name"],
-                "arguments": tool_call["function"]["arguments"],
-            },
-        }
-        for tool_call in collected_tool_calls
-    ]
+    messages: list[ToolCallDelta] = []
+    for tool_call in collected_tool_calls:
+        function = tool_call.get("function", {})
+        if not isinstance(function, dict):
+            function = {}
+        messages.append(
+            {
+                "id": tool_call.get("id", ""),
+                "type": "function",
+                "function": {
+                    "name": function.get("name", ""),
+                    "arguments": function.get("arguments", ""),
+                },
+            }
+        )
+    return messages
 
 
 def _append_tool_call_message(
@@ -150,25 +173,29 @@ def _append_tool_call_message(
     collected_text: str,
     collected_tool_calls: list[ToolCall],
 ) -> None:
-    api_messages.append(
-        {
-            "role": "assistant",
-            "content": collected_text or None,
-            "tool_calls": _api_tool_calls(collected_tool_calls),
-        }
-    )
-    conversation.add("assistant", collected_text or "[tool calls]")
+    message: ApiMessage = {
+        "role": "assistant",
+        "content": collected_text or None,
+        "tool_calls": _api_tool_calls(collected_tool_calls),
+    }
+    api_messages.append(message)
+    conversation.add_api_message(message)
 
 
 def _guardrail_tool_calls(tool_calls: list[ToolCall]) -> tuple[GuardrailToolCall, ...]:
-    return tuple(
-        GuardrailToolCall(
-            call_id=tool_call.get("id", ""),
-            name=tool_call["function"]["name"],
-            arguments=tool_call["function"]["arguments"],
+    guarded: list[GuardrailToolCall] = []
+    for tool_call in tool_calls:
+        function = tool_call.get("function", {})
+        if not isinstance(function, dict):
+            function = {}
+        guarded.append(
+            GuardrailToolCall(
+                call_id=tool_call.get("id", ""),
+                name=function.get("name", ""),
+                arguments=function.get("arguments", ""),
+            )
         )
-        for tool_call in tool_calls
-    )
+    return tuple(guarded)
 
 
 def _blocked_tool_call_events(
@@ -276,6 +303,8 @@ def _tool_turn_events(
         abort=abort,
     )
     state.api_messages.extend(tool_results)
+    for tool_result in tool_results:
+        conversation.add_api_message(tool_result)
 
     _record_usage(
         usage,
@@ -337,6 +366,14 @@ def _agent_loop_turn_events(
     turn_idx: int,
 ) -> Generator[TurnEvent, None, bool]:
     if _abort_requested(abort, turn_idx=turn_idx, loop_timer=state.loop_timer):
+        yield NoticeEvent("Turn cancelled.", code="aborted")
+        yield TurnCompleteEvent(
+            full_text="",
+            turn_index=turn_idx,
+            latency_ms=state.loop_timer.ms,
+            finish_reason="aborted",
+            tokens_remaining=state.budget.tokens_remaining(state.api_messages),
+        )
         return True
 
     micro_compact(state.api_messages)
@@ -364,6 +401,32 @@ def _agent_loop_turn_events(
         turn_evidence=turn_evidence,
     )
 
+    if model_result.stream_state.finish_reason == "length":
+        _persist_incomplete_model_text(conversation, state.api_messages, model_result.text)
+        yield NoticeEvent(
+            "The provider truncated this response before it was complete; no tools were run.",
+            code="truncated",
+            metadata={"finish_reason": "length"},
+        )
+        yield TurnCompleteEvent(
+            full_text=model_result.text,
+            turn_index=turn_idx,
+            latency_ms=state.loop_timer.ms,
+            finish_reason="length",
+            tokens_remaining=state.budget.tokens_remaining(state.api_messages),
+        )
+        return True
+    if abort is not None and abort.is_set():
+        _persist_incomplete_model_text(conversation, state.api_messages, model_result.text)
+        yield NoticeEvent("Turn cancelled.", code="aborted")
+        yield TurnCompleteEvent(
+            full_text=model_result.text,
+            turn_index=turn_idx,
+            latency_ms=state.loop_timer.ms,
+            finish_reason="aborted",
+            tokens_remaining=state.budget.tokens_remaining(state.api_messages),
+        )
+        return True
     if not model_result.tool_calls:
         yield from _final_response_events(
             config=config,
@@ -456,6 +519,13 @@ def iter_agent_events(
             return
 
     yield NoticeEvent("Agent loop reached maximum turns", code="max_turns")
+    yield TurnCompleteEvent(
+        full_text="",
+        turn_index=max_turns,
+        latency_ms=state.loop_timer.ms,
+        finish_reason="max_turns",
+        tokens_remaining=state.budget.tokens_remaining(state.api_messages),
+    )
     _log.warning(
         "agent loop max turns reached",
         extra={

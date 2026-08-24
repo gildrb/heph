@@ -33,3 +33,4 @@ class TurnOrchestrator(
     _last_reply_citation_required: bool | None = field(default=None, init=False)
     _attempt_action_override: AttemptAction | None = field(default=None, init=False)
     _attempt_followup_seed_blocked: bool = field(default=False, init=False)
+    turn_status: str = field(default="idle", init=False)

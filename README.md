@@ -1,126 +1,50 @@
-<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
+# Heph
 
-<p align="center">
-  <img alt="Heph" src="assets/logo-auto.svg" width="280">
-</p>
+Heph is a local document harness. An **armory** is a folder with `materials/` and a private `.harness/` state directory. The terminal UI remains the primary interface; the CLI also supports scripts.
 
-<p align="center">
-  Local agent for cited answers
-</p>
+## Install
 
-<p align="center">
-  <a href="https://raw.githubusercontent.com/gildrb/heph/main/assets/app-screenshot.png?v=c83c45bf619c">
-    <img alt="Heph TUI" src="assets/app-screenshot.png?v=c83c45bf619c" width="100%">
-  </a>
-</p>
-
-## Quick Start
-
-```bash
-# Install UV (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install Heph
-uv tool install heph@latest
-
-# Create an armory for your files
-heph armory init [name]
-
-# Add materials that Heph can answer from
-cp ~/Downloads/[file] ~/.armories/[name]/materials/
-
-# Start Heph in that armory
-heph [name]
+```sh
+uv tool install heph
 ```
 
-## Armory layout
+For a checkout:
 
-An armory is a normal folder:
-
-```text
-~/.armories/[name]/
-├── materials/            # PDFs, Office docs, notes, code to cite
-│   ├── [file].pdf
-│   └── [file].md
-├── .harness/             # Local Heph state
-│   ├── armory.toml       # Armory marker
-│   ├── rag_index.json    # Retrieval index
-│   ├── memory.json       # Armory memory
-│   ├── chats/            # Saved sessions
-│   ├── traces/           # JSONL traces when enabled
-│   ├── usage/            # Token and cost snapshots
-│   └── ignore            # Indexing ignore rules
-└── README.md             # Armory notes
+```sh
+uv sync
+uv run heph --help
 ```
 
-`materials/` holds files Heph can index and cite. `.harness/` holds local state:
-the retrieval index, memory, chats, traces, usage snapshots, and ignore rules.
-Copy or sync the armory folder to move work between machines; configure provider
-credentials again on each machine.
+## Use an armory
 
-Read [Armories](docs/armories.md) for storage, indexing, and memory details.
-
-## Installation
-
-> [!NOTE]
-> Heph is currently in beta, so unexpected issues may occur. Please report them if
-> they have not already been reported.
-
-### Using UV (recommended)
-
-Install UV:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+```sh
+heph armory init notes
+cp notes.md ~/.armories/notes/materials/
+heph index ~/.armories/notes
+heph notes
 ```
 
-Then Heph:
+The agent retrieves local material before answering and cites source paths and line numbers. It can read, search, edit, and write files inside the armory. Shell execution is disabled unless you explicitly trust the armory:
 
-```bash
-uv tool install heph@latest
+```sh
+export HARNESS_TRUST_ARMORY_SHELL="$HOME/notes"
+heph trust "$HOME/notes"
 ```
 
-### Using Pip
+Set an OpenAI-compatible provider with `HEPH_BASE_URL`, `HEPH_API_KEY`, and `HEPH_MODEL`. Keyless local endpoints may leave the key empty.
 
-```bash
-pip install heph
+## Design
+
+The code has three runtime packages: `heph-ai` owns provider streaming, `harness` owns armories/retrieval/tools/sessions, and `heph` composes them. `interfaces` is the Textual adapter. Optional SDK, study workflows, hosted telemetry, and release automation are not part of the runtime.
+
+State writes are armory-local, permission-restricted, and atomic. No hosted telemetry is collected.
+
+## Development
+
+```sh
+uv sync
+uv run pytest
+uv run ruff check packages tests
 ```
 
-### Updating
-
-```bash
-heph update
-```
-
-Check the installed version:
-
-```bash
-heph --version
-```
-
-## Docs
-
-[Getting started](docs/getting-started.md)<br>
-[Armories](docs/armories.md)<br>
-[CLI reference](docs/cli-reference.md)<br>
-[Configuration](docs/configuration.md)<br>
-[Models](docs/models.md)<br>
-[Trust and ownership](docs/trust.md)<br>
-[Privacy](docs/privacy.md)<br>
-[Architecture](docs/architecture.md)<br>
-[SDK](docs/sdk.md)<br>
-[Troubleshooting](docs/troubleshooting.md)<br>
-[Developers](docs/developers.md)<br>
-[Runbooks](docs/runbooks.md)
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for local development, tests, and pull request
-guidelines.
-
-## Safety
-
-Heph does not collect telemetry or send crash reports.
-
-Model-generated terminal commands are not exposed as a default agent tool. Armory
-plugins should only be used in armories you trust.
+See `CONTRIBUTING.md` and `SECURITY.md` for project policy.

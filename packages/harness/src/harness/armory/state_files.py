@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from contextlib import suppress
 from pathlib import Path
 
@@ -59,14 +60,7 @@ def write_armory_state_text(
     mode: int = STATE_FILE_MODE,
 ) -> Path:
     target = _state_target(armory_path, rel_path, create_parent=True)
-    _write_state_file(
-        target,
-        content,
-        encoding=encoding,
-        mode=mode,
-        flags=os.O_TRUNC,
-        text_mode="w",
-    )
+    _atomic_write_state_file(target, content, encoding=encoding, mode=mode)
     return target
 
 
@@ -111,6 +105,38 @@ def append_armory_state_text(
         text_mode="a",
     )
     return target
+
+
+def _atomic_write_state_file(target: Path, content: str, *, encoding: str, mode: int) -> None:
+    """Replace a state file only after the complete payload reaches disk."""
+    if target.is_symlink():
+        raise ArmoryStateError(f"armory state file must not be a symlink: {target}")
+    fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    temporary_path = Path(temporary)
+    try:
+        try:
+            os.fchmod(fd, mode)
+        except AttributeError:
+            temporary_path.chmod(mode)
+        with os.fdopen(fd, "w", encoding=encoding) as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary_path, target)
+        try:
+            directory_fd = os.open(str(target.parent), os.O_RDONLY)
+        except OSError:
+            pass
+        else:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except Exception:
+        with suppress(OSError):
+            os.close(fd)
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _write_state_file(

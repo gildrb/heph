@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -23,9 +22,7 @@ from harness.chat.turn_contract import (
     TurnContract,
 )
 from harness.documents import (
-    RecallFeedbackType,
     RecallPhase,
-    RecallRating,
 )
 from harness.memory import MemoryStore
 from harness.rag import Chunk, EvidenceChunk, TurnEvidence
@@ -40,46 +37,6 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory
 
 
-def test_save_and_resume_preserves_recall_state(tmp_path: Path) -> None:
-    armory = _make_armory(tmp_path)
-    session = create_session(
-        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
-        armory,
-    )
-    session.recall_state.phase = RecallPhase.RECALL
-    session.recall_state.current_item = "Q1"
-    session.recall_state.retrieval_query = "Q1"
-    session.recall_state.expected_source_refs = ["materials/exam.md#chunk=0"]
-    session.recall_state.attempt_count = 3
-    session.recall_state.last_feedback_type = RecallFeedbackType.PARTIAL
-    session.recall_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    session.recall_state.last_recall_seconds = 75
-    session.recall_state.last_recall_rating = RecallRating.HARD
-    session.recall_state.session_goal = "exam preparation"
-    session.recall_state.time_budget_minutes = 45
-    session.recall_state.practice_session_type = "exam"
-
-    save_session(session)
-    saved = json.loads(
-        (armory / ".harness" / "chats" / f"{session.session_id}.json").read_text(encoding="utf-8")
-    )
-    metadata = saved["metadata"]
-    assert "recall_state" in metadata
-    assert "learning_state" not in metadata
-
-    resumed = resume_session(session.config, armory, session.session_id)
-    assert resumed.recall_state.phase is RecallPhase.RECALL
-    assert resumed.recall_state.current_item == "Q1"
-    assert resumed.recall_state.retrieval_query == "Q1"
-    assert resumed.recall_state.expected_source_refs == ["materials/exam.md#chunk=0"]
-    assert resumed.recall_state.attempt_count == 3
-    assert resumed.recall_state.last_feedback_type is RecallFeedbackType.PARTIAL
-    assert resumed.recall_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    assert resumed.recall_state.last_recall_seconds == 75
-    assert resumed.recall_state.last_recall_rating is RecallRating.HARD
-    assert resumed.recall_state.session_goal == "exam preparation"
-    assert resumed.recall_state.time_budget_minutes == 45
-    assert resumed.recall_state.practice_session_type == "exam"
 
 
 @pytest.mark.parametrize("legacy_key", ["learning_state", "study_state"])

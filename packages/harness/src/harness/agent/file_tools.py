@@ -13,14 +13,12 @@ from typing import cast
 from harness.agent.mutation_queue import get_queue
 from harness.agent.path_safety import prepare_write_target, safe_path, write_text_no_follow
 from harness.agent.tool_schema import ToolHandlerResult, ToolResult
-from harness.armory.state_files import write_armory_state_text
 
 _MAX_READ_CHARS = 50_000
 _MAX_TEXT_FILE_BYTES = 1_000_000
 _MAX_SEARCH_RESULTS = 50
 _SEARCH_SKIP_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"})
 _BINARY_DOCUMENT_SUFFIXES = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"})
-_AGENT_WRITABLE_STATE_PATHS = frozenset({Path(".harness/exam_bank.json")})
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +89,6 @@ def run_write_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
-    if state_rel_path := _agent_writable_state_path(path):
-        return _write_agent_state_file(workspace, state_rel_path, content, path)
     target = prepare_write_target(workspace, path)
     if isinstance(target, str):
         return target
@@ -198,24 +194,6 @@ def _binary_read_error(path: str, suffix: str) -> str:
             "they are searchable. Rebuild the index with `heph index <armory>`."
         )
     return f"Cannot read (binary file): {path}"
-
-
-def _agent_writable_state_path(path: str) -> Path | None:
-    rel_path = Path(path)
-    return rel_path if rel_path in _AGENT_WRITABLE_STATE_PATHS else None
-
-
-def _write_agent_state_file(
-    workspace: Path,
-    rel_path: Path,
-    content: str,
-    display_path: str,
-) -> str:
-    try:
-        write_armory_state_text(workspace, rel_path, content)
-        return f"Wrote {len(content)} chars to {display_path}"
-    except OSError as exc:
-        return f"Error writing file: {exc}"
 
 
 def _protected_workspace_path_error(workspace: Path, target: Path) -> str:

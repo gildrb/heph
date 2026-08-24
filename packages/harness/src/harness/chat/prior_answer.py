@@ -16,11 +16,7 @@ from harness.chat.citation_patterns import (
     _TRAILING_EVIDENCE_CITATION_GROUP_RE,
 )
 from harness.chat.evidence import ResolvedTurnPlan
-from harness.chat.evidence import build_priority_context as _build_priority_context
 from harness.chat.evidence import evidence_refs as _evidence_refs
-from harness.chat.material_state import (
-    _should_use_material_answer_conversation_window,
-)
 from harness.chat.turn_contract import (
     ANSWER_FORMAT_LIST,
     ANSWER_MODE_FROM_EVIDENCE,
@@ -34,7 +30,6 @@ from harness.chat.turn_predicates import (
     _trace_excerpt,
 )
 from harness.documents.prompt_plans import DocumentTurnPlan
-from harness.documents.state import DocumentAction, RecallPhase, RecallState
 from harness.rag.context import EvidenceChunk, TurnEvidence
 
 if TYPE_CHECKING:
@@ -61,32 +56,6 @@ _PRIOR_CONTEXT_DEFAULT_INSTRUCTION = (
 )
 
 
-def _isolated_recall_conversation(
-    plan: DocumentTurnPlan,
-    original_recall_state: RecallState,
-    user_input: str,
-    contract: TurnContract | None,
-) -> Conversation | None:
-    if _should_use_material_answer_conversation_window(plan, contract):
-        return None
-    if plan.action in {
-        DocumentAction.CALIBRATE,
-        DocumentAction.PROMPT_RECALL,
-        DocumentAction.REFUSE_REVEAL,
-        DocumentAction.WAIT_READY_REMINDER,
-    }:
-        conversation = Conversation()
-        conversation.add("user", user_input)
-        return conversation
-    if (
-        original_recall_state.phase is RecallPhase.RECALL
-        and plan.action is DocumentAction.CHAT
-        and plan.retrieval_query is None
-    ):
-        conversation = Conversation()
-        conversation.add("user", user_input)
-        return conversation
-    return None
 
 
 def _document_extra_system_prompt(
@@ -107,10 +76,6 @@ def _document_extra_system_prompt(
     )
     if prior_answer_context:
         extra_system_prompt = f"{extra_system_prompt}\n\n{prior_answer_context}"
-    if plan.action is DocumentAction.PRIORITY:
-        priority_context = _build_priority_context(session)
-        if priority_context:
-            extra_system_prompt = f"{extra_system_prompt}\n\n{priority_context}"
     return _append_evidence_assessment_prompt(extra_system_prompt, resolved)
 
 

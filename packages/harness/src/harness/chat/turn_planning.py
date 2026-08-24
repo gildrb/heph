@@ -61,7 +61,6 @@ from harness.chat.current_topic_planning import _current_topic_retrieval_state
 from harness.chat.prior_answer import (
     _PRIOR_ANSWER_CONTEXT_LIMIT,
 )
-from harness.chat.priority_planning import _priority_retrieval_state
 from harness.chat.replayability_planning import (
     _contract_has_replayable_grounding_surface,
     _contract_needs_prior_replay_state,
@@ -91,21 +90,11 @@ _CONTINUABLE_MATERIAL_INTENTS = frozenset(
         "source_qa",
         "source_only_policy",
         "topic_presentation",
-        "topic_drill",
     }
 )
 _PLAN_CONTRACT_LABEL_BY_ACTION: Mapping[DocumentAction, str] = {
-    DocumentAction.PRIORITY: "material_overview",
     DocumentAction.SOURCE_QA: "source_qa",
     DocumentAction.PRESENT: "topic_presentation",
-    DocumentAction.CALIBRATE: "topic_drill",
-    DocumentAction.REVIEW: "topic_presentation",
-    DocumentAction.SIMPLIFY: "topic_presentation",
-    DocumentAction.HINT: "topic_drill",
-    DocumentAction.PROMPT_RECALL: "ready_for_recall",
-    DocumentAction.WAIT_READY_REMINDER: "ready_for_recall",
-    DocumentAction.REFUSE_REVEAL: "recall_clarification",
-    DocumentAction.ASSESS: "recall_answer_attempt",
     DocumentAction.CHAT: "chat",
 }
 
@@ -168,7 +157,6 @@ def _apply_turn_contract_to_plan(
     _apply_current_topic_retrieval_state(state)
     _apply_direct_evidence_state(state)
     _apply_overview_state(state)
-    _apply_priority_retrieval_state(state)
     return _finalized_plan_contract(state)
 
 
@@ -417,17 +405,6 @@ def _overview_strategy_has_specific_material_target(
         retrieval_strategy == RETRIEVAL_STRATEGY_OVERVIEW
         and _contract_has_specific_material_target(contract)
     )
-
-
-def _apply_priority_retrieval_state(state: _PlanContractApplication) -> None:
-    priority_state = _priority_retrieval_state(
-        state.plan,
-        state.contract,
-        retrieval_strategy=state.retrieval_strategy,
-        retrieval_query=state.retrieval_query,
-    )
-    state.retrieval_strategy = priority_state.strategy
-    state.retrieval_query = priority_state.query
 
 
 def _finalized_plan_contract(

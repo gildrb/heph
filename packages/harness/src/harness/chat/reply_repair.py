@@ -13,7 +13,6 @@ from harness.agent.citation import VerificationResult, verify_citations
 from harness.chat.citation_patterns import (
     _CITATION_ONLY_REPLY_RE,
     _ESCAPED_EVIDENCE_CITATION_RE,
-    _EVIDENCE_CITATION_TEXT_RE,
     _INLINE_QUOTED_TEXT_RE,
     _OVERVIEW_CITATION_ID_RE,
     _PRIVATE_USE_EVIDENCE_CITATION_RE,
@@ -31,7 +30,7 @@ from harness.chat.overview_reply import (
 from harness.chat.reply_text import (
     _strip_leading_control_json,
     _strip_tool_call_markup,
-    _strip_unsolicited_practice_followup,
+    _strip_uncited_tail_after_last_citation,
     _unicode_math_reply,
 )
 from harness.chat.turn_contract import (
@@ -118,9 +117,7 @@ def _user_visible_reply(plan: DocumentTurnPlan, reply: str) -> str:
     cleaned = _normalize_structural_table_reply(cleaned)
     cleaned = _unicode_math_reply(cleaned)
     if plan.action is DocumentAction.SOURCE_QA:
-        cleaned = _strip_unsolicited_practice_followup(cleaned)
-    if plan.action is DocumentAction.CALIBRATE:
-        return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
+        cleaned = _strip_uncited_tail_after_last_citation(cleaned)
     return cleaned
 
 
@@ -305,7 +302,7 @@ def _model_repaired_evidence_output(
         _evidence_output_repair_context(reply, evidence, user_input=user_input),
     )
     repaired = _model_text._stream_one_shot_model_text(config, conversation)
-    return _strip_unsolicited_practice_followup(_strip_tool_call_markup(repaired).strip())
+    return _strip_uncited_tail_after_last_citation(_strip_tool_call_markup(repaired).strip())
 
 
 def _invalid_model_evidence_output_fallback(reply: str, evidence: TurnEvidence) -> str:

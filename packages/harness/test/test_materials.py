@@ -6,7 +6,6 @@ import pytest
 from harness.armory.storage import initialize
 from harness.materials import (
     count_material_files,
-    infer_material_role,
     infer_material_role_from_text,
     iter_material_files,
     material_kind,
@@ -31,18 +30,6 @@ def test_iter_material_files_discovers_materials(tmp_path: Path) -> None:
     assert rels == ["materials/exam.md", "materials/notes.md"]
 
 
-def test_material_manifest_classifies_material_kind(tmp_path: Path) -> None:
-    armory = _make_armory(tmp_path)
-    (armory / "materials" / "exam.md").write_text("# Exam\n", encoding="utf-8")
-    (armory / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
-
-    manifest = material_manifest(armory)
-
-    assert [(item.rel_path, item.kind, item.role) for item in manifest] == [
-        ("materials/exam.md", "materials", "past_exam"),
-        ("materials/notes.md", "materials", "reference"),
-    ]
-    assert manifest[0].confidence > manifest[1].confidence
 
 
 def test_hidden_files_are_skipped(tmp_path: Path) -> None:
@@ -113,68 +100,12 @@ def test_material_kind_from_relative_path() -> None:
     assert material_kind(".harness/generated/ref.md") is None
 
 
-def test_infer_material_role_uses_path_hints() -> None:
-    cases = {
-        "materials/past-exams/2023.pdf": "past_exam",
-        "materials/homework/sheet-1.md": "assignment",
-        "materials/vocab/french.md": "vocabulary",
-        "materials/lectures/week-1.md": "lecture",
-        "materials/slides/deck.pptx": "slides",
-        "materials/Folien_2026_04_13.pdf": "slides",
-        "materials/Klausur_WorkspaceFixture2_WS2024.pdf": "past_exam",
-        "materials/book/chapter-2.pdf": "textbook",
-        "materials/public-course/summary.html": "reference",
-        "materials/project/main.py": "codebase",
-        "materials/misc/context.md": "reference",
-    }
-
-    for rel_path, expected_role in cases.items():
-        role, confidence, reason = infer_material_role(rel_path)
-        assert role == expected_role
-        assert 0.0 <= confidence <= 1.0
-        assert reason
 
 
-def test_infer_material_role_does_not_treat_semester_marker_as_exam() -> None:
-    role, confidence, reason = infer_material_role("materials/Linear-Algebra-SS23.pdf")
-
-    assert role == "reference"
-    assert confidence == 0.5
-    assert reason == "default material role"
 
 
-def test_infer_material_role_from_text_detects_generic_exam_file() -> None:
-    role, confidence, reason = infer_material_role_from_text(
-        "materials/document.pdf",
-        """
-        Administrative Header 2
-        Klausur SS23
-        Bearbeitungszeit: 90 Minuten
-        Instructions: answer every problem.
-        Aufgabe 1. Beweisen Sie die Aussage. [10 Punkte]
-        Aufgabe 2. Berechnen Sie das Integral. [8 Punkte]
-        """,
-    )
-
-    assert role == "past_exam"
-    assert confidence >= 0.8
-    assert "exam" in reason
 
 
-def test_infer_material_role_from_text_detects_structured_exam_parts() -> None:
-    role, confidence, reason = infer_material_role_from_text(
-        "materials/generic-ss23.pdf",
-        """
-        Sommersemester 2023
-        Für den Definitionsbereich D = {(x,y) in R2 : xy > -1}.
-        - (a) Bestimmen Sie alle kritischen Punkte von f auf D.
-        - (b) Entscheiden Sie, ob ein lokales Minimum vorliegt.
-        """,
-    )
-
-    assert role == "past_exam"
-    assert confidence >= 0.8
-    assert "exam" in reason
 
 
 def test_infer_material_role_from_text_detects_generic_lecture_slides() -> None:

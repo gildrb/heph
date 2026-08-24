@@ -585,7 +585,8 @@ class TestSyncConversation:
             {"role": "tool", "tool_call_id": "c1", "content": "output"},
         ]
         _sync_conversation(conv, api_messages)
-        assert len(conv.messages) == 2
+        assert len(conv.messages) == 3
+        assert conv.messages[-1].role == "tool"
 
     def test_skips_none_content(self) -> None:
         conv = Conversation()

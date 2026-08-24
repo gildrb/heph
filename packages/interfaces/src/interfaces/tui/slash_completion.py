@@ -302,10 +302,4 @@ class SlashCompletionEngine:
                 ("resume", "Resume the latest saved session"),
             ]
 
-        if cmd_name == "vocabulary":
-            return [
-                ("status", "Show vocabulary practice schedule"),
-                ("reset", "Reset vocabulary practice history"),
-            ]
-
         return []

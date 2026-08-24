@@ -516,13 +516,6 @@ class TestArmoryTools:
 
 
 class TestWorkspaceFileTools:
-    def test_write_file_allows_exam_bank_state_file(self, tmp_path: Path) -> None:
-        content = '{"version": 1, "items": []}\n'
-
-        result = run_write_file(".harness/exam_bank.json", content, workspace=tmp_path)
-
-        assert result == f"Wrote {len(content)} chars to .harness/exam_bank.json"
-        assert (tmp_path / ".harness" / "exam_bank.json").read_text(encoding="utf-8") == content
 
     def test_write_file_denies_other_armory_state_files(self, tmp_path: Path) -> None:
         result = run_write_file(".harness/memory.json", "{}", workspace=tmp_path)

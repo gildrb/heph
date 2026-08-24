@@ -374,8 +374,6 @@ def _empty_document_reply(
 def _generic_empty_document_reply(plan: DocumentTurnPlan) -> str:
     if _overview_turn(plan):
         return _overview_unavailable_reply()
-    if plan.action is DocumentAction.ASSESS:
-        return "PARTIAL: I could not generate a grounded assessment."
     return "I could not generate a prompt."
 
 

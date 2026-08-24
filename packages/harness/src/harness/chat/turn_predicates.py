@@ -51,20 +51,12 @@ def _readable_material_label(source: str) -> str:
 def _visible_turn_evidence(resolved: object) -> TurnEvidence | None:
     if not isinstance(resolved, ResolvedTurnPlan):
         return None
-    plan = resolved.document_plan
-    if plan is not None and plan.action is DocumentAction.CALIBRATE:
-        return None
     return resolved.turn_evidence
 
 
 def _stored_turn_evidence(resolved: object) -> TurnEvidence | None:
     if not isinstance(resolved, ResolvedTurnPlan):
         return None
-    if (
-        resolved.document_plan is not None
-        and resolved.document_plan.action is DocumentAction.CALIBRATE
-    ):
-        return resolved.turn_evidence
     return _visible_turn_evidence(resolved)
 
 

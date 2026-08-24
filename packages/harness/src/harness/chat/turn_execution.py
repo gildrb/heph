@@ -6,7 +6,7 @@ import threading
 from collections.abc import Generator, Iterator
 from typing import TYPE_CHECKING, Protocol
 
-from ai.runtime import THINKING_VISIBILITY_ALL, THINKING_VISIBILITY_MINIMAL, CompletionDelta
+from ai.runtime import THINKING_VISIBILITY_ALL, THINKING_VISIBILITY_MINIMAL, CompletionDelta, Conversation
 from ai.runtime.engine import build_client, stream_completion
 from ai.runtime.errors import RetryConfig
 
@@ -20,13 +20,6 @@ from harness.chat.document_reply import (
     _empty_document_reply,
     _plain_empty_reply,
     _postprocess_document_reply,
-)
-from harness.chat.document_signals import (
-    _document_move_kind,
-    _exam_importance,
-    _matching_recall_item,
-    _policy_outcome_from_review,
-    _positive_hint_level,
 )
 from harness.chat.events import (
     AssistantDeltaEvent,
@@ -51,15 +44,8 @@ from harness.chat.turn_outputs import (
     _DocumentAgentOutput,
 )
 from harness.documents.controller import apply_turn_result
-from harness.documents.policy import DocumentMoveKind
 from harness.documents.prompt_plans import DocumentTurnPlan
-from harness.documents.schedule import (
-    RecallItemState,
-    RecallScheduleStore,
-    load_recall_schedule,
-    save_recall_schedule,
-)
-from harness.documents.state import DocumentAction, RecallState
+from harness.documents.state import RecallState
 
 if TYPE_CHECKING:
     from harness.chat.session import ChatSession
@@ -101,13 +87,6 @@ class _LearningReplyEmissionHost(Protocol):
         user_input: str,
         latency_ms: float,
     ) -> tuple[ResolvedTurnPlan, str]: ...
-
-    def _record_recall_review_if_needed(
-        self,
-        original_recall_state: RecallState,
-        plan: DocumentTurnPlan,
-        source_refs: list[str],
-    ) -> None: ...
 
     def _restore_recall_state_for_rewritten_reply(
         self,
@@ -163,6 +142,36 @@ class _LearningReplyEmissionHost(Protocol):
     ) -> Iterator[TurnEvent]: ...
 
 
+def _persist_agent_tool_history(
+    target: Conversation,
+    source: Conversation,
+    user_input: str,
+    completion_event: TurnCompleteEvent | None,
+) -> bool:
+    if target is source:
+        return False
+    start = -1
+    for index, message in enumerate(source.messages):
+        if message.role == "user" and message.content == user_input:
+            start = index
+    if start < 0:
+        return False
+    failed = completion_event is not None and completion_event.finish_reason in {
+        "aborted",
+        "length",
+        "max_turns",
+    }
+    changed = False
+    for message in source.messages[start + 1 :]:
+        has_tool_calls = bool(message.metadata.get("tool_calls"))
+        is_partial = failed and message.role == "assistant" and bool(message.content)
+        if not (message.role == "tool" or has_tool_calls or is_partial):
+            continue
+        target.add_api_message(message.to_api_message())
+        changed = True
+    return changed
+
+
 def _plain_reasoning_delta_event(
     delta: CompletionDelta,
     thinking_visibility: str,
@@ -192,6 +201,7 @@ class TurnExecutionMixin:
     ) -> Iterator[TurnEvent]:
         session = self.session
         parts: list[str] = []
+        finish_reason = "stop"
         for delta in stream_completion(
             session.config,
             session.conversation,
@@ -199,6 +209,8 @@ class TurnExecutionMixin:
             retry=self.retry,
             client_factory=build_client,
         ):
+            if delta.finish_reason:
+                finish_reason = delta.finish_reason
             if reasoning_event := _plain_reasoning_delta_event(
                 delta,
                 session.config.thinking_visibility,
@@ -209,6 +221,22 @@ class TurnExecutionMixin:
             parts.append(delta.content)
             yield AssistantDeltaEvent(delta.content)
 
+        if abort is not None and abort.is_set():
+            finish_reason = "aborted"
+        if finish_reason in {"aborted", "length", "max_turns"}:
+            self.turn_status = "failed"
+            if parts:
+                self._append_assistant_message("".join(parts))
+            notice = "Turn cancelled." if finish_reason == "aborted" else "Turn ended before completion."
+            yield NoticeEvent(notice, code=finish_reason)
+            yield TurnCompleteEvent(
+                full_text="".join(parts),
+                turn_index=0,
+                latency_ms=0.0,
+                finish_reason=finish_reason,
+                tokens_remaining=0,
+            )
+            return
         if parts:
             self.last_reply = "".join(parts)
         else:
@@ -217,6 +245,7 @@ class TurnExecutionMixin:
 
         self._append_assistant_message(self.last_reply)
         self.last_internal_passes = 1
+        self.turn_status = "success"
         yield _turn_complete_from_result(None, self.last_reply)
 
     def _iter_document_agent_events(
@@ -264,6 +293,16 @@ class TurnExecutionMixin:
                 buffer_output=request.buffer_output,
             )
 
+        if _persist_agent_tool_history(
+            session.conversation,
+            request.conversation,
+            user_input,
+            buffer.completion_event,
+        ):
+            session.dirty = True
+            from harness.chat.session_persistence import save_dirty_session_if_needed
+
+            save_dirty_session_if_needed(session)
         if buffer.visible_parts:
             self.last_reply = buffer.visible_streamed_reply
         return _document_agent_output_from_buffer(plan, buffer)
@@ -411,6 +450,7 @@ class TurnExecutionMixin:
                 applied_reply,
                 final_reply,
             )
+        self.turn_status = "success"
         yield from _final_reply_events(final_reply)
 
     def _iter_agent_document_reply_events(
@@ -428,6 +468,12 @@ class TurnExecutionMixin:
         raw_reply = agent_output.raw_reply
         visible_reply = agent_output.visible_reply
         completion_event = agent_output.completion_event
+        if completion_event is not None and completion_event.finish_reason in {
+            "aborted", "length", "max_turns"
+        }:
+            self.turn_status = "failed"
+            yield from _final_reply_events("", completion_event)
+            return
 
         if not raw_reply:
             yield from self._iter_empty_document_reply_events(
@@ -469,17 +515,12 @@ class TurnExecutionMixin:
             user_input=user_input,
             latency_ms=(completion_event.latency_ms if completion_event is not None else 0.0),
         )
-        reply_rewritten = self._restore_recall_state_for_rewritten_reply(
+        self._restore_recall_state_for_rewritten_reply(
             original_recall_state,
             applied_reply,
             final_reply,
         )
-        if raw_reply and not reply_rewritten:
-            self._record_recall_review_if_needed(
-                original_recall_state,
-                plan,
-                source_refs,
-            )
+        self.turn_status = "success"
         yield from self._iter_final_document_reply_events(
             plan,
             completion_event,
@@ -550,112 +591,6 @@ class TurnExecutionMixin:
         ):
             self.session.conversation.add("assistant", reply)
 
-    def _record_recall_review_if_needed(
-        self,
-        original_recall_state: RecallState,
-        plan: DocumentTurnPlan,
-        source_refs: list[str],
-    ) -> None:
-        if not self._should_record_recall_review(plan):
-            return
-        armory_path = self.session.armory_path
-        if armory_path is None:
-            return
-        store = load_recall_schedule(armory_path)
-        previous = _matching_recall_item(
-            store.item_list,
-            item=original_recall_state.current_item,
-            retrieval_query=original_recall_state.retrieval_query,
-        )
-        intervention = _document_move_kind(plan)
-        reviewed_state = self._record_recall_review(
-            store,
-            original_recall_state.current_item,
-            concept=original_recall_state.retrieval_query,
-            retrieval_query=original_recall_state.retrieval_query,
-            source_refs=source_refs or original_recall_state.expected_source_refs,
-            hint_level_needed=_positive_hint_level(original_recall_state),
-            intervention=intervention,
-            exam_importance=_exam_importance(original_recall_state),
-        )
-        self._record_document_policy_outcome(
-            store,
-            original_recall_state=original_recall_state,
-            previous=previous,
-            state=reviewed_state,
-            intervention=intervention,
-        )
-        save_recall_schedule(store)
-
-    def _should_record_recall_review(self, plan: DocumentTurnPlan) -> bool:
-        return (
-            self.session.armory_path is not None
-            and plan.action is DocumentAction.ASSESS
-            and self.session.recall_state.last_recall_rating.value != "none"
-        )
-
-    def _record_recall_review(
-        self,
-        store: RecallScheduleStore,
-        item: str,
-        *,
-        concept: str,
-        retrieval_query: str,
-        source_refs: list[str],
-        hint_level_needed: int | None,
-        intervention: DocumentMoveKind,
-        exam_importance: float,
-    ) -> RecallItemState:
-        state = self.session.recall_state
-        return store.record_review(
-            item,
-            concept=concept,
-            retrieval_query=retrieval_query,
-            source_refs=source_refs,
-            rating=state.last_recall_rating,
-            elapsed_seconds=state.last_recall_seconds,
-            confidence=state.last_confidence,
-            hint_level_needed=hint_level_needed,
-            error_type=state.last_feedback_type.value,
-            intervention=intervention,
-            exam_importance=exam_importance,
-        )
-
-    def _record_document_policy_outcome(
-        self,
-        store: RecallScheduleStore,
-        *,
-        original_recall_state: RecallState,
-        previous: RecallItemState | None,
-        state: RecallItemState,
-        intervention: DocumentMoveKind,
-    ) -> None:
-        outcome = _policy_outcome_from_review(
-            original_recall_state,
-            self.session.recall_state,
-            state,
-            previous,
-            intervention,
-        )
-        store.record_policy_outcome(
-            intervention,
-            success=state.last_correct,
-            mastery_delta=outcome.mastery_delta,
-            confidence_delta=outcome.confidence_delta,
-            time_cost_seconds=outcome.time_cost_seconds,
-            frustration_signal=outcome.frustration_signal,
-        )
-        self.session.trace.record_session_event(
-            "policy_outcome",
-            move_type=outcome.move_type,
-            topic=outcome.topic,
-            correctness_delta=round(outcome.correctness_delta, 3),
-            confidence_delta=round(outcome.confidence_delta, 3),
-            mastery_delta=round(outcome.mastery_delta, 3),
-            time_cost_seconds=outcome.time_cost_seconds,
-            frustration_signal=outcome.frustration_signal,
-            score=round(outcome.score, 3),
-        )
 
 
 def _persist_final_document_reply(

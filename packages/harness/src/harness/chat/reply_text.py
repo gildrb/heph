@@ -76,6 +76,7 @@ def _should_localize_deterministic_reply(
         and config is not None
         and bool(config.base_url)
         and bool(config.model)
+        and config.is_feature_enabled("reply_localization")
     )
 
 
@@ -184,12 +185,6 @@ def _strip_leading_control_json(reply: str) -> str:
 def _strip_malformed_leading_control_json(reply: str) -> str:
     match = _MALFORMED_LEADING_CONTROL_JSON_RE.match(reply)
     return reply[match.end() :].lstrip() if match else reply
-
-
-def _strip_unsolicited_practice_followup(reply: str) -> str:
-    if not reply.strip():
-        return reply
-    return _strip_uncited_tail_after_last_citation(reply)
 
 
 def _strip_uncited_tail_after_last_citation(reply: str) -> str:

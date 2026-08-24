@@ -33,7 +33,7 @@ from harness.chat.turn_history import (
 from harness.chat.turn_orchestrator import TurnOrchestrator
 from harness.chat.usage import SessionUsage
 from harness.diagnostics.traces import TraceWriter
-from harness.documents import RecallState
+from harness.documents.state import RecallState
 from harness.materials import iter_material_files
 from harness.memory import MemoryStore, load_memory
 from harness.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
@@ -83,6 +83,7 @@ class ChatSession:
     steering: Steering = field(default_factory=Steering, init=False, repr=False)
     recall_state: RecallState = field(default_factory=RecallState)
     _last_document_cost_usd: float = field(default=0.0, init=False, repr=False)
+    _turn_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
@@ -128,6 +129,10 @@ class ChatSession:
 
 class SessionError(Exception):
     pass
+
+
+class SessionBusyError(SessionError):
+    """Raised when a caller starts a second turn before the first settles."""
 
 
 ARMORY_PLUGINS_TRUST_ENV = "HARNESS_TRUST_ARMORY_PLUGINS"

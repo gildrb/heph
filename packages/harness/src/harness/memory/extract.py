@@ -32,7 +32,7 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- Usually return []. Memory is for rare stable facts, not summaries.\n"
     "- Save user preferences, corrections, constraints, and workflow habits.\n"
     "- Save the armory/material purpose when the user states it explicitly.\n"
-    "- Save stable document-set intent, e.g. exam prep, thesis review, client research.\n"
+    "- Save stable document-set intent, e.g. thesis review, client research.\n"
     "- If the armory is clearly domain-specific, save that domain/purpose compactly.\n"
     "- If the armory is broad or mixed-topic, save only that it is broad/mixed; "
     "do not favor one topic.\n"

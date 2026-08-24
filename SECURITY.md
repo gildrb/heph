@@ -27,7 +27,7 @@ Heph is designed with security and privacy in mind:
 - **Local-first**: Your documents and chats stay on your machine
 - **No hosted telemetry**: Heph does not send analytics or crash reports
 - **Scoped memory**: Each armory's memory is isolated from others
-- **No default terminal access**: Model-generated commands are not exposed as a default agent tool
+- **No default terminal access**: Shell execution is disabled unless an armory is explicitly trusted
 - **Secret protection**: API keys are stored in OS keyring or environment variables, never in config files
 
 ## Security Best Practices for Users
@@ -46,5 +46,4 @@ The default dependency profile is deliberately minimal: one install, with no
 optional extras, ML runtime, or model downloads. Retrieval is lexical and
 document extraction uses native XML parsing plus bundled PDFium.
 
-Pre-commit runs `gitleaks` and Bandit. Dependency changes require reviewed
-`pyproject.toml`, `uv.lock`, and source-only sdist allowlist changes.
+Dependency changes require review of `pyproject.toml` and `uv.lock`.

@@ -41,12 +41,11 @@ def _sync_conversation(conversation: Conversation, api_messages: list[ApiMessage
     """
     conversation.messages.clear()
     for msg in api_messages:
-        role = msg["role"]
-        content = api_content_text(msg["content"])
-        if role == "assistant" and not content and msg.get("tool_calls"):
-            content = "[tool calls]"
-        if role in ("system", "user", "assistant") and content:
-            conversation.add(role, content)
+        if msg.get("role") not in {"system", "user", "assistant", "tool"}:
+            continue
+        if msg.get("role") == "assistant" and not msg.get("content") and not msg.get("tool_calls"):
+            continue
+        conversation.add_api_message(msg)
 
 
 def _inject_turn_context(

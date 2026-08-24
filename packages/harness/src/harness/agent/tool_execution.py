@@ -170,7 +170,7 @@ def _parse_tool_call_arguments(
 ) -> dict[str, object] | None:
     try:
         return parse_tool_arguments(tool_call["function"]["arguments"])
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         _log.warning(
             "tool call invalid JSON",
             extra={"fields": {"tool": name, "call_id": call_id}},
@@ -202,7 +202,31 @@ def _tool_argument_validation_error(spec: ToolSpec, arguments: dict[str, object]
     missing = set(parameters["required"]) - supplied
     if missing:
         return f"missing required argument(s): {', '.join(sorted(missing))}"
+    for name, value in arguments.items():
+        parameter = parameters["properties"].get(name)
+        if parameter is not None and not _schema_value_matches(parameter, value):
+            expected = parameter.get("type", "valid value")
+            return f"argument '{name}' must be {expected}"
     return ""
+
+
+def _schema_value_matches(parameter: dict[str, object], value: object) -> bool:
+    expected = parameter.get("type")
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "null":
+        return value is None
+    return True
 
 
 def _unknown_tool_message(call_id: str, name: str) -> ApiMessage:
@@ -432,6 +456,8 @@ def _timed_tool_message(
 def merge_tool_call_deltas(accumulated: list[ToolCall], deltas: list[ToolCallDelta]) -> None:
     for delta in deltas:
         idx = delta.get("index", 0)
+        if not isinstance(idx, int) or isinstance(idx, bool) or idx < 0:
+            idx = 0
         while len(accumulated) <= idx:
             accumulated.append(
                 {
@@ -445,13 +471,13 @@ def merge_tool_call_deltas(accumulated: list[ToolCall], deltas: list[ToolCallDel
         if isinstance(raw_id, str) and raw_id:
             entry["id"] = raw_id
         raw_fn = delta.get("function")
-        if raw_fn is None:
+        if not isinstance(raw_fn, dict):
             continue
         raw_name = raw_fn.get("name", "")
-        if raw_name:
+        if isinstance(raw_name, str) and raw_name:
             entry["function"]["name"] += raw_name
         raw_arguments = raw_fn.get("arguments", "")
-        if raw_arguments:
+        if isinstance(raw_arguments, str) and raw_arguments:
             entry["function"]["arguments"] += raw_arguments
 
 

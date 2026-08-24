@@ -499,10 +499,7 @@ class TestHandleInput:
         columns = {
             line.index(description)
             for line in output.splitlines()
-            for description in (
-                "Show available commands",
-                "Practice vocabulary translations from your materials",
-            )
+            for description in ("Show available commands",)
             if description in line
         }
         shortcut_columns = {
@@ -512,7 +509,7 @@ class TestHandleInput:
             if key in line
             and line.strip().split(maxsplit=1)[0] in {"HISTORY", "COMPLETE", "NEWLINE", "EXIT"}
         }
-        assert columns == {len("  /vocabulary") + 4}
+        assert len(columns) == 1
         assert shortcut_columns == {len("  COMPLETE") + 4}
         assert history.entries[-1] == "/help"
 

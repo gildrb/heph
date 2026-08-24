@@ -67,7 +67,7 @@ class ImportCommand(Command):
 
         _print_imported_files(imported)
         refresh_armory_sources(s)
-        print_info("Use /materials to browse or /vocabulary to review extracted cards.")
+        print_info("Use /materials to browse imported files.")
         return CommandResult()
 
 

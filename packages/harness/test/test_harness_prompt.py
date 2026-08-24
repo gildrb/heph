@@ -94,20 +94,6 @@ def test_build_system_prompt_truncates_material_file_list(armory: Path) -> None:
     assert "materials/file_50.md" not in prompt
 
 
-def test_build_system_prompt_includes_material_role_hints(armory: Path) -> None:
-    prompt = build_system_prompt(
-        armory_path=armory,
-        source_files=[
-            "materials/past-exams/2024.pdf",
-            "materials/vocab/french.md",
-            "materials/project/main.py",
-        ],
-    )
-
-    assert "Material role hints:" in prompt
-    assert "past exam: 1 file; e.g. materials/past-exams/2024.pdf" in prompt
-    assert "vocabulary: 1 file; e.g. materials/vocab/french.md" in prompt
-    assert "codebase: 1 file; e.g. materials/project/main.py" in prompt
 
 
 def test_build_system_prompt_appends_memory_context(armory: Path) -> None:

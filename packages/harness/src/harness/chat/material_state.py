@@ -24,27 +24,8 @@ if TYPE_CHECKING:
     from harness.chat.session import ChatSession
     from harness.rag.index import ArmoryIndex
 
-_EVIDENCE_REQUIRED_ACTIONS = frozenset(
-    {
-        DocumentAction.PRIORITY,
-        DocumentAction.SOURCE_QA,
-        DocumentAction.PRESENT,
-        DocumentAction.HINT,
-        DocumentAction.SIMPLIFY,
-        DocumentAction.REVIEW,
-        DocumentAction.ASSESS,
-    }
-)
-_MATERIAL_ANSWER_CONVERSATION_ACTIONS = frozenset(
-    {
-        DocumentAction.PRIORITY,
-        DocumentAction.SOURCE_QA,
-        DocumentAction.PRESENT,
-        DocumentAction.CALIBRATE,
-        DocumentAction.SIMPLIFY,
-        DocumentAction.REVIEW,
-    }
-)
+_EVIDENCE_REQUIRED_ACTIONS = frozenset({DocumentAction.SOURCE_QA, DocumentAction.PRESENT})
+_MATERIAL_ANSWER_CONVERSATION_ACTIONS = _EVIDENCE_REQUIRED_ACTIONS
 
 
 def _missing_indexed_material_reply(session: ChatSession, action: DocumentAction) -> str:
@@ -191,8 +172,6 @@ def _material_operation_events(
     plan: DocumentTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> Iterator[MaterialOperationEvent]:
-    if plan.action is DocumentAction.CALIBRATE:
-        return
     if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
         return
 
@@ -316,8 +295,6 @@ def _material_evidence_events(
 
 
 def _reading_notice(plan: DocumentTurnPlan) -> str:
-    if plan.action is DocumentAction.CALIBRATE:
-        return ""
     if _overview_turn(plan):
         return "Preparing the material index and reading enabled evidence for a corpus overview."
     if plan.retrieval_query or plan.use_expected_source_refs:
@@ -326,8 +303,6 @@ def _reading_notice(plan: DocumentTurnPlan) -> str:
 
 
 def _writing_notice(plan: DocumentTurnPlan) -> str:
-    if plan.action is DocumentAction.CALIBRATE:
-        return ""
     if _overview_turn(plan):
         return "Writing a grounded corpus overview."
     if plan.action is DocumentAction.CHAT and not (
@@ -343,5 +318,4 @@ def _should_use_material_answer_conversation_window(
 ) -> bool:
     return (
         plan.action in _MATERIAL_ANSWER_CONVERSATION_ACTIONS
-        and plan.action is not DocumentAction.CALIBRATE
     )

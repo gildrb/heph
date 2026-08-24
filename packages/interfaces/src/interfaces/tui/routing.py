@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-TERMINAL_INTERACTIVE_COMMANDS = {
-    "vocabulary",
-}
+TERMINAL_INTERACTIVE_COMMANDS: set[str] = set()
 
 _LOCAL_COMMAND_ACTIONS = {"search", "install", "status", "revalidate", "stop"}
 
@@ -55,15 +53,11 @@ def pending_input_requires_terminal(value: str) -> bool:
     if not stripped.startswith("/"):
         return False
 
-    command, _, args = stripped[1:].partition(" ")
+    command, _, _ = stripped[1:].partition(" ")
     command_name = command.lower()
-    arg_text = args.strip()
 
     if command_name in {"login", "logout", "settings", "tokens", "cost", "thinking", "reasoning"}:
         return False
-    if command_name == "vocabulary":
-        return arg_text.lower() != "status"
-
     return command_name in TERMINAL_INTERACTIVE_COMMANDS
 
 

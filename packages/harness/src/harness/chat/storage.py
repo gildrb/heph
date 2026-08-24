@@ -118,9 +118,7 @@ def _session_data(
         "title": sanitize_title_text(title),
         "created_at": existing.get("created_at", now),
         "updated_at": now,
-        "messages": [
-            {"role": message.role, "content": message.content} for message in conversation.messages
-        ],
+        "messages": [message.to_api_message() for message in conversation.messages],
     }
     if metadata is not None:
         data["metadata"] = metadata
@@ -186,10 +184,14 @@ def _conversation_from_data(data: dict[str, object]) -> Conversation:
 def _add_message_from_payload(conversation: Conversation, payload: object) -> None:
     if not is_string_mapping(payload):
         return
-    role_val = payload.get("role")
-    content_val = payload.get("content")
-    if role_val is not None and content_val is not None:
-        conversation.add(str(role_val), str(content_val))
+    role = payload.get("role")
+    content = payload.get("content")
+    if (
+        isinstance(role, str)
+        and role in {"system", "user", "assistant", "tool"}
+        and (isinstance(content, str) or content is None)
+    ):
+        conversation.add_api_message(payload)  # type: ignore[arg-type]
 
 
 def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:

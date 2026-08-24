@@ -8,10 +8,6 @@ from ai.runtime import ChatConfig, Conversation
 from harness.agent.citation import VerificationResult
 from harness.attempts.actions import AttemptAction
 from harness.attempts.observation import AttemptObservation, build_attempt_observation
-from harness.attempts.observation_audit import (
-    audit_observation_probes,
-    randomized_observation_probes,
-)
 from harness.attempts.policy import StaticAttemptPolicy
 from harness.chat.document_reply import _source_qa_abstain_reply
 from harness.chat.events import AssistantDeltaEvent
@@ -109,31 +105,6 @@ def test_source_qa_abstain_uses_cited_partial_progress_when_evidence_is_relevant
     assert reply != (
         "The current evidence does not contain a direct source answer for this request."
     )
-
-
-def test_observation_audit_core_signals_drive_static_policy() -> None:
-    results = audit_observation_probes(seed=41)
-    failures = tuple(
-        (
-            result.probe.name,
-            result.chosen_action.value,
-            result.probe.expected_action.value,
-            result.probe.active_feature_names,
-        )
-        for result in results
-        if not result.passed
-    )
-
-    assert not failures
-
-
-def test_observation_audit_randomizes_probe_order_by_seed() -> None:
-    first = tuple(probe.name for probe in randomized_observation_probes(seed=41))
-    repeated = tuple(probe.name for probe in randomized_observation_probes(seed=41))
-    second = tuple(probe.name for probe in randomized_observation_probes(seed=42))
-
-    assert first == repeated
-    assert first != second
 
 
 def test_off_topic_observation_drives_abstain() -> None:
@@ -484,62 +455,6 @@ def test_structural_relevance_guard_does_not_seed_rejected_prior_transform(
     assert session.turn_history[-1].contract is None
 
 
-def test_structural_validation_guard_replaces_uncited_required_answer(
-    tmp_path: Path,
-) -> None:
-    session = ChatSession(
-        config=ChatConfig(),
-        conversation=Conversation(),
-        session_id="session",
-        armory_path=tmp_path,
-    )
-    session.conversation.add("user", "What is the material about?")
-    session.conversation.add(
-        "assistant",
-        "I could not produce a grounded material overview from the current model output.",
-    )
-    probe = _FinalizationProbe(session)
-    probe.last_reply = "I could not produce a grounded material overview from the current output."
-    resolved = ResolvedTurnPlan(
-        document_plan=DocumentTurnPlan(
-            action=DocumentAction.PRIORITY,
-            phase=RecallPhase.PRESENTING,
-            prompt="",
-        ),
-        turn_evidence=_turn_evidence_with_content(
-            "E1",
-            "overview.md",
-            "The material covers polynomial roots and continuity.",
-        ),
-        evidence_assessment=EvidenceAssessment(
-            sufficient=True,
-            confidence=0.9,
-            supporting_refs=("E1",),
-            missing_information=(),
-            conflicts=(),
-            source_diversity_score=1.0,
-            recommended_action="answer",
-        ),
-        turn_contract=TurnContract(
-            original_user_input="What is the material about?",
-            resolved_intent="material_overview",
-            canonical_request="Provide a compact overview of the material contents.",
-            retrieval_strategy=RETRIEVAL_STRATEGY_OVERVIEW,
-            citation_required=True,
-        ),
-    )
-    session.last_turn_evidence = resolved.turn_evidence
-
-    probe._finalize_successful_turn(
-        "What is the material about?",
-        resolved,
-        latency_ms=10.0,
-    )
-
-    assert "verifiable citations" in probe.last_reply
-    assert session.conversation.messages[-1].content == probe.last_reply
-    assert session.last_turn_evidence is None
-    assert session.last_turn_contract is None
 
 
 def test_structural_validation_guard_is_not_overwritten_by_relevance_guard(

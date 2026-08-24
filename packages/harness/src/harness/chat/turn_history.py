@@ -10,7 +10,7 @@ from ai.runtime import Conversation
 
 from harness._types import is_object_list, is_string_mapping
 from harness.chat.turn_contract import TurnContract
-from harness.documents import RecallState
+from harness.documents.state import RecallState
 from harness.rag import TurnEvidence
 
 

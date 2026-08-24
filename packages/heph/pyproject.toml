@@ -21,7 +21,6 @@ classifiers = [
 ]
 dependencies = [
     "heph-ai==0.0.59",
-    "heph-extensions==0.0.59",
     "heph-interfaces==0.0.59",
     "harness==0.0.59",
 ]
@@ -36,7 +35,6 @@ heph = "heph.cli.main:main"
 
 [tool.uv.sources]
 heph-ai = { workspace = true }
-heph-extensions = { workspace = true }
 heph-interfaces = { workspace = true }
 harness = { workspace = true }
 
@@ -49,4 +47,4 @@ module-name = ["heph"]
 module-root = "src"
 
 [tool.deptry]
-package_module_name_map = { heph-ai = ["ai"], heph-extensions = ["extensions"], heph-interfaces = ["interfaces"], harness = ["harness"] }
+package_module_name_map = { heph-ai = ["ai"], heph-interfaces = ["interfaces"], harness = ["harness"] }

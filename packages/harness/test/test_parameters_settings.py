@@ -65,9 +65,6 @@ def test_app_settings_default_theme_is_dark() -> None:
     assert s.theme == settings.DEFAULT_THEME == "dark"
 
 
-def test_app_settings_default_vocab_strictness_is_strict() -> None:
-    s = settings.AppSettings()
-    assert s.vocab_strictness == settings.DEFAULT_VOCAB_STRICTNESS
 
 
 def test_app_settings_default_live_usage_visibility_is_off() -> None:
@@ -216,22 +213,3 @@ def test_normalize_activity_trace_mode_rejects_invalid() -> None:
 def test_normalize_thinking_visibility_rejects_invalid() -> None:
     with pytest.raises(ValueError, match="thinking_visibility"):
         settings.normalize_setting_value("thinking_visibility", "verbose")
-
-
-def test_vocab_strictness_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config_dir = tmp_path / "config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_file.write_text("{}", encoding="utf-8")
-
-    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
-
-    settings.save_setting("vocab_strictness", settings.VOCAB_STRICTNESS_LENIENT)
-
-    assert settings.load_app_settings().vocab_strictness == settings.VOCAB_STRICTNESS_LENIENT
-
-
-def test_normalize_vocab_strictness_rejects_invalid() -> None:
-    with pytest.raises(ValueError, match="vocab_strictness"):
-        settings.normalize_setting_value("vocab_strictness", "loose")

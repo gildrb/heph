@@ -43,7 +43,6 @@ def test_status_includes_session_usage_and_armory_stats(tmp_path: Path) -> None:
     assert "Tokens:" in result.output
     assert "Armory:" in result.output
     assert "Saved:" in result.output
-    assert "Vocabulary:" in result.output
 
 
 def test_import_command_refreshes_running_session_sources(tmp_path: Path) -> None:

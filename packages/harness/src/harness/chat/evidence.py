@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -48,8 +48,9 @@ from harness.chat.turn_contract import (
     TurnContract,
 )
 from harness.chat.usage import ContextBudget
-from harness.documents import DocumentAction, DocumentTurnPlan, EvidenceAssessment
-from harness.documents.priority import PriorityAnalysis, analyze_priority
+from harness.documents.policy import EvidenceAssessment
+from harness.documents.prompt_plans import DocumentTurnPlan
+from harness.documents.state import DocumentAction
 from harness.rag import (
     ArmoryIndex,
     Chunk,
@@ -81,7 +82,6 @@ _RAG_MIN_SCORE = 0.1
 _QUERY_RETRIEVAL_TOP_K = 30
 _QUERY_NEIGHBOR_RADIUS = 1
 _QUERY_NEIGHBOR_LIMIT = 8
-_PRIORITY_TOPIC_CHUNK_LIMIT = 10
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
 
 
@@ -91,7 +91,6 @@ class ResolvedTurnPlan:
     turn_evidence: TurnEvidence | None = None
     evidence_assessment: EvidenceAssessment | None = None
     turn_contract: TurnContract | None = None
-    priority_context: str = ""
     retrieval_latency_ms: float | None = None
 
 
@@ -170,7 +169,7 @@ def retrieval_audit_metadata(
 ) -> dict[str, object]:
     """Return the JSONL-compatible retrieval audit contract for a chat turn."""
     query = plan.retrieval_query or ""
-    if not query or plan.action is DocumentAction.CALIBRATE:
+    if not query:
         return {}
     config = _retrieval_audit_config(session)
     assessment = evidence_assessment_trace(resolved.evidence_assessment)
@@ -549,136 +548,6 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         return None
 
 
-def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[ScoredChunk]:
-    corpus = _enabled_corpus(index, session.disabled_source_files)
-    analysis = analyze_priority(corpus.chunks, limit=12)
-    scored = _priority_evidence_chunks(corpus.chunks, analysis)
-    scored = _fill_priority_topic_chunks(corpus.chunks, analysis, scored)
-    scored = _filter_low_content_chunks(scored)
-    fallback = _filter_low_content_chunks(
-        [ScoredChunk(chunk=chunk, score=1.0) for chunk in corpus.chunks[:6]]
-    )
-    return scored[:10] or fallback
-
-
-def _priority_evidence_chunks(
-    chunks: Sequence[Chunk],
-    analysis: PriorityAnalysis,
-) -> list[ScoredChunk]:
-    selected: set[tuple[str, int]] = set()
-    scored: list[ScoredChunk] = []
-    for topic in analysis.topics[:8]:
-        for evidence in topic.evidence[:3]:
-            chunk = _priority_evidence_chunk(
-                chunks,
-                topic.topic,
-                evidence.source,
-                evidence.excerpt,
-            )
-            if chunk is not None:
-                _append_unique_scored_chunk(scored, selected, chunk, topic.score)
-    return scored
-
-
-def _priority_evidence_chunk(
-    chunks: Sequence[Chunk],
-    topic: str,
-    source: str,
-    excerpt: str,
-) -> Chunk | None:
-    for chunk in chunks:
-        if chunk.source != source:
-            continue
-        if topic in chunk.text.lower() or excerpt[:80] in chunk.text:
-            return chunk
-    return None
-
-
-def _fill_priority_topic_chunks(
-    chunks: Sequence[Chunk],
-    analysis: PriorityAnalysis,
-    scored: list[ScoredChunk],
-) -> list[ScoredChunk]:
-    selected = {(item.chunk.source, item.chunk.index) for item in scored}
-    topic_scores = {topic.topic: topic.score for topic in analysis.topics}
-    for chunk, score in _priority_topic_chunk_scores(chunks, topic_scores):
-        _append_unique_scored_chunk(scored, selected, chunk, score)
-        if _priority_topic_chunk_limit_reached(scored):
-            break
-    return scored
-
-
-def _priority_topic_chunk_scores(
-    chunks: Sequence[Chunk],
-    topic_scores: Mapping[str, float],
-) -> Iterator[tuple[Chunk, float]]:
-    for chunk in chunks:
-        if score := _priority_topic_score(chunk, topic_scores):
-            yield chunk, score
-
-
-def _priority_topic_chunk_limit_reached(scored: Sequence[ScoredChunk]) -> bool:
-    return len(scored) >= _PRIORITY_TOPIC_CHUNK_LIMIT
-
-
-def _priority_topic_score(chunk: Chunk, topic_scores: Mapping[str, float]) -> float | None:
-    text = chunk.text.lower()
-    scores = [score for topic, score in topic_scores.items() if topic in text]
-    if not scores:
-        return None
-    return max(scores)
-
-
-def _append_unique_scored_chunk(
-    scored: list[ScoredChunk],
-    selected: set[tuple[str, int]],
-    chunk: Chunk,
-    score: float,
-) -> None:
-    key = (chunk.source, chunk.index)
-    if key in selected:
-        return
-    selected.add(key)
-    scored.append(ScoredChunk(chunk=chunk, score=score))
-
-
-def build_priority_turn_evidence(session: ChatSession) -> TurnEvidence | None:
-    try:
-        index = ensure_rag_index(session)
-        if index is None:
-            return None
-        scored = _priority_scored_chunks(session, index)
-        if not scored:
-            return None
-        return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
-    except Exception:
-        _log.warning("priority evidence build failed", exc_info=True)
-        return None
-
-
-def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
-    try:
-        index = ensure_rag_index(session)
-        if index is None:
-            return ""
-        corpus = _enabled_corpus(index, session.disabled_source_files)
-        analysis = analyze_priority(corpus.chunks, limit=12)
-        if not analysis.topics:
-            return ""
-        lines = [
-            "Deterministic local priority scan over all enabled indexed material:",
-            analysis.render_for_prompt(limit=limit),
-            (
-                "Use this scan as the primary priority signal. Do not infer priorities from "
-                "source labels, cover-page metadata, or outside knowledge."
-            ),
-        ]
-        return "\n".join(lines)
-    except Exception:
-        _log.warning("priority context build failed", exc_info=True)
-        return ""
-
-
 def build_turn_evidence_from_refs(
     session: ChatSession,
     refs: list[str],
@@ -735,10 +604,6 @@ def _chunk_from_ref(
 
 
 def resolve_turn_evidence(session: ChatSession, plan: DocumentTurnPlan) -> TurnEvidence | None:
-    if plan.action is DocumentAction.CALIBRATE:
-        return _calibration_turn_evidence(session, plan)
-    if plan.action is DocumentAction.PRIORITY:
-        return build_priority_turn_evidence(session)
     if expanded_evidence := _expanded_prior_query_evidence(session, plan):
         return expanded_evidence
     if turn_evidence := _expected_source_ref_evidence(session, plan):
@@ -750,15 +615,6 @@ def resolve_turn_evidence(session: ChatSession, plan: DocumentTurnPlan) -> TurnE
     return None
 
 
-def _calibration_turn_evidence(
-    session: ChatSession,
-    plan: DocumentTurnPlan,
-) -> TurnEvidence | None:
-    if plan.retrieval_query:
-        return build_turn_evidence_from_query(session, plan.retrieval_query) or (
-            build_turn_evidence_from_overview(session)
-        )
-    return build_turn_evidence_from_overview(session)
 
 
 def _expected_source_ref_evidence(
@@ -767,9 +623,7 @@ def _expected_source_ref_evidence(
 ) -> TurnEvidence | None:
     if plan.evidence_refs and plan.retrieval_strategy == RETRIEVAL_STRATEGY_REUSE_PRIOR:
         return build_turn_evidence_from_refs(session, list(plan.evidence_refs))
-    if not plan.use_expected_source_refs or not session.recall_state.expected_source_refs:
-        return None
-    return build_turn_evidence_from_refs(session, session.recall_state.expected_source_refs)
+    return None
 
 
 def _expanded_prior_query_evidence(
@@ -1011,8 +865,6 @@ __all__ = [
     "ResolvedTurnPlan",
     "adaptive_rag_budget",
     "assess_turn_evidence",
-    "build_priority_context",
-    "build_priority_turn_evidence",
     "build_prompt_fn",
     "build_turn_evidence_from_overview",
     "build_turn_evidence_from_query",

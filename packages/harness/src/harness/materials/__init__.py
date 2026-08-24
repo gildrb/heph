@@ -25,11 +25,9 @@ MaterialRole = Literal[
     "assignment",
     "codebase",
     "lecture",
-    "past_exam",
     "reference",
     "slides",
     "textbook",
-    "vocabulary",
 ]
 type MaterialRoleInference = tuple[MaterialRole, float, str]
 
@@ -50,17 +48,12 @@ DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = (
 _CODE_SUFFIXES = frozenset((".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"))
 _SLIDE_SUFFIXES = frozenset((".ppt", ".pptx"))
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]+")
-_NUMBERED_SECTION_RE = re.compile(r"\b\d+(?:\.\d+){1,3}\b")
 _QUESTION_LINE_RE = re.compile(
     r"(?i)\b(?:question|problem|exercise|aufgabe)\s*\d+\b|[-*]\s*\([a-z]\)"
 )
-_POINTS_RE = re.compile(
-    r"(?i)\b\d+\s*(?:points?|marks?|punkte?)\b|\[\s*\d+\s*(?:points?|marks?)\s*\]"
-)
-_TIME_LIMIT_RE = re.compile(r"(?i)\b(?:bearbeitungszeit|duration|time\s+allowed)\b")
 _DUE_RE = re.compile(r"(?i)\b(?:due\s+date|deadline|abgabe)\b")
+_NUMBERED_SECTION_RE = re.compile(r"\b\d+(?:\.\d+){1,3}\b")
 _CANONICAL_TEXTBOOK_RE = re.compile(r"(?i)<link[^>]+rel=[\"']canonical[\"'][^>]+textbook")
-_EXAM_HEADER_RE = re.compile(r"(?i)\b(?:exam|assessment|klausur|prüfung|pruefung)\b")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,10 +85,6 @@ def infer_material_role(rel_path: str | Path) -> MaterialRoleInference:
     if path.suffix.lower() in _CODE_SUFFIXES:
         return "codebase", 0.75, "file extension identifies source code"
     tokens = _path_tokens(rel_path)
-    if _has_any_token(tokens, "vocab", "vocabulary", "glossary", "flashcards"):
-        return "vocabulary", 0.78, "path identifies vocabulary material"
-    if _path_has_exam_role(tokens):
-        return "past_exam", 0.82, "path identifies exam material"
     if _has_any_token(tokens, "homework", "assignment", "assignments", "sheet", "sheets"):
         return "assignment", 0.76, "path identifies assignment material"
     if _has_any_token(tokens, "übungsblatt", "uebungsblatt", "exercise", "exercises"):
@@ -122,8 +111,6 @@ def infer_material_role_from_text(
         return "reference", 0.78, "summary page rather than primary textbook content"
     if _looks_like_textbook(rel_path, normalized):
         return "textbook", 0.85, "numbered textbook structure"
-    if _looks_like_exam(normalized):
-        return "past_exam", 0.86, "exam structure with questions, points, or timing"
     if _looks_like_assignment(normalized):
         return "assignment", 0.8, "exercises sheet structure"
     if _looks_like_slides(normalized):
@@ -144,19 +131,6 @@ def _has_any_token(tokens: set[str], *candidates: str) -> bool:
     return any(candidate.casefold() in tokens for candidate in candidates)
 
 
-def _path_has_exam_role(tokens: set[str]) -> bool:
-    return _has_any_token(
-        tokens,
-        "exam",
-        "exams",
-        "midterm",
-        "final",
-        "klausur",
-        "prüfung",
-        "pruefung",
-    )
-
-
 def _normalized_text(text: str) -> str:
     return " ".join(text.casefold().split())
 
@@ -175,34 +149,6 @@ def _looks_like_textbook(rel_path: str | Path, text: str) -> bool:
         return True
     section_count = len(_NUMBERED_SECTION_RE.findall(text))
     return section_count >= 3 and "skip to main content" in text
-
-
-def _looks_like_exam(text: str) -> bool:
-    question_count = len(_QUESTION_LINE_RE.findall(text))
-    point_count = len(_POINTS_RE.findall(text))
-    has_timing = bool(_TIME_LIMIT_RE.search(text))
-    has_exam_header = bool(_EXAM_HEADER_RE.search(text))
-    return any(
-        (
-            _exam_header_has_assessment(has_exam_header, has_timing, point_count, question_count),
-            has_timing and question_count >= 1,
-            point_count >= 1 and question_count >= 1,
-            _has_structured_exam_parts(text, question_count),
-        )
-    )
-
-
-def _exam_header_has_assessment(
-    has_exam_header: bool,
-    has_timing: bool,
-    point_count: int,
-    question_count: int,
-) -> bool:
-    return has_exam_header and (has_timing or point_count > 0 or question_count >= 1)
-
-
-def _has_structured_exam_parts(text: str, question_count: int) -> bool:
-    return question_count >= 2 and "semester" in text and not _DUE_RE.search(text)
 
 
 def _looks_like_assignment(text: str) -> bool:
