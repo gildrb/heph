@@ -2,6 +2,10 @@
 
 Heph is a local document harness. An **armory** is a folder with `materials/` and a private `.harness/` state directory. The terminal UI remains the primary interface; the CLI also supports scripts.
 
+<p align="center">
+  <img alt="Heph TUI" src="assets/app-screenshot.png" width="100%">
+</p>
+
 ## Install
 
 ```sh
