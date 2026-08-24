@@ -339,11 +339,14 @@ def _active_tool_registry(
 
 
 def _active_tool_schemas(
+    config: ChatConfig,
     tool_schemas: list[ToolSchema] | None,
     *,
     allowed_tool_names: Sequence[str] | None,
     registry: ToolRegistry,
 ) -> list[ToolSchema] | None:
+    if config.is_feature_enabled("disable_tools"):
+        return []
     if allowed_tool_names is not None and tool_schemas is None:
         return registry.schemas
     return tool_schemas
@@ -482,6 +485,7 @@ def iter_agent_events(
     retry = retry or RetryConfig()
     registry = _active_tool_registry(registry, allowed_tool_names)
     tool_schemas = _active_tool_schemas(
+        config,
         tool_schemas,
         allowed_tool_names=allowed_tool_names,
         registry=registry,

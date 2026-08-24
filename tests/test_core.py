@@ -121,6 +121,30 @@ def test_agent_blocks_unknown_tools(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert events[-1].finish_reason == "guardrail"
 
 
+def test_agent_can_disable_tools_for_non_tool_calling_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_stream(*_args: object, **kwargs: object):
+        captured["tools"] = kwargs.get("tools")
+        yield CompletionDelta(content="answer", finish_reason="stop")
+
+    monkeypatch.setattr(model_stream, "stream_completion", fake_stream)
+    config = ChatConfig(model="math", feature_flags=frozenset({"disable_tools"}))
+    events = list(
+        iter_agent_events(
+            config,
+            Conversation(),
+            tmp_path,
+            allowed_tool_names=("read_file",),
+        )
+    )
+    assert events[-1].finish_reason == "stop"
+    assert captured["tools"] is None
+
+
 def test_agent_persists_allowed_tool_messages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "note.md").write_text("grounded fact", encoding="utf-8")
     calls = 0

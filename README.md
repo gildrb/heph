@@ -35,7 +35,28 @@ export HARNESS_TRUST_ARMORY_SHELL="$HOME/notes"
 heph trust "$HOME/notes"
 ```
 
-Set an OpenAI-compatible provider with `HEPH_BASE_URL`, `HEPH_API_KEY`, and `HEPH_MODEL`. Keyless local endpoints may leave the key empty.
+Set an OpenAI-compatible provider with `HARNESS_BASE_URL` and `HARNESS_MODEL`. Use `/login` inside Heph to configure a custom endpoint and API key, or configure the provider key through its documented environment variable. Keyless local endpoints may leave the key empty.
+
+## Run INTELLECT-MATH locally
+
+`PrimeIntellect/INTELLECT-MATH` is a 7B Hugging Face checkpoint, not a hosted API. Run it behind an OpenAI-compatible server such as vLLM on an NVIDIA GPU:
+
+```sh
+uv pip install vllm
+vllm serve PrimeIntellect/INTELLECT-MATH \
+  --served-model-name intellect-math \
+  --dtype bfloat16 \
+  --max-model-len 4096 \
+  --api-key heph
+```
+
+Start Heph with `heph` (or `uv run heph` from a checkout), then type `/login`, choose `CUSTOM`, and enter:
+
+- Base URL: `http://127.0.0.1:8000/v1`
+- Model: `intellect-math`
+- API key: `heph`
+
+The model does not provide a tool-call chat template. For armory sessions, set `HARNESS_FEATURE_FLAGS=disable_tools`; Heph still injects retrieved evidence, but will not send tool schemas the model cannot render.
 
 ## Design
 
