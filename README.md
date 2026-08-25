@@ -10,17 +10,17 @@ Heph is a local document harness. An **armory** is a folder with `materials/` an
 
 Choose one path.
 
-### Homebrew
+### From source (recommended)
 
-```sh
-brew install gildrb/heph/heph
+Install [uv](https://docs.astral.sh/uv/):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### From source
+Then Heph:
 
-Requirements: Python 3.13+ and [uv](https://docs.astral.sh/uv/).
-
-```sh
+```bash
 git clone https://github.com/gildrb/heph-agent
 cd heph-agent
 uv sync
@@ -28,6 +28,12 @@ uv run heph
 ```
 
 `uv sync` creates or updates the local project environment. It does not upload or publish anything.
+
+### Homebrew
+
+```bash
+brew install gildrb/heph/heph
+```
 
 To update a source checkout:
 
