@@ -13,8 +13,7 @@ Choose one path.
 ### Homebrew
 
 ```sh
-brew tap gildrb/heph
-brew install heph
+brew install gildrb/heph/heph
 ```
 
 ### From source
