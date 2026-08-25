@@ -27,8 +27,6 @@ uv sync
 uv run heph
 ```
 
-`uv sync` creates or updates the local project environment. It does not upload or publish anything.
-
 ### Homebrew
 
 ```bash
@@ -42,8 +40,6 @@ git pull
 uv sync
 uv run heph
 ```
-
-Fresh installs have no active provider or model. Start Heph, use `/login`, then use `/models` to change models. Codex login selects the newest model in the catalog automatically.
 
 ## Use an armory
 
@@ -60,8 +56,6 @@ The agent retrieves local material before answering and cites source paths and l
 export HARNESS_TRUST_ARMORY_SHELL="$HOME/notes"
 heph trust "$HOME/notes"
 ```
-
-Set an OpenAI-compatible provider with `HARNESS_BASE_URL` and `HARNESS_MODEL`. Use `/login` inside Heph to configure a custom endpoint and API key, or configure the provider key through its documented environment variable. Keyless local endpoints may leave the key empty.
 
 ## Design
 
