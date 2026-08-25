@@ -1,13 +1,8 @@
-# Official user-facing Heph release pointer.
-#
-# This is the stable public version the repository treats as releasable through
-# the PyPI release workflow. Main can keep moving; update this file only when a
-# reviewed version is ready to become the public stable release.
+# Source-checkout metadata. Heph is built and run from this repository.
+# No package upload or release workflow is required.
 
 package = "heph"
 command = "heph"
-channel = "stable"
+channel = "source"
 version = "0.0.63"
 tag = "v0.0.63"
-release_workflow = ".github/workflows/release.yml"
-edge_workflow = ".github/workflows/deploy.yml"

@@ -8,24 +8,37 @@ Heph is a local document harness. An **armory** is a folder with `materials/` an
 
 ## Install
 
-Heph is distributed from GitHub. `uv sync` only creates or updates the local project environment; it never uploads anything.
+Choose one path.
+
+### Homebrew
 
 ```sh
-uv tool install --force \
-  --from 'git+https://github.com/gildrb/heph-agent@v0.0.63#subdirectory=packages/heph' \
-  heph
+brew tap gildrb/heph
+brew install heph
 ```
 
-For a checkout:
+### From source
+
+Requirements: Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 git clone https://github.com/gildrb/heph-agent
 cd heph-agent
 uv sync
-uv run heph --help
+uv run heph
 ```
 
-Fresh installs have no active provider or model. Start `heph`, use `/login`, then use `/models` to change models. Codex login selects the newest model in the catalog automatically.
+`uv sync` creates or updates the local project environment. It does not upload or publish anything.
+
+To update a source checkout:
+
+```sh
+git pull
+uv sync
+uv run heph
+```
+
+Fresh installs have no active provider or model. Start Heph, use `/login`, then use `/models` to change models. Codex login selects the newest model in the catalog automatically.
 
 ## Use an armory
 
@@ -44,27 +57,6 @@ heph trust "$HOME/notes"
 ```
 
 Set an OpenAI-compatible provider with `HARNESS_BASE_URL` and `HARNESS_MODEL`. Use `/login` inside Heph to configure a custom endpoint and API key, or configure the provider key through its documented environment variable. Keyless local endpoints may leave the key empty.
-
-## Run INTELLECT-MATH locally
-
-`PrimeIntellect/INTELLECT-MATH` is a 7B Hugging Face checkpoint, not a hosted API. Run it behind an OpenAI-compatible server such as vLLM on an NVIDIA GPU:
-
-```sh
-uv pip install vllm
-vllm serve PrimeIntellect/INTELLECT-MATH \
-  --served-model-name intellect-math \
-  --dtype bfloat16 \
-  --max-model-len 4096 \
-  --api-key heph
-```
-
-Start Heph with `heph` (or `uv run heph` from a checkout), then type `/login`, choose `CUSTOM`, and enter:
-
-- Base URL: `http://127.0.0.1:8000/v1`
-- Model: `intellect-math`
-- API key: `heph`
-
-The model does not provide a tool-call chat template. For armory sessions, set `HARNESS_FEATURE_FLAGS=disable_tools`; Heph still injects retrieved evidence, but will not send tool schemas the model cannot render.
 
 ## Design
 
