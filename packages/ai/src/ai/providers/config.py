@@ -83,10 +83,8 @@ def _merge_provider_default(
 
 
 def _activate_fallback_provider(config: ProviderConfig) -> bool:
-    if config.get_active() is not None:
-        return False
-    config.providers["pollinations"].active = True
-    return True
+    del config
+    return False
 
 
 def invalidate_provider_cache(
@@ -298,8 +296,6 @@ def default_config() -> ProviderConfig:
                 display_name="Pollinations AI (free)",
                 endpoint="https://text.pollinations.ai/openai",
                 api_key_env="",
-                active=True,
-                current_model="openai",
                 models=[
                     "openai",
                     "openai-fast",

@@ -27,6 +27,5 @@ def activate_provider_config(pc: ProviderConfig, slug: str) -> Provider:
     pc.set_active(slug)
     hydrate_provider_models(pc, provider_slugs={slug})
     provider = pc.providers[slug]
-    if not provider.current_model and provider.models:
-        provider.current_model = provider.models[0]
+    provider.current_model = provider.models[0] if provider.models else ""
     return provider

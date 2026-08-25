@@ -1,13 +1,13 @@
 [project]
 name = "harness"
-version = "0.0.62"
+version = "0.0.63"
 description = "Correctness harness for grounded, cited Heph answers"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "defusedxml==0.7.1",
-    "heph-ai==0.0.62",
+    "heph-ai==0.0.63",
     "pypdfium2==5.10.1",
     "unicodeit==0.7.5",
 ]

@@ -8,16 +8,24 @@ Heph is a local document harness. An **armory** is a folder with `materials/` an
 
 ## Install
 
+Heph is distributed from GitHub. `uv sync` only creates or updates the local project environment; it never uploads anything.
+
 ```sh
-uv tool install heph
+uv tool install --force \
+  --from 'git+https://github.com/gildrb/heph-agent@v0.0.63#subdirectory=packages/heph' \
+  heph
 ```
 
 For a checkout:
 
 ```sh
+git clone https://github.com/gildrb/heph-agent
+cd heph-agent
 uv sync
 uv run heph --help
 ```
+
+Fresh installs have no active provider or model. Start `heph`, use `/login`, then use `/models` to change models. Codex login selects the newest model in the catalog automatically.
 
 ## Use an armory
 

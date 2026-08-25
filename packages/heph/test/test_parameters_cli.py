@@ -442,12 +442,12 @@ def test_load_config_feature_flags_from_user_overrides(
     assert config.feature_flags == frozenset({"alpha", "beta"})
 
 
-def test_load_config_falls_back_when_active_provider_has_no_key(
+def test_load_config_keeps_unconfigured_active_provider(
     monkeypatch: pytest.MonkeyPatch,
     isolated_config_dir: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """When active provider needs a key but none is configured, fall back to Pollinations."""
+    """An active provider without credentials stays selected until the user fixes it."""
     isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
 
     class _FakeProviderConfig:
@@ -468,11 +468,11 @@ def test_load_config_falls_back_when_active_provider_has_no_key(
 
     config = params_cli.load_config()
 
-    assert config.base_url == "https://text.pollinations.ai/openai"
-    assert config.model == "openai"
-    assert config._provider_slug == "pollinations"
+    assert config.base_url == "https://openrouter.ai/api/v1"
+    assert config.model == "qwen/test"
+    assert config._provider_slug == "openrouter"
     err = capsys.readouterr().err
-    assert "falling back to Pollinations AI" in err
+    assert "falling back" not in err
 
 
 def test_load_config_no_fallback_when_keyless(

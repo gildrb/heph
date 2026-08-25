@@ -92,13 +92,13 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.should_exit is False
     assert session.config._provider_slug == "openai-codex"
     assert session.config.base_url == "https://api.openai.com/v1"
-    assert session.config.model == "gpt-5.5"
+    assert session.config.model == "gpt-5.6-sol"
     assert len(saved_configs) == 1
     active = saved_configs[0].get_active()
     assert active is not None
     assert active.slug == "openai-codex"
     assert "test-account-123" in success_msgs[0]
-    assert "gpt-5.5" in success_msgs[0]
+    assert "gpt-5.6-sol" in success_msgs[0]
 
 
 def test_login_openai_api_key_switches_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,7 +123,7 @@ def test_login_openai_api_key_switches_provider(monkeypatch: pytest.MonkeyPatch)
     assert stored == [("openai", "sk-openai-test")]
     assert session.config._provider_slug == "openai"
     assert session.config.base_url == "https://api.openai.com/v1"
-    assert session.config.model == "gpt-5.5"
+    assert session.config.model == "gpt-5.6-sol"
     assert "OpenAI API" in success_msgs[0]
 
 

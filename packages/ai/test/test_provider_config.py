@@ -44,7 +44,7 @@ def test_default_pollinations_models_match_supported_families() -> None:
     assert config.providers["pollinations"].models == ["openai", "openai-fast"]
 
 
-def test_default_config_activates_pollinations_as_default() -> None:
+def test_default_config_has_no_active_provider_or_model() -> None:
     config = default_config()
     chat_config = ChatConfig(base_url="", model="")
 
@@ -57,10 +57,10 @@ def test_default_config_activates_pollinations_as_default() -> None:
         for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     )
     assert "gpt-5.5" in config.providers["openai-codex"].models
-    assert config.get_active() is config.providers["pollinations"]
-    assert chat_config.base_url == "https://text.pollinations.ai/openai"
-    assert chat_config.model == "openai"
-    assert chat_config._provider_slug == "pollinations"
+    assert config.get_active() is None
+    assert chat_config.base_url == ""
+    assert chat_config.model == ""
+    assert chat_config.provider_slug == ""
 
 
 def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ models = ["qwen/qwen3.6-plus:free"]
     assert active.slug == "openrouter"
 
 
-def test_load_legacy_config_activates_pollinations_when_no_active(tmp_path: Path) -> None:
+def test_load_legacy_config_keeps_no_active_provider_when_no_active(tmp_path: Path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(
         """
@@ -118,10 +118,10 @@ models = ["openrouter/free"]
     loaded.apply_to_config(config)
 
     assert "pollinations" in loaded.providers
-    assert loaded.get_active() is loaded.providers["pollinations"]
-    assert config.base_url == "https://text.pollinations.ai/openai"
-    assert config.model == "openai"
-    assert config.provider_slug == "pollinations"
+    assert loaded.get_active() is None
+    assert config.base_url == ""
+    assert config.model == ""
+    assert config.provider_slug == ""
 
 
 def test_load_refreshes_when_provider_path_changes(tmp_path: Path) -> None:
@@ -216,7 +216,7 @@ models = [
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[0] == "gpt-5.5"
+    assert provider.models[0] == "gpt-5.6-sol"
     assert provider.current_model == ""
 
 
@@ -275,7 +275,7 @@ models = ["gpt-5.4", "gpt-5.4-mini"]
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[:2] == ["gpt-5.5", "gpt-5.4-pro"]
+    assert provider.models[:3] == ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
     assert provider.current_model == "gpt-5.4-mini"
 
 

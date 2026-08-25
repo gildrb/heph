@@ -9,13 +9,8 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-from ai.providers.config import ProviderConfig, default_config
-from ai.runtime import (
-    ChatConfig,
-    has_configured_access,
-    is_keyless_endpoint,
-    normalize_thinking_visibility,
-)
+from ai.providers.config import ProviderConfig
+from ai.runtime import ChatConfig, normalize_thinking_visibility
 
 from harness.parameters import settings as settings_store
 
@@ -57,19 +52,7 @@ def _apply_toml_defaults(config: ChatConfig) -> None:
 
 def _apply_provider_config(config: ChatConfig) -> None:
     try:
-        pc = ProviderConfig.load()
-        pc.apply_to_config(config)
-        if (
-            config.base_url
-            and not is_keyless_endpoint(config.base_url)
-            and not has_configured_access(config)
-        ):
-            print(
-                f"warning: active provider '{config._provider_slug}' has no API key, "
-                "falling back to Pollinations AI (free)",
-                file=sys.stderr,
-            )
-            default_config().apply_to_config(config)
+        ProviderConfig.load().apply_to_config(config)
     except Exception as exc:
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
