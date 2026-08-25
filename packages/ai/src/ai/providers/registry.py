@@ -28,6 +28,9 @@ class ModelInfo:
 
 
 _OPENAI_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...]], ...] = (
+    ("gpt-5.6-sol", "GPT-5.6-Sol", 272_000, 128_000, 0.005, 0.03, ("recommended", "reasoning")),
+    ("gpt-5.6-terra", "GPT-5.6-Terra", 272_000, 128_000, 0.002, 0.008, ("recommended", "reasoning")),
+    ("gpt-5.6-luna", "GPT-5.6-Luna", 272_000, 128_000, 0.0005, 0.0015, ("recommended", "reasoning")),
     ("gpt-5.5", "GPT-5.5", 1_000_000, 128_000, 0.005, 0.03, ("recommended", "reasoning")),
     ("gpt-5.4", "GPT-5.4", 128_000, 16_384, 0.002, 0.008, ()),
     ("gpt-5.4-mini", "GPT-5.4 Mini", 128_000, 16_384, 0.00015, 0.0006, ("recommended",)),

@@ -52,6 +52,10 @@ def test_default_config_activates_pollinations_as_default() -> None:
 
     assert "openai" in config.providers
     assert "gpt-5.5" in config.providers["openai"].models
+    assert all(
+        model in config.providers["openai-codex"].models
+        for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    )
     assert "gpt-5.5" in config.providers["openai-codex"].models
     assert config.get_active() is config.providers["pollinations"]
     assert chat_config.base_url == "https://text.pollinations.ai/openai"
@@ -212,7 +216,7 @@ models = [
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[0] == "gpt-5.5"
+    assert provider.models[0] == "gpt-5.6-sol"
     assert provider.current_model == ""
 
 
@@ -271,7 +275,7 @@ models = ["gpt-5.4", "gpt-5.4-mini"]
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[:2] == ["gpt-5.5", "gpt-5.4-pro"]
+    assert provider.models[:2] == ["gpt-5.6-sol", "gpt-5.6-terra"]
     assert provider.current_model == "gpt-5.4-mini"
 
 
