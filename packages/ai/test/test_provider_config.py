@@ -216,7 +216,7 @@ models = [
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[0] == "gpt-5.6-sol"
+    assert provider.models[0] == "gpt-5.5"
     assert provider.current_model == ""
 
 
@@ -275,7 +275,7 @@ models = ["gpt-5.4", "gpt-5.4-mini"]
     provider = loaded.providers["openai-codex"]
 
     assert provider.api_key_env == ""
-    assert provider.models[:2] == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert provider.models[:2] == ["gpt-5.5", "gpt-5.4-pro"]
     assert provider.current_model == "gpt-5.4-mini"
 
 
